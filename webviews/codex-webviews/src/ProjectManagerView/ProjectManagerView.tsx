@@ -10,6 +10,7 @@ import {
     ProjectManagerMessageToWebview,
     ProjectManagerState,
 } from "../../../../types";
+import { LanguageProjectStatus } from "codex-types";
 import "./App.css";
 
 declare const vscode: {
@@ -295,17 +296,33 @@ function ProjectManagerView() {
                             />
                             <ProjectField
                                 label="Source Language"
-                                value={getLanguageDisplay(state.projectOverview.sourceLanguage)}
+                                value={getLanguageDisplay(state.projectOverview?.sourceLanguage)}
                                 icon="source-control"
-                                onAction={() => handleAction({ command: "changeSourceLanguage" })}
-                                hasWarning={!state.projectOverview.sourceLanguage}
+                                onAction={() => handleAction({ 
+                                    command: "changeSourceLanguage",
+                                    language: state.projectOverview?.sourceLanguage || {
+                                        name: { en: "Unknown" },
+                                        tag: "unknown",
+                                        refName: "Unknown",
+                                        projectStatus: LanguageProjectStatus.SOURCE
+                                    }
+                                })}
+                                hasWarning={!state.projectOverview?.sourceLanguage}
                             />
                             <ProjectField
                                 label="Target Language"
-                                value={getLanguageDisplay(state.projectOverview.targetLanguage)}
+                                value={getLanguageDisplay(state.projectOverview?.targetLanguage)}
                                 icon="globe"
-                                onAction={() => handleAction({ command: "changeTargetLanguage" })}
-                                hasWarning={!state.projectOverview.targetLanguage}
+                                onAction={() => handleAction({ 
+                                    command: "changeTargetLanguage",
+                                    language: state.projectOverview?.targetLanguage || {
+                                        name: { en: "Unknown" },
+                                        tag: "unknown",
+                                        refName: "Unknown",
+                                        projectStatus: LanguageProjectStatus.TARGET
+                                    }
+                                })}
+                                hasWarning={!state.projectOverview?.targetLanguage}
                             />
                             <ProjectField
                                 label="Abbreviation"
