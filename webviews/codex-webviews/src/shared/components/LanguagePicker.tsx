@@ -24,7 +24,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         return "";
     });
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const [highlightedIndex, setHighlightedIndex] = useState(-1);
+    const [highlightedIndex, setHighlightedIndex] = useState(0);
     const [isEditing, setIsEditing] = useState(false);
     const [previousLanguage, setPreviousLanguage] = useState<LanguageMetadata | null>(null);
 
@@ -91,22 +91,33 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         onLanguageSelect(language);
     };
 
+    useEffect(() => {
+        setHighlightedIndex(filteredLanguages.length > 0 ? 0 : -1);
+    }, [languageFilter, filteredLanguages.length]);
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (isDropdownOpen && filteredLanguages.length > 0) {
+        if (isDropdownOpen) {
+            const totalOptions = filteredLanguages.length + (languageFilter ? 1 : 0);
+            
             switch (e.key) {
                 case "ArrowDown":
                     e.preventDefault();
-                    setHighlightedIndex(Math.min(highlightedIndex + 1, filteredLanguages.length - 1));
+                    setHighlightedIndex(prev => {
+                        const next = prev + 1;
+                        return next < totalOptions ? next : prev;
+                    });
                     scrollIntoView(highlightedIndex + 1);
                     break;
                 case "ArrowUp":
                     e.preventDefault();
-                    setHighlightedIndex(Math.max(highlightedIndex - 1, -1));
+                    setHighlightedIndex(prev => Math.max(prev - 1, 0));
                     scrollIntoView(highlightedIndex - 1);
                     break;
                 case "Enter":
                     e.preventDefault();
-                    if (highlightedIndex >= 0 && highlightedIndex < filteredLanguages.length) {
+                    if (highlightedIndex === filteredLanguages.length && languageFilter) {
+                        handleCustomLanguageSelect(languageFilter);
+                    } else if (highlightedIndex >= 0 && highlightedIndex < filteredLanguages.length) {
                         const language = filteredLanguages[highlightedIndex];
                         handleLanguageSelect(language.tag || '', language.refName || '');
                     }
@@ -134,10 +145,6 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         }
     };
 
-    useEffect(() => {
-        setHighlightedIndex(-1);
-    }, [languageFilter]);
-
     return (
         <div className="language-picker" ref={dropdownRef}>
             <label
@@ -163,6 +170,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                             setLanguageFilter("");
                         }
                         setIsDropdownOpen(true);
+                        setHighlightedIndex(0);
                     }}
                     onKeyDown={handleKeyDown}
                 />
@@ -185,7 +193,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                                 onMouseEnter={() => setHighlightedIndex(index)}
                                 onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
                                     if ((e.relatedTarget as HTMLElement)?.parentElement !== listRef.current) {
-                                        setHighlightedIndex(-1);
+                                        setHighlightedIndex(0);
                                     }
                                 }}
                             >
@@ -194,8 +202,13 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         ))}
                         {languageFilter && (
                             <div
-                                className="language-picker__option language-picker__custom-option"
+                                className={`language-picker__option language-picker__custom-option ${
+                                    highlightedIndex === filteredLanguages.length 
+                                        ? 'language-picker__option--highlighted' 
+                                        : ''
+                                }`}
                                 onClick={() => handleCustomLanguageSelect(languageFilter)}
+                                onMouseEnter={() => setHighlightedIndex(filteredLanguages.length)}
                             >
                                 <i className="codicon codicon-plus"></i> Create Custom Language "{languageFilter}"
                             </div>
