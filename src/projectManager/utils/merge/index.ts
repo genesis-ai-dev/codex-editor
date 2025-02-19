@@ -50,48 +50,20 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
             return;
         }
 
-        // Fetch latest changes from remote
-        await git.fetch({
-            fs,
-            http,
-            dir: workspaceFolder,
-            remote: remotes[0].remote,
-        });
+        // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
+        // which handles authentication properly
+        const conflictsResponse = await authApi.syncChanges();
 
-        // Check for remote changes by comparing HEAD with remote
-        const localRef = await git.resolveRef({ fs, dir: workspaceFolder, ref: "HEAD" });
-        const remoteRef = await git.resolveRef({
-            fs,
-            dir: workspaceFolder,
-            ref: `refs/remotes/${remotes[0].remote}/HEAD`,
-        });
-        const hasRemoteChanges = localRef !== remoteRef;
-
-        // Get the status before syncing to check for unmerged paths
-        const status = await git.statusMatrix({ fs, dir: workspaceFolder });
-        const hasUncommittedChanges = status.some(([_filepath, head, workdir, stage]) => {
-            const isModifiedNotStaged = workdir !== stage;
-            const isStagedDifferentFromHead = stage !== head;
-            const isUnmerged = stage === 2;
-            return isModifiedNotStaged || isStagedDifferentFromHead || isUnmerged;
-        });
-
-        // Sync if there are either local or remote changes
-        if (hasUncommittedChanges || hasRemoteChanges) {
-            const conflicts = await authApi.syncChanges();
-            if (conflicts?.hasConflicts) {
-                const resolvedFiles = await resolveConflictFiles(
-                    conflicts.conflicts || [],
-                    workspaceFolder
-                );
-                if (resolvedFiles.length > 0) {
-                    await authApi.completeMerge(resolvedFiles);
-                }
+        if (conflictsResponse?.hasConflicts) {
+            const resolvedFiles = await resolveConflictFiles(
+                conflictsResponse.conflicts || [],
+                workspaceFolder
+            );
+            if (resolvedFiles.length > 0) {
+                await authApi.completeMerge(resolvedFiles);
             }
-            vscode.window.showInformationMessage("Project is fully synced.");
-        } else {
-            vscode.window.showInformationMessage("Project is already up to date.");
         }
+        vscode.window.showInformationMessage("Project is fully synced.");
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(
