@@ -27,7 +27,8 @@ function debug(...args: any[]): void {
 
 export async function performLLMCompletion(
     currentCellId: string,
-    currentDocument: CodexCellDocument
+    currentDocument: CodexCellDocument,
+    shouldUpdateValue = false
 ) {
     // Prevent LLM completion on source files
     if (currentDocument?.uri.fsPath.endsWith(".source")) {
@@ -55,7 +56,12 @@ export async function performLLMCompletion(
         );
 
         // Update content and metadata atomically
-        currentDocument.updateCellContent(currentCellId, result, EditType.LLM_GENERATION);
+        currentDocument.updateCellContent(
+            currentCellId,
+            result,
+            EditType.LLM_GENERATION,
+            shouldUpdateValue
+        );
 
         console.log("LLM completion result", { result });
         return result;

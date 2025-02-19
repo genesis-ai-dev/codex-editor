@@ -97,7 +97,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Methods to manipulate the document data
-    public async updateCellContent(cellId: string, newContent: string, editType: EditType) {
+    public async updateCellContent(
+        cellId: string,
+        newContent: string,
+        editType: EditType,
+        shouldUpdateValue = true
+    ) {
         // Prevent updates to source files
         if (this.uri.fsPath.endsWith(".source")) {
             console.warn(
@@ -136,7 +141,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Update cell content and metadata in memory
-        cellToUpdate.value = newContent;
+        if (shouldUpdateValue) {
+            cellToUpdate.value = newContent;
+        }
         if (!cellToUpdate.metadata.edits) {
             cellToUpdate.metadata.edits = [];
         }

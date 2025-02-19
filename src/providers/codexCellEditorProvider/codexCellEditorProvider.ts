@@ -563,7 +563,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 );
                 // Perform LLM completion for the current cell
                 if (this.currentDocument) {
-                    await performLLMCompletion(cellId, this.currentDocument);
+                    await performLLMCompletion(cellId, this.currentDocument, true);
                 }
 
                 // Send an update to the webview
