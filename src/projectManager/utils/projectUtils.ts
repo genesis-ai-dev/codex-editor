@@ -25,6 +25,10 @@ export interface ProjectDetails {
     targetLanguage?: LanguageMetadata;
 }
 
+interface CustomQuickPickItem extends vscode.QuickPickItem {
+    customValue?: string;
+}
+
 export async function promptForTargetLanguage(): Promise<ProjectDetails | undefined> {
     const languages = LanguageCodes;
 
@@ -32,56 +36,85 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
         return `${lang.refName} (${lang.tag})`;
     }
 
-    const quickPickItems = [...languages.map(getLanguageDisplayName), "$(add) Custom Language"];
+    // Create a QuickPick instance instead of using showQuickPick
+    const quickPick = vscode.window.createQuickPick<CustomQuickPickItem>();
+    quickPick.placeholder = "Search for a language...";
+    quickPick.items = languages.map(lang => ({ label: getLanguageDisplayName(lang) }));
 
-    const targetLanguagePick = await vscode.window.showQuickPick(quickPickItems, {
-        placeHolder: "Select the target language or choose custom",
-        matchOnDescription: true,
-        matchOnDetail: true,
-    });
+    // Track the original items for filtering
+    const originalItems = quickPick.items;
 
-    if (!targetLanguagePick) {
-        return;
-    }
-
-    let targetLanguage: LanguageMetadata;
-
-    if (targetLanguagePick === "$(add) Custom Language") {
-        const customLanguage = await vscode.window.showInputBox({
-            prompt: "Enter custom language name",
-            placeHolder: "e.g., My Custom Language",
-        });
-
-        if (!customLanguage) {
+    quickPick.onDidChangeValue(value => {
+        if (!value) {
+            quickPick.items = originalItems;
             return;
         }
 
-        targetLanguage = {
-            name: {
-                en: customLanguage,
-            },
-            tag: "custom",
-            refName: customLanguage,
-            projectStatus: LanguageProjectStatus.TARGET,
-        };
-    } else {
-        const selectedLanguage = languages.find(
-            (lang: LanguageMetadata) => getLanguageDisplayName(lang) === targetLanguagePick
+        const searchValue = value.toLowerCase();
+        const filteredItems = originalItems.filter(item => 
+            item.label.toLowerCase().includes(searchValue)
         );
 
-        if (!selectedLanguage) {
-            return;
-        }
+        // Always add custom language option when user has typed something
+        quickPick.items = [
+            ...filteredItems,
+            {
+                label: "$(plus) Custom Language",
+                detail: `Create custom language "${value}"`,
+                customValue: value,
+                alwaysShow: true
+            }
+        ];
+    });
 
-        targetLanguage = {
-            ...selectedLanguage,
-            projectStatus: LanguageProjectStatus.TARGET,
-        };
-    }
+    return new Promise<ProjectDetails | undefined>((resolve) => {
+        quickPick.onDidAccept(() => {
+            const selection = quickPick.selectedItems[0];
+            if (!selection) {
+                resolve(undefined);
+                return;
+            }
 
-    return {
-        targetLanguage,
-    };
+            let targetLanguage: LanguageMetadata;
+
+            // If it's a custom language
+            if (selection.customValue) {
+                targetLanguage = {
+                    name: {
+                        en: selection.customValue
+                    },
+                    tag: "custom",
+                    refName: selection.customValue,
+                    projectStatus: LanguageProjectStatus.TARGET,
+                };
+            } else {
+                // Find the selected language from the original list
+                const selectedLanguage = languages.find(
+                    lang => getLanguageDisplayName(lang) === selection.label
+                );
+
+                if (!selectedLanguage) {
+                    resolve(undefined);
+                    return;
+                }
+
+                targetLanguage = {
+                    ...selectedLanguage,
+                    projectStatus: LanguageProjectStatus.TARGET,
+                };
+            }
+
+            quickPick.hide();
+            resolve({ targetLanguage });
+        });
+
+        quickPick.onDidHide(() => {
+            quickPick.dispose();
+            resolve(undefined);
+        });
+
+        quickPick.show();
+    });
 }
 
 export async function promptForSourceLanguage(): Promise<ProjectDetails | undefined> {
@@ -91,56 +124,85 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
         return `${lang.refName} (${lang.tag})`;
     }
 
-    const quickPickItems = [...languages.map(getLanguageDisplayName), "$(add) Custom Language"];
+    // Create a QuickPick instance instead of using showQuickPick
+    const quickPick = vscode.window.createQuickPick<CustomQuickPickItem>();
+    quickPick.placeholder = "Search for a language...";
+    quickPick.items = languages.map(lang => ({ label: getLanguageDisplayName(lang) }));
 
-    const sourceLanguagePick = await vscode.window.showQuickPick(quickPickItems, {
-        placeHolder: "Select the source language or choose custom",
-        matchOnDescription: true,
-        matchOnDetail: true,
-    });
+    // Track the original items for filtering
+    const originalItems = quickPick.items;
 
-    if (!sourceLanguagePick) {
-        return;
-    }
-
-    let sourceLanguage: LanguageMetadata;
-
-    if (sourceLanguagePick === "$(add) Custom Language") {
-        const customLanguage = await vscode.window.showInputBox({
-            prompt: "Enter custom language name",
-            placeHolder: "e.g., My Custom Language",
-        });
-
-        if (!customLanguage) {
+    quickPick.onDidChangeValue(value => {
+        if (!value) {
+            quickPick.items = originalItems;
             return;
         }
 
-        sourceLanguage = {
-            name: {
-                en: customLanguage,
-            },
-            tag: "custom",
-            refName: customLanguage,
-            projectStatus: LanguageProjectStatus.SOURCE,
-        };
-    } else {
-        const selectedLanguage = languages.find(
-            (lang: LanguageMetadata) => getLanguageDisplayName(lang) === sourceLanguagePick
+        const searchValue = value.toLowerCase();
+        const filteredItems = originalItems.filter(item => 
+            item.label.toLowerCase().includes(searchValue)
         );
 
-        if (!selectedLanguage) {
-            return;
-        }
+        // Always add custom language option when user has typed something
+        quickPick.items = [
+            ...filteredItems,
+            {
+                label: "$(plus) Custom Language",
+                detail: `Create custom language "${value}"`,
+                customValue: value,
+                alwaysShow: true
+            }
+        ];
+    });
 
-        sourceLanguage = {
-            ...selectedLanguage,
-            projectStatus: LanguageProjectStatus.SOURCE,
-        };
-    }
+    return new Promise<ProjectDetails | undefined>((resolve) => {
+        quickPick.onDidAccept(() => {
+            const selection = quickPick.selectedItems[0];
+            if (!selection) {
+                resolve(undefined);
+                return;
+            }
 
-    return {
-        sourceLanguage,
-    };
+            let sourceLanguage: LanguageMetadata;
+
+            // If it's a custom language
+            if (selection.customValue) {
+                sourceLanguage = {
+                    name: {
+                        en: selection.customValue
+                    },
+                    tag: "custom",
+                    refName: selection.customValue,
+                    projectStatus: LanguageProjectStatus.SOURCE,
+                };
+            } else {
+                // Find the selected language from the original list
+                const selectedLanguage = languages.find(
+                    lang => getLanguageDisplayName(lang) === selection.label
+                );
+
+                if (!selectedLanguage) {
+                    resolve(undefined);
+                    return;
+                }
+
+                sourceLanguage = {
+                    ...selectedLanguage,
+                    projectStatus: LanguageProjectStatus.SOURCE,
+                };
+            }
+
+            quickPick.hide();
+            resolve({ sourceLanguage });
+        });
+
+        quickPick.onDidHide(() => {
+            quickPick.dispose();
+            resolve(undefined);
+        });
+
+        quickPick.show();
+    });
 }
 
 export function generateProjectScope(
