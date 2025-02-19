@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { getAvailableLanguages } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
+import { LanguageCodes } from "../../../../../src/utils/languageUtils";
 import { LanguageMetadata, LanguageProjectStatus } from "codex-types";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import "./LanguagePicker.css";
@@ -31,15 +31,15 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     const dropdownRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
-    const availableLanguages = useMemo(() => getAvailableLanguages(), []);
+    const availableLanguages = useMemo(() => LanguageCodes, []);
 
     const filteredLanguages = useMemo(() => {
         if (!languageFilter) return availableLanguages;
         const searchTerm = languageFilter.toLowerCase();
         return availableLanguages.filter(
             (language) =>
-                language.name.toLowerCase().includes(searchTerm) ||
-                language.code.toLowerCase().includes(searchTerm)
+                (language.refName?.toLowerCase() || '').includes(searchTerm) ||
+                (language.tag?.toLowerCase() || '').includes(searchTerm)
         );
     }, [availableLanguages, languageFilter]);
 
@@ -108,7 +108,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     e.preventDefault();
                     if (highlightedIndex >= 0 && highlightedIndex < filteredLanguages.length) {
                         const language = filteredLanguages[highlightedIndex];
-                        handleLanguageSelect(language.code, language.name);
+                        handleLanguageSelect(language.tag || '', language.refName || '');
                     }
                     break;
                 case "Escape":
@@ -173,12 +173,12 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     >
                         {filteredLanguages.map((language, index) => (
                             <div
-                                key={language.code}
-                                onClick={() => handleLanguageSelect(language.code, language.name)}
+                                key={language.tag || ''}
+                                onClick={() => handleLanguageSelect(language.tag || '', language.refName || '')}
                                 className={`language-picker__option ${
                                     index === highlightedIndex 
                                         ? 'language-picker__option--highlighted' 
-                                        : previousLanguage?.tag === language.code 
+                                        : previousLanguage?.tag === language.tag 
                                             ? 'language-picker__option--selected' 
                                             : ''
                                 }`}
@@ -189,7 +189,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                                     }
                                 }}
                             >
-                                {language.name} ({language.code})
+                                {language.refName || ''} ({language.tag || ''})
                             </div>
                         ))}
                         {languageFilter && (
