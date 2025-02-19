@@ -168,20 +168,33 @@ export async function resolveCodexCustomMerge(
 
             debug({ latestEdit });
 
+            //! NOTE: the following logic is a bit convoluted, but there may be
+            // a case where there is an LLM-generated edit that is the most recent edit,
+            // and it does not have a user edit confirming it.
+            // in this case, we want to take the user edit, because it is more reliable.
+            // so we need to find the user edit that confirms the LLM edit, or else take the
+            // user edit.
+            // This seems like an anti-pattern because we are storing the cell value in two
+            // places, which results in cache-invalidation-type issues, but this also provides
+            // us with really rich data in the edit history, which is crucial for tracking
+            // the effectiveness of the LLM-generated edits.
+
+            //! get the last time we set our current cell value
             const ourEditsThatMatchCurrentValue = ourCell.metadata?.edits
                 ?.filter((edit) => edit.cellValue === latestEdit?.cellValue)
                 .sort((a, b) => a.timestamp - b.timestamp);
-
             const editThatBelongsToOurCellValue =
                 ourEditsThatMatchCurrentValue?.[ourEditsThatMatchCurrentValue.length - 1];
 
+            //! get the last time they set our current cell value
             const theirEditsThatMatchCurrentValue = theirCell.metadata?.edits
-                ?.filter((edit) => edit.cellValue === latestEdit?.cellValue)
+                ?.filter((theirEdit) => theirEdit.cellValue === theirCell?.value)
                 .sort((a, b) => a.timestamp - b.timestamp);
-
             const editThatBelongsToTheirCellValue =
                 theirEditsThatMatchCurrentValue?.[theirEditsThatMatchCurrentValue.length - 1];
 
+            //! we want to know which edit is responsible for the current respectivre cell value, and
+            // then take the most recent of the two
             const mostRecentOfTheirAndOurEdits = [
                 editThatBelongsToTheirCellValue,
                 editThatBelongsToOurCellValue,
