@@ -418,7 +418,7 @@ export default function Editor(props: EditorProps) {
                         </button>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                        {editHistoryForCell.length > 0 ? (
+                        {editHistoryForCell && editHistoryForCell.length > 0 ? (
                             [...editHistoryForCell].reverse().map((entry, index) => (
                                 <div
                                     key={index}
