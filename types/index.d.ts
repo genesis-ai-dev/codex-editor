@@ -1045,6 +1045,7 @@ interface ProjectManagerState {
     canInitializeProject: boolean;
     workspaceIsOpen: boolean;
     repoHasRemote: boolean;
+    isInitializing: boolean;
 }
 type ProjectManagerMessageToWebview =
     | {

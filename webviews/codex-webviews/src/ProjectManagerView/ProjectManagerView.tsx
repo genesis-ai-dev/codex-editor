@@ -86,6 +86,7 @@ function ProjectManagerView() {
         workspaceIsOpen: true,
         webviewReady: false,
         repoHasRemote: false,
+        isInitializing: false
     });
 
     const [initialized, setInitialized] = useState(false);
@@ -229,7 +230,7 @@ function ProjectManagerView() {
                 <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
 
                 <VSCodePanelView id="current-project-view">
-                    {state.canInitializeProject ? (
+                    {state.isInitializing ? (
                         // Initialize project button section
                         <div
                             style={{

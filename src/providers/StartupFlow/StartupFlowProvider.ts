@@ -813,6 +813,59 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "project.initialize": {
+                debugLog("Initializing project");
+                // Set canInitializeProject to true when initialization starts
+                webviewPanel.webview.postMessage({
+                    command: "metadata.checkResponse",
+                    data: {
+                        exists: false,
+                        hasCriticalData: false,
+                        isInitializing: true
+                    }
+                });
+                
+                await createNewProject();
+                
+                // Wait for metadata.json to be created
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                        // Wait for metadata.json to exist
+                        await vscode.workspace.fs.stat(metadataUri);
+                        
+                        // Show Project Manager view first
+                        await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                        
+                        // Send initialization status to webview
+                        webviewPanel.webview.postMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true
+                        });
+                        
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error checking metadata.json:", error);
+                        // If metadata.json doesn't exist yet, don't transition state
+                        webviewPanel.webview.postMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false
+                        });
+                        
+                        // Reset initialization state
+                        webviewPanel.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                exists: false,
+                                hasCriticalData: false,
+                                isInitializing: false
+                            }
+                        });
+                    }
+                }
+                break;
+            }
         }
     }
 
