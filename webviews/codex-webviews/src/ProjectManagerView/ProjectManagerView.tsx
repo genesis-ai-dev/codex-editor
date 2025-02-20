@@ -80,41 +80,17 @@ function ProjectManagerView() {
     const [state, setState] = useState<ProjectManagerState>({
         projects: [],
         projectOverview: null,
-        isScanning: true,
+        isScanning: false,
         watchedFolders: [],
         canInitializeProject: false,
         workspaceIsOpen: true,
-        webviewReady: false,
+        webviewReady: true,
         repoHasRemote: false,
         isInitializing: false
     });
 
-    const [initialized, setInitialized] = useState(false);
-    const [retryCount, setRetryCount] = useState(0);
-
     const handleAction = (message: ProjectManagerMessageFromWebview) => {
         vscode.postMessage(message as ProjectManagerMessageFromWebview);
-
-        // List of commands that modify the project state
-        const stateChangingCommands = [
-            "initializeProject",
-            "renameProject",
-            "changeSourceLanguage",
-            "changeTargetLanguage",
-            "editAbbreviation",
-            "selectCategory",
-            "openSourceUpload",
-            "openAISettings",
-            "exportProjectAsPlaintext",
-        ];
-
-        // If the command modifies state, request a refresh
-        if (stateChangingCommands.includes(message.command)) {
-            // Add a small delay to allow the command to complete
-            setTimeout(() => {
-                vscode.postMessage({ command: "refreshState" } as ProjectManagerMessageFromWebview);
-            }, 100);
-        }
     };
 
     useEffect(() => {
@@ -125,82 +101,25 @@ function ProjectManagerView() {
         const handler = (message: MessageEvent<ProjectManagerMessageToWebview>) => {
             if (message.data.command === "stateUpdate") {
                 setState(message.data.data);
-                setInitialized(true);
+            } else if (message.data.command === "publishStatus") {
+                setState(prev => ({
+                    ...prev,
+                    repoHasRemote: message.data.data.repoHasRemote
+                }));
             }
         };
 
         window.addEventListener("message", handler);
 
-        // Initial state request with retry logic
-        const requestInitialState = () => {
-            vscode.postMessage({ command: "webviewReady" } as ProjectManagerMessageFromWebview);
-        };
-
-        const retryWithBackoff = () => {
-            if (!initialized && retryCount < 5) {
-                // Max 5 retries
-                const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000); // Max 10 seconds
-                setTimeout(() => {
-                    requestInitialState();
-                    setRetryCount((prev) => prev + 1);
-                }, backoffTime);
-            }
-        };
-
-        // Initial request
-        requestInitialState();
-
-        // Setup retry timer
-        const retryTimer = setTimeout(retryWithBackoff, 1000);
+        // Initial state request
+        vscode.postMessage({ command: "webviewReady" } as ProjectManagerMessageFromWebview);
 
         return () => {
             window.removeEventListener("message", handler);
-            clearTimeout(retryTimer);
         };
-    }, [initialized, retryCount]);
+    }, []);
 
-    // Show loading state with retry information
-    if (!initialized) {
-        return (
-            <div
-                style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    height: "100vh",
-                    gap: "1rem",
-                }}
-            >
-                <div
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.5rem",
-                    }}
-                >
-                    <i className="codicon codicon-loading codicon-modifier-spin"></i>
-                    <span>
-                        Loading project manager
-                        {retryCount > 0 ? ` (attempt ${retryCount + 1})` : ""}...
-                    </span>
-                </div>
-                {retryCount >= 5 && (
-                    <VSCodeButton
-                        onClick={() => {
-                            setRetryCount(0);
-                            vscode.postMessage({ command: "webviewReady" });
-                        }}
-                    >
-                        <i className="codicon codicon-refresh"></i>
-                        Retry Loading
-                    </VSCodeButton>
-                )}
-            </div>
-        );
-    }
-
-    // Show scanning indicator only after initial load
+    // Show scanning indicator
     if (state.isScanning) {
         return (
             <div

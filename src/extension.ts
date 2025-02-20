@@ -90,55 +90,12 @@ export async function activate(context: vscode.ExtensionContext) {
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
 
-        // Register save event handlers
-        stepStart = trackTiming("Register Save Handlers", stepStart);
-        const handleSaveEvent = (commitMessage: string) => {
-            if (commitTimeout) {
-                clearTimeout(commitTimeout);
-            }
-            // eslint-disable-next-line
-            commitTimeout = setTimeout(async () => {
-                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                if (workspaceFolder) {
-                    try {
-                        // Check if .git directory exists using isomorphic-git
-
-                        try {
-                            await stageAndCommitAllAndSync(commitMessage);
-                        } catch (gitError) {
-                            // No git repository found, skip commit
-                            console.debug("No git repository found in workspace, skipping commit");
-                        }
-                    } catch (error) {
-                        console.error("Failed to auto-commit changes:", error);
-                    }
-                }
-            }, COMMIT_DELAY);
-        };
-
-        // Listen for text document saves (includes JSON files)
-        context.subscriptions.push(
-            vscode.workspace.onDidSaveTextDocument((document) => {
-                handleSaveEvent(
-                    `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
-                );
-            })
-        );
-
-        // Listen for notebook document saves
-        context.subscriptions.push(
-            vscode.workspace.onDidSaveNotebookDocument((notebookDocument) => {
-                handleSaveEvent(
-                    `changes to ${vscode.workspace.asRelativePath(notebookDocument.uri).split(/[/\\]/).pop()}`
-                );
-            })
-        );
-
-        context.subscriptions.push(
-            vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
-                handleSaveEvent(message);
-            })
-        );
+        // Register project manager first to ensure it's available
+        stepStart = trackTiming("Register Project Manager", stepStart);
+        registerProjectManager(context);
+        
+        // Show project manager view immediately
+        await vscode.commands.executeCommand("workbench.view.extension.project-manager");
 
         // Register startup flow commands
         stepStart = trackTiming("Register Startup Flow", stepStart);
@@ -164,10 +121,6 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
-
-        // Register project manager
-        stepStart = trackTiming("Register Project Manager", stepStart);
-        registerProjectManager(context);
 
         // Initialize extension based on workspace state
         stepStart = trackTiming("Initialize Workspace", stepStart);

@@ -23,6 +23,7 @@ import { waitForExtensionActivation } from "../utils/vscode";
 import git from "isomorphic-git";
 import * as fs from "fs";
 import { getAuthApi } from "../extension";
+import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -33,7 +34,7 @@ function debugLog(...args: any[]): void {
 }
 
 class ProjectManagerStore {
-    private state: ProjectManagerState = {
+    private preflightState: ProjectManagerState = {
         projectOverview: null,
         webviewReady: false,
         watchedFolders: [],
@@ -42,22 +43,33 @@ class ProjectManagerStore {
         canInitializeProject: false,
         workspaceIsOpen: false,
         repoHasRemote: false,
+        isInitializing: false
     };
 
     private initialized = false;
+    private isRefreshing = false;
+    private _onDidChangeState = new vscode.EventEmitter<void>();
+    public readonly onDidChangeState = this._onDidChangeState.event;
+    private metadataManager = getNotebookMetadataManager();
+    private disposables: vscode.Disposable[] = [];
+    private _view?: vscode.WebviewView;
 
     private listeners: ((state: ProjectManagerState) => void)[] = [];
 
     getState() {
-        return this.state;
+        return this.preflightState;
     }
 
     setState(newState: Partial<ProjectManagerState>) {
-        this.state = {
-            ...this.state,
+        this.preflightState = {
+            ...this.preflightState,
             ...newState,
         };
         this.notifyListeners();
+    }
+
+    setView(view: vscode.WebviewView) {
+        this._view = view;
     }
 
     subscribe(listener: (state: ProjectManagerState) => void) {
@@ -68,18 +80,117 @@ class ProjectManagerStore {
     }
 
     private notifyListeners() {
-        this.listeners.forEach((listener) => listener(this.state));
+        this.listeners.forEach((listener) => listener(this.preflightState));
+        this._onDidChangeState.fire();
     }
 
     async initialize() {
         if (this.initialized) return;
 
         try {
-            // Load watched folders first
+            // Initialize metadata manager
+            await this.metadataManager.initialize();
+
+            // Register commands
+            this.disposables.push(
+                vscode.commands.registerCommand("codex-project-manager.refreshProjects", async () => {
+                    await this.refreshState();
+                }),
+                vscode.commands.registerCommand("codex-project-manager.addWatchFolder", async () => {
+                    const folderUri = await vscode.window.showOpenDialog({
+                        canSelectFolders: true,
+                        canSelectFiles: false,
+                        canSelectMany: false,
+                        openLabel: "Select Folder to Watch",
+                    });
+
+                    if (folderUri && folderUri[0]) {
+                        const config = vscode.workspace.getConfiguration("codex-project-manager");
+                        const watchedFolders = config.get<string[]>("watchedFolders") || [];
+                        const newPath = folderUri[0].fsPath;
+
+                        if (!watchedFolders.includes(newPath)) {
+                            const updatedFolders = [...watchedFolders, newPath];
+                            await config.update(
+                                "watchedFolders",
+                                updatedFolders,
+                                vscode.ConfigurationTarget.Global
+                            );
+
+                            // Update state and scan for new projects
+                            this.setState({
+                                watchedFolders: updatedFolders,
+                                isScanning: true,
+                            });
+
+                            const projects = await findAllCodexProjects();
+                            this.setState({
+                                projects,
+                                isScanning: false,
+                            });
+                        }
+                    }
+                }),
+                vscode.commands.registerCommand("codex-project-manager.removeWatchFolder", async (args) => {
+                    if (args?.path) {
+                        const config = vscode.workspace.getConfiguration("codex-project-manager");
+                        const watchedFolders = config.get<string[]>("watchedFolders") || [];
+                        const updatedFolders = watchedFolders.filter((f) => f !== args.path);
+                        await config.update("watchedFolders", updatedFolders, vscode.ConfigurationTarget.Global);
+
+                        // Update state and rescan projects
+                        this.setState({
+                            watchedFolders: updatedFolders,
+                            isScanning: true,
+                        });
+
+                        const projects = await findAllCodexProjects();
+                        this.setState({
+                            projects,
+                            isScanning: false,
+                        });
+                    }
+                })
+            );
+
+            // Listen for metadata changes
+            this.disposables.push(
+                this.metadataManager.onDidChangeMetadata(async () => {
+                    await this.refreshState();
+                })
+            );
+
+            // Set up file watchers
+            if (vscode.workspace.workspaceFolders?.[0]) {
+                const rootUri = vscode.workspace.workspaceFolders[0].uri;
+                
+                // Watch for metadata.json changes
+                const metadataWatcher = vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(rootUri, '**/metadata.json')
+                );
+                
+                // Watch for .codex file changes
+                const codexWatcher = vscode.workspace.createFileSystemWatcher(
+                    new vscode.RelativePattern(rootUri, '**/*.codex')
+                );
+
+                this.disposables.push(
+                    metadataWatcher,
+                    codexWatcher,
+                    metadataWatcher.onDidChange(() => this.refreshState()),
+                    metadataWatcher.onDidCreate(() => this.refreshState()),
+                    metadataWatcher.onDidDelete(() => this.refreshState()),
+                    codexWatcher.onDidChange(() => this.refreshState()),
+                    codexWatcher.onDidCreate(() => this.refreshState()),
+                    codexWatcher.onDidDelete(() => this.refreshState())
+                );
+            }
+
+            // Load watched folders
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             let watchedFolders = config.get<string[]>("watchedFolders") || [];
 
-            // Add workspace folder and its parent if they exist and aren't already watched
+            // Add workspace folder and its parent if they exist
             if (vscode.workspace.workspaceFolders?.[0]) {
                 const workspacePath = vscode.workspace.workspaceFolders[0].uri.fsPath;
                 const parentPath = vscode.Uri.joinPath(
@@ -101,41 +212,102 @@ class ProjectManagerStore {
                 }
             }
 
-            // Initial scan for projects
-            this.setState({ isScanning: true });
-            const projects = await findAllCodexProjects();
-
-            // Update state with everything we've gathered
+            // Set initial state before refresh
             this.setState({
+                webviewReady: true,
+                isScanning: true,
                 watchedFolders,
-                projects,
-                isScanning: false,
+                workspaceIsOpen: Boolean(vscode.workspace.workspaceFolders?.length)
             });
 
-            // Load project overview if we're in a workspace
-            if (vscode.workspace.workspaceFolders) {
-                const hasMetadata = await checkIfMetadataAndGitIsInitialized();
-                if (hasMetadata) {
-                    const overview = await getProjectOverview();
-                    const primarySourceText = config.get("primarySourceText");
-
-                    this.setState({
-                        projectOverview: overview
-                            ? {
-                                  ...overview,
-                                  primarySourceText: primarySourceText as vscode.Uri,
-                              }
-                            : null,
-                    });
-                }
-            }
-
+            // Initial state refresh
+            await this.refreshState();
             this.initialized = true;
         } catch (error) {
             console.error("Failed to initialize store:", error);
             this.setState({ isScanning: false });
             throw error;
         }
+    }
+
+    async refreshState() {
+        if (this.isRefreshing) return;
+
+        try {
+            this.isRefreshing = true;
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
+            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
+
+            const canInitializeProject = hasWorkspace && !hasMetadata;
+            const workspaceIsOpen = hasWorkspace;
+
+            const [projects, overview, hasRemote] = await Promise.all([
+                findAllCodexProjects(),
+                hasMetadata ? getProjectOverview() : null,
+                this.checkRepoHasRemote(),
+            ]);
+
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const primarySourceText = config.get("primarySourceText");
+            const watchedFolders = config.get<string[]>("watchedFolders") || [];
+
+            this.setState({
+                projects,
+                watchedFolders,
+                projectOverview: overview
+                    ? {
+                          ...overview,
+                          primarySourceText: primarySourceText as vscode.Uri,
+                      }
+                    : null,
+                isScanning: false,
+                canInitializeProject,
+                workspaceIsOpen,
+                repoHasRemote: hasRemote,
+                isInitializing: false
+            });
+        } catch (error) {
+            console.error("Error refreshing state:", error);
+            this.setState({ isScanning: false });
+        } finally {
+            this.isRefreshing = false;
+        }
+    }
+
+    async checkRepoHasRemote(): Promise<boolean> {
+        try {
+            // Get current workspace path
+            const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspacePath) {
+                return false;
+            }
+
+            // List all remotes
+            const remotes = await git.listRemotes({
+                fs,
+                dir: workspacePath,
+            });
+
+            // Send publish status message
+            if (this._view) {
+                this._view.webview.postMessage({
+                    command: "publishStatus",
+                    data: {
+                        repoHasRemote: remotes.length > 0
+                    }
+                } as ProjectManagerMessageToWebview);
+            }
+
+            return remotes.length > 0;
+        } catch (error) {
+            console.error("Error checking repo remotes:", error);
+            return false;
+        }
+    }
+
+    dispose() {
+        this.disposables.forEach(d => d.dispose());
     }
 }
 
@@ -224,15 +396,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _context: vscode.ExtensionContext;
     private store: ProjectManagerStore;
-    private refreshInterval: ReturnType<typeof setInterval> | null = null;
+    private disposables: vscode.Disposable[] = [];
     private frontierApi?: FrontierAPI;
-    private async initializeFrontierApi() {
-        try {
-            this.frontierApi = getAuthApi();
-        } catch (error) {
-            console.error("Error initializing Frontier API:", error);
-        }
-    }
+    private metadataWatcher?: vscode.FileSystemWatcher;
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
@@ -248,223 +414,236 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             }
         });
 
-        // Register commands when provider is created
+        // Register commands and initialize API
         this.registerCommands();
         this.initializeFrontierApi();
+        this.setupWorkspaceWatchers();
     }
 
-    private registerCommands() {
-        // Register all webview-related commands
-        this._context.subscriptions.push(
-            vscode.commands.registerCommand("codex-project-manager.openProject", async (args) => {
-                try {
-                    if (!args?.path) {
-                        throw new Error("No project path provided");
-                    }
+    private setupWorkspaceWatchers() {
+        // Watch for workspace folder changes
+        this.disposables.push(
+            vscode.workspace.onDidChangeWorkspaceFolders(() => {
+                this.store.refreshState();
+            })
+        );
 
-                    // Open the folder in a new window
-                    await vscode.commands.executeCommand(
-                        "vscode.openFolder",
-                        vscode.Uri.file(args.path),
-                        { forceNewWindow: true }
-                    );
-
-                    // Update project history
-                    const config = vscode.workspace.getConfiguration("codex-project-manager");
-                    const projectHistory =
-                        config.get<Record<string, string>>("projectHistory") || {};
-                    projectHistory[args.path] = new Date().toISOString();
-
-                    await config.update(
-                        "projectHistory",
-                        projectHistory,
-                        vscode.ConfigurationTarget.Global
-                    );
-
-                    await this.refreshState();
-                } catch (error) {
-                    console.error("Error opening project:", error);
-                    vscode.window.showErrorMessage(
-                        `Failed to open project: ${(error as Error).message}`
-                    );
-                }
-            }),
-
-            // Add other commands as needed
-            vscode.commands.registerCommand("codex-project-manager.refreshProjects", () => {
-                return this.refreshProjects();
-            }),
-
-            vscode.commands.registerCommand("codex-project-manager.addWatchFolder", () => {
-                return this.addWatchFolder();
-            }),
-
-            vscode.commands.registerCommand("codex-project-manager.removeWatchFolder", (args) => {
-                if (args?.path) {
-                    return this.removeWatchFolder(args.path);
+        // Watch for configuration changes
+        this.disposables.push(
+            vscode.workspace.onDidChangeConfiguration((e) => {
+                if (e.affectsConfiguration('codex-project-manager')) {
+                    this.store.refreshState();
                 }
             })
         );
+
+        // Set up metadata watcher if in a workspace
+        this.setupMetadataWatcher();
     }
 
-    // Update the message handler to use the registered commands
-    private async handleMessage(message: ProjectManagerMessageFromWebview) {}
+    private async setupMetadataWatcher() {
+        if (this.metadataWatcher) {
+            this.metadataWatcher.dispose();
+        }
+
+        if (vscode.workspace.workspaceFolders?.[0]) {
+            const workspaceFolder = vscode.workspace.workspaceFolders[0];
+            
+            // Do an initial check for metadata.json
+            const metadataPath = vscode.Uri.joinPath(workspaceFolder.uri, 'metadata.json');
+            try {
+                await vscode.workspace.fs.stat(metadataPath);
+                // If we get here, the file exists - refresh state
+                await this.store.refreshState();
+            } catch {
+                // File doesn't exist yet, that's okay
+            }
+
+            // Set up the watcher
+            this.metadataWatcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(workspaceFolder, '**/metadata.json')
+            );
+
+            this.metadataWatcher.onDidChange(() => this.store.refreshState());
+            this.metadataWatcher.onDidCreate(() => this.store.refreshState());
+            this.metadataWatcher.onDidDelete(() => this.store.refreshState());
+
+            this.disposables.push(this.metadataWatcher);
+        }
+    }
+
+    private registerCommands() {
+        // No commands to register here - all commands are now registered in the store
+    }
+
+    // Update the message handler to use the store's methods
+    private async handleMessage(message: ProjectManagerMessageFromWebview) {
+        switch (message.command) {
+            case "refreshProjects":
+            case "refreshState":
+                await this.store.refreshState();
+                break;
+            case "webviewReady":
+                await this.updateProjectOverview();
+                await this.updateWebviewState();
+                break;
+            case "openProject":
+                if (message.data?.path) {
+                    await openProject(message.data.path);
+                    await this.store.refreshState();
+                }
+                break;
+            case "createNewWorkspaceAndProject":
+                await createNewWorkspaceAndProject();
+                break;
+            case "openProjectSettings":
+            case "renameProject":
+            case "editAbbreviation":
+            case "changeSourceLanguage":
+            case "changeTargetLanguage":
+            case "selectCategory":
+            case "downloadSourceText":
+            case "openAISettings":
+            case "openSourceUpload":
+            case "toggleSpellcheck":
+                await vscode.commands.executeCommand(`codex-project-manager.${message.command}`);
+                await this.store.refreshState();
+                // Send a response back to the webview
+                this._view?.webview.postMessage({ command: "actionCompleted" });
+                break;
+            case "openEditAnalysis":
+                await vscode.commands.executeCommand(
+                    "codex-editor-extension.analyzeEdits"
+                );
+                break;
+            case "initializeProject":
+                console.log("initializeProject");
+                this.store.setState({ isInitializing: true });
+                try {
+                    await createNewProject();
+                    
+                    // Wait for metadata to be initialized
+                    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri;
+                    if (workspacePath) {
+                        const metadataPath = vscode.Uri.joinPath(workspacePath, 'metadata.json');
+                        
+                        // Wait for the metadata file to exist
+                        let attempts = 0;
+                        while (attempts < 10) {
+                            try {
+                                await vscode.workspace.fs.stat(metadataPath);
+                                // If we get here, the file exists
+                                break;
+                            } catch {
+                                await new Promise(resolve => setTimeout(resolve, 100));
+                                attempts++;
+                            }
+                        }
+                        
+                        // Now that metadata exists, refresh state
+                        await this.store.refreshState();
+                        await this.updateProjectOverview();
+                    }
+                } catch (error) {
+                    console.error("Error during project initialization:", error);
+                    this.store.setState({ isInitializing: false });
+                    throw error;
+                }
+                break;
+            case "exportProjectAsPlaintext":
+                await vscode.commands.executeCommand(
+                    "codex-editor-extension.exportCodexContent"
+                );
+                break;
+            case "openBible":
+                simpleOpen(message.data.path, this._context);
+                break;
+            case "selectprimarySourceText":
+                await this.setprimarySourceText(message.data);
+                break;
+            case "closeProject":
+                try {
+                    const answer = await vscode.window.showWarningMessage(
+                        "Are you sure you want to close this project?",
+                        { modal: true },
+                        "Yes",
+                        "No"
+                    );
+
+                    if (answer === "Yes") {
+                        await vscode.commands.executeCommand(
+                            "workbench.action.closeFolder"
+                        );
+                    }
+                } catch (error) {
+                    console.error("Error closing project:", error);
+                    vscode.window.showErrorMessage(
+                        `Failed to close project: ${(error as Error).message}`
+                    );
+                }
+                break;
+            case "checkPublishStatus":
+                try {
+                    await this.checkRepoHasRemote();
+                } catch (error) {
+                    console.error("Error checking publish status:", error);
+                    this.store.setState({ repoHasRemote: false });
+                }
+                break;
+            case "publishProject": {
+                const projectName =
+                    this.store.getState().projectOverview?.projectName || "";
+                const projectId =
+                    this.store.getState().projectOverview?.projectId || "";
+
+                if (!projectName) {
+                    vscode.window.showErrorMessage("No project name found");
+                    return;
+                }
+
+                const sanitizedName = `${projectName}-${projectId}`
+                    .toLowerCase()
+                    .replace(/[^a-z0-9._-]/g, "-")
+                    .replace(/^-+|-+$/g, "")
+                    .replace(/\.git$/i, "");
+
+                await this.frontierApi?.publishWorkspace({
+                    name: sanitizedName,
+                    visibility: "private",
+                });
+                break;
+            }
+            case "syncProject":
+                console.log("Syncing project");
+                await stageAndCommitAllAndSync("Syncing project");
+                break;
+            default:
+                console.error(`Unknown command: ${message.command}`, { message });
+        }
+    }
 
     async resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
+        this.store.setView(webviewView);
+        
+        // Load HTML and initialize store immediately
         loadWebviewHtml(webviewView, this._context.extensionUri);
-
-        // Initialize store first
         await this.store.initialize();
+        
+        // Set initial state and mark webview as ready
+        this.store.setState({ webviewReady: true });
+        const initialState = this.store.getState();
+        webviewView.webview.postMessage({
+            command: "stateUpdate",
+            data: initialState,
+        } as ProjectManagerMessageToWebview);
 
         // Set up message handling
-        const messageHandler = async (message: any) => {
-            if (message.command === "webviewReady") {
-                this.store.setState({ webviewReady: true });
-
-                // Send initial state immediately after webview is ready
-                const state = this.store.getState();
-                webviewView.webview.postMessage({
-                    type: "stateUpdate",
-                    state: state,
-                });
-            }
-        };
-
         webviewView.webview.onDidReceiveMessage(
             async (message: ProjectManagerMessageFromWebview) => {
                 console.log("message", { message }, JSON.stringify({ message }, null, 4));
                 try {
-                    switch (message.command) {
-                        case "openProject":
-                            await openProject(message.data.path);
-                            break;
-                        case "refreshProjects":
-                            await vscode.commands.executeCommand(
-                                "codex-project-manager.refreshProjects"
-                            );
-                            break;
-                        case "addWatchFolder":
-                            await vscode.commands.executeCommand(
-                                "codex-project-manager.addWatchFolder"
-                            );
-                            break;
-                        case "removeWatchFolder":
-                            await vscode.commands.executeCommand(
-                                "codex-project-manager.removeWatchFolder",
-                                {
-                                    path: message.data.path,
-                                }
-                            );
-                            break;
-                        case "requestProjectOverview":
-                            await this.updateProjectOverview();
-                            break;
-                        case "createNewWorkspaceAndProject":
-                            await createNewWorkspaceAndProject();
-                            break;
-                        case "openProjectSettings":
-                        case "renameProject":
-                        case "editAbbreviation":
-                        case "changeSourceLanguage":
-                        case "changeTargetLanguage":
-                        case "selectCategory":
-                        case "downloadSourceText":
-                        case "openAISettings":
-                        case "openSourceUpload":
-                        case "toggleSpellcheck":
-                            await this.handleProjectChange(message.command);
-                            // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
-                            // Send a response back to the webview
-                            this._view?.webview.postMessage({ command: "actionCompleted" });
-                            break;
-                        case "openEditAnalysis":
-                            await vscode.commands.executeCommand(
-                                "codex-editor-extension.analyzeEdits"
-                            );
-                            break;
-                        case "initializeProject":
-                            console.log("initializeProject");
-                            await createNewProject();
-                            break;
-                        case "exportProjectAsPlaintext":
-                            await vscode.commands.executeCommand(
-                                "codex-editor-extension.exportCodexContent"
-                            );
-                            break;
-                        case "openBible":
-                            // vscode.window.showInformationMessage(
-                            //     `Opening source text: ${JSON.stringify(message)}`
-                            // );
-                            simpleOpen(message.data.path, this._context);
-                            break;
-                        case "webviewReady":
-                            break;
-                        case "selectprimarySourceText":
-                            await this.setprimarySourceText(message.data);
-                            break;
-                        case "refreshState":
-                            await this.updateWebviewState();
-                            break;
-                        case "closeProject":
-                            try {
-                                const answer = await vscode.window.showWarningMessage(
-                                    "Are you sure you want to close this project?",
-                                    { modal: true },
-                                    "Yes",
-                                    "No"
-                                );
-
-                                if (answer === "Yes") {
-                                    await vscode.commands.executeCommand(
-                                        "workbench.action.closeFolder"
-                                    );
-                                }
-                            } catch (error) {
-                                console.error("Error closing project:", error);
-                                vscode.window.showErrorMessage(
-                                    `Failed to close project: ${(error as Error).message}`
-                                );
-                            }
-                            break;
-                        case "checkPublishStatus":
-                            try {
-                                await this.checkRepoHasRemote();
-                            } catch (error) {
-                                console.error("Error checking publish status:", error);
-                                this.store.setState({ repoHasRemote: false });
-                            }
-                            break;
-                        case "publishProject": {
-                            const projectName =
-                                this.store.getState().projectOverview?.projectName || "";
-                            const projectId =
-                                this.store.getState().projectOverview?.projectId || "";
-
-                            if (!projectName) {
-                                vscode.window.showErrorMessage("No project name found");
-                                return;
-                            }
-
-                            const sanitizedName = `${projectName}-${projectId}`
-                                .toLowerCase()
-                                .replace(/[^a-z0-9._-]/g, "-")
-                                .replace(/^-+|-+$/g, "")
-                                .replace(/\.git$/i, "");
-
-                            await this.frontierApi?.publishWorkspace({
-                                name: sanitizedName,
-                                visibility: "private",
-                            });
-                            break;
-                        }
-                        case "syncProject":
-                            console.log("Syncing project");
-                            await stageAndCommitAllAndSync("Syncing project");
-                            break;
-                        default:
-                            console.error(`Unknown command: ${message.command}`, { message });
-                    }
+                    await this.handleMessage(message);
                 } catch (error) {
                     console.error("Error handling message:", error);
                     webviewView.webview.postMessage({
@@ -475,14 +654,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             }
         );
 
-        webviewView.webview.onDidReceiveMessage(messageHandler);
-
-        // Start polling when webview becomes visible
-        this.startPolling();
-
-        // Stop polling when webview is disposed
+        // Clean up on dispose
         webviewView.onDidDispose(() => {
-            this.stopPolling();
+            this.disposables.forEach(d => d.dispose());
         });
     }
 
@@ -492,6 +666,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             const primarySourceText = config.get("primarySourceText");
 
+            // Update the store state with the new project overview
             this.store.setState({
                 projectOverview: newProjectOverview
                     ? {
@@ -499,22 +674,27 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                           primarySourceText: primarySourceText as vscode.Uri,
                       }
                     : null,
+                isInitializing: false, // Make sure to reset initialization state
+                isScanning: false
             });
 
-            // Explicitly send state update
+            // Explicitly send state update to the webview
             if (this._view) {
                 const state = this.store.getState();
                 this._view.webview.postMessage({
-                    type: "stateUpdate",
-                    state: state,
-                });
+                    command: "stateUpdate",
+                    data: state,
+                } as ProjectManagerMessageToWebview);
             }
         } catch (error) {
             console.error("Error updating project overview:", error);
-            this._view?.webview.postMessage({
-                command: "error",
-                message: "Failed to load project overview. Please try again.",
-            });
+            this.store.setState({ isInitializing: false, isScanning: false });
+            if (this._view) {
+                this._view.webview.postMessage({
+                    command: "error",
+                    message: "Failed to load project overview. Please try again.",
+                });
+            }
         }
     }
 
@@ -534,61 +714,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async addWatchFolder() {
-        const folderUri = await vscode.window.showOpenDialog({
-            canSelectFolders: true,
-            canSelectFiles: false,
-            canSelectMany: false,
-            openLabel: "Select Folder to Watch",
-        });
-
-        if (folderUri && folderUri[0]) {
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const watchedFolders = config.get<string[]>("watchedFolders") || [];
-            const newPath = folderUri[0].fsPath;
-
-            if (!watchedFolders.includes(newPath)) {
-                const updatedFolders = [...watchedFolders, newPath];
-                await config.update(
-                    "watchedFolders",
-                    updatedFolders,
-                    vscode.ConfigurationTarget.Global
-                );
-
-                // Update state and scan for new projects
-                this.store.setState({
-                    watchedFolders: updatedFolders,
-                    isScanning: true,
-                });
-
-                const projects = await findAllCodexProjects();
-                this.store.setState({
-                    projects,
-                    isScanning: false,
-                });
-            }
-        }
-    }
-
-    private async removeWatchFolder(path: string) {
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const watchedFolders = config.get<string[]>("watchedFolders") || [];
-        const updatedFolders = watchedFolders.filter((f) => f !== path);
-        await config.update("watchedFolders", updatedFolders, vscode.ConfigurationTarget.Global);
-
-        // Update state and rescan projects
-        this.store.setState({
-            watchedFolders: updatedFolders,
-            isScanning: true,
-        });
-
-        const projects = await findAllCodexProjects();
-        this.store.setState({
-            projects,
-            isScanning: false,
-        });
-    }
-
     private async refreshProjects() {
         this.store.setState({ isScanning: true });
         const projects = await findAllCodexProjects();
@@ -596,77 +721,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             projects,
             isScanning: false,
         });
-    }
-
-    private async refreshState() {
-        try {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            const hasWorkspace = workspaceFolders && workspaceFolders.length > 0;
-            const hasMetadata = hasWorkspace ? await checkIfMetadataAndGitIsInitialized() : false;
-
-            // Can initialize if we have a workspace but no metadata
-            const canInitializeProject = hasWorkspace && !hasMetadata;
-            const workspaceIsOpen = hasWorkspace;
-
-            const [projects, overview, hasRemote] = await Promise.all([
-                findAllCodexProjects(),
-                hasMetadata ? getProjectOverview() : null,
-                this.checkRepoHasRemote(),
-            ]);
-
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const primarySourceText = config.get("primarySourceText");
-            const watchedFolders = config.get<string[]>("watchedFolders") || [];
-
-            this.store.setState({
-                projects,
-                watchedFolders,
-                projectOverview: overview
-                    ? {
-                          ...overview,
-                          primarySourceText: primarySourceText as vscode.Uri,
-                      }
-                    : null,
-                isScanning: false,
-                canInitializeProject,
-                workspaceIsOpen,
-                repoHasRemote: hasRemote,
-            });
-        } catch (error) {
-            console.error("Error refreshing state:", error);
-            this.store.setState({ isScanning: false });
-        }
-    }
-
-    // Update command handlers to refresh state after changes
-    private async handleProjectChange(command: string) {
-        try {
-            await vscode.commands.executeCommand(`codex-project-manager.${command}`);
-            await this.refreshState();
-        } catch (error) {
-            console.error(`Error handling ${command}:`, error);
-            throw error;
-        }
-    }
-
-    private startPolling() {
-        if (!this.refreshInterval) {
-            // Initial refresh
-            this.refreshState();
-
-            this.refreshInterval = setInterval(async () => {
-                if (this._view?.visible) {
-                    await this.refreshState();
-                }
-            }, 10000); // Poll every 10 seconds
-        }
-    }
-
-    private stopPolling() {
-        if (this.refreshInterval) {
-            clearInterval(this.refreshInterval);
-            this.refreshInterval = null;
-        }
     }
 
     private async updateWebviewState() {
@@ -679,30 +733,16 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    private async checkRepoHasRemote(): Promise<boolean> {
+    private async initializeFrontierApi() {
         try {
-            // Get current workspace path
-            const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspacePath) {
-                return false;
-            }
-
-            // List all remotes
-            const remotes = await git.listRemotes({
-                fs,
-                dir: workspacePath,
-            });
-
-            // Update store with remote status
-            this.store.setState({
-                repoHasRemote: remotes.length > 0,
-            });
-
-            return remotes.length > 0;
+            this.frontierApi = getAuthApi();
         } catch (error) {
-            console.error("Error checking repo remotes:", error);
-            return false;
+            console.error("Error initializing Frontier API:", error);
         }
+    }
+
+    private async checkRepoHasRemote(): Promise<boolean> {
+        return this.store.checkRepoHasRemote();
     }
 }
 

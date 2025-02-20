@@ -14,6 +14,8 @@ export const InputCriticalProjectInfo = ({
     const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
 
     useEffect(() => {
+        // Always show Project Manager immediately
+        vscode.postMessage({ command: "project.showManager" });
         // Request metadata check to determine initial state
         vscode.postMessage({ command: "metadata.check" });
     }, []);
@@ -25,9 +27,6 @@ export const InputCriticalProjectInfo = ({
                 const metadata = event.data.data;
                 setSourceLanguage(metadata.sourceLanguage);
                 setTargetLanguage(metadata.targetLanguage);
-                
-                // Always show Project Manager
-                vscode.postMessage({ command: "project.showManager" });
                 
                 // If source language exists but target doesn't, start with target step
                 if (metadata.sourceLanguage && !metadata.targetLanguage) {

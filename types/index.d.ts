@@ -1055,12 +1055,8 @@ type ProjectManagerMessageToWebview =
     | {
           command: "publishStatus";
           data: {
-              hasRemote: boolean;
+              repoHasRemote: boolean;
           };
-      }
-    | {
-          command: "stateUpdate";
-          data: ProjectManagerState;
       };
 
 // Ensure the Project type is correctly defined
