@@ -92,7 +92,9 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     };
 
     useEffect(() => {
-        setHighlightedIndex(filteredLanguages.length > 0 ? 0 : -1);
+        if (filteredLanguages.length > 0){
+            setHighlightedIndex(0)
+        }
     }, [languageFilter, filteredLanguages.length]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
