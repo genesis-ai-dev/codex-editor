@@ -1,5 +1,5 @@
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MessagesToStartupFlowProvider } from "types";
 import { LanguagePicker } from "../../shared/components/LanguagePicker";
 import { LanguageMetadata } from "codex-types";
@@ -9,17 +9,65 @@ export const InputCriticalProjectInfo = ({
 }: {
     vscode: { postMessage: (message: any) => void };
 }) => {
-    const [currentStep, setCurrentStep] = useState<"source" | "target" | "complete">(
-        "source"
-    );
+    const [currentStep, setCurrentStep] = useState<"source" | "target" | "complete">("source");
+    const [sourceLanguage, setSourceLanguage] = useState<LanguageMetadata | null>(null);
+    const [targetLanguage, setTargetLanguage] = useState<LanguageMetadata | null>(null);
+
+    useEffect(() => {
+        // Request metadata check to determine initial state
+        vscode.postMessage({ command: "metadata.check" });
+    }, []);
+
+    // Listen for metadata check response
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent<any>) => {
+            if (event.data.command === "metadata.checkResponse") {
+                const metadata = event.data.data;
+                setSourceLanguage(metadata.sourceLanguage);
+                setTargetLanguage(metadata.targetLanguage);
+                
+                // Always show Project Manager
+                vscode.postMessage({ command: "project.showManager" });
+                
+                // If source language exists but target doesn't, start with target step
+                if (metadata.sourceLanguage && !metadata.targetLanguage) {
+                    setCurrentStep("target");
+                    return;
+                } else if (metadata.sourceLanguage && metadata.targetLanguage) {
+                    vscode.postMessage({ command: "openSourceUpload" });
+                    vscode.postMessage({
+                        command: "workspace.continue",
+                    } as MessagesToStartupFlowProvider);
+                    return;
+                }
+                
+                // Otherwise start with source step
+                setCurrentStep("source");
+            } else if (event.data.command === "state.update" && event.data.state.value === "promptUserToAddCriticalData") {
+                // When we receive the state update that we're in the critical data state, start checking metadata
+                vscode.postMessage({ command: "metadata.check" });
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
 
     const handleLanguageSelect = (language: LanguageMetadata) => {
         vscode.postMessage({
             command: language.projectStatus === "source" ? "changeSourceLanguage" : "changeTargetLanguage",
             language,
         });
-        setCurrentStep(language.projectStatus === "source" ? "target" : "complete");
+        
+        if (language.projectStatus === "source") {
+            setSourceLanguage(language);
+            setCurrentStep("target");
+        } else {
+            setTargetLanguage(language);
+            setCurrentStep("complete");
+        }
     };
+    
 
     return (
         <div
@@ -50,6 +98,7 @@ export const InputCriticalProjectInfo = ({
                             onLanguageSelect={handleLanguageSelect}
                             projectStatus="source"
                             label="Select Source Language"
+                            initialLanguage={sourceLanguage || undefined}
                         />
                     </>
                 )}
@@ -61,6 +110,7 @@ export const InputCriticalProjectInfo = ({
                             onLanguageSelect={handleLanguageSelect}
                             projectStatus="target"
                             label="Select Target Language"
+                            initialLanguage={targetLanguage || undefined}
                         />
                     </>
                 )}
@@ -69,13 +119,14 @@ export const InputCriticalProjectInfo = ({
                     <>
                         <i className="codicon codicon-symbol-variable" style={{ fontSize: "72px" }}></i>
                         <VSCodeButton
-                            onClick={() =>
+                            onClick={() => {
+                                vscode.postMessage({ command: "openSourceUpload" });
                                 vscode.postMessage({
                                     command: "workspace.continue",
-                                } as MessagesToStartupFlowProvider)
-                            }
+                                } as MessagesToStartupFlowProvider);
+                            }}
                         >
-                            Start Project
+                            Continue to Source Upload
                         </VSCodeButton>
                     </>
                 )}

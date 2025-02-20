@@ -36,11 +36,55 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     const filteredLanguages = useMemo(() => {
         if (!languageFilter) return availableLanguages;
         const searchTerm = languageFilter.toLowerCase();
-        return availableLanguages.filter(
-            (language) =>
-                (language.refName?.toLowerCase() || '').includes(searchTerm) ||
-                (language.tag?.toLowerCase() || '').includes(searchTerm)
-        );
+        
+        // Filter languages and calculate scores
+        const scoredLanguages = availableLanguages
+            .map(language => {
+                const refName = (language.refName || '').toLowerCase();
+                const tag = (language.tag || '').toLowerCase();
+                let score = 0;
+                
+                // Exact matches get highest score
+                if (refName === searchTerm) score += 100;
+                if (tag === searchTerm) score += 90;
+                
+                // Starts with gets high score
+                if (refName.startsWith(searchTerm)) score += 80;
+                if (tag.startsWith(searchTerm)) score += 70;
+                
+                // Contains gets medium score
+                if (refName.includes(searchTerm)) score += 60;
+                if (tag.includes(searchTerm)) score += 50;
+                
+                // Word boundary matches get bonus points
+                const words = refName.split(/[\s-_]+/);
+                if (words.some(word => word.startsWith(searchTerm))) score += 20;
+                
+                // Consecutive character matches get points
+                let consecutiveMatches = 0;
+                let searchIndex = 0;
+                for (const char of refName) {
+                    if (char === searchTerm[searchIndex]) {
+                        consecutiveMatches++;
+                        searchIndex++;
+                    } else {
+                        searchIndex = 0;
+                    }
+                }
+                score += consecutiveMatches * 2;
+                
+                return { language, score };
+            })
+            .filter(item => item.score > 0) // Only keep matches
+            .sort((a, b) => {
+                // Sort by score first
+                if (b.score !== a.score) return b.score - a.score;
+                // Then by name length (shorter names first)
+                return (a.language.refName?.length || 0) - (b.language.refName?.length || 0);
+            })
+            .map(item => item.language);
+
+        return scoredLanguages;
     }, [availableLanguages, languageFilter]);
 
     useEffect(() => {

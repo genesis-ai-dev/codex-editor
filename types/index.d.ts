@@ -349,7 +349,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus" }
     | { command: "project.open"; projectPath: string }
     | { command: "project.createEmpty" }
-    | { command: "project.initialize" }
+    | { command: "project.initialize"; waitForStateUpdate?: boolean }
     | { command: "metadata.check" };
 
 export type GitLabProject = {
