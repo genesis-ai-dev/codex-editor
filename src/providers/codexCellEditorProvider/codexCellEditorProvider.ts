@@ -56,7 +56,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | undefined;
-    private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+    // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+    private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
