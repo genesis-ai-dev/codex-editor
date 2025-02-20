@@ -65,11 +65,55 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
     const filteredLanguages = useMemo(() => {
         if (!languageFilter) return availableLanguages;
         const searchTerm = languageFilter.toLowerCase();
-        return availableLanguages.filter(
-            (language) =>
-                language.name.toLowerCase().includes(searchTerm) ||
-                language.code.toLowerCase().includes(searchTerm)
-        );
+        
+        // Filter languages and calculate scores
+        const scoredLanguages = availableLanguages
+            .map(language => {
+                const name = language.name.toLowerCase();
+                const code = language.code.toLowerCase();
+                let score = 0;
+                
+                // Exact matches get highest score
+                if (name === searchTerm) score += 100;
+                if (code === searchTerm) score += 90;
+                
+                // Starts with gets high score
+                if (name.startsWith(searchTerm)) score += 80;
+                if (code.startsWith(searchTerm)) score += 70;
+                
+                // Contains gets medium score
+                if (name.includes(searchTerm)) score += 60;
+                if (code.includes(searchTerm)) score += 50;
+                
+                // Word boundary matches get bonus points
+                const words = name.split(/[\s-_]+/);
+                if (words.some(word => word.startsWith(searchTerm))) score += 20;
+                
+                // Consecutive character matches get points
+                let consecutiveMatches = 0;
+                let searchIndex = 0;
+                for (const char of name) {
+                    if (char === searchTerm[searchIndex]) {
+                        consecutiveMatches++;
+                        searchIndex++;
+                    } else {
+                        searchIndex = 0;
+                    }
+                }
+                score += consecutiveMatches * 2;
+                
+                return { language, score };
+            })
+            .filter(item => item.score > 0) // Only keep matches
+            .sort((a, b) => {
+                // Sort by score first
+                if (b.score !== a.score) return b.score - a.score;
+                // Then by name length (shorter names first)
+                return (a.language.name?.length || 0) - (b.language.name?.length || 0);
+            })
+            .map(item => item.language);
+
+        return scoredLanguages;
     }, [availableLanguages, languageFilter]);
 
     const availableBibles = useMemo(() => {
@@ -109,14 +153,60 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
     }, [selectedLanguage]);
 
     const filteredBibles = useMemo(() => {
+        if (!selectedLanguage) return [];
         if (!bibleFilter) return availableBibles;
+        
         const searchTerm = bibleFilter.toLowerCase();
-        return availableBibles.filter(
-            (bible) =>
-                bible.displayTitle.toLowerCase().includes(searchTerm) ||
-                bible.coverage.toLowerCase().includes(searchTerm)
-        );
-    }, [availableBibles, bibleFilter]);
+        
+        // Filter bibles and calculate scores
+        const scoredBibles = availableBibles
+            .map(bible => {
+                const displayTitle = bible.displayTitle.toLowerCase();
+                const coverage = bible.coverage.toLowerCase();
+                const year = bible.year.toLowerCase();
+                let score = 0;
+                
+                // Exact matches get highest score
+                if (displayTitle === searchTerm) score += 100;
+                
+                // Starts with gets high score
+                if (displayTitle.startsWith(searchTerm)) score += 80;
+                
+                // Contains gets medium score
+                if (displayTitle.includes(searchTerm)) score += 60;
+                if (coverage.includes(searchTerm)) score += 50;
+                if (year.includes(searchTerm)) score += 40;
+                
+                // Word boundary matches get bonus points
+                const words = displayTitle.split(/[\s-_]+/);
+                if (words.some(word => word.startsWith(searchTerm))) score += 20;
+                
+                // Consecutive character matches get points
+                let consecutiveMatches = 0;
+                let searchIndex = 0;
+                for (const char of displayTitle) {
+                    if (char === searchTerm[searchIndex]) {
+                        consecutiveMatches++;
+                        searchIndex++;
+                    } else {
+                        searchIndex = 0;
+                    }
+                }
+                score += consecutiveMatches * 2;
+                
+                return { bible, score };
+            })
+            .filter(item => item.score > 0) // Only keep matches
+            .sort((a, b) => {
+                // Sort by score first
+                if (b.score !== a.score) return b.score - a.score;
+                // Then by title length (shorter names first)
+                return (a.bible.displayTitle.length) - (b.bible.displayTitle.length);
+            })
+            .map(item => item.bible);
+
+        return scoredBibles;
+    }, [selectedLanguage, availableBibles, bibleFilter]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
