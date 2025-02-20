@@ -614,7 +614,7 @@ export type EditorPostMessages =
               editHistory: EditHistoryEntry[];
           };
       }
-    | { command: "exportVttFile"; content: { subtitleData: string } }
+    | { command: "exportFile"; content: { subtitleData: string; format: string; includeStyles: boolean } }
     | { command: "generateBacktranslation"; content: { text: string; cellId: string } }
     | {
           command: "editBacktranslation";
