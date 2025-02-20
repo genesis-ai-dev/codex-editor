@@ -23,9 +23,35 @@ interface TimeSnapshot {
     timeRange: { start: number; end: number };
 }
 
+/**
+ * Strips HTML tags and their entity-encoded equivalents from a string.
+ * This includes all standard HTML tags like <div>, <p>, <h1>, etc.
+ * and their entity-encoded versions like &lt;div&gt;, &lt;p&gt;, &lt;h1&gt;, etc.
+ * @param str The string to strip HTML tags from
+ * @returns The string with all HTML tags and their entity-encoded versions removed
+ */
+function stripHtmlTags(str: string): string {
+    // First, decode HTML entities to actual characters
+    const decodedStr = str
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ');
+    
+    // Then remove all HTML tags using a comprehensive regex
+    // This regex matches any HTML tag (opening or closing) including attributes
+    return decodedStr.replace(/<[^>]*>/g, '').trim();
+}
+
 function calculateLevenshteinDistance(str1: string, str2: string): number {
-    const m = str1.length;
-    const n = str2.length;
+    // Strip HTML tags before calculating distance
+    const cleanStr1 = stripHtmlTags(str1);
+    const cleanStr2 = stripHtmlTags(str2);
+
+    const m = cleanStr1.length;
+    const n = cleanStr2.length;
     const dp: number[][] = Array(m + 1)
         .fill(null)
         .map(() => Array(n + 1).fill(0));
@@ -39,7 +65,7 @@ function calculateLevenshteinDistance(str1: string, str2: string): number {
 
     for (let i = 1; i <= m; i++) {
         for (let j = 1; j <= n; j++) {
-            if (str1[i - 1] === str2[j - 1]) {
+            if (cleanStr1[i - 1] === cleanStr2[j - 1]) {
                 dp[i][j] = dp[i - 1][j - 1];
             } else {
                 dp[i][j] =
@@ -57,9 +83,13 @@ function calculateLevenshteinDistance(str1: string, str2: string): number {
 }
 
 function calculateMeteorScore(llmText: string, userText: string): number {
+    // Strip HTML tags before calculating METEOR score
+    const cleanLlmText = stripHtmlTags(llmText);
+    const cleanUserText = stripHtmlTags(userText);
+    
     // Simple METEOR implementation focusing on exact matches and word order
-    const llmWords = llmText.toLowerCase().split(/\s+/);
-    const userWords = userText.toLowerCase().split(/\s+/);
+    const llmWords = cleanLlmText.toLowerCase().split(/\s+/);
+    const userWords = cleanUserText.toLowerCase().split(/\s+/);
     
     // Calculate exact matches
     const matches = llmWords.filter((word, i) => word === userWords[i]);
@@ -181,16 +211,29 @@ export async function analyzeEditHistory(): Promise<{
         const current = allEdits[i];
         if (!current.llmGeneration || !current.llmTimestamp) continue;
 
+        // Strip HTML tags from both LLM generation and user edit
+        const strippedLlmGeneration = stripHtmlTags(current.llmGeneration);
+        const strippedUserEdit = stripHtmlTags(current.edit.cellValue);
+
+        // If the stripped texts are identical, skip this edit pair
+        if (strippedLlmGeneration === strippedUserEdit) continue;
+
         // If we're switching to a new cell
         if (currentCellId !== null && currentCellId !== current.cellId) {
-            // Add the last edit from the previous cell
+            // Add the last edit from the previous cell if it exists and has differences
             if (currentEdits.length > 0) {
-                editPairs.push({
-                    llmGeneration: currentEdits[currentEdits.length - 1].llmText,
-                    userEdit: currentEdits[currentEdits.length - 1].userEdit,
-                    sequenceNumber: globalSequence++,
-                    llmTimestamp: currentEdits[currentEdits.length - 1].llmTimestamp,
-                });
+                const lastEdit = currentEdits[currentEdits.length - 1];
+                const strippedLastLlm = stripHtmlTags(lastEdit.llmText);
+                const strippedLastUser = stripHtmlTags(lastEdit.userEdit);
+                
+                if (strippedLastLlm !== strippedLastUser) {
+                    editPairs.push({
+                        llmGeneration: lastEdit.llmText,
+                        userEdit: lastEdit.userEdit,
+                        sequenceNumber: globalSequence++,
+                        llmTimestamp: lastEdit.llmTimestamp,
+                    });
+                }
             }
             // Reset current edits since we're moving to a new cell
             currentEdits = [];
@@ -204,14 +247,20 @@ export async function analyzeEditHistory(): Promise<{
             llmTimestamp: current.llmTimestamp,
         });
 
-        // If this is the last edit overall, add it
+        // If this is the last edit overall, add it if it has differences
         if (i === allEdits.length - 1 && currentEdits.length > 0) {
-            editPairs.push({
-                llmGeneration: currentEdits[currentEdits.length - 1].llmText,
-                userEdit: currentEdits[currentEdits.length - 1].userEdit,
-                sequenceNumber: globalSequence++,
-                llmTimestamp: currentEdits[currentEdits.length - 1].llmTimestamp,
-            });
+            const lastEdit = currentEdits[currentEdits.length - 1];
+            const strippedLastLlm = stripHtmlTags(lastEdit.llmText);
+            const strippedLastUser = stripHtmlTags(lastEdit.userEdit);
+            
+            if (strippedLastLlm !== strippedLastUser) {
+                editPairs.push({
+                    llmGeneration: lastEdit.llmText,
+                    userEdit: lastEdit.userEdit,
+                    sequenceNumber: globalSequence++,
+                    llmTimestamp: lastEdit.llmTimestamp,
+                });
+            }
         }
     }
 
@@ -227,8 +276,8 @@ export async function analyzeEditHistory(): Promise<{
     const rawDistances = editPairs.map((pair) => ({
         sequenceNumber: pair.sequenceNumber,
         distance: calculateLevenshteinDistance(pair.llmGeneration, pair.userEdit),
-        llmText: pair.llmGeneration,
-        userText: pair.userEdit,
+        llmText: stripHtmlTags(pair.llmGeneration),
+        userText: stripHtmlTags(pair.userEdit),
         timestamp: pair.llmTimestamp,
     }));
 
