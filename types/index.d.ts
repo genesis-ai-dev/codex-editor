@@ -944,7 +944,7 @@ declare function searchParallelCells(
 
 export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
 
-export type FileType = "subtitles" | "plaintext" | "usfm" | "usx" | "csv" | "tsv";
+export type FileType = "subtitles" | "plaintext" | "usfm" | "usx" | "csv" | "tsv" | "codex";
 
 export interface FileTypeMap {
     vtt: "subtitles";
@@ -954,6 +954,7 @@ export interface FileTypeMap {
     sfm: "usfm";
     SFM: "usfm";
     USFM: "usfm";
+    codex: "codex";
 }
 
 export interface AggregatedMetadata {
@@ -997,6 +998,7 @@ interface ImportedContent {
     content: string;
     startTime?: number;
     endTime?: number;
+    edits?: EditHistory[];
 }
 
 // Add or verify these message types

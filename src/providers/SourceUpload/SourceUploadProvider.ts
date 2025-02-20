@@ -36,6 +36,7 @@ export const fileTypeMap: FileTypeMap = {
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",
+    codex: "codex",
 };
 
 // Add new types for workflow status tracking

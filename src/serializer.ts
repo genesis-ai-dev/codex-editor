@@ -34,11 +34,13 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
     ): Promise<CodexNotebookAsJSONData> {
         debug("Deserializing notebook data");
         const contents = new TextDecoder().decode(data); // convert to String
+        debug("Contents:", contents);
         // Read file contents
         let raw: RawNotebookData;
         try {
             raw = <RawNotebookData>JSON.parse(contents);
             debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
+            return raw as CodexNotebookAsJSONData;
         } catch {
             debug("Failed to parse notebook contents, creating empty notebook");
             raw = { cells: [], metadata: {} };
@@ -57,7 +59,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             }
             return cell;
         });
-
+        console.log("Cells:", cells);
         const notebookData = new vscode.NotebookData(cells);
         notebookData.metadata = raw.metadata || {};
         debug("Notebook deserialization complete", { cellCount: cells.length });

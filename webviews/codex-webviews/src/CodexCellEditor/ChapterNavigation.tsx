@@ -130,9 +130,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <div className="chapter-navigation-group">
                 {isSourceText && (
                     <>
-                        <VSCodeButton appearance="secondary" disabled>
-                            Source Text
-                        </VSCodeButton>
+                        Source Text
                         <VSCodeButton
                             appearance="icon"
                             onClick={() => {

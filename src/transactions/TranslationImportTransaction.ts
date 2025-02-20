@@ -11,12 +11,14 @@ import {
     CustomNotebookCellData,
     CustomCellMetaData,
     ValidationResult,
+    CodexNotebookAsJSONData,
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
 import { fileTypeMap } from "../projectManager/translationImporter";
 import { WebVTTParser } from "webvtt-parser";
 import * as path from "path";
 import { generateChildCellId } from "../providers/codexCellEditorProvider/utils/cellUtils";
+import { resolveCodexCustomMerge } from "@/projectManager/utils/merge/resolvers";
 
 // Add the interfaces at the top of the file
 interface AlignedCell {
@@ -43,6 +45,7 @@ export class TranslationImportTransaction extends ImportTransaction {
     private readonly context: vscode.ExtensionContext;
     private readonly sourceNotebookId: string;
     private importedContent: ImportedContent[] = [];
+    private rawImportedContent: CodexNotebookAsJSONData | undefined;
 
     private readonly importSteps: ProgressStep[] = [
         { name: "validation", message: "Validating translation file...", weight: 1 },
@@ -113,6 +116,12 @@ export class TranslationImportTransaction extends ImportTransaction {
 
             // Parse the content
             this.importedContent = await this.parseFileContent(tempTranslationFile);
+            const serializer = new CodexContentSerializer();
+
+            this.rawImportedContent = await serializer.deserializeNotebook(
+                await vscode.workspace.fs.readFile(tempTranslationFile),
+                new vscode.CancellationTokenSource().token
+            );
 
             // Get source notebook content
             const sourceMetadata = await this.metadataManager.getMetadataById(
@@ -140,8 +149,8 @@ export class TranslationImportTransaction extends ImportTransaction {
                 throw new Error("Could not locate source or codex files in workspace");
             }
 
-            const serializer = new CodexContentSerializer();
             const sourceContent = await vscode.workspace.fs.readFile(sourceFile);
+            console.log("Source content:", sourceContent);
             const sourceNotebook = await serializer.deserializeNotebook(
                 sourceContent,
                 new vscode.CancellationTokenSource().token
@@ -247,8 +256,12 @@ export class TranslationImportTransaction extends ImportTransaction {
             const updatedNotebook = await this.mergeTranslations(
                 existingNotebook,
                 this.importedContent,
-                token
+                token,
+                existingNotebook,
+                this.rawImportedContent
             );
+
+            console.log("Updated notebook:", updatedNotebook);
 
             // Create temp file for the updated notebook
             const tempCodexFile = vscode.Uri.joinPath(
@@ -332,6 +345,8 @@ export class TranslationImportTransaction extends ImportTransaction {
                 return this.parsePlaintext(fileContentString);
             case "usfm":
                 return this.parseUSFM(fileContentString);
+            case "codex":
+                return parseCodex(fileContentString);
             default:
                 throw new Error("Unsupported file type.");
         }
@@ -396,8 +411,18 @@ export class TranslationImportTransaction extends ImportTransaction {
     private async mergeTranslations(
         existingNotebook: any,
         importedContent: ImportedContent[],
-        token?: vscode.CancellationToken
-    ): Promise<any> {
+        token?: vscode.CancellationToken,
+        rawExistingNotebook?: CodexNotebookAsJSONData,
+        rawImportedContent?: CodexNotebookAsJSONData
+    ): Promise<CodexNotebookAsJSONData> {
+        if (rawExistingNotebook && rawImportedContent) {
+            const resolvedContent = await resolveCodexCustomMerge(
+                JSON.stringify(rawExistingNotebook),
+                JSON.stringify(rawImportedContent)
+            );
+            return JSON.parse(resolvedContent) as CodexNotebookAsJSONData;
+        }
+
         const cellAligner = this.getAlignerForFileType(this.state.sourceFile);
         const existingCells = existingNotebook.cells;
 
@@ -494,7 +519,7 @@ export class TranslationImportTransaction extends ImportTransaction {
         }
 
         // Update notebook with new cells
-        const updatedNotebook = {
+        const updatedNotebook: CodexNotebookAsJSONData = {
             ...existingNotebook,
             cells: newCells,
         };
@@ -520,6 +545,8 @@ export class TranslationImportTransaction extends ImportTransaction {
                 return this.alignPlaintextCells.bind(this);
             case "usfm":
                 return this.alignUSFMCells.bind(this);
+            case "codex":
+                return alignCodexCells.bind(this);
             default:
                 throw new Error("Unsupported file type.");
         }
@@ -811,4 +838,75 @@ export class TranslationImportTransaction extends ImportTransaction {
         );
         return files[0];
     }
+}
+async function parseCodex(fileContentString: string): Promise<ImportedContent[]> {
+    debug("Parsing Codex file content");
+    const importedContent: ImportedContent[] = [];
+
+    try {
+        const serializer = new CodexContentSerializer();
+        const notebookData = await serializer.deserializeNotebook(
+            Buffer.from(fileContentString),
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Process each cell in the notebook
+        notebookData.cells.forEach((cell) => {
+            if (cell.metadata?.id && cell.value) {
+                importedContent.push({
+                    id: cell.metadata.id,
+                    content: cell.value.trim(),
+                    edits: cell.metadata.edits,
+                    // Include any additional metadata if needed
+                    startTime: cell.metadata.data?.startTime,
+                    endTime: cell.metadata.data?.endTime,
+                });
+            }
+        });
+
+        debug("Parsed Codex content", importedContent);
+    } catch (error: any) {
+        debug("Error parsing Codex file:", error);
+        vscode.window.showErrorMessage(`Error parsing Codex file: ${error.message}`);
+    }
+
+    return importedContent;
+}
+
+async function alignCodexCells(
+    notebookCells: CustomNotebookCellData[],
+    importedContent: ImportedContent[]
+): Promise<AlignedCell[]> {
+    debug("Aligning Codex cells by matching cell IDs", {
+        notebookCellsCount: notebookCells.length,
+        importedContentCount: importedContent.length,
+    });
+
+    const alignedCells: AlignedCell[] = [];
+    let totalMatches = 0;
+
+    importedContent.forEach((importedItem) => {
+        if (!importedItem.content.trim()) {
+            // Skip empty lines
+            return;
+        }
+
+        const notebookCell = notebookCells.find((cell) => cell.metadata.id === importedItem.id);
+        if (notebookCell) {
+            alignedCells.push({
+                notebookCell,
+                importedContent: importedItem,
+            });
+            totalMatches++;
+        }
+    });
+
+    if (totalMatches === 0 && importedContent.length > 0) {
+        vscode.window.showErrorMessage(
+            "No matching cell IDs found in Codex. Please check the file format."
+        );
+        throw new Error("No matching cell IDs found in Codex.");
+    }
+
+    return alignedCells;
 }

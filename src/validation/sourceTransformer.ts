@@ -40,29 +40,6 @@ export class SourceTransformer {
         const sourceNotebook = this.createNotebookPreview("source", unprocessedBaseName);
         const codexNotebook = this.createNotebookPreview("codex", unprocessedBaseName);
 
-        // Add a chapter heading cell first
-        const chapterHeadingCell = {
-            value: "<h1>Chapter 1</h1>",
-            kind: vscode.NotebookCellKind.Code,
-            languageId: "html",
-            metadata: {
-                type: CodexCellTypes.PARATEXT,
-                id: `${baseNameAsId} 1:0`,
-                data: {},
-            },
-        };
-        sourceNotebook.cells.push(chapterHeadingCell);
-        codexNotebook.cells.push({ ...chapterHeadingCell });
-
-        // Add navigation for the chapter heading
-        const navigationCells = [
-            {
-                cellId: `${baseNameAsId} 1:0`,
-                children: [],
-                label: "Chapter 1",
-            },
-        ];
-
         for (const cue of parsed.cues) {
             // Generate a unique identifier for the cue that matches the expected format
             const cueId = `${baseNameAsId} 1:cue-${cue.startTime}-${cue.endTime}`;
@@ -103,7 +80,7 @@ export class SourceTransformer {
             originalName: unprocessedBaseName,
             sourceFsPath: undefined,
             codexFsPath: undefined,
-            navigation: navigationCells,
+            navigation: [],
             sourceCreatedAt: new Date().toISOString(),
             codexLastModified: new Date().toISOString(),
             gitStatus: "untracked" as const,
