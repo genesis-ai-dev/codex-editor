@@ -479,17 +479,18 @@ export const handleMessages = async (
             );
             return;
         }
-        case "exportVttFile": {
+        case "exportFile": {
             try {
-                // Get the notebook filename to use as base for the VTT filename
+                // Get the notebook filename to use as base for the exported filename
                 const notebookName = path.parse(document.uri.fsPath).name;
-                const vttFileName = `${notebookName}.vtt`;
+                const fileExtension = event.content.format;
+                const fileName = `${notebookName}.${fileExtension}`;
 
-                // Show save file dialog
+                // Show save file dialog with appropriate filters
                 const saveUri = await vscode.window.showSaveDialog({
-                    defaultUri: vscode.Uri.file(vttFileName),
+                    defaultUri: vscode.Uri.file(fileName),
                     filters: {
-                        "WebVTT files": ["vtt"],
+                        "Subtitle files": ["vtt", "srt"],
                     },
                 });
 
@@ -499,11 +500,15 @@ export const handleMessages = async (
                         Buffer.from(event.content.subtitleData, "utf-8")
                     );
 
-                    vscode.window.showInformationMessage(`VTT file exported successfully`);
+                    vscode.window.showInformationMessage(
+                        `File exported successfully as ${fileExtension.toUpperCase()}`
+                    );
                 }
             } catch (error) {
-                console.error("Error exporting VTT file:", error);
-                vscode.window.showErrorMessage("Failed to export VTT file");
+                console.error("Error exporting file:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to export ${event.content.format.toUpperCase()} file`
+                );
             }
             return;
         }
