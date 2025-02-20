@@ -241,7 +241,9 @@ function ProjectManagerView() {
                         >
                             <VSCodeButton>
                                 <i className="codicon codicon-loading codicon-modifier-spin"></i>
-                                <div style={{ marginInline: "0.25rem" }}>Initializing Project...</div>
+                                <div style={{ marginInline: "0.25rem" }}>
+                                    Initializing Project...
+                                </div>
                             </VSCodeButton>
                         </div>
                     ) : state.projectOverview ? (

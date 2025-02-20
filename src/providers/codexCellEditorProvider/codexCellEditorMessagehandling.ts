@@ -42,34 +42,47 @@ export async function performLLMCompletion(
         return;
     }
 
-    try {
-        // Fetch completion configuration
-        const completionConfig = await fetchCompletionConfig();
-        const notebookReader = new CodexNotebookReader(currentDocument.uri);
-        console.log("Document URI: ", notebookReader);
-        // Perform LLM completion
-        const result = await llmCompletion(
-            notebookReader,
-            currentCellId,
-            completionConfig,
-            new vscode.CancellationTokenSource().token
-        );
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Generating Translation",
+            cancellable: false,
+        },
+        async (progress) => {
+            try {
+                progress.report({ message: "Fetching completion configuration..." });
+                // Fetch completion configuration
+                const completionConfig = await fetchCompletionConfig();
+                const notebookReader = new CodexNotebookReader(currentDocument.uri);
+                console.log("Document URI: ", notebookReader);
 
-        // Update content and metadata atomically
-        currentDocument.updateCellContent(
-            currentCellId,
-            result,
-            EditType.LLM_GENERATION,
-            shouldUpdateValue
-        );
+                progress.report({ message: "Generating translation with LLM..." });
+                // Perform LLM completion
+                const result = await llmCompletion(
+                    notebookReader,
+                    currentCellId,
+                    completionConfig,
+                    new vscode.CancellationTokenSource().token
+                );
 
-        console.log("LLM completion result", { result });
-        return result;
-    } catch (error: any) {
-        console.error("Error in performLLMCompletion:", error);
-        vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
-        throw error;
-    }
+                progress.report({ message: "Updating document..." });
+                // Update content and metadata atomically
+                currentDocument.updateCellContent(
+                    currentCellId,
+                    result,
+                    EditType.LLM_GENERATION,
+                    shouldUpdateValue
+                );
+
+                console.log("LLM completion result", { result });
+                return result;
+            } catch (error: any) {
+                console.error("Error in performLLMCompletion:", error);
+                vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
+                throw error;
+            }
+        }
+    );
 }
 
 // export function createMessageHandlers(provider: CodexCellEditorProvider) {
