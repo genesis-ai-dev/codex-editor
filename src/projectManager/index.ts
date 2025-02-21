@@ -19,6 +19,7 @@ import {
     updateProjectSettings,
 } from "./utils/projectUtils";
 import { openSystemMessageEditor } from "../copilotSettings/copilotSettings";
+import { openProjectExportView } from "./projectExportView";
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
     console.log("Codex Project Manager is now active!");
@@ -468,6 +469,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openSystemMessageEditor
     );
 
+    const openExportViewCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openExportView",
+        () => openProjectExportView(context)
+    );
+
     const toggleSpellcheckCommand = vscode.commands.registerCommand(
         "codex-project-manager.toggleSpellcheck",
         executeWithRedirecting(async () => {
@@ -521,6 +527,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         reinstallExtensionsCommand,
         showProjectOverviewCommand,
         openAISettingsCommand,
+        openExportViewCommand,
         importLocalUsfmSourceBibleCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,

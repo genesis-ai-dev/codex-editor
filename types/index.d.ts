@@ -614,7 +614,10 @@ export type EditorPostMessages =
               editHistory: EditHistoryEntry[];
           };
       }
-    | { command: "exportFile"; content: { subtitleData: string; format: string; includeStyles: boolean } }
+    | {
+          command: "exportFile";
+          content: { subtitleData: string; format: string; includeStyles: boolean };
+      }
     | { command: "generateBacktranslation"; content: { text: string; cellId: string } }
     | {
           command: "editBacktranslation";
@@ -1019,7 +1022,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "selectCategory" }
     | { command: "openSourceUpload" }
     | { command: "openAISettings" }
-    | { command: "exportProjectAsPlaintext" }
+    | { command: "openExportView" }
     | { command: "closeProject" }
     | { command: "createNewWorkspaceAndProject" }
     | { command: "openProject"; data: { path: string } }

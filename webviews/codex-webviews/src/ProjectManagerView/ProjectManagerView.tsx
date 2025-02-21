@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
     VSCodeButton,
+    VSCodeDropdown,
+    VSCodeOption,
     VSCodePanelTab,
     VSCodePanelView,
     VSCodePanels,
@@ -86,7 +88,7 @@ function ProjectManagerView() {
         workspaceIsOpen: true,
         webviewReady: true,
         repoHasRemote: false,
-        isInitializing: false
+        isInitializing: false,
     });
 
     const handleAction = (message: ProjectManagerMessageFromWebview) => {
@@ -102,9 +104,9 @@ function ProjectManagerView() {
             if (message.data.command === "stateUpdate") {
                 setState(message.data.data);
             } else if (message.data.command === "publishStatus") {
-                setState(prev => ({
+                setState((prev) => ({
                     ...prev,
-                    repoHasRemote: message.data.data.repoHasRemote
+                    repoHasRemote: message.data.data.repoHasRemote,
                 }));
             }
         };
@@ -220,30 +222,34 @@ function ProjectManagerView() {
                                 label="Source Language"
                                 value={getLanguageDisplay(state.projectOverview?.sourceLanguage)}
                                 icon="source-control"
-                                onAction={() => handleAction({ 
-                                    command: "changeSourceLanguage",
-                                    language: state.projectOverview?.sourceLanguage || {
-                                        name: { en: "Unknown" },
-                                        tag: "unknown",
-                                        refName: "Unknown",
-                                        projectStatus: LanguageProjectStatus.SOURCE
-                                    }
-                                })}
+                                onAction={() =>
+                                    handleAction({
+                                        command: "changeSourceLanguage",
+                                        language: state.projectOverview?.sourceLanguage || {
+                                            name: { en: "Unknown" },
+                                            tag: "unknown",
+                                            refName: "Unknown",
+                                            projectStatus: LanguageProjectStatus.SOURCE,
+                                        },
+                                    })
+                                }
                                 hasWarning={!state.projectOverview?.sourceLanguage}
                             />
                             <ProjectField
                                 label="Target Language"
                                 value={getLanguageDisplay(state.projectOverview?.targetLanguage)}
                                 icon="globe"
-                                onAction={() => handleAction({ 
-                                    command: "changeTargetLanguage",
-                                    language: state.projectOverview?.targetLanguage || {
-                                        name: { en: "Unknown" },
-                                        tag: "unknown",
-                                        refName: "Unknown",
-                                        projectStatus: LanguageProjectStatus.TARGET
-                                    }
-                                })}
+                                onAction={() =>
+                                    handleAction({
+                                        command: "changeTargetLanguage",
+                                        language: state.projectOverview?.targetLanguage || {
+                                            name: { en: "Unknown" },
+                                            tag: "unknown",
+                                            refName: "Unknown",
+                                            projectStatus: LanguageProjectStatus.TARGET,
+                                        },
+                                    })
+                                }
                                 hasWarning={!state.projectOverview?.targetLanguage}
                             />
                             <ProjectField
@@ -322,9 +328,7 @@ function ProjectManagerView() {
                                 </VSCodeButton>
 
                                 <VSCodeButton
-                                    onClick={() =>
-                                        handleAction({ command: "exportProjectAsPlaintext" })
-                                    }
+                                    onClick={() => handleAction({ command: "openExportView" })}
                                 >
                                     <div
                                         style={{
@@ -336,6 +340,7 @@ function ProjectManagerView() {
                                         <i className="codicon codicon-export"></i> Export Project
                                     </div>
                                 </VSCodeButton>
+
                                 {!state.repoHasRemote && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "publishProject" })}
