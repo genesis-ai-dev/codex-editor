@@ -30,11 +30,17 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
 
     // Get list of codex files
     const codexFiles = await vscode.workspace.findFiles("**/*.codex");
-    const codexFilesList = codexFiles.map((file) => ({
-        path: file.fsPath,
-        name: file.fsPath.split("/").pop() || "",
-        selected: true, // Default to selected
-    }));
+    const codexFilesList = codexFiles
+        .sort((a, b) => {
+            const aName = a.fsPath.split(/[/\\]/).pop()!;
+            const bName = b.fsPath.split(/[/\\]/).pop()!;
+            return aName.localeCompare(bName);
+        })
+        .map((file) => ({
+            path: file.fsPath,
+            name: file.fsPath.split(/[/\\]/).pop() || "",
+            selected: true, // Default to selected
+        }));
 
     panel.webview.html = getWebviewContent(
         sourceLanguage,
@@ -180,17 +186,22 @@ function getWebviewContent(
                     margin-bottom: 8px;
                 }
                 .files-list {
-                    display: flex;
-                    flex-direction: column;
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                     gap: 8px;
                     max-height: 200px;
                     overflow-y: auto;
+                    padding: 4px;
                 }
                 .file-item {
                     display: flex;
                     align-items: center;
                     gap: 8px;
-                    padding: 4px;
+                    padding: 4px 8px;
+                    border-radius: 3px;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
                 }
                 .file-item:hover {
                     background-color: var(--vscode-list-hoverBackground);
@@ -220,18 +231,27 @@ function getWebviewContent(
                     hasLanguages
                         ? `
                     <h3>Select Export Format</h3>
-                    <div class="format-option" data-format="plaintext">
-                        <i class="codicon codicon-file-text"></i>
-                        <div>
-                            <strong>Plaintext</strong>
-                            <p>Export as plain text files with minimal formatting</p>
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="format-option" data-format="plaintext" style="flex: 1;">
+                            <i class="codicon codicon-file-text"></i>
+                            <div>
+                                <strong>Plaintext</strong>
+                                <p>Export as plain text files with minimal formatting</p>
+                            </div>
                         </div>
-                    </div>
-                    <div class="format-option" data-format="usfm">
-                        <i class="codicon codicon-file-code"></i>
-                        <div>
-                            <strong>USFM</strong>
-                            <p>Export in Universal Standard Format Markers</p>
+                        <div class="format-option" data-format="usfm" style="flex: 1;">
+                            <i class="codicon codicon-file-code"></i>
+                            <div>
+                                <strong>USFM</strong>
+                                <p>Export in Universal Standard Format Markers</p>
+                            </div>
+                        </div>
+                        <div class="format-option" data-format="html" style="flex: 1;">
+                            <i class="codicon codicon-browser"></i>
+                            <div>
+                                <strong>HTML</strong>
+                                <p>Export as web pages with chapter navigation</p>
+                            </div>
                         </div>
                     </div>
 
