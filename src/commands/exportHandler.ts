@@ -162,7 +162,7 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
 
         // Get extension version for metadata
         const extension = vscode.extensions.getExtension(
-            "project-accelerate.codex-project-manager"
+            "project-accelerate.codex-editor-extension"
         );
         const extensionVersion = extension?.packageJSON?.version || "unknown";
         const exportDate = new Date().toISOString();
@@ -300,7 +300,7 @@ async function exportCodexContentAsHtml(userSelectedPath: string, filesToExport:
 
         // Get extension version for metadata
         const extension = vscode.extensions.getExtension(
-            "project-accelerate.codex-project-manager"
+            "project-accelerate.codex-editor-extension"
         );
         const extensionVersion = extension?.packageJSON?.version || "unknown";
         const exportDate = new Date().toISOString();
