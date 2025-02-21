@@ -140,7 +140,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     };
 
     return (
-        <div
+        <span
             ref={cellRef}
             className={`cell-content ${hasDuplicateId ? "duplicate-cell" : ""} ${
                 highlightedCellId === cellIds[0] && scrollSyncEnabled ? "highlighted-cell" : ""
@@ -173,7 +173,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
             />
-        </div>
+        </span>
     );
 };
 
