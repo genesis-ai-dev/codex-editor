@@ -128,8 +128,8 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     style={{
                         position: "absolute",
                         top: "50%",
-                        left: "2rem",
-                        right: "2rem",
+                        left: "calc(2rem - 5px)",
+                        right: "calc(2rem - 5px)",
                         height: "2px",
                         background: "var(--vscode-widget-border)",
                         zIndex: 0,
@@ -141,10 +141,11 @@ export const WorkflowProgress: React.FC<WorkflowProgressProps> = ({
                     style={{
                         position: "absolute",
                         top: "50%",
-                        left: "2rem",
+                        left: "calc(2rem - 30px)",
                         height: "2px",
                         background: "var(--vscode-button-background)",
-                        width: `${(steps.indexOf(currentStep) / (steps.length - 1)) * (100 - (4 * 100 / steps.length))}%`,
+                        width: `${(steps.indexOf(currentStep) / (steps.length - 1)) * 100}%`,
+                        maxWidth: "calc(100% - (4rem - 60px))",
                         transition: "width 0.3s ease-in-out",
                         zIndex: 0,
                     }}
