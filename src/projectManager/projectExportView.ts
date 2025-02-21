@@ -1,3 +1,4 @@
+import { CodexExportFormat } from "@/commands/exportHandler";
 import * as vscode from "vscode";
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
@@ -27,15 +28,50 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
         )
     );
 
-    panel.webview.html = getWebviewContent(sourceLanguage, targetLanguage, codiconsUri);
+    // Get list of codex files
+    const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+    const codexFilesList = codexFiles.map((file) => ({
+        path: file.fsPath,
+        name: file.fsPath.split("/").pop() || "",
+        selected: true, // Default to selected
+    }));
+
+    panel.webview.html = getWebviewContent(
+        sourceLanguage,
+        targetLanguage,
+        codiconsUri,
+        codexFilesList
+    );
 
     panel.webview.onDidReceiveMessage(async (message) => {
+        let result: vscode.Uri[] | undefined;
+
         switch (message.command) {
+            case "selectExportPath":
+                result = await vscode.window.showOpenDialog({
+                    canSelectFiles: false,
+                    canSelectFolders: true,
+                    canSelectMany: false,
+                    title: "Select Export Location",
+                    openLabel: "Select Folder",
+                });
+
+                if (result && result[0]) {
+                    panel.webview.postMessage({
+                        command: "updateExportPath",
+                        path: result[0].fsPath,
+                    });
+                }
+                break;
             case "export":
                 try {
                     await vscode.commands.executeCommand(
                         `codex-editor-extension.exportCodexContent`,
-                        { format: message.format, options: message.options }
+                        {
+                            format: message.format as CodexExportFormat,
+                            userSelectedPath: message.userSelectedPath,
+                            filesToExport: message.filesToExport,
+                        }
                     );
                     panel.dispose();
                 } catch (error) {
@@ -51,7 +87,12 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
     });
 }
 
-function getWebviewContent(sourceLanguage?: any, targetLanguage?: any, codiconsUri?: vscode.Uri) {
+function getWebviewContent(
+    sourceLanguage?: any,
+    targetLanguage?: any,
+    codiconsUri?: vscode.Uri,
+    codexFiles: Array<{ path: string; name: string; selected: boolean }> = []
+) {
     const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
 
     return `<!DOCTYPE html>
@@ -126,6 +167,51 @@ function getWebviewContent(sourceLanguage?: any, targetLanguage?: any, codiconsU
                     border-radius: 4px;
                     color: var(--vscode-descriptionForeground);
                 }
+                .files-section {
+                    margin-top: 16px;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    padding: 16px;
+                }
+                .files-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                }
+                .files-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    max-height: 200px;
+                    overflow-y: auto;
+                }
+                .file-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 4px;
+                }
+                .file-item:hover {
+                    background-color: var(--vscode-list-hoverBackground);
+                }
+                .export-path {
+                    margin-top: 16px;
+                    padding: 8px;
+                    background-color: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .path-display {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    flex: 1;
+                    margin-right: 8px;
+                }
             </style>
         </head>
         <body>
@@ -148,6 +234,44 @@ function getWebviewContent(sourceLanguage?: any, targetLanguage?: any, codiconsU
                             <p>Export in Universal Standard Format Markers</p>
                         </div>
                     </div>
+
+                    <div class="files-section">
+                        <div class="files-header">
+                            <h4>Select Files to Export</h4>
+                            <button class="secondary" onclick="toggleAllFiles()">
+                                <i class="codicon codicon-check-all"></i>
+                                Toggle All
+                            </button>
+                        </div>
+                        <div class="files-list">
+                            ${codexFiles
+                                .map(
+                                    (file, index) => `
+                                <div class="file-item">
+                                    <input type="checkbox" 
+                                           id="file-${index}" 
+                                           value="${file.path}"
+                                           ${file.selected ? "checked" : ""}
+                                           onchange="updateFileSelection()">
+                                    <label for="file-${index}">
+                                        <i class="codicon codicon-file"></i>
+                                        ${file.name}
+                                    </label>
+                                </div>
+                            `
+                                )
+                                .join("")}
+                        </div>
+                    </div>
+
+                    <div class="export-path">
+                        <div class="path-display" id="exportPath">No export location selected</div>
+                        <button class="secondary" onclick="selectExportPath()">
+                            <i class="codicon codicon-folder"></i>
+                            Select Location
+                        </button>
+                    </div>
+
                     <div class="button-container">
                         <button class="secondary" onclick="cancel()">Cancel</button>
                         <button id="exportButton" disabled onclick="exportProject()">Export</button>
@@ -167,6 +291,8 @@ function getWebviewContent(sourceLanguage?: any, targetLanguage?: any, codiconsU
             <script>
                 const vscode = acquireVsCodeApi();
                 let selectedFormat = null;
+                let exportPath = null;
+                let selectedFiles = new Set(${JSON.stringify(codexFiles.filter((f) => f.selected).map((f) => f.path))});
 
                 // Add click handlers to format options
                 document.querySelectorAll('.format-option').forEach(option => {
@@ -174,25 +300,66 @@ function getWebviewContent(sourceLanguage?: any, targetLanguage?: any, codiconsU
                         document.querySelectorAll('.format-option').forEach(opt => opt.classList.remove('selected'));
                         option.classList.add('selected');
                         selectedFormat = option.dataset.format;
-                        document.getElementById('exportButton').disabled = !selectedFormat;
+                        updateExportButton();
                     });
                 });
 
+                function updateExportButton() {
+                    const exportButton = document.getElementById('exportButton');
+                    exportButton.disabled = !selectedFormat || !exportPath || selectedFiles.size === 0;
+                }
+
+                function toggleAllFiles() {
+                    const checkboxes = document.querySelectorAll('.files-list input[type="checkbox"]');
+                    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                    
+                    checkboxes.forEach(checkbox => {
+                        checkbox.checked = !allChecked;
+                        if (!allChecked) {
+                            selectedFiles.add(checkbox.value);
+                        } else {
+                            selectedFiles.delete(checkbox.value);
+                        }
+                    });
+                    
+                    updateExportButton();
+                }
+
+                function updateFileSelection() {
+                    selectedFiles.clear();
+                    document.querySelectorAll('.files-list input[type="checkbox"]:checked').forEach(checkbox => {
+                        selectedFiles.add(checkbox.value);
+                    });
+                    updateExportButton();
+                }
+
+                function selectExportPath() {
+                    vscode.postMessage({ command: 'selectExportPath' });
+                }
+
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    switch (message.command) {
+                        case 'updateExportPath':
+                            exportPath = message.path;
+                            document.getElementById('exportPath').textContent = message.path;
+                            updateExportButton();
+                            break;
+                    }
+                });
+
                 function exportProject() {
-                    if (!selectedFormat) return;
+                    if (!selectedFormat || !exportPath || selectedFiles.size === 0) return;
                     vscode.postMessage({
                         command: 'export',
                         format: selectedFormat,
-                        options: {} // Add any additional options here
+                        userSelectedPath: exportPath,
+                        filesToExport: Array.from(selectedFiles)
                     });
                 }
 
                 function cancel() {
                     vscode.postMessage({ command: 'cancel' });
-                }
-
-                function openSettings() {
-                    vscode.postMessage({ command: 'generate' });
                 }
             </script>
         </body>

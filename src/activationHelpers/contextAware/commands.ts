@@ -18,7 +18,7 @@ import {
     getBibleDataRecordById as getBibleDataRecordById,
     TheographicBibleDataRecord,
 } from "./sourceData";
-import { exportCodexContent } from "../../commands/exportHandler";
+import { CodexExportFormat, exportCodexContent } from "../../commands/exportHandler";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
@@ -139,7 +139,17 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
     const exportCodexContentCommand = vscode.commands.registerCommand(
         "codex-editor-extension.exportCodexContent",
-        exportCodexContent
+        async ({
+            format,
+            userSelectedPath,
+            filesToExport,
+        }: {
+            format: CodexExportFormat;
+            userSelectedPath: string;
+            filesToExport: string[];
+        }) => {
+            await exportCodexContent(format, userSelectedPath, filesToExport);
+        }
     );
 
     const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
