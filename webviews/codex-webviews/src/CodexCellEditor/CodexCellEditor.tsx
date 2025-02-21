@@ -26,6 +26,7 @@ import { generateVttData } from "./utils/vttUtils";
 import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 import { initializeStateStore } from "../../../../src/stateStore";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
+import { generateSubtitleData } from "./utils/subtitleUtils";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -356,11 +357,19 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
-    const handleExportVtt = () => {
-        const subtitleData = generateVttData(translationUnitsWithCurrentEditorContent);
+    const handleExportSubtitles = (format: string, includeStyles: boolean) => {
+        const subtitleData = generateSubtitleData(
+            translationUnitsWithCurrentEditorContent,
+            format,
+            includeStyles
+        );
         vscode.postMessage({
-            command: "exportVttFile",
-            content: { subtitleData },
+            command: "exportFile",
+            content: {
+                subtitleData,
+                format,
+                includeStyles,
+            },
         } as EditorPostMessages);
     };
 
@@ -449,7 +458,7 @@ const CodexCellEditor: React.FC = () => {
                         onSaveMetadata={handleSaveMetadata}
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
-                        handleExportVtt={handleExportVtt}
+                        handleExportVtt={handleExportSubtitles}
                         toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                         scrollSyncEnabled={scrollSyncEnabled}
                     />
