@@ -193,19 +193,7 @@ export default function Editor(props: EditorProps) {
                     if (props.onChange) {
                         const cleanedContents = getCleanedHtml(content);
 
-                        // New function to remove excessive empty paragraphs and line breaks and &nbsp; (of both kinds) which appear inconsistently
-                        const removeExcessiveEmptyTags = (html: string) => {
-                            return html
-                                .replace(/<p><br><\/p>/g, "<p></p>") // Replace <p><br></p> with <p></p>
-                                .replace(/<p><\/p>(\s*<p><\/p>)+/g, "<p></p>") // Remove consecutive empty paragraphs
-                                .replace(/^(\s*<p><\/p>)+/, "") // Remove leading empty paragraphs
-                                .replace(/(\s*<p><\/p>)+$/, "") // Remove trailing empty paragraphs
-                                .replace(/&nbsp; ?/g, " ");
-                        };
-
-                        const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
-
-                        const arrayOfParagraphs = trimmedContent
+                        const arrayOfParagraphs = cleanedContents
                             .trim()
                             .split("</p>")
                             .map((p) => p.trim())
