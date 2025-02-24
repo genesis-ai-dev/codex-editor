@@ -5,12 +5,13 @@ import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import * as fs from "fs";
 import * as path from "path";
+import PDFDocument from "pdfkit/js/pdfkit.standalone";
 import { getProjectMetadata } from "../utils";
 import { LanguageProjectStatus } from "codex-types";
 import { CodexNotebookAsJSONData } from "../../types";
 
 // Debug flag
-const DEBUG = false;
+const DEBUG = true;
 
 // Custom debug function
 function debug(...args: any[]) {
@@ -23,6 +24,7 @@ export enum CodexExportFormat {
     PLAINTEXT = "plaintext",
     USFM = "usfm",
     HTML = "html",
+    PDF = "pdf",
 }
 
 export async function exportCodexContent(
@@ -39,6 +41,9 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.HTML:
             await exportCodexContentAsHtml(userSelectedPath, filesToExport);
+            break;
+        case CodexExportFormat.PDF:
+            await exportCodexContentAsPdf(userSelectedPath, filesToExport);
             break;
     }
 }
@@ -83,12 +88,12 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
                     await Promise.all(
                         batch.map(async (file, batchIndex) => {
                             const fileIndex = i + batchIndex;
-                    progress.report({
+                            progress.report({
                                 message: `Processing file ${fileIndex + 1}/${selectedFiles.length}`,
                                 increment: increment,
-                    });
+                            });
 
-                    debug(`Processing file: ${file.fsPath}`);
+                            debug(`Processing file: ${file.fsPath}`);
 
                             // Read and parse the file directly instead of opening as notebook
                             const rawFileContent = await vscode.workspace.fs.readFile(file);
@@ -96,55 +101,55 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
                                 new TextDecoder().decode(rawFileContent)
                             ) as CodexNotebookAsJSONData;
                             const cells = notebookData.cells;
-                    debug(`File has ${cells.length} cells`);
+                            debug(`File has ${cells.length} cells`);
 
                             let outputContent = "";
-                    let currentChapter = "";
-                    let chapterContent = "";
+                            let currentChapter = "";
+                            let chapterContent = "";
 
-                    for (const cell of cells) {
-                        totalCells++;
-                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            for (const cell of cells) {
+                                totalCells++;
+                                const cellMetadata = cell.metadata as { type: string; id: string };
 
-                            if (
-                                cellMetadata.type === "paratext" &&
+                                if (
+                                    cellMetadata.type === "paratext" &&
                                     cell.value.startsWith("<h1>")
-                            ) {
-                                debug("Found chapter heading cell");
-                                if (chapterContent) {
+                                ) {
+                                    debug("Found chapter heading cell");
+                                    if (chapterContent) {
                                         outputContent += chapterContent + "\n\n";
-                                }
+                                    }
                                     currentChapter = cell.value.replace(/<\/?h1>/g, "").trim();
-                                chapterContent = `${currentChapter}\n`;
-                                debug(`New chapter: ${currentChapter}`);
-                            } else if (cellMetadata.type === "text" && cellMetadata.id) {
-                                debug(`Processing verse cell: ${cellMetadata.id}`);
-                                const verseRef = cellMetadata.id;
+                                    chapterContent = `${currentChapter}\n`;
+                                    debug(`New chapter: ${currentChapter}`);
+                                } else if (cellMetadata.type === "text" && cellMetadata.id) {
+                                    debug(`Processing verse cell: ${cellMetadata.id}`);
+                                    const verseRef = cellMetadata.id;
                                     const verseContent = cell.value.trim();
-                                if (verseContent) {
-                                    chapterContent += `${verseRef} ${verseContent}\n`;
-                                    totalVerses++;
+                                    if (verseContent) {
+                                        chapterContent += `${verseRef} ${verseContent}\n`;
+                                        totalVerses++;
+                                    }
+                                }
                             }
-                        }
-                    }
 
-                    // Add the last chapter's content
-                    if (chapterContent) {
+                            // Add the last chapter's content
+                            if (chapterContent) {
                                 outputContent += chapterContent + "\n\n";
-                    }
+                            }
 
-                    // Write individual file
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                            // Write individual file
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
                             const fileName =
                                 basename(file.fsPath).replace(".codex", "") || "unknown";
-                    const exportFileName = `${fileName}_${timestamp}.txt`;
-                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+                            const exportFileName = `${fileName}_${timestamp}.txt`;
+                            const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
 
                             await vscode.workspace.fs.writeFile(
                                 exportFile,
                                 Buffer.from(outputContent)
                             );
-                    debug(`Export file created: ${exportFile.fsPath}`);
+                            debug(`Export file created: ${exportFile.fsPath}`);
                         })
                     );
                 }
@@ -258,7 +263,10 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                                     // Handle other paratext
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
-                            } else if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
+                            } else if (
+                                cellMetadata.type === CodexCellTypes.TEXT &&
+                                cellMetadata.id
+                            ) {
                                 // Handle verse content
                                 const verseRef = cellMetadata.id;
                                 const verseMatch = verseRef.match(/\d+$/);
@@ -600,4 +608,136 @@ async function exportCodexContentAsHtml(userSelectedPath: string, filesToExport:
     }
 }
 
-// TODO: Add an html export - one file per chapter.. perhaps a default css file if needed. last part of id as superscript. Only show ids on TEXT rather than PARATEXT cells.
+async function exportCodexContentAsPdf(userSelectedPath: string, filesToExport: string[]) {
+    try {
+        debug("Starting exportCodexContentAsPdf function");
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        // Get extension version for metadata
+        const extension = vscode.extensions.getExtension(
+            "project-accelerate.codex-editor-extension"
+        );
+        const extensionVersion = extension?.packageJSON?.version || "unknown";
+        const exportDate = new Date().toISOString();
+
+        // Filter codex files based on user selection
+        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
+        if (selectedFiles.length === 0) {
+            vscode.window.showInformationMessage("No files selected for export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Codex Content as PDF",
+                cancellable: false,
+            },
+            async (progress) => {
+                let totalVerses = 0;
+                const increment = 100 / selectedFiles.length;
+
+                // Create export directory if it doesn't exist
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                for (const [index, file] of selectedFiles.entries()) {
+                    progress.report({
+                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                        increment,
+                    });
+
+                    const notebookDocument = await vscode.workspace.openNotebookDocument(file);
+                    const cells = notebookDocument.getCells();
+                    const bookCode = basename(file.fsPath).split(".")[0] || "";
+
+                    // Initialize PDF document with minimal settings first
+                    const doc = new PDFDocument({
+                        size: "letter",
+                        margin: 72,
+                        info: {
+                            Title: bookCode,
+                            Author: "Codex Translation Editor",
+                            Producer: `Codex Translation Editor v${extensionVersion}`,
+                            CreationDate: new Date(),
+                        },
+                    });
+
+                    // Create write stream
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const exportFileName = `${bookCode}_${timestamp}.pdf`;
+                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+                    const writeStream = fs.createWriteStream(exportFile.fsPath);
+                    doc.pipe(writeStream);
+
+                    // Add header
+                    doc.fontSize(24).text(bookCode, { align: "center" }).moveDown(2);
+
+                    let currentChapter = "";
+
+                    for (const cell of cells) {
+                        if (cell.kind === vscode.NotebookCellKind.Code) {
+                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            const cellContent = cell.document.getText().trim();
+
+                            if (!cellContent) continue;
+
+                            if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
+                                const verseRef = cellMetadata.id;
+                                const [, chapter, verse] = verseRef.match(/(\d+):(\d+)$/) || [];
+
+                                // Check for new chapter
+                                if (chapter && chapter !== currentChapter) {
+                                    currentChapter = chapter;
+                                    if (currentChapter !== "1") {
+                                        // Only add new page if not first chapter
+                                        doc.addPage();
+                                    }
+                                    doc.fontSize(20)
+                                        .text(`Chapter ${chapter}`, { align: "center" })
+                                        .moveDown(1);
+                                }
+
+                                // Add verse content
+                                doc.fontSize(8)
+                                    .text(`${verse}`, { continued: true })
+                                    .fontSize(12)
+                                    .text(` ${cellContent}`)
+                                    .moveDown(0.5);
+
+                                totalVerses++;
+                            }
+                        }
+                    }
+
+                    // Add metadata to the last page
+                    doc.addPage()
+                        .fontSize(10)
+                        .text(`Exported from Codex Translation Editor v${extensionVersion}`)
+                        .text(`Export Date: ${exportDate}`)
+                        .text(`Source File: ${file.fsPath}`);
+
+                    // End the document
+                    doc.end();
+
+                    // Wait for the write to complete
+                    await new Promise((resolve, reject) => {
+                        writeStream.on("finish", resolve);
+                        writeStream.on("error", reject);
+                    });
+                }
+
+                vscode.window.showInformationMessage(
+                    `PDF Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
+                );
+            }
+        );
+    } catch (error) {
+        console.error("PDF Export failed:", error);
+        vscode.window.showErrorMessage(`PDF Export failed: ${error}`);
+    }
+}

@@ -1179,6 +1179,7 @@
     "dependencies": {
         "@types/better-sqlite3": "^7.6.11",
         "@types/csv-parse": "^1.2.5",
+        "@types/pdfkit": "^0.13.9",
         "@types/xml2js": "^0.4.14",
         "@vscode/codicons": "^0.0.36",
         "@vscode/python-extension": "^1.0.5",
@@ -1204,6 +1205,7 @@
         "moment": "^2.30.1",
         "openai": "^4.67.3",
         "path": "^0.12.7",
+        "pdfkit": "^0.16.0",
         "pnpm": "^8.15.5",
         "proc-log": "^5.0.0",
         "react-wordcloud": "^1.2.7",

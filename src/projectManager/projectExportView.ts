@@ -81,6 +81,7 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                     );
                     panel.dispose();
                 } catch (error) {
+                    console.error(error);
                     vscode.window.showErrorMessage(
                         "Failed to export project. Please check your configuration."
                     );
@@ -223,6 +224,16 @@ function getWebviewContent(
                     flex: 1;
                     margin-right: 8px;
                 }
+                .format-options {
+                    display: flex;
+                    gap: 1rem;
+                    margin-bottom: 1rem;
+                    flex-wrap: wrap;
+                }
+                .format-option {
+                    flex: 1;
+                    min-width: 200px;
+                }
             </style>
         </head>
         <body>
@@ -231,26 +242,33 @@ function getWebviewContent(
                     hasLanguages
                         ? `
                     <h3>Select Export Format</h3>
-                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="format-option" data-format="plaintext" style="flex: 1;">
+                    <div class="format-options">
+                        <div class="format-option" data-format="plaintext">
                             <i class="codicon codicon-file-text"></i>
                             <div>
                                 <strong>Plaintext</strong>
                                 <p>Export as plain text files with minimal formatting</p>
                             </div>
                         </div>
-                        <div class="format-option" data-format="usfm" style="flex: 1;">
+                        <div class="format-option" data-format="usfm">
                             <i class="codicon codicon-file-code"></i>
                             <div>
                                 <strong>USFM</strong>
                                 <p>Export in Universal Standard Format Markers</p>
                             </div>
                         </div>
-                        <div class="format-option" data-format="html" style="flex: 1;">
+                        <div class="format-option" data-format="html">
                             <i class="codicon codicon-browser"></i>
                             <div>
                                 <strong>HTML</strong>
                                 <p>Export as web pages with chapter navigation</p>
+                            </div>
+                        </div>
+                        <div class="format-option" data-format="pdf">
+                            <i class="codicon codicon-file-pdf"></i>
+                            <div>
+                                <strong>PDF</strong>
+                                <p>Export as formatted PDF with proper typography</p>
                             </div>
                         </div>
                     </div>

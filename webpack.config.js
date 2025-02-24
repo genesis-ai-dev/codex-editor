@@ -105,6 +105,10 @@ const extensionConfig = {
                     from: "node_modules/sql.js/dist/sql-wasm.wasm",
                     to: "sql-wasm.wasm",
                 },
+                {
+                    from: "src/assets/Helvetica.afm",
+                    to: "data/Helvetica.afm",
+                },
             ],
         }),
     ],
