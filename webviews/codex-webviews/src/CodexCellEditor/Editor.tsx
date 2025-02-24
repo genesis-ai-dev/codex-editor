@@ -7,6 +7,8 @@ import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import React from "react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+import ReactPlayer from "react-player";
+import { diffWords } from "diff";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -360,6 +362,22 @@ export default function Editor(props: EditorProps) {
         }
     }, [headerLabel]);
 
+    // Add function to generate diff HTML
+    const generateDiffHtml = (oldText: string, newText: string): string => {
+        const diff = diffWords(oldText, newText);
+        return diff
+            .map((part) => {
+                if (part.added) {
+                    return `<span style="background-color: var(--vscode-diffEditor-insertedTextBackground); text-decoration: none;">${part.value}</span>`;
+                }
+                if (part.removed) {
+                    return `<span style="background-color: var(--vscode-diffEditor-removedTextBackground); text-decoration: line-through;">${part.value}</span>`;
+                }
+                return part.value;
+            })
+            .join("");
+    };
+
     return (
         <>
             <div className="editor-container">
@@ -407,39 +425,44 @@ export default function Editor(props: EditorProps) {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                         {editHistoryForCell && editHistoryForCell.length > 0 ? (
-                            [...editHistoryForCell].reverse().map((entry, index) => (
-                                <div
-                                    key={index}
-                                    style={{
-                                        padding: "8px",
-                                        border: "1px solid var(--vscode-editor-foreground)",
-                                        borderRadius: "4px",
-                                    }}
-                                >
+                            [...editHistoryForCell].reverse().map((entry, index, array) => {
+                                const previousEntry = array[index + 1];
+                                const diffHtml = previousEntry
+                                    ? generateDiffHtml(previousEntry.cellValue, entry.cellValue)
+                                    : entry.cellValue;
+
+                                return (
                                     <div
+                                        key={index}
                                         style={{
-                                            marginBottom: "4px",
-                                            fontSize: "0.9em",
-                                            color: "var(--vscode-descriptionForeground)",
+                                            padding: "8px",
+                                            border: "1px solid var(--vscode-editor-foreground)",
+                                            borderRadius: "4px",
                                         }}
                                     >
-                                        {new Date(entry.timestamp).toLocaleString()} by{" "}
-                                        {entry.author}
-                                    </div>
-                                    <div style={{ marginBottom: "8px" }}>
                                         <div
                                             style={{
-                                                whiteSpace: "pre-wrap",
-                                                backgroundColor:
-                                                    "var(--vscode-editor-findMatchHighlightBackground)",
-                                                padding: "4px",
-                                                borderRadius: "2px",
+                                                marginBottom: "4px",
+                                                fontSize: "0.9em",
+                                                color: "var(--vscode-descriptionForeground)",
                                             }}
-                                            dangerouslySetInnerHTML={{ __html: entry.cellValue }}
-                                        />
+                                        >
+                                            {new Date(entry.timestamp).toLocaleString()} by {entry.author}
+                                        </div>
+                                        <div style={{ marginBottom: "8px" }}>
+                                            <div
+                                                style={{
+                                                    whiteSpace: "pre-wrap",
+                                                    backgroundColor: "var(--vscode-editor-findMatchHighlightBackground)",
+                                                    padding: "4px",
+                                                    borderRadius: "2px",
+                                                }}
+                                                dangerouslySetInnerHTML={{ __html: diffHtml }}
+                                            />
+                                        </div>
                                     </div>
-                                </div>
-                            ))
+                                );
+                            })
                         ) : (
                             <div
                                 style={{
