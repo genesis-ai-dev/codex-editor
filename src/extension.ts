@@ -119,6 +119,13 @@ export async function activate(context: vscode.ExtensionContext) {
             registerLookupWordCommand(global.db, context);
             ingestJsonlDictionaryEntries(global.db);
         }
+        
+        context.subscriptions.push(
+            vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
+                stageAndCommitAllAndSync(message);
+            })
+        );  
+
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
