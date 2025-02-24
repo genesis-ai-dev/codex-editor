@@ -3,6 +3,11 @@ import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
+import * as fs from "fs";
+import * as path from "path";
+import { getProjectMetadata } from "../utils";
+import { LanguageProjectStatus } from "codex-types";
+import { CodexNotebookAsJSONData } from "../../types";
 
 // Debug flag
 const DEBUG = false;
@@ -71,71 +76,77 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
                 const exportFolder = vscode.Uri.file(userSelectedPath);
                 await vscode.workspace.fs.createDirectory(exportFolder);
 
-                // Process each selected file
-                for (const [index, file] of selectedFiles.entries()) {
+                // Process files in parallel batches to improve performance
+                const BATCH_SIZE = 5; // Process 5 files at a time
+                for (let i = 0; i < selectedFiles.length; i += BATCH_SIZE) {
+                    const batch = selectedFiles.slice(i, i + BATCH_SIZE);
+                    await Promise.all(
+                        batch.map(async (file, batchIndex) => {
+                            const fileIndex = i + batchIndex;
                     progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
-                        increment,
+                                message: `Processing file ${fileIndex + 1}/${selectedFiles.length}`,
+                                increment: increment,
                     });
 
                     debug(`Processing file: ${file.fsPath}`);
-                    const notebookDocument = await vscode.workspace.openNotebookDocument(file);
-                    const cells = notebookDocument.getCells();
+
+                            // Read and parse the file directly instead of opening as notebook
+                            const rawFileContent = await vscode.workspace.fs.readFile(file);
+                            const notebookData = JSON.parse(
+                                new TextDecoder().decode(rawFileContent)
+                            ) as CodexNotebookAsJSONData;
+                            const cells = notebookData.cells;
                     debug(`File has ${cells.length} cells`);
 
-                    let fileContent = "";
+                            let outputContent = "";
                     let currentChapter = "";
                     let chapterContent = "";
 
                     for (const cell of cells) {
                         totalCells++;
-                        if (cell.kind === vscode.NotebookCellKind.Code) {
                             const cellMetadata = cell.metadata as { type: string; id: string };
 
                             if (
                                 cellMetadata.type === "paratext" &&
-                                cell.document.getText().startsWith("<h1>")
+                                    cell.value.startsWith("<h1>")
                             ) {
                                 debug("Found chapter heading cell");
                                 if (chapterContent) {
-                                    fileContent += chapterContent + "\n\n";
+                                        outputContent += chapterContent + "\n\n";
                                 }
-                                currentChapter = cell.document
-                                    .getText()
-                                    .replace(/<\/?h1>/g, "")
-                                    .trim();
+                                    currentChapter = cell.value.replace(/<\/?h1>/g, "").trim();
                                 chapterContent = `${currentChapter}\n`;
                                 debug(`New chapter: ${currentChapter}`);
                             } else if (cellMetadata.type === "text" && cellMetadata.id) {
                                 debug(`Processing verse cell: ${cellMetadata.id}`);
                                 const verseRef = cellMetadata.id;
-                                const verseContent = cell.document.getText().trim();
+                                    const verseContent = cell.value.trim();
                                 if (verseContent) {
                                     chapterContent += `${verseRef} ${verseContent}\n`;
                                     totalVerses++;
-                                }
                             }
                         }
                     }
 
                     // Add the last chapter's content
                     if (chapterContent) {
-                        fileContent += chapterContent + "\n\n";
+                                outputContent += chapterContent + "\n\n";
                     }
 
                     // Write individual file
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
+                            const fileName =
+                                basename(file.fsPath).replace(".codex", "") || "unknown";
                     const exportFileName = `${fileName}_${timestamp}.txt`;
                     const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
 
-                    progress.report({
-                        message: `Writing file ${index + 1}/${selectedFiles.length}...`,
-                        increment: 0,
-                    });
-
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(fileContent));
+                            await vscode.workspace.fs.writeFile(
+                                exportFile,
+                                Buffer.from(outputContent)
+                            );
                     debug(`Export file created: ${exportFile.fsPath}`);
+                        })
+                    );
                 }
 
                 debug(`Total cells processed: ${totalCells}`);
