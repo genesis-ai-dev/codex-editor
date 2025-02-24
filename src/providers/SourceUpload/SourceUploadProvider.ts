@@ -26,7 +26,6 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
-import { TranslationPairsImportTransaction } from "../../transactions/TranslationPairsImportTransaction";
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -196,36 +195,12 @@ export class SourceUploadProvider
                         try {
                             if (Array.isArray(message.files)) {
                                 // For translation pairs, we need to handle the file differently
-                                if (message.files[0].name.match(/\.(csv|tsv|tab)$/i)) {
-                                    const tempUri = await this.saveUploadedFile(
-                                        message.files[0].content,
-                                        message.files[0].name
-                                    );
 
-                                    // Create a new TranslationPairsImportTransaction
-                                    const transaction = new TranslationPairsImportTransaction(
-                                        tempUri
-                                    );
-
-                                    // Get headers for column mapping
-                                    const { headers } = await transaction.prepare();
-                                    debug("headers", headers);
-
-                                    // Send headers back to webview for column mapping
-                                    webviewPanel.webview.postMessage({
-                                        command: "fileHeaders",
-                                        headers,
-                                    } as SourceUploadResponseMessages);
-
-                                    // Store the transaction
-                                    // this.currentTranslationPairsTransaction = transaction;
-                                } else {
-                                    await this.handleMultipleSourceImports(
-                                        webviewPanel,
-                                        message.files,
-                                        _token
-                                    );
-                                }
+                                await this.handleMultipleSourceImports(
+                                    webviewPanel,
+                                    message.files,
+                                    _token
+                                );
                             }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
