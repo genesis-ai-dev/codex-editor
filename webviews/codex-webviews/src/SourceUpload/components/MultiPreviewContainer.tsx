@@ -38,7 +38,7 @@ const renderPreview = (preview: PreviewContent) => {
     }
     return null;
 };
-const DEBUG = true;
+const DEBUG = false;
 const debug = function (...args: any[]) {
     if (DEBUG) {
         console.log("[MultiPreviewContainer]", ...args);

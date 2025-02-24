@@ -16,7 +16,7 @@ interface PreviewAccordionProps {
     selectedId?: string;
 }
 
-const DEBUG = true;
+const DEBUG = false;
 const debug = function (...args: any[]) {
     if (DEBUG) {
         console.log("[PreviewAccordion]", ...args);
@@ -55,12 +55,7 @@ export const PreviewAccordion: React.FC<PreviewAccordionProps> = ({
                     />
                 );
             case "translation-pairs":
-                return (
-                    <TranslationPairPreview
-                        preview={preview.preview}
-                        hideActions
-                    />
-                );
+                return <TranslationPairPreview preview={preview.preview} hideActions />;
             default:
                 return <div>Unsupported preview type: {preview.preview.type}</div>;
         }

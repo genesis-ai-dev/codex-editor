@@ -14,7 +14,7 @@ interface TranslationPreviewProps {
     hideActions?: boolean;
 }
 
-const DEBUG = true;
+const DEBUG = false;
 const debug = function (...args: any[]) {
     if (DEBUG) {
         console.log("[TranslationPairPreview]", ...args);

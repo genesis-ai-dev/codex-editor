@@ -33,7 +33,7 @@ type CellAligner = (
     importedContent: ImportedContent[]
 ) => Promise<AlignedCell[]>;
 
-const DEBUG = true;
+const DEBUG = false;
 const debug = function (...args: any[]) {
     if (DEBUG) {
         console.log("[TranslationImportTransaction]", ...args);
