@@ -48,15 +48,7 @@ const CellList: React.FC<CellListProps> = ({
     highlightedCellId,
     scrollSyncEnabled,
 }) => {
-    const [nextEmptyCellIndex, setNextEmptyCellIndex] = useState<number>(0);
     const numberOfEmptyCellsToRender = 1;
-
-    // Reset nextEmptyCellIndex when display mode changes
-    useEffect(() => {
-        if (cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL) {
-            setNextEmptyCellIndex(0);
-        }
-    }, [cellDisplayMode]);
 
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -232,23 +224,26 @@ const CellList: React.FC<CellListProps> = ({
                 // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
                 if (
                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
-                    (emptyCellsRendered < numberOfEmptyCellsToRender && i >= nextEmptyCellIndex)
+                    translationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
+                    i === 0
                 ) {
-                    result.push(
-                        <EmptyCellDisplay
-                            key={cellMarkers.join(" ")}
-                            cellMarkers={cellMarkers}
-                            cellLabel={cellLabel || i.toString()}
-                            setContentBeingUpdated={setContentBeingUpdated}
-                            textDirection={textDirection}
-                            vscode={vscode}
-                            openCellById={openCellById}
-                        />
-                    );
+                    const emptyCellDisplay =
+                        cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? (
+                            <EmptyCellDisplay
+                                key={cellMarkers.join(" ")}
+                                cellMarkers={cellMarkers}
+                                cellLabel={cellLabel || i.toString()}
+                                setContentBeingUpdated={setContentBeingUpdated}
+                                textDirection={textDirection}
+                                vscode={vscode}
+                                openCellById={openCellById}
+                            />
+                        ) : (
+                            <span style={{ display: "inline-block", width: "15px" }}>...</span>
+                        );
+
+                    result.push(emptyCellDisplay);
                     emptyCellsRendered++;
-                    if (cellDisplayMode === CELL_DISPLAY_MODES.INLINE) {
-                        setNextEmptyCellIndex(i + 1);
-                    }
                 }
                 groupStartIndex = i + 1;
             } else {
@@ -274,7 +269,6 @@ const CellList: React.FC<CellListProps> = ({
         spellCheckResponse,
         openCellById,
         cellDisplayMode,
-        nextEmptyCellIndex,
     ]);
 
     return (
