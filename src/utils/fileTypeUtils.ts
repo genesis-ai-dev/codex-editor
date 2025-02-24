@@ -9,6 +9,7 @@ const fileTypeMap: FileTypeMap = {
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",
+    codex: "codex",
 };
 
 export function getFileType(fileUri: vscode.Uri): FileType {

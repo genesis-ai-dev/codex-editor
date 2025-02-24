@@ -1,16 +1,22 @@
 import * as vscode from "vscode";
-import { ValidationResult, ValidationError, SourceFileValidationOptions, FileTypeMap } from "../../types";
+import {
+    ValidationResult,
+    ValidationError,
+    SourceFileValidationOptions,
+    FileTypeMap,
+} from "../../types";
 import { ValidationErrorCode } from "../../types/enums";
 const DEFAULT_OPTIONS: SourceFileValidationOptions = {
     maxFileSizeBytes: 50 * 1024 * 1024, // 50MB
     supportedExtensions: {
         vtt: "subtitles",
-        txt: "plaintext", 
+        txt: "plaintext",
         usfm: "usfm",
         usx: "usx",
         sfm: "usfm",
         SFM: "usfm",
-        USFM: "usfm"
+        USFM: "usfm",
+        codex: "codex",
     },
     minDiskSpaceBytes: 100 * 1024 * 1024, // 100MB
 };
