@@ -217,47 +217,48 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
                     const bookCode = basename(file.fsPath).split(".")[0] || "";
 
-                    // Add metadata as USFM comments
+                    // Add required USFM headers in correct order
+                    usfmContent += `\\id ${bookCode}\n`;
                     usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
                     usfmContent += `\\rem Export Date: ${exportDate}\n`;
                     usfmContent += `\\rem Source File: ${file.fsPath}\n\n`;
+                    usfmContent += `\\h ${bookCode}\n`;
+                    usfmContent += `\\mt ${bookCode}\n\n`;
 
-                    // Add USFM header
-                    usfmContent += `\\id ${bookCode}\n\\h ${bookCode}\n\\mt ${bookCode}\n\n`;
-
+                    let currentChapter = "";
                     let chapterContent = "";
-                    let lastChapter = "";
 
                     for (const cell of cells) {
                         totalCells++;
                         if (cell.kind === vscode.NotebookCellKind.Code) {
                             const cellMetadata = cell.metadata as { type: string; id: string };
-                            const cellContent = cell.document.getText().trim();
+                            let cellContent = cell.document.getText().trim();
 
                             if (!cellContent) continue;
 
+                            // Convert HTML tags to USFM markers
+                            cellContent = cellContent
+                                .replace(/<\/?span>/g, "") // Remove span tags
+                                .replace(/<\/?h1>/g, "") // Remove h1 tags
+                                .replace(/<\/?em>/g, "\\em ") // Convert em to USFM emphasis
+                                .replace(/<\/?strong>/g, "\\bd "); // Convert strong to USFM bold
+
                             if (cellMetadata.type === CodexCellTypes.PARATEXT) {
                                 // Handle chapter headings
-                                if (cellContent.startsWith("<h1>")) {
-                                    const chapterTitle = cellContent.replace(/<\/?h1>/g, "").trim();
-                                    const chapterMatch = chapterTitle.match(/Chapter (\d+)/i);
+                                if (cellContent.startsWith("Chapter")) {
+                                    const chapterMatch = cellContent.match(/Chapter (\d+)/i);
                                     if (chapterMatch) {
-                                        if (lastChapter !== "") {
+                                        if (currentChapter !== "") {
                                             usfmContent += chapterContent + "\n";
                                         }
-                                        lastChapter = chapterMatch[1];
+                                        currentChapter = chapterMatch[1];
                                         chapterContent = `\\c ${chapterMatch[1]}\n\\p\n`;
-                                    } else {
-                                        chapterContent += `\\p ${cellContent}\n`;
                                     }
                                 } else {
                                     // Handle other paratext
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
-                            } else if (
-                                cellMetadata.type === CodexCellTypes.TEXT &&
-                                cellMetadata.id
-                            ) {
+                            } else if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
                                 // Handle verse content
                                 const verseRef = cellMetadata.id;
                                 const verseMatch = verseRef.match(/\d+$/);
@@ -279,11 +280,6 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
                     const exportFileName = `${bookCode}_${timestamp}.usfm`;
                     const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
-
-                    progress.report({
-                        message: `Writing file ${index + 1}/${selectedFiles.length}...`,
-                        increment: 0,
-                    });
 
                     await vscode.workspace.fs.writeFile(exportFile, Buffer.from(usfmContent));
                     debug(`Export file created: ${exportFile.fsPath}`);
