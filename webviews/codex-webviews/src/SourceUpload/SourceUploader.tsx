@@ -260,6 +260,7 @@ export const SourceUploader: React.FC = () => {
     );
 
     const handleCancel = useCallback(() => {
+        debug("handleCancel in webview", { workflow });
         setWorkflow((prev) => {
             // For Bible download, preserve the language selection
             if (prev.importType === "bible-download" && prev.bibleDownload?.language) {
@@ -431,6 +432,7 @@ export const SourceUploader: React.FC = () => {
                         files: filesWithSourceIds,
                     } as SourceUploadPostMessages);
                 } else {
+                    debug("uploading source files", { files });
                     // Handle source files
                     vscode.postMessage({
                         command: "uploadSourceText",
@@ -615,22 +617,30 @@ export const SourceUploader: React.FC = () => {
                                 debug({ mapping });
                                 readString(workflow.fileContent || "", {
                                     header: mapping.hasHeaders,
-                                    complete: (results: ParseResult<{ [key: string]: string }>) => {
+                                    complete: (
+                                        results: ParseResult<{ [key: string | number]: string }>
+                                    ) => {
                                         debug({ results });
                                         const defaultIdColumn = "id";
                                         mapping.idColumn = mapping.idColumn || defaultIdColumn;
-                                        const rowsWithIds = results.data.map((row, index) => {
-                                            return {
-                                                ...row,
-                                                [mapping.idColumn || defaultIdColumn]:
-                                                    row[mapping.idColumn || defaultIdColumn] ||
-                                                    generateCellId(
-                                                        workflow.fileObjects[0].name,
-                                                        1,
-                                                        index + 1
-                                                    ),
-                                            };
-                                        });
+                                        interface Row {
+                                            [key: string]: string;
+                                        }
+
+                                        const rowsWithIds: Row[] = results.data.map(
+                                            (row, index) => {
+                                                return {
+                                                    ...row,
+                                                    [mapping.idColumn || defaultIdColumn]:
+                                                        row[mapping.idColumn || defaultIdColumn] ||
+                                                        generateCellId(
+                                                            workflow.fileObjects[0].name,
+                                                            1,
+                                                            index + 1
+                                                        ),
+                                                };
+                                            }
+                                        );
                                         debug("rowsWithIds", { rowsWithIds });
 
                                         const sourceCells = rowsWithIds
@@ -640,27 +650,49 @@ export const SourceUploader: React.FC = () => {
                                                     row[mapping.targetColumn] &&
                                                     !(row[mapping.idColumn || ""] === "")
                                             )
-                                            .map((row, index) => ({
-                                                value: row[mapping.sourceColumn],
-                                                metadata: {
-                                                    id:
-                                                        row[mapping.idColumn || ""] ||
-                                                        generateCellId(
-                                                            workflow.fileObjects[0].name,
-                                                            1,
-                                                            index + 1
+                                            .map((row, index) => {
+                                                debug({
+                                                    value: row[mapping.sourceColumn],
+                                                    metadata: {
+                                                        id:
+                                                            row[mapping.idColumn || ""] ||
+                                                            generateCellId(
+                                                                workflow.fileObjects[0].name,
+                                                                1,
+                                                                index + 1
+                                                            ),
+                                                        type: "source",
+                                                        otherFields: mapping.metadataColumns.reduce(
+                                                            (acc, column) => {
+                                                                acc[column] = row[column] || "";
+                                                                return acc;
+                                                            },
+                                                            {} as Record<string, string>
                                                         ),
-                                                    type: "source",
-                                                    otherFields: mapping.metadataColumns.reduce(
-                                                        (acc, column) => {
-                                                            acc[column] = row[column] || "";
-                                                            return acc;
-                                                        },
-                                                        {} as Record<string, string>
-                                                    ),
-                                                },
-                                            }));
-
+                                                    },
+                                                });
+                                                return {
+                                                    value: row[mapping.sourceColumn],
+                                                    metadata: {
+                                                        id:
+                                                            row[mapping.idColumn || ""] ||
+                                                            generateCellId(
+                                                                workflow.fileObjects[0].name,
+                                                                1,
+                                                                index + 1
+                                                            ),
+                                                        type: "source",
+                                                        otherFields: mapping.metadataColumns.reduce(
+                                                            (acc, column) => {
+                                                                acc[column] = row[column] || "";
+                                                                return acc;
+                                                            },
+                                                            {} as Record<string, string>
+                                                        ),
+                                                    },
+                                                };
+                                            });
+                                        debug({ sourceCells });
                                         const targetCells = sourceCells.map((cell) => {
                                             const targetRow = rowsWithIds.find(
                                                 (row) =>
@@ -927,6 +959,10 @@ export const SourceUploader: React.FC = () => {
                     );
                 }
 
+                debug("webview", {
+                    workflow,
+                });
+
                 // For source and translation imports, show multiple previews
                 return (
                     <MultiPreviewContainer
@@ -973,12 +1009,26 @@ export const SourceUploader: React.FC = () => {
                             vscode.postMessage(message);
                         }}
                         onCancel={() => {
-                            vscode.postMessage({
-                                command:
-                                    workflow.importType === "translation"
-                                        ? "cancelTranslationImport"
-                                        : "cancelSourceImport",
-                            });
+                            if (workflow.importType === "translation-pairs") {
+                                setWorkflow((prev) => {
+                                    // For other cases, reset to initial state
+                                    return {
+                                        ...prev,
+                                        step: "select",
+                                        importType: "translation-pairs",
+                                        error: undefined,
+                                        bibleDownload: undefined,
+                                        previews: [],
+                                    };
+                                });
+                            } else {
+                                vscode.postMessage({
+                                    command:
+                                        workflow.importType === "translation"
+                                            ? "cancelTranslationImport"
+                                            : "cancelSourceImport",
+                                });
+                            }
                         }}
                         onRejectPreview={(id) => {
                             setWorkflow((prev) => ({
@@ -1171,7 +1221,7 @@ export const SourceUploader: React.FC = () => {
     }, [setWorkflow]);
 
     return (
-        <VSCodePanels style={{height: "100vh" }}>
+        <VSCodePanels style={{ height: "100vh" }}>
             <VSCodePanelTab id="setup">Project Setup</VSCodePanelTab>
             <VSCodePanelView id="setup-view">
                 <div className="workflow-container">

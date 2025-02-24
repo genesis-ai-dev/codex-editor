@@ -79,14 +79,14 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
             </p>
 
             <div className="form-group">
-                <label className="checkbox-label">
+                {/* <label className="checkbox-label">
                     <input
                         type="checkbox"
                         checked={hasHeaders}
                         onChange={(e) => setHasHeaders(e.target.checked)}
                     />
                     File has headers
-                </label>
+                </label> */}
                 <p className="help-text">
                     {hasHeaders
                         ? "The first row contains column names"

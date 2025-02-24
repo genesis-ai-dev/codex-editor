@@ -27,7 +27,7 @@ export const TranslationPairPreview: React.FC<TranslationPreviewProps> = ({
     onCancel,
     hideActions,
 }) => {
-    debug({ preview });
+    debug({ preview, hideActions });
     return (
         <div
             style={{
