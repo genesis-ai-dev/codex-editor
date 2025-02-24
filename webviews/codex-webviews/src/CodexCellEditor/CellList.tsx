@@ -48,6 +48,16 @@ const CellList: React.FC<CellListProps> = ({
     highlightedCellId,
     scrollSyncEnabled,
 }) => {
+    const [nextEmptyCellIndex, setNextEmptyCellIndex] = useState<number>(0);
+    const numberOfEmptyCellsToRender = 1;
+
+    // Reset nextEmptyCellIndex when display mode changes
+    useEffect(() => {
+        if (cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL) {
+            setNextEmptyCellIndex(0);
+        }
+    }, [cellDisplayMode]);
+
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
         const duplicates = new Set<string>();
@@ -156,6 +166,7 @@ const CellList: React.FC<CellListProps> = ({
         const result = [];
         let currentGroup = [];
         let groupStartIndex = 0;
+        let emptyCellsRendered = 0;
 
         debug("translationUnits", { translationUnits });
 
@@ -217,17 +228,28 @@ const CellList: React.FC<CellListProps> = ({
                     result.push(renderCellGroup(currentGroup, groupStartIndex));
                     currentGroup = [];
                 }
-                result.push(
-                    <EmptyCellDisplay
-                        key={cellMarkers.join(" ")}
-                        cellMarkers={cellMarkers}
-                        cellLabel={cellLabel || i.toString()}
-                        setContentBeingUpdated={setContentBeingUpdated}
-                        textDirection={textDirection}
-                        vscode={vscode}
-                        openCellById={openCellById}
-                    />
-                );
+
+                // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
+                if (
+                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
+                    (emptyCellsRendered < numberOfEmptyCellsToRender && i >= nextEmptyCellIndex)
+                ) {
+                    result.push(
+                        <EmptyCellDisplay
+                            key={cellMarkers.join(" ")}
+                            cellMarkers={cellMarkers}
+                            cellLabel={cellLabel || i.toString()}
+                            setContentBeingUpdated={setContentBeingUpdated}
+                            textDirection={textDirection}
+                            vscode={vscode}
+                            openCellById={openCellById}
+                        />
+                    );
+                    emptyCellsRendered++;
+                    if (cellDisplayMode === CELL_DISPLAY_MODES.INLINE) {
+                        setNextEmptyCellIndex(i + 1);
+                    }
+                }
                 groupStartIndex = i + 1;
             } else {
                 currentGroup.push(translationUnits[i]);
@@ -251,6 +273,8 @@ const CellList: React.FC<CellListProps> = ({
         vscode,
         spellCheckResponse,
         openCellById,
+        cellDisplayMode,
+        nextEmptyCellIndex,
     ]);
 
     return (
