@@ -33,7 +33,6 @@ export const InputCriticalProjectInfo = ({
                     setCurrentStep("target");
                     return;
                 } else if (metadata.sourceLanguage && metadata.targetLanguage) {
-                    vscode.postMessage({ command: "openSourceUpload" });
                     vscode.postMessage({
                         command: "workspace.continue",
                     } as MessagesToStartupFlowProvider);
