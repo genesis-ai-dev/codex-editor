@@ -563,6 +563,7 @@ export type EditorPostMessages =
     | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
+    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell" }
     | { command: "pickVideoFile" }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string } }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
@@ -719,7 +720,7 @@ type CustomNotebookCellData = vscode.NotebookCellData & {
     metadata: CustomCellMetaData;
 };
 
-type CustomNotebookMetadata = {
+export interface CustomNotebookMetadata {
     id: string;
     textDirection?: "ltr" | "rtl";
     perf?: any;
@@ -746,7 +747,8 @@ type CustomNotebookMetadata = {
         | "untracked"
         | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
     corpusMarker: string;
-};
+    cellDisplayMode?: "inline" | "one-line-per-cell";
+}
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
     metadata: CustomNotebookMetadata;

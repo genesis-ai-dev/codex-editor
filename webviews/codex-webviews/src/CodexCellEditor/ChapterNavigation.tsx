@@ -196,7 +196,14 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                             min="1"
                                             max={totalCellsToAutocomplete}
                                             defaultValue={Math.min(5, totalCellsToAutocomplete)}
-                                            value={customValue === 0 ? "0" : Math.min(customValue, totalCellsToAutocomplete)}
+                                            value={
+                                                customValue === 0
+                                                    ? "0"
+                                                    : Math.min(
+                                                          customValue,
+                                                          totalCellsToAutocomplete
+                                                      )
+                                            }
                                             onFocus={(e) => {
                                                 const defaultValue = Math.min(
                                                     5,
@@ -232,7 +239,10 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                                 }
                                                 const value = parseInt(inputValue);
                                                 if (!isNaN(value) && value >= 0) {
-                                                    const cappedValue = Math.min(value, totalCellsToAutocomplete);
+                                                    const cappedValue = Math.min(
+                                                        value,
+                                                        totalCellsToAutocomplete
+                                                    );
                                                     setCustomValue(cappedValue);
                                                     setNumberOfCellsToAutocomplete(cappedValue);
                                                 }
@@ -280,13 +290,18 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 </VSCodeButton>
                 <VSCodeButton
                     appearance="icon"
-                    onClick={() =>
-                        onSetCellDisplayMode(
+                    onClick={() => {
+                        const newMode =
                             cellDisplayMode === CELL_DISPLAY_MODES.INLINE
                                 ? CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                : CELL_DISPLAY_MODES.INLINE
-                        )
-                    }
+                                : CELL_DISPLAY_MODES.INLINE;
+                        onSetCellDisplayMode(newMode);
+                        // Send message to update metadata
+                        (window as any).vscodeApi.postMessage({
+                            command: "updateCellDisplayMode",
+                            mode: newMode,
+                        });
+                    }}
                     disabled={unsavedChanges}
                     title="Toggle Cell Display Mode"
                 >

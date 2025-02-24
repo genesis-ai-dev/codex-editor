@@ -112,7 +112,8 @@ const CodexCellEditor: React.FC = () => {
         (window as any).initialData?.metadata?.textDirection || "ltr"
     );
     const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
-        CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+        (window as any).initialData?.metadata?.cellDisplayMode ||
+            CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);

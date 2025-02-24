@@ -642,5 +642,23 @@ export const handleMessages = async (
             await provider.updateCachedChapter(document.uri.toString(), event.content);
             return;
         }
+        case "updateCellDisplayMode": {
+            try {
+                const updatedMetadata = {
+                    cellDisplayMode: event.mode,
+                };
+                await document.updateNotebookMetadata(updatedMetadata);
+                await document.save(new vscode.CancellationTokenSource().token);
+                console.log("Cell display mode updated successfully.");
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: await document.getNotebookMetadata(),
+                });
+            } catch (error) {
+                console.error("Error updating cell display mode:", error);
+                vscode.window.showErrorMessage("Failed to update cell display mode.");
+            }
+            return;
+        }
     }
 };
