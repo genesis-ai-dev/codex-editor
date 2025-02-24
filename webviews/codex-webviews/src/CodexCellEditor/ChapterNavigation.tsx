@@ -196,8 +196,9 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                         <input
                                             type="number"
                                             min="1"
-                                            max={Math.min(5, totalCellsToAutocomplete)}
-                                            value={customValue === 0 ? "0" : customValue}
+                                            max={totalCellsToAutocomplete}
+                                            defaultValue={Math.min(5, totalCellsToAutocomplete)}
+                                            value={customValue === 0 ? "0" : Math.min(customValue, totalCellsToAutocomplete)}
                                             onFocus={(e) => {
                                                 const defaultValue = Math.min(
                                                     5,
@@ -231,13 +232,11 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                                     setNumberOfCellsToAutocomplete(0);
                                                     return;
                                                 }
-                                                const value = Math.min(
-                                                    parseInt(inputValue),
-                                                    Math.min(5, totalCellsToAutocomplete)
-                                                );
-                                                if (!isNaN(value)) {
-                                                    setCustomValue(value);
-                                                    setNumberOfCellsToAutocomplete(value);
+                                                const value = parseInt(inputValue);
+                                                if (!isNaN(value) && value >= 0) {
+                                                    const cappedValue = Math.min(value, totalCellsToAutocomplete);
+                                                    setCustomValue(cappedValue);
+                                                    setNumberOfCellsToAutocomplete(cappedValue);
                                                 }
                                             }}
                                             style={{ width: "60px", marginLeft: "8px" }}
