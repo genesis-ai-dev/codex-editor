@@ -125,7 +125,31 @@ const CellList: React.FC<CellListProps> = ({
             isSourceText,
             duplicateCellIds,
             highlightedCellId,
+            scrollSyncEnabled,
+            alertColorCodes,
         ]
+    );
+
+    const openCellById = useCallback(
+        (cellId: string, text: string) => {
+            const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
+
+            if (cellToOpen) {
+                debug("openCellById", { cellToOpen, text });
+                setContentBeingUpdated({
+                    cellMarkers: cellToOpen.cellMarkers,
+                    cellContent: text,
+                    cellChanged: true,
+                    cellLabel: cellToOpen.cellLabel,
+                });
+            } else {
+                vscode.postMessage({
+                    command: "showErrorMessage",
+                    text: `Cell with ID ${cellId} not found.`,
+                });
+            }
+        },
+        [translationUnits, setContentBeingUpdated, vscode]
     );
 
     const renderCells = useCallback(() => {
@@ -226,30 +250,8 @@ const CellList: React.FC<CellListProps> = ({
         textDirection,
         vscode,
         spellCheckResponse,
-        highlightedCellId,
+        openCellById,
     ]);
-
-    const openCellById = useCallback(
-        (cellId: string, text: string) => {
-            const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
-
-            if (cellToOpen) {
-                debug("openCellById", { cellToOpen, text });
-                setContentBeingUpdated({
-                    cellMarkers: cellToOpen.cellMarkers,
-                    cellContent: text,
-                    cellChanged: true,
-                    cellLabel: cellToOpen.cellLabel,
-                });
-            } else {
-                vscode.postMessage({
-                    command: "showErrorMessage",
-                    text: `Cell with ID ${cellId} not found.`,
-                });
-            }
-        },
-        [translationUnits, setContentBeingUpdated, vscode]
-    );
 
     return (
         <div
