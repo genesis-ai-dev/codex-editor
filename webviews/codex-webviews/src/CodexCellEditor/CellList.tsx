@@ -5,6 +5,7 @@ import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -239,7 +240,16 @@ const CellList: React.FC<CellListProps> = ({
                                 openCellById={openCellById}
                             />
                         ) : (
-                            <span style={{ display: "inline-block", width: "15px" }}>...</span>
+                            <VSCodeButton
+                                appearance="secondary"
+                                style={{ height: "15px" }}
+                                onClick={() => openCellById(cellMarkers[0], "")}
+                            >
+                                <i
+                                    className="codicon codicon-plus"
+                                    style={{ fontSize: "12px" }}
+                                ></i>
+                            </VSCodeButton>
                         );
 
                     result.push(emptyCellDisplay);
