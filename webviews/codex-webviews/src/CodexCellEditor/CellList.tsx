@@ -78,7 +78,7 @@ const CellList: React.FC<CellListProps> = ({
                 }}
             >
                 {group.map(
-                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
+                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps, editHistory }, index) => {
                         const cellId = cellMarkers.join(" ");
                         const hasDuplicateId = duplicateCellIds.has(cellId);
 
@@ -95,24 +95,22 @@ const CellList: React.FC<CellListProps> = ({
                                 }}
                             >
                                 <CellContentDisplay
+                                    key={`cell-${cellMarkers[0]}`}
                                     cellIds={cellMarkers}
                                     cellContent={cellContent}
-                                    cellIndex={startIndex + index}
+                                    cellIndex={index}
                                     cellType={cellType}
-                                    cellLabel={cellLabel || (startIndex + index).toString()}
+                                    cellLabel={cellLabel}
                                     setContentBeingUpdated={setContentBeingUpdated}
                                     vscode={vscode}
                                     textDirection={textDirection}
                                     isSourceText={isSourceText}
                                     hasDuplicateId={hasDuplicateId}
                                     timestamps={timestamps}
-                                    alertColorCode={
-                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                            ? -1
-                                            : alertColorCodes[cellId]
-                                    }
+                                    alertColorCode={alertColorCodes[cellMarkers[0]]}
                                     highlightedCellId={highlightedCellId}
                                     scrollSyncEnabled={scrollSyncEnabled}
+                                    editHistory={editHistory}
                                 />
                             </span>
                         );
@@ -280,6 +278,13 @@ const CellList: React.FC<CellListProps> = ({
         openCellById,
         cellDisplayMode,
     ]);
+
+    // Debug log to see the structure of translationUnits
+    useEffect(() => {
+        if (DEBUG_ENABLED && translationUnits.length > 0) {
+            console.log("Translation unit structure:", translationUnits[0]);
+        }
+    }, [translationUnits]);
 
     return (
         <div

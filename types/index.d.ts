@@ -574,6 +574,8 @@ export type EditorPostMessages =
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
     | { command: "executeCommand"; content: { command: string; args: any[] } }
+    | { command: "validateCell"; content: { cellId: string; validate: boolean } }
+    | { command: "getCurrentUsername" }
     | {
           command: "makeChildOfCell";
           content: {
@@ -681,7 +683,8 @@ type EditorReceiveMessages =
     | {
           type: "providerConfirmsBacktranslationSet";
           content: SavedBacktranslation | null;
-      };
+      }
+    | { type: "currentUsername"; content: { username: string } };
 
 type AlertCodesServerResponse = {
     code: number;
@@ -696,6 +699,7 @@ type EditHistory = {
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
+    validatedBy?: string[];
 };
 
 type CodexData = Timestamps & {
@@ -790,7 +794,8 @@ interface ProjectOverview extends Project {
     abbreviation: string;
     sourceLanguage: LanguageMetadata;
     targetLanguage: LanguageMetadata;
-    category: string;
+    category?: string; // Keep for backward compatibility
+    validationCount?: number;
     userName: string;
     userEmail: string;
     sourceTexts?: vscode.Uri[] | never[];
@@ -800,6 +805,7 @@ interface ProjectOverview extends Project {
     isAuthenticated: boolean;
     meta: Omit<Project["meta"], "generator"> & {
         generator: Project["meta"]["generator"] & { userEmail?: string };
+        validationCount?: number;
     };
     spellcheckIsEnabled: boolean;
 }
@@ -1016,6 +1022,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "changeTargetLanguage"; language: LanguageMetadata }
     | { command: "editAbbreviation" }
     | { command: "selectCategory" }
+    | { command: "setValidationCount" }
     | { command: "openSourceUpload" }
     | { command: "openAISettings" }
     | { command: "openExportView" }

@@ -385,15 +385,15 @@
                         "when": "workbenchState !== empty"
                     },
                     {
-                        "id": "selectCategory",
-                        "title": "Select Project Category",
-                        "description": "Now, let's choose a category for your Codex project.\n[Select Category](command:codex-project-manager.selectCategory)",
+                        "id": "setValidationCount",
+                        "title": "Set Validation Count",
+                        "description": "Now, let's set the number of validations required for each translation.\n[Set Validation Count](command:codex-project-manager.setValidationCount)",
                         "media": {
                             "image": "./src/media/select-category.png",
-                            "altText": "Select Project Category"
+                            "altText": "Set Validation Count"
                         },
                         "completionEvents": [
-                            "onCommand:codex-project-manager.selectCategory"
+                            "onCommand:codex-project-manager.setValidationCount"
                         ],
                         "when": "workbenchState !== empty"
                     },
@@ -621,8 +621,8 @@
                 "category": "Codex Project Management"
             },
             {
-                "command": "codex-project-manager.selectCategory",
-                "title": "Select Category",
+                "command": "codex-project-manager.setValidationCount",
+                "title": "Set Validation Count",
                 "category": "Codex Project Management"
             },
             {
@@ -716,22 +716,12 @@
                         "default": "",
                         "description": "Name of the project"
                     },
-                    "codex-project-manager.projectCategory": {
-                        "type": "string",
-                        "default": "",
-                        "description": "Category of the project",
-                        "enum": [
-                            "Translation",
-                            "Scripture Translation",
-                            "Subtitles",
-                            "Other"
-                        ],
-                        "enumDescriptions": [
-                            "Translation projects.",
-                            "Projects focused on scripture texts.",
-                            "Subtitle translation projects.",
-                            "Other projects."
-                        ]
+                    "codex-project-manager.validationCount": {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Number of required validations for each translation",
+                        "minimum": 1,
+                        "maximum": 15
                     },
                     "codex-project-manager.userName": {
                         "type": "string",

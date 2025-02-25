@@ -260,11 +260,11 @@ function ProjectManagerView() {
                                 hasWarning={!state.projectOverview.abbreviation}
                             />
                             <ProjectField
-                                label="Category"
-                                value={String(state.projectOverview.category) ?? "Missing"}
-                                icon="pencil"
-                                onAction={() => handleAction({ command: "selectCategory" })}
-                                hasWarning={!state.projectOverview.category}
+                                label="Required Validations"
+                                value={String(state.projectOverview.validationCount || 1)}
+                                icon="check"
+                                onAction={() => handleAction({ command: "setValidationCount" })}
+                                hasWarning={!state.projectOverview.validationCount}
                             />
                             <ProjectField
                                 label="Source Texts"

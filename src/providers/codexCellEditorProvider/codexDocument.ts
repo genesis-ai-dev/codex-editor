@@ -54,6 +54,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             });
         }
+        
         this._edits = [];
         initializeStateStore().then(async ({ getStoreState }) => {
             const sourceCellMap = await getStoreState("sourceCellMap");
@@ -62,6 +63,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 this._sourceCellMap = sourceCellMap;
             }
         });
+        
+        // Initialize validatedBy arrays for backward compatibility
+        this.initializeValidatedByArrays();
     }
 
     dispose(): void {
@@ -143,6 +147,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             timestamp: Date.now(),
             type: editType,
             author,
+            validatedBy: [],
         });
 
         // Record the edit
@@ -410,5 +415,84 @@ export class CodexCellDocument implements vscode.CustomDocument {
             writable: true,
             configurable: true,
         });
+    }
+
+    // Method to validate a cell's content by a user
+    public async validateCellContent(cellId: string, validate: boolean = true) {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to validate");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+        
+        if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
+            console.warn("No edits found for cell to validate");
+            return;
+        }
+
+        // Get the latest edit
+        const latestEdit = cellToUpdate.metadata.edits[cellToUpdate.metadata.edits.length - 1];
+        
+        // Initialize validatedBy array if it doesn't exist
+        if (!latestEdit.validatedBy) {
+            latestEdit.validatedBy = [];
+        }
+
+        const authApi = await getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const username = userInfo?.username || "anonymous";
+
+        if (validate) {
+            // Add user to validatedBy array if not already present
+            if (!latestEdit.validatedBy.includes(username)) {
+                latestEdit.validatedBy.push(username);
+            }
+        } else {
+            // Remove user from validatedBy array
+            latestEdit.validatedBy = latestEdit.validatedBy.filter(user => user !== username);
+        }
+
+        // Mark document as dirty
+        this._isDirty = true;
+        
+        // Notify listeners that the document has changed
+        this._onDidChangeForVsCodeAndWebview.fire({
+            content: JSON.stringify({
+                cellId,
+                type: "validation",
+                validatedBy: latestEdit.validatedBy
+            }),
+            edits: [{
+                cellId,
+                type: "validation",
+                validatedBy: latestEdit.validatedBy
+            }]
+        });
+    }
+
+    /**
+     * Initialize validatedBy arrays for backward compatibility with older projects
+     */
+    private initializeValidatedByArrays() {
+        if (!this._documentData || !this._documentData.cells) {
+            return;
+        }
+        
+        // Loop through all cells
+        for (const cell of this._documentData.cells) {
+            if (cell.metadata && cell.metadata.edits && Array.isArray(cell.metadata.edits)) {
+                // Loop through all edits in the cell
+                for (const edit of cell.metadata.edits) {
+                    // Initialize validatedBy array if it doesn't exist
+                    if (!edit.validatedBy) {
+                        edit.validatedBy = [];
+                    }
+                }
+            }
+        }
     }
 }

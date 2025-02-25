@@ -515,13 +515,20 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "editAbbreviation":
             case "changeSourceLanguage":
             case "changeTargetLanguage":
-            case "selectCategory":
+            case "setValidationCount":
             case "downloadSourceText":
             case "openAISettings":
             case "openSourceUpload":
             case "toggleSpellcheck":
             case "openExportView":
                 await vscode.commands.executeCommand(`codex-project-manager.${message.command}`);
+                await this.store.refreshState();
+                // Send a response back to the webview
+                this._view?.webview.postMessage({ command: "actionCompleted" });
+                break;
+            case "selectCategory":
+                // For backward compatibility, redirect to setValidationCount
+                await vscode.commands.executeCommand("codex-project-manager.setValidationCount");
                 await this.store.refreshState();
                 // Send a response back to the webview
                 this._view?.webview.postMessage({ command: "actionCompleted" });
