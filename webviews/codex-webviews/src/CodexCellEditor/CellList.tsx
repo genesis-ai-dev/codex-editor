@@ -6,6 +6,7 @@ import EmptyCellDisplay from "./EmptyCellDisplay";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { CodexCellTypes } from "../../../../types/enums";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -66,6 +67,66 @@ const CellList: React.FC<CellListProps> = ({
         return duplicates;
     }, [translationUnits]);
 
+    // Helper function to generate appropriate cell label
+    const generateCellLabel = useCallback(
+        (cell: QuillCellContent, index: number): string => {
+            // If cell already has a label, use it
+            if (cell.cellLabel) {
+                return cell.cellLabel;
+            }
+
+            // Don't use index as fallback for paratext cells
+            if (cell.cellType === CodexCellTypes.PARATEXT) {
+                return "";
+            }
+
+            // Check if this is a child cell
+            const cellId = cell.cellMarkers[0];
+            const cellIdParts = cellId.split(":");
+
+            // Child cells have more than 2 segments in their ID (e.g., "1TH 1:6:1740475700855-sbcr37orm")
+            if (cellIdParts.length > 2) {
+                // Get the parent cell ID (e.g., "1TH 1:6")
+                const parentCellId = cellIdParts.slice(0, 2).join(":");
+
+                // Find the parent cell
+                const parentCell = translationUnits.find(
+                    (unit) => unit.cellMarkers[0] === parentCellId
+                );
+
+                if (parentCell) {
+                    // Get parent's label
+                    const parentLabel =
+                        parentCell.cellLabel ||
+                        (parentCell.cellType !== CodexCellTypes.PARATEXT
+                            ? translationUnits.indexOf(parentCell).toString()
+                            : "");
+
+                    // Find all siblings (cells with the same parent)
+                    const siblings = translationUnits.filter((unit) => {
+                        const unitId = unit.cellMarkers[0];
+                        const unitIdParts = unitId.split(":");
+                        return (
+                            unitIdParts.length > 2 &&
+                            unitIdParts.slice(0, 2).join(":") === parentCellId
+                        );
+                    });
+
+                    // Find this cell's index among its siblings
+                    const childIndex =
+                        siblings.findIndex((sibling) => sibling.cellMarkers[0] === cellId) + 1;
+
+                    // Return label in format "parentLabel.childIndex"
+                    return `${parentLabel}.${childIndex}`;
+                }
+            }
+
+            // Default fallback for regular cells
+            return index.toString();
+        },
+        [translationUnits]
+    );
+
     const renderCellGroup = useCallback(
         (group: typeof translationUnits, startIndex: number) => (
             <span
@@ -81,6 +142,10 @@ const CellList: React.FC<CellListProps> = ({
                     ({ cellMarkers, cellContent, cellType, cellLabel, timestamps }, index) => {
                         const cellId = cellMarkers.join(" ");
                         const hasDuplicateId = duplicateCellIds.has(cellId);
+                        const generatedCellLabel = generateCellLabel(
+                            group[index],
+                            startIndex + index
+                        );
 
                         return (
                             <span
@@ -99,7 +164,7 @@ const CellList: React.FC<CellListProps> = ({
                                     cellContent={cellContent}
                                     cellIndex={startIndex + index}
                                     cellType={cellType}
-                                    cellLabel={cellLabel || (startIndex + index).toString()}
+                                    cellLabel={cellLabel || generatedCellLabel}
                                     setContentBeingUpdated={setContentBeingUpdated}
                                     vscode={vscode}
                                     textDirection={textDirection}
@@ -130,6 +195,7 @@ const CellList: React.FC<CellListProps> = ({
             highlightedCellId,
             scrollSyncEnabled,
             alertColorCodes,
+            generateCellLabel,
         ]
     );
 
@@ -191,6 +257,8 @@ const CellList: React.FC<CellListProps> = ({
                     currentGroup = [];
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
+                const generatedCellLabel = generateCellLabel(translationUnits[i], i);
+
                 result.push(
                     <span
                         key={cellMarkers.join(" ")}
@@ -204,7 +272,7 @@ const CellList: React.FC<CellListProps> = ({
                             cellContent={cellContent}
                             cellIndex={i}
                             cellType={cellType}
-                            cellLabel={cellLabel || i.toString()}
+                            cellLabel={cellLabel || generatedCellLabel}
                             cellTimestamps={timestamps}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={setContentBeingUpdated}
@@ -228,12 +296,14 @@ const CellList: React.FC<CellListProps> = ({
                     translationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
                     i === 0
                 ) {
+                    const generatedCellLabel = generateCellLabel(translationUnits[i], i);
+
                     const emptyCellDisplay =
                         cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? (
                             <EmptyCellDisplay
                                 key={cellMarkers.join(" ")}
                                 cellMarkers={cellMarkers}
-                                cellLabel={cellLabel || i.toString()}
+                                cellLabel={cellLabel || generatedCellLabel}
                                 setContentBeingUpdated={setContentBeingUpdated}
                                 textDirection={textDirection}
                                 vscode={vscode}
@@ -279,6 +349,7 @@ const CellList: React.FC<CellListProps> = ({
         spellCheckResponse,
         openCellById,
         cellDisplayMode,
+        generateCellLabel,
     ]);
 
     return (
