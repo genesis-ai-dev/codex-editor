@@ -307,6 +307,12 @@ li {
     display: inline;
 }
 
+.cell-display-inline sup {
+    color: var(--vscode-activityBarBadge-background);
+    margin-inline: 0.2rem;
+    font-weight: bold;
+}
+
 .cell-display-one-line-per-cell .paratext-display {
     background-color: var(
         --vscode-editor-inactiveSelectionBackground
