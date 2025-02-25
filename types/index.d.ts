@@ -576,6 +576,7 @@ export type EditorPostMessages =
     | { command: "executeCommand"; content: { command: string; args: any[] } }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
     | { command: "getCurrentUsername" }
+    | { command: "getValidationCount" }
     | {
           command: "makeChildOfCell";
           content: {
@@ -684,7 +685,9 @@ type EditorReceiveMessages =
           type: "providerConfirmsBacktranslationSet";
           content: SavedBacktranslation | null;
       }
-    | { type: "currentUsername"; content: { username: string } };
+    | { type: "currentUsername"; content: { username: string } }
+    | { type: "validationCount"; content: number }
+    | { type: "configurationChanged" };
 
 type AlertCodesServerResponse = {
     code: number;

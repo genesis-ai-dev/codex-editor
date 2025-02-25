@@ -89,6 +89,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     constructor(private readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
+
+        // Listen for configuration changes
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('codex-project-manager.validationCount')) {
+                // Notify all webviews about the configuration change
+                this.webviewPanels.forEach((panel) => {
+                    this.postMessageToWebview(panel, {
+                        type: "configurationChanged"
+                    });
+                });
+            }
+        });
     }
 
     private async initializeStateStore() {
