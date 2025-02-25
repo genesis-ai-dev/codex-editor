@@ -77,6 +77,7 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                             format: message.format as CodexExportFormat,
                             userSelectedPath: message.userSelectedPath,
                             filesToExport: message.filesToExport,
+                            options: message.options,
                         }
                     );
                     panel.dispose();
@@ -292,6 +293,16 @@ function getWebviewContent(
                         </button>
                     </div>
 
+                    <div id="usfmOptions" style="display: none; margin-top: 16px; padding: 8px; border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+                        <h4>USFM Export Options</h4>
+                        <div style="display: flex; align-items: center; margin-top: 8px;">
+                            <input type="checkbox" id="skipValidation">
+                            <label for="skipValidation" style="margin-left: 8px;">
+                                Skip USFM validation (faster export, but may produce invalid USFM)
+                            </label>
+                        </div>
+                    </div>
+
                     <div class="button-container">
                         <button class="secondary" onclick="cancel()">Cancel</button>
                         <button id="exportButton" disabled onclick="exportProject()">Export</button>
@@ -320,6 +331,15 @@ function getWebviewContent(
                         document.querySelectorAll('.format-option').forEach(opt => opt.classList.remove('selected'));
                         option.classList.add('selected');
                         selectedFormat = option.dataset.format;
+                        
+                        // Show/hide USFM options
+                        const usfmOptions = document.getElementById('usfmOptions');
+                        if (selectedFormat === 'usfm') {
+                            usfmOptions.style.display = 'block';
+                        } else {
+                            usfmOptions.style.display = 'none';
+                        }
+                        
                         updateExportButton();
                     });
                 });
@@ -370,11 +390,20 @@ function getWebviewContent(
 
                 function exportProject() {
                     if (!selectedFormat || !exportPath || selectedFiles.size === 0) return;
+                    
+                    const options = {};
+                    
+                    // Add USFM-specific options
+                    if (selectedFormat === 'usfm') {
+                        options.skipValidation = document.getElementById('skipValidation').checked;
+                    }
+                    
                     vscode.postMessage({
                         command: 'export',
                         format: selectedFormat,
                         userSelectedPath: exportPath,
-                        filesToExport: Array.from(selectedFiles)
+                        filesToExport: Array.from(selectedFiles),
+                        options: options
                     });
                 }
 

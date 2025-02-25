@@ -143,12 +143,14 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             format,
             userSelectedPath,
             filesToExport,
+            options,
         }: {
             format: CodexExportFormat;
             userSelectedPath: string;
             filesToExport: string[];
+            options?: { skipValidation?: boolean };
         }) => {
-            await exportCodexContent(format, userSelectedPath, filesToExport);
+            await exportCodexContent(format, userSelectedPath, filesToExport, options);
         }
     );
 

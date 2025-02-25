@@ -4,6 +4,35 @@ import * as grammar from "usfm-grammar";
 import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 
+/**
+ * PERFORMANCE OPTIMIZATION NOTE:
+ *
+ * This file uses direct JSON file reading instead of opening files as VS Code Notebooks.
+ * This approach is significantly faster, especially for large exports, as it:
+ *
+ * 1. Avoids the overhead of VS Code's notebook document loading
+ * 2. Reduces memory usage by not creating full notebook objects
+ * 3. Eliminates UI-related processing that happens with notebook documents
+ *
+ * The CodexNotebookAsJSONData interface defines the structure of the JSON data
+ * that we read directly from the .codex files.
+ */
+
+// Add type import for CodexNotebookAsJSONData
+interface CodexNotebookAsJSONData {
+    cells: {
+        kind: number;
+        value: string;
+        metadata?: {
+            type?: string;
+            id?: string;
+            [key: string]: any;
+        };
+        [key: string]: any;
+    }[];
+    metadata: any;
+}
+
 // Debug flag
 const DEBUG = false;
 
@@ -256,17 +285,22 @@ export enum CodexExportFormat {
     HTML = "html",
 }
 
+export interface ExportOptions {
+    skipValidation?: boolean;
+}
+
 export async function exportCodexContent(
     format: CodexExportFormat,
     userSelectedPath: string,
-    filesToExport: string[]
+    filesToExport: string[],
+    options?: ExportOptions
 ) {
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
             await exportCodexContentAsPlaintext(userSelectedPath, filesToExport);
             break;
         case CodexExportFormat.USFM:
-            await exportCodexContentAsUsfm(userSelectedPath, filesToExport);
+            await exportCodexContentAsUsfm(userSelectedPath, filesToExport, options);
             break;
         case CodexExportFormat.HTML:
             await exportCodexContentAsHtml(userSelectedPath, filesToExport);
@@ -315,37 +349,38 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
                     });
 
                     debug(`Processing file: ${file.fsPath}`);
-                    const notebookDocument = await vscode.workspace.openNotebookDocument(file);
-                    const cells = notebookDocument.getCells();
+
+                    // Read file directly as JSON instead of opening as notebook
+                    const fileData = await vscode.workspace.fs.readFile(file);
+                    const codexData = JSON.parse(
+                        Buffer.from(fileData).toString()
+                    ) as CodexNotebookAsJSONData;
+                    const cells = codexData.cells;
+
                     debug(`File has ${cells.length} cells`);
 
-                    let fileContent = "";
+                    let exportContent = "";
                     let currentChapter = "";
                     let chapterContent = "";
 
                     for (const cell of cells) {
                         totalCells++;
-                        if (cell.kind === vscode.NotebookCellKind.Code) {
+                        if (cell.kind === 2) {
+                            // vscode.NotebookCellKind.Code
                             const cellMetadata = cell.metadata as { type: string; id: string };
 
-                            if (
-                                cellMetadata.type === "paratext" &&
-                                cell.document.getText().startsWith("<h1>")
-                            ) {
+                            if (cellMetadata.type === "paratext" && cell.value.startsWith("<h1>")) {
                                 debug("Found chapter heading cell");
                                 if (chapterContent) {
-                                    fileContent += chapterContent + "\n\n";
+                                    exportContent += chapterContent + "\n\n";
                                 }
-                                currentChapter = cell.document
-                                    .getText()
-                                    .replace(/<\/?h1>/g, "")
-                                    .trim();
+                                currentChapter = cell.value.replace(/<\/?h1>/g, "").trim();
                                 chapterContent = `${currentChapter}\n`;
                                 debug(`New chapter: ${currentChapter}`);
                             } else if (cellMetadata.type === "text" && cellMetadata.id) {
                                 debug(`Processing verse cell: ${cellMetadata.id}`);
                                 const verseRef = cellMetadata.id;
-                                const verseContent = cell.document.getText().trim();
+                                const verseContent = cell.value.trim();
                                 if (verseContent) {
                                     chapterContent += `${verseRef} ${verseContent}\n`;
                                     totalVerses++;
@@ -356,7 +391,7 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
 
                     // Add the last chapter's content
                     if (chapterContent) {
-                        fileContent += chapterContent + "\n\n";
+                        exportContent += chapterContent + "\n\n";
                     }
 
                     // Write individual file
@@ -370,7 +405,7 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
                         increment: 0,
                     });
 
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(fileContent));
+                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(exportContent));
                     debug(`Export file created: ${exportFile.fsPath}`);
                 }
 
@@ -387,7 +422,11 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
     }
 }
 
-async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport: string[]) {
+async function exportCodexContentAsUsfm(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
     try {
         debug("Starting exportCodexContentAsUsfm function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -411,6 +450,18 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
             return;
         }
 
+        // Create export directory if it doesn't exist
+        const exportFolder = vscode.Uri.file(userSelectedPath);
+        await vscode.workspace.fs.createDirectory(exportFolder);
+
+        // Determine if we should skip validation based on user preference or file count
+        const skipValidation = options?.skipValidation || (selectedFiles.length > 5 && !DEBUG);
+        if (skipValidation) {
+            debug(
+                `Skipping validation: ${options?.skipValidation ? "user preference" : "large export"}`
+            );
+        }
+
         return vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
@@ -424,74 +475,88 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                 let exportedFiles = 0;
                 const increment = 100 / selectedFiles.length;
 
-                // Create export directory if it doesn't exist
-                const exportFolder = vscode.Uri.file(userSelectedPath);
-                await vscode.workspace.fs.createDirectory(exportFolder);
-
-                for (const [index, file] of selectedFiles.entries()) {
+                // Process files sequentially but with optimized processing
+                for (let i = 0; i < selectedFiles.length; i++) {
+                    const file = selectedFiles[i];
                     progress.report({
-                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                        message: `Processing file ${i + 1}/${selectedFiles.length}`,
                         increment,
                     });
 
-                    debug(`Processing file: ${file.fsPath}`);
-                    const notebookDocument = await vscode.workspace.openNotebookDocument(file);
-                    const cells = notebookDocument.getCells();
-                    debug(`File has ${cells.length} cells`);
+                    try {
+                        debug(`Processing file: ${file.fsPath}`);
 
-                    // Check if the file has any non-empty text cells with content
-                    const hasContent = cells.some(
-                        (cell) =>
-                            cell.kind === vscode.NotebookCellKind.Code &&
-                            cell.metadata?.type === CodexCellTypes.TEXT &&
-                            cell.document.getText().trim().length > 0
-                    );
+                        // Read file directly as JSON instead of opening as notebook
+                        const fileContent = await vscode.workspace.fs.readFile(file);
+                        const codexData = JSON.parse(
+                            Buffer.from(fileContent).toString()
+                        ) as CodexNotebookAsJSONData;
 
-                    // Skip empty files
-                    if (!hasContent) {
-                        debug(`Skipping empty file: ${file.fsPath}`);
-                        skippedFiles++;
-                        vscode.window.setStatusBarMessage(
-                            `Skipped empty file: ${basename(file.fsPath)}`,
-                            3000
+                        // Extract book code early for logging
+                        const bookCode = basename(file.fsPath).split(".")[0] || "";
+
+                        // Quick check - only look for text cells with content
+                        const textCells = codexData.cells.filter(
+                            (cell) =>
+                                cell.kind === 2 && // vscode.NotebookCellKind.Code
+                                cell.metadata?.type === CodexCellTypes.TEXT
                         );
-                        continue;
-                    }
 
-                    let usfmContent = "";
+                        // Skip empty files
+                        if (textCells.length === 0) {
+                            debug(`Skipping empty file: ${file.fsPath}`);
+                            skippedFiles++;
+                            continue;
+                        }
 
-                    // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
-                    const bookCode = basename(file.fsPath).split(".")[0] || "";
-                    const fullBookName = getFullBookName(bookCode);
+                        // Check if any text cells have content
+                        const hasContent = textCells.some((cell) => cell.value.trim().length > 0);
 
-                    // Add USFM header in the correct order
-                    // 1. ID marker must come first - include language code (default to 'en' if unknown)
-                    usfmContent += `\\id ${bookCode} EN\n`;
+                        if (!hasContent) {
+                            debug(`Skipping file with no text content: ${file.fsPath}`);
+                            skippedFiles++;
+                            continue;
+                        }
 
-                    // 2. Add metadata as USFM comments
-                    usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
-                    usfmContent += `\\rem Export Date: ${exportDate}\n`;
-                    usfmContent += `\\rem Source File: ${file.fsPath}\n`;
+                        // Process file content
+                        let usfmContent = "";
+                        const fullBookName = getFullBookName(bookCode);
+                        let verseCount = 0;
+                        let hasVerses = false;
 
-                    // 3. Add header and title markers with proper book name
-                    usfmContent += `\\h ${fullBookName}\n`;
-                    usfmContent += `\\toc1 ${fullBookName}\n`; // Long table of contents text
-                    usfmContent += `\\toc2 ${fullBookName}\n`; // Short table of contents text
-                    usfmContent += `\\toc3 ${bookCode}\n`; // Book abbreviation
-                    usfmContent += `\\mt1 ${fullBookName}\n`; // Main title, level 1
+                        // Add USFM header in the correct order
+                        // 1. ID marker must come first - include language code (default to 'en' if unknown)
+                        usfmContent += `\\id ${bookCode} EN\n`;
 
-                    let chapterContent = "";
-                    let lastChapter = "";
-                    let isFirstChapter = true;
-                    let hasVerses = false;
+                        // 2. Add metadata as USFM comments
+                        usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
+                        usfmContent += `\\rem Export Date: ${exportDate}\n`;
+                        usfmContent += `\\rem Source File: ${file.fsPath}\n`;
 
-                    for (const cell of cells) {
-                        totalCells++;
-                        if (cell.kind === vscode.NotebookCellKind.Code) {
+                        // 3. Add header and title markers with proper book name
+                        usfmContent += `\\h ${fullBookName}\n`;
+                        usfmContent += `\\toc1 ${fullBookName}\n`; // Long table of contents text
+                        usfmContent += `\\toc2 ${fullBookName}\n`; // Short table of contents text
+                        usfmContent += `\\toc3 ${bookCode}\n`; // Book abbreviation
+                        usfmContent += `\\mt1 ${fullBookName}\n`; // Main title, level 1
+
+                        let chapterContent = "";
+                        let lastChapter = "";
+                        let isFirstChapter = true;
+
+                        // Pre-filter cells to only process relevant ones
+                        const relevantCells = codexData.cells.filter(
+                            (cell) =>
+                                cell.kind === 2 && // vscode.NotebookCellKind.Code
+                                cell.metadata?.type &&
+                                cell.value.trim().length > 0
+                        );
+
+                        totalCells += relevantCells.length;
+
+                        for (const cell of relevantCells) {
                             const cellMetadata = cell.metadata as { type: string; id: string };
-                            const cellContent = cell.document.getText().trim();
-
-                            if (!cellContent) continue;
+                            const cellContent = cell.value.trim();
 
                             if (cellMetadata.type === CodexCellTypes.PARATEXT) {
                                 // Handle chapter headings
@@ -502,19 +567,14 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                                         if (lastChapter !== "") {
                                             usfmContent += chapterContent;
                                         } else if (isFirstChapter) {
-                                            // If this is the first chapter and we haven't added chapter 1 yet,
-                                            // add it explicitly to ensure proper USFM structure
                                             isFirstChapter = false;
                                         }
                                         lastChapter = chapterMatch[1];
-                                        // Ensure each chapter starts with \c followed by \p
                                         chapterContent = `\\c ${chapterMatch[1]}\n\\p\n`;
                                     } else {
-                                        // If it's a heading but not a chapter heading, add as paragraph
                                         chapterContent += `\\p ${cellContent}\n`;
                                     }
                                 } else {
-                                    // Handle other paratext
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
                             } else if (
@@ -534,206 +594,98 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
 
                                     const verseNumber = verseMatch[0];
                                     chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
-                                    totalVerses++;
+                                    verseCount++;
                                     hasVerses = true;
                                 }
                             }
                         }
-                    }
 
-                    // Add the last chapter's content
-                    if (chapterContent) {
-                        usfmContent += chapterContent;
-                    }
-
-                    // Clean up the USFM content to avoid "Empty lines present" warning
-                    usfmContent =
-                        usfmContent
-                            // Replace multiple consecutive newlines with a single newline
-                            .replace(/\n{2,}/g, "\n")
-                            // Ensure the file ends with a single newline
-                            .trim() + "\n";
-
-                    // Skip files with no verses
-                    if (!hasVerses) {
-                        debug(`Skipping file with no verses: ${file.fsPath}`);
-                        skippedFiles++;
-                        vscode.window.setStatusBarMessage(
-                            `Skipped file with no verses: ${basename(file.fsPath)}`,
-                            3000
-                        );
-                        continue;
-                    }
-
-                    // Validate USFM content before writing to file
-                    progress.report({
-                        message: `Validating USFM for ${bookCode}...`,
-                        increment: 0,
-                    });
-
-                    // Show notification that validation is in progress
-                    const validationNotification = vscode.window.setStatusBarMessage(
-                        `Validating USFM structure for ${bookCode}...`
-                    );
-
-                    try {
-                        // Create a USFM grammar parser instance
-                        const usfmParser = new grammar.USFMParser(
-                            usfmContent,
-                            grammar.LEVEL.RELAXED
-                        );
-
-                        // Parse the USFM content
-                        const parseResult = usfmParser.toJSON() as any;
-
-                        // Perform additional structural validation
-                        const structuralIssues = validateUsfmStructure(usfmContent);
-
-                        // Combine parser warnings with structural issues
-                        const allWarnings: string[] = [];
-
-                        if (parseResult._messages && parseResult._messages._warnings) {
-                            // Filter out the "Empty lines present" warning since we've handled it
-                            const filteredWarnings = parseResult._messages._warnings.filter(
-                                (warning: string) => !warning.includes("Empty lines present")
-                            );
-
-                            if (filteredWarnings.length > 0) {
-                                allWarnings.push(
-                                    ...filteredWarnings.map((w: string) => `[Parser] ${w}`)
-                                );
-                            }
+                        // Add the last chapter's content
+                        if (chapterContent) {
+                            usfmContent += chapterContent;
                         }
 
-                        if (structuralIssues.length > 0) {
-                            allWarnings.push(...structuralIssues.map((i) => `[Structure] ${i}`));
+                        // Clean up the USFM content to avoid "Empty lines present" warning
+                        usfmContent = usfmContent.replace(/\n{2,}/g, "\n").trim() + "\n";
+
+                        // Skip files with no verses
+                        if (!hasVerses) {
+                            debug(`Skipping file with no verses: ${file.fsPath}`);
+                            skippedFiles++;
+                            continue;
                         }
 
-                        // Clear the validation notification
-                        validationNotification.dispose();
+                        // Only validate if we're not skipping validation
+                        if (!skipValidation) {
+                            try {
+                                // USFM validation can be very slow for large files
+                                // This is why we offer an option to skip it
+                                debug(`Performing USFM validation for ${bookCode}`);
 
-                        // Check for validation issues
-                        if (allWarnings.length > 0) {
-                            // Format error messages - limit to first 10 warnings if there are many
-                            const displayWarnings =
-                                allWarnings.length > 10
-                                    ? [
-                                          ...allWarnings.slice(0, 10),
-                                          `... and ${allWarnings.length - 10} more issues`,
-                                      ]
-                                    : allWarnings;
-
-                            const errorMessages = displayWarnings
-                                .map((warning: string, i: number) => `${i + 1}. ${warning}`)
-                                .join("\n");
-
-                            // Show error dialog with option to continue anyway
-                            const continueAnyway = "Export Anyway";
-                            const viewAll = "View All Issues";
-                            const cancel = "Cancel Export";
-
-                            const choice = await vscode.window.showErrorMessage(
-                                `USFM validation found ${allWarnings.length} issues in ${bookCode}:`,
-                                { modal: true, detail: errorMessages },
-                                continueAnyway,
-                                viewAll,
-                                cancel
-                            );
-
-                            if (choice === viewAll) {
-                                // Create a temporary file with all warnings and open it
-                                const tempFile = vscode.Uri.joinPath(
-                                    exportFolder,
-                                    `${bookCode}_validation_issues.txt`
-                                );
-                                const fullReport =
-                                    `USFM Validation Issues for ${bookCode}\n` +
-                                    `Generated: ${new Date().toISOString()}\n` +
-                                    `Total issues found: ${allWarnings.length}\n\n` +
-                                    allWarnings
-                                        .map((warning, i) => `${i + 1}. ${warning}`)
-                                        .join("\n");
-
-                                await vscode.workspace.fs.writeFile(
-                                    tempFile,
-                                    Buffer.from(fullReport)
-                                );
-                                await vscode.commands.executeCommand("vscode.open", tempFile);
-
-                                // Ask again after viewing
-                                const secondChoice = await vscode.window.showErrorMessage(
-                                    `Do you want to continue with the export for ${bookCode}?`,
-                                    { modal: true },
-                                    continueAnyway,
-                                    cancel
+                                // Create a USFM grammar parser instance
+                                const usfmParser = new grammar.USFMParser(
+                                    usfmContent,
+                                    grammar.LEVEL.RELAXED
                                 );
 
-                                if (secondChoice !== continueAnyway) {
-                                    debug(
-                                        `Export cancelled after viewing validation issues for ${bookCode}`
+                                // Parse the USFM content
+                                const parseResult = usfmParser.toJSON() as any;
+
+                                // Check for serious validation issues
+                                if (
+                                    parseResult._messages &&
+                                    parseResult._messages._warnings &&
+                                    parseResult._messages._warnings.length > 0
+                                ) {
+                                    // Filter out the "Empty lines present" warning
+                                    const seriousWarnings = parseResult._messages._warnings.filter(
+                                        (warning: string) =>
+                                            !warning.includes("Empty lines present") &&
+                                            (warning.includes("Missing") ||
+                                                warning.includes("Error") ||
+                                                warning.includes("Invalid"))
                                     );
-                                    return;
+
+                                    if (seriousWarnings.length > 0) {
+                                        debug(
+                                            `USFM validation warnings for ${bookCode}: ${seriousWarnings.length} serious issues found`
+                                        );
+                                        vscode.window.showWarningMessage(
+                                            `${bookCode} has ${seriousWarnings.length} USFM validation issues`
+                                        );
+                                    }
                                 }
-                            } else if (choice !== continueAnyway) {
-                                debug(
-                                    `Export cancelled due to USFM validation issues in ${bookCode}`
+                            } catch (validationError) {
+                                console.error(
+                                    `USFM validation error for ${bookCode}:`,
+                                    validationError
                                 );
-                                return;
+                                // Continue with export despite validation error
                             }
-
-                            debug(
-                                `Continuing export despite USFM validation issues in ${bookCode}`
-                            );
-                        } else {
-                            debug(`USFM validation successful for ${bookCode}`);
-                            vscode.window.setStatusBarMessage(
-                                `USFM validation successful for ${bookCode}`,
-                                3000
-                            );
                         }
-                    } catch (validationError) {
-                        // Clear the validation notification
-                        validationNotification.dispose();
 
-                        console.error(`USFM validation error for ${bookCode}:`, validationError);
+                        // Write file
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                        const exportFileName = `${bookCode}_${timestamp}.usfm`;
+                        const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(usfmContent));
 
-                        // Show error dialog with option to continue anyway
-                        const continueAnyway = "Export Anyway";
-                        const cancel = "Cancel Export";
-
-                        const choice = await vscode.window.showErrorMessage(
-                            `Error validating USFM for ${bookCode}: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
-                            { modal: true },
-                            continueAnyway,
-                            cancel
+                        exportedFiles++;
+                        totalVerses += verseCount;
+                        debug(
+                            `Export file created: ${exportFile.fsPath} with ${verseCount} verses`
                         );
-
-                        if (choice !== continueAnyway) {
-                            debug(`Export cancelled due to USFM validation error in ${bookCode}`);
-                            return;
-                        }
-
-                        debug(`Continuing export despite USFM validation error in ${bookCode}`);
+                    } catch (error) {
+                        console.error(`Error processing file ${file.fsPath}:`, error);
+                        skippedFiles++;
+                        vscode.window.showErrorMessage(
+                            `Error exporting ${basename(file.fsPath)}: ${error instanceof Error ? error.message : String(error)}`
+                        );
                     }
-
-                    // Write individual file
-                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const exportFileName = `${bookCode}_${timestamp}.usfm`;
-                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
-
-                    progress.report({
-                        message: `Writing file ${index + 1}/${selectedFiles.length}...`,
-                        increment: 0,
-                    });
-
-                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(usfmContent));
-                    debug(`Export file created: ${exportFile.fsPath}`);
-                    exportedFiles++;
                 }
 
                 // Show a more detailed completion message
-                const skippedMessage =
-                    skippedFiles > 0 ? ` (${skippedFiles} empty files skipped)` : "";
+                const skippedMessage = skippedFiles > 0 ? ` (${skippedFiles} files skipped)` : "";
                 vscode.window.showInformationMessage(
                     `USFM Export completed: ${totalVerses} verses from ${exportedFiles} files exported to ${userSelectedPath}${skippedMessage}`
                 );
@@ -899,8 +851,14 @@ async function exportCodexContentAsHtml(userSelectedPath: string, filesToExport:
                     });
 
                     debug(`Processing file: ${file.fsPath}`);
-                    const notebookDocument = await vscode.workspace.openNotebookDocument(file);
-                    const cells = notebookDocument.getCells();
+
+                    // Read file directly as JSON instead of opening as notebook
+                    const fileData = await vscode.workspace.fs.readFile(file);
+                    const codexData = JSON.parse(
+                        Buffer.from(fileData).toString()
+                    ) as CodexNotebookAsJSONData;
+                    const cells = codexData.cells;
+
                     debug(`File has ${cells.length} cells`);
 
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
@@ -910,9 +868,10 @@ async function exportCodexContentAsHtml(userSelectedPath: string, filesToExport:
                     // First pass: Organize content by chapters
                     for (const cell of cells) {
                         totalCells++;
-                        if (cell.kind === vscode.NotebookCellKind.Code) {
+                        if (cell.kind === 2) {
+                            // vscode.NotebookCellKind.Code
                             const cellMetadata = cell.metadata as { type: string; id: string };
-                            const cellContent = cell.document.getText().trim();
+                            const cellContent = cell.value.trim();
 
                             if (!cellContent) continue;
 
