@@ -1,10 +1,11 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
+import { EditorCellContent, EditorPostMessages, Timestamps, EditHistory } from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
+import ValidationButton from "./ValidationButton";
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -21,6 +22,7 @@ interface CellContentDisplayProps {
     alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
+    editHistory?: EditHistory[];
 }
 
 const DEBUG_ENABLED = false;
@@ -44,6 +46,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     alertColorCode,
     highlightedCellId,
     scrollSyncEnabled,
+    editHistory,
 }) => {
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
@@ -140,40 +143,41 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     };
 
     return (
-        <span
+        <div
             ref={cellRef}
-            className={`cell-content ${hasDuplicateId ? "duplicate-cell" : ""} ${
-                highlightedCellId === cellIds[0] && scrollSyncEnabled ? "highlighted-cell" : ""
+            className={`cell-content-display ${
+                highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
             }`}
-            onClick={handleVerseClick}
             style={{
-                direction: textDirection,
-                textAlign: textDirection === "rtl" ? "right" : "left",
                 backgroundColor: getBackgroundColor(),
-                cursor: isSourceText ? "default" : "pointer",
+                direction: textDirection,
+                borderColor: hasDuplicateId ? "red" : undefined,
             }}
+            onClick={handleVerseClick}
         >
-            {hasDuplicateId && (
-                <span className="duplicate-id-alert">
-                    <i className="codicon codicon-warning"></i>
-                </span>
-            )}
-            {cellType === CodexCellTypes.TEXT && (
-                <sup>
-                    {displayLabel}
+            <div className="cell-header">
+                <div className="cell-actions">
+                    {!isSourceText && editHistory && (
+                        <ValidationButton 
+                            cellId={cellIds[0]} 
+                            editHistory={editHistory} 
+                            vscode={vscode} 
+                            isSourceText={isSourceText} 
+                        />
+                    )}
                     {getAlertDot()}
-                </sup>
-            )}
-            {cellType === CodexCellTypes.PARATEXT && (
-                <span className="paratext-indicator">[Paratext]</span>
-            )}
-            <span
-                style={{ direction: textDirection, backgroundColor: "transparent" }}
+                </div>
+                <div className="cell-label">
+                    {cellLabel && <span className="cell-label-text">{cellLabel}</span>}
+                </div>
+            </div>
+            <div
+                className="cell-content"
                 dangerouslySetInnerHTML={{
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
-            />
-        </span>
+            ></div>
+        </div>
     );
 };
 

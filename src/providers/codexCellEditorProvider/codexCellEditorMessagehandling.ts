@@ -660,5 +660,22 @@ export const handleMessages = async (
             }
             return;
         }
+        case "validateCell":
+            if (event.content && event.content.cellId) {
+                await document.validateCellContent(
+                    event.content.cellId,
+                    event.content.validate
+                );
+                updateWebview();
+            }
+            break;
+        case "getCurrentUsername":
+            const authApi = await provider.getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            webviewPanel.webview.postMessage({
+                type: "currentUsername",
+                content: { username: userInfo?.username || "anonymous" }
+            });
+            break;
     }
 };

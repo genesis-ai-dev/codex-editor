@@ -460,7 +460,7 @@ export async function updateMetadataFile() {
 
     project.projectName = projectSettings.get("projectName", "");
     project.meta = project.meta || {}; // Ensure meta object exists
-    project.meta.category = projectSettings.get("projectCategory", "");
+    project.meta.validationCount = projectSettings.get("validationCount", 1);
     project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
     project.meta.generator.userName = projectSettings.get("userName", "");
     project.meta.generator.userEmail = projectSettings.get("userEmail", "");
@@ -550,12 +550,14 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
+            validationCount: metadata.meta?.validationCount || 1,
             userName: userInfo?.username || "Anonymous",
             userEmail: userInfo?.email || "",
             meta: {
                 version: metadata.meta?.version || "0.0.1",
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
                 category: metadata.meta?.category || "Uncategorized",
+                validationCount: metadata.meta?.validationCount || 1,
                 generator: {
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",

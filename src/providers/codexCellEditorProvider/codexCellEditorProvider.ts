@@ -165,7 +165,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Initial setup
         this.currentDocument = document;
-        const authApi = await getAuthApi();
+        const authApi = await this.getAuthApi();
         this.userInfo = await authApi?.getUserInfo();
         debug("User info retrieved:", this.userInfo);
 
@@ -721,5 +721,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamp: new Date().toISOString(),
             },
         });
+    }
+
+    public async getAuthApi() {
+        return getAuthApi();
     }
 }

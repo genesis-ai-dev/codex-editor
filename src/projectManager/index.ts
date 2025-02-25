@@ -113,30 +113,35 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
-    const selectCategoryCommand = vscode.commands.registerCommand(
-        "codex-project-manager.selectCategory",
+    const setValidationCountCommand = vscode.commands.registerCommand(
+        "codex-project-manager.setValidationCount",
         executeWithRedirecting(async () => {
             const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const currentCategory = config.get("projectCategory", "");
+            const currentCount = config.get("validationCount", 1);
 
-            const categories = ["Scripture", "Gloss", "Parascriptural", "Peripheral"];
+            // Create array of numbers from 1 to 15
+            const validationCounts = Array.from({ length: 15 }, (_, i) => i + 1);
 
-            const categoryItems = categories.map((category) => ({
-                label: category,
+            const countItems = validationCounts.map((count) => ({
+                label: count.toString(),
+                description: count === 1 ? "validation" : "validations",
+                picked: count === currentCount
             }));
-            const selectedCategory = await vscode.window.showQuickPick(categoryItems, {
-                placeHolder: "Select project category",
+            
+            const selectedCount = await vscode.window.showQuickPick(countItems, {
+                placeHolder: "Select number of validations required",
             });
 
-            if (selectedCategory !== undefined) {
+            if (selectedCount !== undefined) {
+                const count = parseInt(selectedCount.label);
                 await config.update(
-                    "projectCategory",
-                    selectedCategory.label,
+                    "validationCount",
+                    count,
                     vscode.ConfigurationTarget.Workspace
                 );
                 vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
                 vscode.window.showInformationMessage(
-                    `Project category set to ${selectedCategory.label}.`
+                    `Required validations set to ${count}.`
                 );
             }
         })
@@ -513,7 +518,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         openAutoSaveSettingsCommand,
         editAbbreviationCommand,
-        selectCategoryCommand,
+        setValidationCountCommand,
         setEditorFontToTargetLanguageCommand,
         changeTargetLanguageCommand,
         changeSourceLanguageCommand,
