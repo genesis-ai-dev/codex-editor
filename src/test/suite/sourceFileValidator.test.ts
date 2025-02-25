@@ -16,7 +16,8 @@ suite("SourceFileValidator Test Suite", () => {
         usx: "usx",
         sfm: "usfm",
         SFM: "usfm",
-        USFM: "usfm"
+        USFM: "usfm",
+        codex: "codex",
     };
 
     suiteSetup(async () => {

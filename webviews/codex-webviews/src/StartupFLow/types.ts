@@ -1,5 +1,5 @@
 import { syncUtils } from "./../../../../src/activationHelpers/contextAware/syncUtils";
-import { BiblePreviewData, PreviewContent } from "../../../../types";
+import { BiblePreview, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
@@ -82,7 +82,7 @@ export interface MultiPreviewItem {
     fileSize: number;
     isValid: boolean;
     isRejected?: boolean;
-    preview: PreviewContent | BiblePreviewData;
+    preview: PreviewContent | BiblePreview;
     sourceId?: string; // Optional sourceId for translation previews
 }
 
@@ -105,7 +105,7 @@ export interface WorkflowState {
     selectedFiles: string[];
     fileObjects: File[];
     selectedSourceId?: string;
-    preview?: PreviewContent | BiblePreviewData;
+    preview?: PreviewContent | BiblePreview;
     error?: string | null;
     progress?: {
         message: string;
