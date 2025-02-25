@@ -117,6 +117,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
+    const [showAdvancedControls, setShowAdvancedControls] = useState(false);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -401,38 +402,71 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
                     style={{ cursor: "pointer" }}
                 >
-                    <i className="codicon codicon-menu"></i>
+                    {isEditorControlsExpanded ? (
+                        <i className="codicon codicon-close"></i>
+                    ) : (
+                        <div className="header-label">
+                            <h3>
+                            </h3>
+                                {editableLabel} <i className="codicon codicon-edit"></i>
+                        </div>
+                    )}
                 </div>
                 <div className="action-buttons">
-                    <AddParatextButton cellId={cellMarkers[0]} cellTimestamps={cellTimestamps} />
-                    {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                        <VSCodeButton onClick={makeChild} appearance="icon" title="Add Child Cell">
-                            <i className="codicon codicon-type-hierarchy-sub"></i>
+                    {showAdvancedControls ? (
+                        <div>
+                            <AddParatextButton
+                                cellId={cellMarkers[0]}
+                                cellTimestamps={cellTimestamps}
+                            />
+                            {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                                <VSCodeButton
+                                    onClick={makeChild}
+                                    appearance="icon"
+                                    title="Add Child Cell"
+                                >
+                                    <i className="codicon codicon-type-hierarchy-sub"></i>
+                                </VSCodeButton>
+                            )}
+                            {!sourceCellContent && (
+                                <ConfirmationButton
+                                    icon="trash"
+                                    onClick={deleteCell}
+                                    disabled={cellHasContent}
+                                />
+                            )}
+                            <VSCodeButton
+                                onClick={handlePinCell}
+                                appearance="icon"
+                                title={
+                                    isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"
+                                }
+                                style={{
+                                    backgroundColor: isPinned
+                                        ? "var(--vscode-button-background)"
+                                        : "transparent",
+                                    color: isPinned
+                                        ? "var(--vscode-button-foreground)"
+                                        : "var(--vscode-editor-foreground)",
+                                    marginLeft: "auto", // This pushes it to the right
+                                }}
+                            >
+                                <i
+                                    className={`codicon ${
+                                        isPinned ? "codicon-pinned" : "codicon-pin"
+                                    }`}
+                                ></i>
+                            </VSCodeButton>
+                        </div>
+                    ) : (
+                        <VSCodeButton
+                            onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                            appearance="icon"
+                            title="Show Advanced Controls"
+                        >
+                            <i className="codicon codicon-gear"></i>
                         </VSCodeButton>
                     )}
-                    {!sourceCellContent && (
-                        <ConfirmationButton
-                            icon="trash"
-                            onClick={deleteCell}
-                            disabled={cellHasContent}
-                        />
-                    )}
-                    <VSCodeButton
-                        onClick={handlePinCell}
-                        appearance="icon"
-                        title={isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"}
-                        style={{
-                            backgroundColor: isPinned
-                                ? "var(--vscode-button-background)"
-                                : "transparent",
-                            color: isPinned
-                                ? "var(--vscode-button-foreground)"
-                                : "var(--vscode-editor-foreground)",
-                            marginLeft: "auto", // This pushes it to the right
-                        }}
-                    >
-                        <i className={`codicon ${isPinned ? "codicon-pinned" : "codicon-pin"}`}></i>
-                    </VSCodeButton>
                     {unsavedChanges ? (
                         <>
                             <VSCodeButton
