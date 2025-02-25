@@ -272,14 +272,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Add effect to fetch source text
     useEffect(() => {
-        const messageContent: EditorPostMessages = {
-            command: "getSourceText",
-            content: {
-                cellId: cellMarkers[0],
-            },
-        };
-        window.vscodeApi.postMessage(messageContent);
-    }, [cellMarkers]);
+        // Only fetch source text for non-paratext and non-child cells
+        if (cellType !== CodexCellTypes.PARATEXT && !cellIsChild) {
+            const messageContent: EditorPostMessages = {
+                command: "getSourceText",
+                content: {
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        } else {
+            // Clear source text for paratext or child cells
+            setSourceText(null);
+        }
+    }, [cellMarkers, cellType, cellIsChild]);
 
     // Add effect to handle source text response
     useEffect(() => {
@@ -406,9 +412,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <i className="codicon codicon-close"></i>
                     ) : (
                         <div className="header-label">
-                            <h3>
-                            </h3>
-                                {editableLabel} <i className="codicon codicon-edit"></i>
+                            <h3></h3>
+                            {editableLabel} <i className="codicon codicon-edit"></i>
                         </div>
                     )}
                 </div>

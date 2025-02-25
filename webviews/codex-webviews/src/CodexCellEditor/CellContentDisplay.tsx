@@ -7,6 +7,7 @@ import { WebviewApi } from "vscode-webview";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import ValidationButton from "./ValidationButton";
 
+const SHOW_VALIDATION_BUTTON = false;
 interface CellContentDisplayProps {
     cellIds: string[];
     cellContent: string;
@@ -157,12 +158,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         >
             <div className="cell-header">
                 <div className="cell-actions">
-                    {!isSourceText && editHistory && (
-                        <ValidationButton 
-                            cellId={cellIds[0]} 
-                            editHistory={editHistory} 
-                            vscode={vscode} 
-                            isSourceText={isSourceText} 
+                    {!isSourceText && editHistory && SHOW_VALIDATION_BUTTON && (
+                        <ValidationButton
+                            cellId={cellIds[0]}
+                            editHistory={editHistory}
+                            vscode={vscode}
+                            isSourceText={isSourceText}
                         />
                     )}
                     {getAlertDot()}
