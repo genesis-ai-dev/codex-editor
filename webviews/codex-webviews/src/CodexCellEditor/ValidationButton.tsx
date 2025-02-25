@@ -17,8 +17,20 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 }) => {
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(null);
+    const [requiredValidations, setRequiredValidations] = useState(1);
+    const [currentValidations, setCurrentValidations] = useState(0);
+
+    // Function to fetch validation count
+    const fetchValidationCount = () => {
+        vscode.postMessage({
+            command: "getValidationCount"
+        });
+    };
 
     useEffect(() => {
+        // Get the required validation count from project settings
+        fetchValidationCount();
+
         // Check if there are any edits
         if (!editHistory || editHistory.length === 0) {
             return;
@@ -31,11 +43,15 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         if (latestEdit.validatedBy && username) {
             setIsValidated(latestEdit.validatedBy.includes(username));
         }
+
+        // Set the current number of validations
+        if (latestEdit.validatedBy) {
+            setCurrentValidations(latestEdit.validatedBy.length);
+        }
     }, [editHistory, username]);
 
-    // Get the current username when component mounts
+    // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
-        // This message will be handled by the extension to return the current username
         vscode.postMessage({
             command: "getCurrentUsername"
         });
@@ -43,6 +59,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         const handleMessage = (event: MessageEvent) => {
             if (event.data.type === "currentUsername") {
                 setUsername(event.data.content.username);
+            } else if (event.data.type === "validationCount") {
+                setRequiredValidations(event.data.content);
+            } else if (event.data.type === "configurationChanged") {
+                // Refresh validation count when configuration changes
+                fetchValidationCount();
             }
         };
 
@@ -66,12 +87,15 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         
         // Optimistically update the UI
         setIsValidated(!isValidated);
+        setCurrentValidations(prev => !isValidated ? prev + 1 : prev - 1);
     };
 
     // Don't show validation button for source text or if no username is available
     if (isSourceText || !username) {
         return null;
     }
+
+    const isFullyValidated = currentValidations >= requiredValidations;
 
     return (
         <VSCodeButton 
@@ -91,7 +115,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             }}
         >
             <i 
-                className="codicon codicon-check" 
+                className={`codicon ${isFullyValidated ? 'codicon-check-all' : 'codicon-check'}`}
                 style={{ 
                     color: isValidated ? "var(--vscode-editor-background)" : "var(--vscode-descriptionForeground)",
                     fontSize: "14px",

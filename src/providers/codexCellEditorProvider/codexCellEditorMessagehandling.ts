@@ -677,5 +677,19 @@ export const handleMessages = async (
                 content: { username: userInfo?.username || "anonymous" }
             });
             break;
+        case "getValidationCount": {
+            try {
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const validationCount = config.get("validationCount", 1);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "validationCount",
+                    content: validationCount
+                });
+            } catch (error) {
+                console.error("Error getting validation count:", error);
+                vscode.window.showErrorMessage("Failed to get validation count.");
+            }
+            return;
+        }
     }
 };
