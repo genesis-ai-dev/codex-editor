@@ -97,8 +97,34 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
 
 export class CodexNotebookReader {
     private notebookDocument: vscode.NotebookDocument | undefined;
+    private notebookData: CodexNotebookAsJSONData | undefined;
+    private isDirectMode: boolean = false;
 
     constructor(private readonly uri: vscode.Uri) {}
+
+    /**
+     * Reads the notebook file directly as JSON without opening it as a VS Code notebook.
+     * This is significantly faster for operations that only need to read data.
+     */
+    private async readNotebookAsJson(): Promise<CodexNotebookAsJSONData> {
+        if (this.notebookData) {
+            return this.notebookData;
+        }
+        
+        try {
+            const fileData = await vscode.workspace.fs.readFile(this.uri);
+            const serializer = new CodexContentSerializer();
+            this.notebookData = await serializer.deserializeNotebook(
+                fileData,
+                new vscode.CancellationTokenSource().token
+            );
+            this.isDirectMode = true;
+            return this.notebookData;
+        } catch (error) {
+            console.error(`Failed to read notebook as JSON: ${this.uri.fsPath}`, error);
+            throw error;
+        }
+    }
 
     private async ensureNotebookDocument(): Promise<void> {
         if (!this.notebookDocument) {
@@ -108,12 +134,44 @@ export class CodexNotebookReader {
     }
 
     async getCells(): Promise<vscode.NotebookCell[]> {
-        await this.ensureNotebookDocument();
-        return this.notebookDocument!.getCells();
+        // Try direct JSON access first
+        try {
+            const data = await this.readNotebookAsJson();
+            if (this.notebookDocument) {
+                // If we already have the document open, use it
+                return this.notebookDocument.getCells();
+            }
+            
+            // Otherwise, convert JSON cells to a compatible format
+            // Note: This returns a compatible interface but not actual NotebookCell objects
+            return data.cells.map((cell, index) => ({
+                document: {
+                    getText: () => cell.value,
+                    uri: vscode.Uri.parse(`${this.uri.toString()}#cell-${index}`)
+                },
+                kind: cell.kind,
+                metadata: cell.metadata,
+                notebook: { uri: this.uri } as vscode.NotebookDocument,
+                executionSummary: undefined,
+                index,
+                outputs: []
+            } as unknown as vscode.NotebookCell));
+        } catch (error) {
+            // Fall back to traditional method
+            await this.ensureNotebookDocument();
+            return this.notebookDocument!.getCells();
+        }
     }
 
     async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string }): Promise<number> {
         const { cell, id } = props;
+        
+        if (this.isDirectMode && this.notebookData) {
+            return this.notebookData.cells.findIndex(
+                (c) => c.metadata?.id === cell?.metadata?.id || c.metadata?.id === id
+            );
+        }
+        
         const cells = await this.getCells();
         return cells.findIndex(
             (c) => c.metadata?.id === cell?.metadata?.id || c.metadata?.id === id
@@ -135,13 +193,20 @@ export class CodexNotebookReader {
         if (!cell) {
             return false; // If cell is undefined, it's not a range cell
         }
+        
+        if (this.isDirectMode) {
+            // In direct mode, we need to check the value directly
+            return (cell as any).document.getText().trim() === "<range>";
+        }
+        
         return cell.document.getText().trim() === "<range>";
     }
 
-    // Get the full content for a cell, accounting for ranges
+    // Get the cell IDs, including subsequent range cells
     async getCellIds(cellIndex: number): Promise<string[]> {
         const cells = await this.getCells();
         const ids: string[] = [];
+        
         // If the current cell is a range marker, find the preceding cell
         if (cellIndex < 0 || cellIndex >= cells.length) {
             return ids; // Return empty array if index is out of bounds
@@ -164,7 +229,7 @@ export class CodexNotebookReader {
         return ids;
     }
 
-    // Get cell IDs, including subsequent range cells
+    // Get effective cell content, including subsequent range cells
     async getEffectiveCellContent(cellIndex: number): Promise<string> {
         const cells = await this.getCells();
         let content = "";
