@@ -611,29 +611,62 @@ li {
     border-radius: 4px;
 }
 
-.cell-content-display:hover {
-    background-color: var(--vscode-list-hoverBackground);
+/* Specific styles for inline display mode */
+.cell-display-inline .cell-content-display {
+    display: inline;
+    padding: 0;
+    gap: 0;
 }
 
-.cell-label {
+.cell-display-inline .cell-header {
+    display: inline;
+}
+
+.cell-display-inline .cell-actions {
+    display: none;
+}
+
+.cell-display-inline .cell-label {
+    display: inline;
+    margin-right: 0.25rem;
+}
+
+.cell-display-inline .cell-content {
+    display: inline;
+    padding: 0;
+}
+
+/* Styles for one-line-per-cell mode */
+.cell-display-one-line-per-cell .cell-content-display {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.25rem;
+}
+
+.cell-display-one-line-per-cell .cell-header {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    min-width: 2rem;
+    flex-shrink: 0;
+}
+
+.cell-display-one-line-per-cell .cell-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.cell-display-one-line-per-cell .cell-label {
     font-weight: 500;
     white-space: nowrap;
     min-width: fit-content;
     line-height: 1.5;
 }
 
-.cell-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
-}
-
-.cell-content {
+.cell-display-one-line-per-cell .cell-content {
     flex: 1;
     line-height: 1.5;
     padding-top: 0.1rem;
-}
-
-.cell-content-display .cell-header + .cell-content {
-    display: inline;
 }
