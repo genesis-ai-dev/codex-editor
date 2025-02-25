@@ -297,18 +297,22 @@ export async function exportCodexContent(
 ) {
     switch (format) {
         case CodexExportFormat.PLAINTEXT:
-            await exportCodexContentAsPlaintext(userSelectedPath, filesToExport);
+            await exportCodexContentAsPlaintext(userSelectedPath, filesToExport, options);
             break;
         case CodexExportFormat.USFM:
             await exportCodexContentAsUsfm(userSelectedPath, filesToExport, options);
             break;
         case CodexExportFormat.HTML:
-            await exportCodexContentAsHtml(userSelectedPath, filesToExport);
+            await exportCodexContentAsHtml(userSelectedPath, filesToExport, options);
             break;
     }
 }
 
-async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToExport: string[]) {
+async function exportCodexContentAsPlaintext(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
     try {
         debug("Starting exportCodexContent function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -374,13 +378,17 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
                                 if (chapterContent) {
                                     exportContent += chapterContent + "\n\n";
                                 }
-                                currentChapter = cell.value.replace(/<\/?h1>/g, "").trim();
+                                // Clean HTML from chapter heading
+                                currentChapter = cell.value.replace(/<\/?[^>]+(>|$)/g, "").trim();
                                 chapterContent = `${currentChapter}\n`;
                                 debug(`New chapter: ${currentChapter}`);
                             } else if (cellMetadata.type === "text" && cellMetadata.id) {
                                 debug(`Processing verse cell: ${cellMetadata.id}`);
                                 const verseRef = cellMetadata.id;
-                                const verseContent = cell.value.trim();
+                                // Clean HTML from verse content
+                                const verseContent = cell.value
+                                    .replace(/<\/?[^>]+(>|$)/g, "")
+                                    .trim();
                                 if (verseContent) {
                                     chapterContent += `${verseRef} ${verseContent}\n`;
                                     totalVerses++;
@@ -420,6 +428,74 @@ async function exportCodexContentAsPlaintext(userSelectedPath: string, filesToEx
         console.error("Export failed:", error);
         vscode.window.showErrorMessage(`Export failed: ${error}`);
     }
+}
+
+/**
+ * Converts HTML formatting to USFM equivalents
+ * @param html The HTML content to convert
+ * @returns The content with HTML converted to USFM markers
+ */
+function convertHtmlToUsfm(html: string): string {
+    if (!html) return "";
+
+    let content = html;
+
+    // Convert headings (except h1 which is handled separately for chapters)
+    content = content.replace(/<h2>(.*?)<\/h2>/gi, "\\s1 $1");
+    content = content.replace(/<h3>(.*?)<\/h3>/gi, "\\s2 $1");
+    content = content.replace(/<h4>(.*?)<\/h4>/gi, "\\s3 $1");
+
+    // Convert emphasis
+    content = content.replace(/<em>(.*?)<\/em>/gi, "\\em $1\\em*");
+    content = content.replace(/<i>(.*?)<\/i>/gi, "\\it $1\\it*");
+
+    // Convert bold
+    content = content.replace(/<strong>(.*?)<\/strong>/gi, "\\bd $1\\bd*");
+    content = content.replace(/<b>(.*?)<\/b>/gi, "\\bd $1\\bd*");
+
+    // Convert underline
+    content = content.replace(/<u>(.*?)<\/u>/gi, "\\ul $1\\ul*");
+
+    // Convert superscript and subscript
+    content = content.replace(/<sup>(.*?)<\/sup>/gi, "\\sup $1\\sup*");
+    content = content.replace(/<sub>(.*?)<\/sub>/gi, "\\sub $1\\sub*");
+
+    // Convert lists
+    content = content.replace(/<ul>(.*?)<\/ul>/gis, (match, listContent) => {
+        const items = listContent.match(/<li>(.*?)<\/li>/gis);
+        if (!items) return match;
+
+        return items
+            .map((item: string) => {
+                return "\\li " + item.replace(/<\/?li>/gi, "").trim();
+            })
+            .join("\n");
+    });
+
+    // Convert ordered lists
+    content = content.replace(/<ol>(.*?)<\/ol>/gis, (match, listContent) => {
+        const items = listContent.match(/<li>(.*?)<\/li>/gis);
+        if (!items) return match;
+
+        return items
+            .map((item: string, index: number) => {
+                return `\\li${index + 1} ` + item.replace(/<\/?li>/gi, "").trim();
+            })
+            .join("\n");
+    });
+
+    // Remove other HTML tags
+    content = content.replace(/<[^>]*>/g, "");
+
+    // Replace HTML entities
+    content = content.replace(/&nbsp;/g, " ");
+    content = content.replace(/&lt;/g, "<");
+    content = content.replace(/&gt;/g, ">");
+    content = content.replace(/&amp;/g, "&");
+    content = content.replace(/&quot;/g, '"');
+    content = content.replace(/&apos;/g, "'");
+
+    return content;
 }
 
 async function exportCodexContentAsUsfm(
@@ -523,6 +599,7 @@ async function exportCodexContentAsUsfm(
                         const fullBookName = getFullBookName(bookCode);
                         let verseCount = 0;
                         let hasVerses = false;
+                        let currentChapter = 0; // Track current chapter number
 
                         // Add USFM header in the correct order
                         // 1. ID marker must come first - include language code (default to 'en' if unknown)
@@ -554,27 +631,74 @@ async function exportCodexContentAsUsfm(
 
                         totalCells += relevantCells.length;
 
+                        // First pass: identify all chapters
+                        const chapterCells: { [key: string]: number } = {};
                         for (const cell of relevantCells) {
                             const cellMetadata = cell.metadata as { type: string; id: string };
                             const cellContent = cell.value.trim();
 
+                            if (
+                                cellMetadata.type === CodexCellTypes.PARATEXT &&
+                                cellContent.startsWith("<h1>")
+                            ) {
+                                const chapterTitle = cellContent.replace(/<\/?h1>/g, "").trim();
+                                const chapterMatch = chapterTitle.match(/Chapter (\d+)/i);
+                                if (chapterMatch) {
+                                    const chapterNum = parseInt(chapterMatch[1], 10);
+                                    chapterCells[cellMetadata.id] = chapterNum;
+                                }
+                            } else if (
+                                cellMetadata.type === CodexCellTypes.TEXT &&
+                                cellMetadata.id
+                            ) {
+                                // Extract chapter from verse reference (e.g., "MRK 1:1" -> "1")
+                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
+                                if (chapterMatch) {
+                                    const chapterNum = parseInt(chapterMatch[1], 10);
+                                    if (!lastChapter || chapterNum > parseInt(lastChapter, 10)) {
+                                        // This is a verse from a new chapter
+                                        if (!Object.values(chapterCells).includes(chapterNum)) {
+                                            // We don't have a chapter heading for this chapter
+                                            chapterCells[`auto_${chapterNum}`] = chapterNum;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Sort chapters by number
+                        const sortedChapters = Object.entries(chapterCells)
+                            .sort((a, b) => a[1] - b[1])
+                            .map((entry) => entry[1]);
+
+                        // Second pass: process cells with proper chapter handling
+                        for (const cell of relevantCells) {
+                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            let cellContent = cell.value.trim();
+
+                            // Convert HTML to USFM
+                            cellContent = convertHtmlToUsfm(cellContent);
+
                             if (cellMetadata.type === CodexCellTypes.PARATEXT) {
                                 // Handle chapter headings
-                                if (cellContent.startsWith("<h1>")) {
-                                    const chapterTitle = cellContent.replace(/<\/?h1>/g, "").trim();
-                                    const chapterMatch = chapterTitle.match(/Chapter (\d+)/i);
+                                if (cellContent.startsWith("Chapter ")) {
+                                    const chapterMatch = cellContent.match(/Chapter (\d+)/i);
                                     if (chapterMatch) {
                                         if (lastChapter !== "") {
                                             usfmContent += chapterContent;
                                         } else if (isFirstChapter) {
                                             isFirstChapter = false;
                                         }
-                                        lastChapter = chapterMatch[1];
-                                        chapterContent = `\\c ${chapterMatch[1]}\n\\p\n`;
+
+                                        const chapterNum = parseInt(chapterMatch[1], 10);
+                                        currentChapter = chapterNum;
+                                        lastChapter = chapterNum.toString();
+                                        chapterContent = `\\c ${chapterNum}\n\\p\n`;
                                     } else {
                                         chapterContent += `\\p ${cellContent}\n`;
                                     }
                                 } else {
+                                    // Handle other paratext
                                     chapterContent += `\\p ${cellContent}\n`;
                                 }
                             } else if (
@@ -583,11 +707,28 @@ async function exportCodexContentAsUsfm(
                             ) {
                                 // Handle verse content
                                 const verseRef = cellMetadata.id;
+                                const chapterMatch = verseRef.match(/\s(\d+):/);
                                 const verseMatch = verseRef.match(/\d+$/);
-                                if (verseMatch) {
+
+                                if (chapterMatch && verseMatch) {
+                                    const chapterNum = parseInt(chapterMatch[1], 10);
+
+                                    // If we're in a new chapter, add chapter marker
+                                    if (chapterNum !== currentChapter) {
+                                        if (chapterContent) {
+                                            usfmContent += chapterContent;
+                                        }
+
+                                        currentChapter = chapterNum;
+                                        lastChapter = chapterNum.toString();
+                                        chapterContent = `\\c ${chapterNum}\n\\p\n`;
+                                        isFirstChapter = false;
+                                    }
+
                                     // If we haven't started a chapter yet, add chapter 1 automatically
                                     if (lastChapter === "" && isFirstChapter) {
                                         lastChapter = "1";
+                                        currentChapter = 1;
                                         chapterContent = `\\c 1\n\\p\n`;
                                         isFirstChapter = false;
                                     }
@@ -697,7 +838,11 @@ async function exportCodexContentAsUsfm(
     }
 }
 
-async function exportCodexContentAsHtml(userSelectedPath: string, filesToExport: string[]) {
+async function exportCodexContentAsHtml(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
     try {
         debug("Starting exportCodexContentAsHtml function");
         const workspaceFolders = vscode.workspace.workspaceFolders;
