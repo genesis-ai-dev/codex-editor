@@ -14,6 +14,242 @@ function debug(...args: any[]) {
     }
 }
 
+/**
+ * Maps book codes to their full names for USFM export
+ */
+const bookCodeToName: Record<string, string> = {
+    // Old Testament
+    GEN: "Genesis",
+    EXO: "Exodus",
+    LEV: "Leviticus",
+    NUM: "Numbers",
+    DEU: "Deuteronomy",
+    JOS: "Joshua",
+    JDG: "Judges",
+    RUT: "Ruth",
+    "1SA": "1 Samuel",
+    "2SA": "2 Samuel",
+    "1KI": "1 Kings",
+    "2KI": "2 Kings",
+    "1CH": "1 Chronicles",
+    "2CH": "2 Chronicles",
+    EZR: "Ezra",
+    NEH: "Nehemiah",
+    EST: "Esther",
+    JOB: "Job",
+    PSA: "Psalms",
+    PRO: "Proverbs",
+    ECC: "Ecclesiastes",
+    SNG: "Song of Songs",
+    ISA: "Isaiah",
+    JER: "Jeremiah",
+    LAM: "Lamentations",
+    EZK: "Ezekiel",
+    DAN: "Daniel",
+    HOS: "Hosea",
+    JOL: "Joel",
+    AMO: "Amos",
+    OBA: "Obadiah",
+    JON: "Jonah",
+    MIC: "Micah",
+    NAM: "Nahum",
+    HAB: "Habakkuk",
+    ZEP: "Zephaniah",
+    HAG: "Haggai",
+    ZEC: "Zechariah",
+    MAL: "Malachi",
+    // New Testament
+    MAT: "Matthew",
+    MRK: "Mark",
+    LUK: "Luke",
+    JHN: "John",
+    ACT: "Acts",
+    ROM: "Romans",
+    "1CO": "1 Corinthians",
+    "2CO": "2 Corinthians",
+    GAL: "Galatians",
+    EPH: "Ephesians",
+    PHP: "Philippians",
+    COL: "Colossians",
+    "1TH": "1 Thessalonians",
+    "2TH": "2 Thessalonians",
+    "1TI": "1 Timothy",
+    "2TI": "2 Timothy",
+    TIT: "Titus",
+    PHM: "Philemon",
+    HEB: "Hebrews",
+    JAS: "James",
+    "1PE": "1 Peter",
+    "2PE": "2 Peter",
+    "1JN": "1 John",
+    "2JN": "2 John",
+    "3JN": "3 John",
+    JUD: "Jude",
+    REV: "Revelation",
+};
+
+/**
+ * Gets the full book name from a book code
+ * @param bookCode The three-letter book code
+ * @returns The full book name or the original code if not found
+ */
+function getFullBookName(bookCode: string): string {
+    const upperCode = bookCode.toUpperCase();
+    return bookCodeToName[upperCode] || bookCode;
+}
+
+/**
+ * Validates USFM content for common structural issues
+ * @param usfmContent The USFM content to validate
+ * @returns An array of validation issues, empty if no issues found
+ */
+function validateUsfmStructure(usfmContent: string): string[] {
+    const issues: string[] = [];
+
+    // Check for required USFM markers
+    if (!usfmContent.includes("\\id ")) {
+        issues.push("Missing \\id marker (required)");
+    }
+
+    if (!usfmContent.includes("\\h ")) {
+        issues.push("Missing \\h marker (header, recommended)");
+    }
+
+    if (
+        !usfmContent.includes("\\mt") ||
+        (!usfmContent.includes("\\mt ") && !usfmContent.includes("\\mt1 "))
+    ) {
+        issues.push("Missing \\mt or \\mt1 marker (main title, recommended)");
+    }
+
+    if (!usfmContent.includes("\\c ")) {
+        issues.push("Missing \\c marker (required for chapters)");
+    }
+
+    if (!usfmContent.includes("\\v ")) {
+        issues.push("Missing \\v marker (required for verses)");
+    }
+
+    if (!usfmContent.includes("\\p")) {
+        issues.push("Missing \\p marker (paragraph, recommended for readability)");
+    }
+
+    // Check for correct order of markers
+    const lines = usfmContent.split("\n");
+    let idFound = false;
+    let headerFound = false;
+    let chapterFound = false;
+
+    // First non-empty line should be \id
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        if (i === 0 && !line.startsWith("\\id ")) {
+            issues.push("\\id marker should be the first marker in the file");
+        }
+        break;
+    }
+
+    // Check marker sequence
+    for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) continue;
+
+        if (trimmedLine.startsWith("\\id ")) {
+            if (idFound) {
+                issues.push("Multiple \\id markers found (only one allowed)");
+            }
+            idFound = true;
+
+            // Check if ID has language code
+            const idParts = trimmedLine.split(" ");
+            if (idParts.length < 3) {
+                issues.push(
+                    "\\id marker should include book code and language code (e.g., \\id GEN EN)"
+                );
+            }
+        } else if (trimmedLine.startsWith("\\c ")) {
+            chapterFound = true;
+            // Check if \p follows \c
+            const chapterIndex = lines.indexOf(line);
+            if (chapterIndex < lines.length - 1) {
+                const nextNonEmptyLines = lines
+                    .slice(chapterIndex + 1)
+                    .map((l) => l.trim())
+                    .filter((l) => l.length > 0);
+
+                if (
+                    nextNonEmptyLines.length > 0 &&
+                    !nextNonEmptyLines[0].startsWith("\\p") &&
+                    !nextNonEmptyLines[0].startsWith("\\v")
+                ) {
+                    issues.push(
+                        `Chapter marker should be followed by \\p or \\v marker near: "${trimmedLine}"`
+                    );
+                }
+            }
+        } else if (
+            trimmedLine.startsWith("\\h ") ||
+            trimmedLine.startsWith("\\mt") ||
+            trimmedLine.startsWith("\\toc")
+        ) {
+            headerFound = true;
+            if (chapterFound) {
+                issues.push(
+                    "Header markers (\\h, \\mt, \\toc) should appear before chapter markers (\\c)"
+                );
+            }
+        } else if (trimmedLine.startsWith("\\v ")) {
+            if (!chapterFound) {
+                issues.push("Verse marker (\\v) found before any chapter marker (\\c)");
+            }
+        }
+    }
+
+    // Check for unmatched markers (simplified check)
+    const paragraphMarkers = usfmContent.match(/\\p\b/g) || [];
+    const endParagraphMarkers = usfmContent.match(/\\p\*/g) || [];
+    if (paragraphMarkers.length !== endParagraphMarkers.length && endParagraphMarkers.length > 0) {
+        issues.push("Unmatched paragraph markers (\\p)");
+    }
+
+    // Check for potentially malformed verse markers
+    const verseLines = usfmContent.split("\n").filter((line) => line.includes("\\v "));
+    for (const line of verseLines) {
+        const verseMatch = line.match(/\\v\s+(\d+)/);
+        if (verseMatch) {
+            const verseNumber = verseMatch[1];
+            if (verseNumber === "0") {
+                issues.push(`Verse number 0 found, which is unusual: "${line.trim()}"`);
+            }
+
+            // Check if verse content is empty
+            const verseContent = line.replace(/\\v\s+\d+\s*/, "").trim();
+            if (!verseContent) {
+                issues.push(`Empty content for verse ${verseNumber}`);
+            }
+        } else {
+            issues.push(`Malformed verse marker: "${line.trim()}"`);
+        }
+    }
+
+    // Check for chapter sequence
+    const chapterMatches = [...usfmContent.matchAll(/\\c\s+(\d+)/g)];
+    let lastChapterNum = 0;
+    for (const match of chapterMatches) {
+        const chapterNum = parseInt(match[1], 10);
+        if (chapterNum !== lastChapterNum + 1) {
+            issues.push(
+                `Non-sequential chapter numbering: expected chapter ${lastChapterNum + 1}, found chapter ${chapterNum}`
+            );
+        }
+        lastChapterNum = chapterNum;
+    }
+
+    return issues;
+}
+
 export enum CodexExportFormat {
     PLAINTEXT = "plaintext",
     USFM = "usfm",
@@ -205,17 +441,27 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
 
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
                     const bookCode = basename(file.fsPath).split(".")[0] || "";
+                    const fullBookName = getFullBookName(bookCode);
 
-                    // Add metadata as USFM comments
+                    // Add USFM header in the correct order
+                    // 1. ID marker must come first - include language code (default to 'en' if unknown)
+                    usfmContent += `\\id ${bookCode} EN\n`;
+
+                    // 2. Add metadata as USFM comments
                     usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
                     usfmContent += `\\rem Export Date: ${exportDate}\n`;
                     usfmContent += `\\rem Source File: ${file.fsPath}\n\n`;
 
-                    // Add USFM header
-                    usfmContent += `\\id ${bookCode}\n\\h ${bookCode}\n\\mt ${bookCode}\n\n`;
+                    // 3. Add header and title markers with proper book name
+                    usfmContent += `\\h ${fullBookName}\n`;
+                    usfmContent += `\\toc1 ${fullBookName}\n`; // Long table of contents text
+                    usfmContent += `\\toc2 ${fullBookName}\n`; // Short table of contents text
+                    usfmContent += `\\toc3 ${bookCode}\n`; // Book abbreviation
+                    usfmContent += `\\mt1 ${fullBookName}\n\n`; // Main title, level 1
 
                     let chapterContent = "";
                     let lastChapter = "";
+                    let isFirstChapter = true;
 
                     for (const cell of cells) {
                         totalCells++;
@@ -233,10 +479,16 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                                     if (chapterMatch) {
                                         if (lastChapter !== "") {
                                             usfmContent += chapterContent + "\n";
+                                        } else if (isFirstChapter) {
+                                            // If this is the first chapter and we haven't added chapter 1 yet,
+                                            // add it explicitly to ensure proper USFM structure
+                                            isFirstChapter = false;
                                         }
                                         lastChapter = chapterMatch[1];
+                                        // Ensure each chapter starts with \c followed by \p
                                         chapterContent = `\\c ${chapterMatch[1]}\n\\p\n`;
                                     } else {
+                                        // If it's a heading but not a chapter heading, add as paragraph
                                         chapterContent += `\\p ${cellContent}\n`;
                                     }
                                 } else {
@@ -251,6 +503,13 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                                 const verseRef = cellMetadata.id;
                                 const verseMatch = verseRef.match(/\d+$/);
                                 if (verseMatch) {
+                                    // If we haven't started a chapter yet, add chapter 1 automatically
+                                    if (lastChapter === "" && isFirstChapter) {
+                                        lastChapter = "1";
+                                        chapterContent = `\\c 1\n\\p\n`;
+                                        isFirstChapter = false;
+                                    }
+
                                     const verseNumber = verseMatch[0];
                                     chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
                                     totalVerses++;
@@ -262,6 +521,152 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                     // Add the last chapter's content
                     if (chapterContent) {
                         usfmContent += chapterContent;
+                    }
+
+                    // Validate USFM content before writing to file
+                    progress.report({
+                        message: `Validating USFM for ${bookCode}...`,
+                        increment: 0,
+                    });
+
+                    // Show notification that validation is in progress
+                    const validationNotification = vscode.window.setStatusBarMessage(
+                        `Validating USFM structure for ${bookCode}...`
+                    );
+
+                    try {
+                        // Create a USFM grammar parser instance
+                        const usfmParser = new grammar.USFMParser(
+                            usfmContent,
+                            grammar.LEVEL.RELAXED
+                        );
+
+                        // Parse the USFM content
+                        const parseResult = usfmParser.toJSON() as any;
+
+                        // Perform additional structural validation
+                        const structuralIssues = validateUsfmStructure(usfmContent);
+
+                        // Combine parser warnings with structural issues
+                        const allWarnings: string[] = [];
+
+                        if (parseResult._messages && parseResult._messages._warnings) {
+                            allWarnings.push(
+                                ...parseResult._messages._warnings.map(
+                                    (w: string) => `[Parser] ${w}`
+                                )
+                            );
+                        }
+
+                        if (structuralIssues.length > 0) {
+                            allWarnings.push(...structuralIssues.map((i) => `[Structure] ${i}`));
+                        }
+
+                        // Clear the validation notification
+                        validationNotification.dispose();
+
+                        // Check for validation issues
+                        if (allWarnings.length > 0) {
+                            // Format error messages - limit to first 10 warnings if there are many
+                            const displayWarnings =
+                                allWarnings.length > 10
+                                    ? [
+                                          ...allWarnings.slice(0, 10),
+                                          `... and ${allWarnings.length - 10} more issues`,
+                                      ]
+                                    : allWarnings;
+
+                            const errorMessages = displayWarnings
+                                .map((warning: string, i: number) => `${i + 1}. ${warning}`)
+                                .join("\n");
+
+                            // Show error dialog with option to continue anyway
+                            const continueAnyway = "Export Anyway";
+                            const viewAll = "View All Issues";
+                            const cancel = "Cancel Export";
+
+                            const choice = await vscode.window.showErrorMessage(
+                                `USFM validation found ${allWarnings.length} issues in ${bookCode}:`,
+                                { modal: true, detail: errorMessages },
+                                continueAnyway,
+                                viewAll,
+                                cancel
+                            );
+
+                            if (choice === viewAll) {
+                                // Create a temporary file with all warnings and open it
+                                const tempFile = vscode.Uri.joinPath(
+                                    exportFolder,
+                                    `${bookCode}_validation_issues.txt`
+                                );
+                                const fullReport =
+                                    `USFM Validation Issues for ${bookCode}\n` +
+                                    `Generated: ${new Date().toISOString()}\n` +
+                                    `Total issues found: ${allWarnings.length}\n\n` +
+                                    allWarnings
+                                        .map((warning, i) => `${i + 1}. ${warning}`)
+                                        .join("\n");
+
+                                await vscode.workspace.fs.writeFile(
+                                    tempFile,
+                                    Buffer.from(fullReport)
+                                );
+                                await vscode.commands.executeCommand("vscode.open", tempFile);
+
+                                // Ask again after viewing
+                                const secondChoice = await vscode.window.showErrorMessage(
+                                    `Do you want to continue with the export for ${bookCode}?`,
+                                    { modal: true },
+                                    continueAnyway,
+                                    cancel
+                                );
+
+                                if (secondChoice !== continueAnyway) {
+                                    debug(
+                                        `Export cancelled after viewing validation issues for ${bookCode}`
+                                    );
+                                    return;
+                                }
+                            } else if (choice !== continueAnyway) {
+                                debug(
+                                    `Export cancelled due to USFM validation issues in ${bookCode}`
+                                );
+                                return;
+                            }
+
+                            debug(
+                                `Continuing export despite USFM validation issues in ${bookCode}`
+                            );
+                        } else {
+                            debug(`USFM validation successful for ${bookCode}`);
+                            vscode.window.setStatusBarMessage(
+                                `USFM validation successful for ${bookCode}`,
+                                3000
+                            );
+                        }
+                    } catch (validationError) {
+                        // Clear the validation notification
+                        validationNotification.dispose();
+
+                        console.error(`USFM validation error for ${bookCode}:`, validationError);
+
+                        // Show error dialog with option to continue anyway
+                        const continueAnyway = "Export Anyway";
+                        const cancel = "Cancel Export";
+
+                        const choice = await vscode.window.showErrorMessage(
+                            `Error validating USFM for ${bookCode}: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+                            { modal: true },
+                            continueAnyway,
+                            cancel
+                        );
+
+                        if (choice !== continueAnyway) {
+                            debug(`Export cancelled due to USFM validation error in ${bookCode}`);
+                            return;
+                        }
+
+                        debug(`Continuing export despite USFM validation error in ${bookCode}`);
                     }
 
                     // Write individual file
