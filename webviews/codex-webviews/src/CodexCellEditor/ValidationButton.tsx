@@ -44,9 +44,10 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             setIsValidated(latestEdit.validatedBy.includes(username));
         }
 
-        // Set the current number of validations
+        // Set the current number of validations, ensuring only unique users are counted
         if (latestEdit.validatedBy) {
-            setCurrentValidations(latestEdit.validatedBy.length);
+            const uniqueValidators = new Set(latestEdit.validatedBy);
+            setCurrentValidations(uniqueValidators.size);
         }
     }, [editHistory, username]);
 
