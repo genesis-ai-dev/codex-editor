@@ -420,6 +420,8 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
             async (progress) => {
                 let totalCells = 0;
                 let totalVerses = 0;
+                let skippedFiles = 0;
+                let exportedFiles = 0;
                 const increment = 100 / selectedFiles.length;
 
                 // Create export directory if it doesn't exist
@@ -437,6 +439,25 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                     const cells = notebookDocument.getCells();
                     debug(`File has ${cells.length} cells`);
 
+                    // Check if the file has any non-empty text cells with content
+                    const hasContent = cells.some(
+                        (cell) =>
+                            cell.kind === vscode.NotebookCellKind.Code &&
+                            cell.metadata?.type === CodexCellTypes.TEXT &&
+                            cell.document.getText().trim().length > 0
+                    );
+
+                    // Skip empty files
+                    if (!hasContent) {
+                        debug(`Skipping empty file: ${file.fsPath}`);
+                        skippedFiles++;
+                        vscode.window.setStatusBarMessage(
+                            `Skipped empty file: ${basename(file.fsPath)}`,
+                            3000
+                        );
+                        continue;
+                    }
+
                     let usfmContent = "";
 
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
@@ -450,18 +471,19 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                     // 2. Add metadata as USFM comments
                     usfmContent += `\\rem Exported from Codex Translation Editor v${extensionVersion}\n`;
                     usfmContent += `\\rem Export Date: ${exportDate}\n`;
-                    usfmContent += `\\rem Source File: ${file.fsPath}\n\n`;
+                    usfmContent += `\\rem Source File: ${file.fsPath}\n`;
 
                     // 3. Add header and title markers with proper book name
                     usfmContent += `\\h ${fullBookName}\n`;
                     usfmContent += `\\toc1 ${fullBookName}\n`; // Long table of contents text
                     usfmContent += `\\toc2 ${fullBookName}\n`; // Short table of contents text
                     usfmContent += `\\toc3 ${bookCode}\n`; // Book abbreviation
-                    usfmContent += `\\mt1 ${fullBookName}\n\n`; // Main title, level 1
+                    usfmContent += `\\mt1 ${fullBookName}\n`; // Main title, level 1
 
                     let chapterContent = "";
                     let lastChapter = "";
                     let isFirstChapter = true;
+                    let hasVerses = false;
 
                     for (const cell of cells) {
                         totalCells++;
@@ -478,7 +500,7 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                                     const chapterMatch = chapterTitle.match(/Chapter (\d+)/i);
                                     if (chapterMatch) {
                                         if (lastChapter !== "") {
-                                            usfmContent += chapterContent + "\n";
+                                            usfmContent += chapterContent;
                                         } else if (isFirstChapter) {
                                             // If this is the first chapter and we haven't added chapter 1 yet,
                                             // add it explicitly to ensure proper USFM structure
@@ -513,6 +535,7 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                                     const verseNumber = verseMatch[0];
                                     chapterContent += `\\v ${verseNumber} ${cellContent}\n`;
                                     totalVerses++;
+                                    hasVerses = true;
                                 }
                             }
                         }
@@ -521,6 +544,25 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                     // Add the last chapter's content
                     if (chapterContent) {
                         usfmContent += chapterContent;
+                    }
+
+                    // Clean up the USFM content to avoid "Empty lines present" warning
+                    usfmContent =
+                        usfmContent
+                            // Replace multiple consecutive newlines with a single newline
+                            .replace(/\n{2,}/g, "\n")
+                            // Ensure the file ends with a single newline
+                            .trim() + "\n";
+
+                    // Skip files with no verses
+                    if (!hasVerses) {
+                        debug(`Skipping file with no verses: ${file.fsPath}`);
+                        skippedFiles++;
+                        vscode.window.setStatusBarMessage(
+                            `Skipped file with no verses: ${basename(file.fsPath)}`,
+                            3000
+                        );
+                        continue;
                     }
 
                     // Validate USFM content before writing to file
@@ -551,11 +593,16 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
                         const allWarnings: string[] = [];
 
                         if (parseResult._messages && parseResult._messages._warnings) {
-                            allWarnings.push(
-                                ...parseResult._messages._warnings.map(
-                                    (w: string) => `[Parser] ${w}`
-                                )
+                            // Filter out the "Empty lines present" warning since we've handled it
+                            const filteredWarnings = parseResult._messages._warnings.filter(
+                                (warning: string) => !warning.includes("Empty lines present")
                             );
+
+                            if (filteredWarnings.length > 0) {
+                                allWarnings.push(
+                                    ...filteredWarnings.map((w: string) => `[Parser] ${w}`)
+                                );
+                            }
                         }
 
                         if (structuralIssues.length > 0) {
@@ -681,10 +728,14 @@ async function exportCodexContentAsUsfm(userSelectedPath: string, filesToExport:
 
                     await vscode.workspace.fs.writeFile(exportFile, Buffer.from(usfmContent));
                     debug(`Export file created: ${exportFile.fsPath}`);
+                    exportedFiles++;
                 }
 
+                // Show a more detailed completion message
+                const skippedMessage =
+                    skippedFiles > 0 ? ` (${skippedFiles} empty files skipped)` : "";
                 vscode.window.showInformationMessage(
-                    `USFM Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
+                    `USFM Export completed: ${totalVerses} verses from ${exportedFiles} files exported to ${userSelectedPath}${skippedMessage}`
                 );
             }
         );
