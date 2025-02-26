@@ -1,5 +1,11 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
-import { EditorCellContent, EditorPostMessages, Timestamps, EditHistory } from "../../../../types";
+import {
+    EditorCellContent,
+    EditorPostMessages,
+    Timestamps,
+    EditHistory,
+    QuillCellContent,
+} from "../../../../types";
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
@@ -9,21 +15,16 @@ import ValidationButton from "./ValidationButton";
 
 const SHOW_VALIDATION_BUTTON = false;
 interface CellContentDisplayProps {
-    cellIds: string[];
-    cellContent: string;
-    cellIndex: number;
-    cellType: CodexCellTypes;
-    cellLabel?: string;
+    cell: QuillCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
     hasDuplicateId: boolean;
-    timestamps: Timestamps | undefined;
     alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
-    editHistory?: EditHistory[];
+    cellLabel: string;
 }
 
 const DEBUG_ENABLED = false;
@@ -34,21 +35,19 @@ function debug(message: string, ...args: any[]): void {
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
-    cellIds,
-    cellContent,
-    cellType,
-    cellLabel,
+    cell,
     setContentBeingUpdated,
     vscode,
     textDirection,
     isSourceText,
     hasDuplicateId,
-    timestamps,
     alertColorCode,
     highlightedCellId,
     scrollSyncEnabled,
-    editHistory,
 }) => {
+    const { cellContent, timestamps, editHistory, cellLabel } = cell;
+    const cellIds = cell.cellMarkers;
+
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
     const cellRef = useRef<HTMLDivElement>(null);
@@ -161,7 +160,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     {!isSourceText && editHistory && SHOW_VALIDATION_BUTTON && (
                         <ValidationButton
                             cellId={cellIds[0]}
-                            editHistory={editHistory}
+                            cell={cell}
                             vscode={vscode}
                             isSourceText={isSourceText}
                         />
