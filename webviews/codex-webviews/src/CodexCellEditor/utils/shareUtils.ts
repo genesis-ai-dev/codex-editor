@@ -11,7 +11,7 @@ export const removeHtmlTags = (content: string) => {
 };
 
 export const getCellValueData = (cell: QuillCellContent) => {
-    const latestEditThatMatchesCellValue = cell.editHistory
+    const latestEditThatMatchesCellValue = (cell.editHistory || [])
         .slice()
         .reverse()
         .find((edit) => edit.cellValue === cell.cellContent);
