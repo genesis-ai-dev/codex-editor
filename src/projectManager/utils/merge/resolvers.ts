@@ -111,6 +111,12 @@ export async function resolveCodexCustomMerge(
     debug({ ourContent: ourContent.slice(0, 1000), theirContent: theirContent.slice(0, 1000) });
     debug("Starting resolveCodexCustomMerge");
     debug("Parsing notebook content");
+    if (!ourContent) {
+        return theirContent;
+    }
+    if (!theirContent) {
+        return ourContent;
+    }
     const ourNotebook = JSON.parse(ourContent);
     const theirNotebook = JSON.parse(theirContent);
     const ourCells: CodexCell[] = ourNotebook.cells;
@@ -121,7 +127,7 @@ export async function resolveCodexCustomMerge(
     );
 
     // Map to track cells by ID for quick lookup
-    const theirCellsMap = new Map<string, CodexCell>();
+    const theirCellsMap = new Map<string, CodexCell>(); // FIXME: this causes unknown cells to show up at the end of the notebook because we are making a mpa not array
     theirCells.forEach((cell) => {
         if (cell.metadata?.id) {
             theirCellsMap.set(cell.metadata.id, cell);
