@@ -181,7 +181,7 @@ export async function resolveCodexCustomMerge(
 
             //! get the last time we set our current cell value
             const ourEditsThatMatchCurrentValue = ourCell.metadata?.edits
-                ?.filter((edit) => edit.cellValue === latestEdit?.cellValue)
+                ?.filter((edit) => edit.cellValue === ourCell?.value)
                 .sort((a, b) => a.timestamp - b.timestamp);
             const editThatBelongsToOurCellValue =
                 ourEditsThatMatchCurrentValue?.[ourEditsThatMatchCurrentValue.length - 1];
