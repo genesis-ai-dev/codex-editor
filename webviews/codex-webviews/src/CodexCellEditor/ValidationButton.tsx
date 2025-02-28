@@ -1,29 +1,30 @@
 import React, { useState, useEffect } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import { EditHistory } from "../../../../types";
+import { QuillCellContent } from "../../../../types";
+import { getCellValueData } from "./utils/shareUtils";
 
 interface ValidationButtonProps {
     cellId: string;
-    editHistory: EditHistory[];
+    cell: QuillCellContent;
     vscode: any;
     isSourceText: boolean;
 }
 
-const ValidationButton: React.FC<ValidationButtonProps> = ({ 
-    cellId, 
-    editHistory,
+const ValidationButton: React.FC<ValidationButtonProps> = ({
+    cellId,
+    cell,
     vscode,
-    isSourceText
+    isSourceText,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(null);
     const [requiredValidations, setRequiredValidations] = useState(1);
     const [currentValidations, setCurrentValidations] = useState(0);
-
+    const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
     // Function to fetch validation count
     const fetchValidationCount = () => {
         vscode.postMessage({
-            command: "getValidationCount"
+            command: "getValidationCount",
         });
     };
 
@@ -32,29 +33,36 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         fetchValidationCount();
 
         // Check if there are any edits
-        if (!editHistory || editHistory.length === 0) {
+        if (!cell.editHistory || cell.editHistory.length === 0) {
             return;
         }
 
         // Get the latest edit
-        const latestEdit = editHistory[editHistory.length - 1];
-        
+        const cellValueData = getCellValueData(cell);
+        setUserCreatedLatestEdit(
+            cellValueData.author === username && cellValueData.editType === "user-edit"
+        );
+
         // Check if the current user has already validated this edit
-        if (latestEdit.validatedBy && username) {
-            setIsValidated(latestEdit.validatedBy.includes(username));
+        if (cellValueData.validatedBy && username) {
+            if (cellValueData.editType === "user-edit" && cellValueData.author === username) {
+                setIsValidated(true);
+            } else {
+                setIsValidated(cellValueData.validatedBy.includes(username));
+            }
         }
 
         // Set the current number of validations, ensuring only unique users are counted
-        if (latestEdit.validatedBy) {
-            const uniqueValidators = new Set(latestEdit.validatedBy);
+        if (cellValueData.validatedBy) {
+            const uniqueValidators = new Set(cellValueData.validatedBy);
             setCurrentValidations(uniqueValidators.size);
         }
-    }, [editHistory, username]);
+    }, [cell.editHistory, username]);
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
         vscode.postMessage({
-            command: "getCurrentUsername"
+            command: "getCurrentUsername",
         });
 
         const handleMessage = (event: MessageEvent) => {
@@ -77,18 +85,18 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         // Stop the event from bubbling up to prevent editor from opening
         e.stopPropagation();
-        
+
         vscode.postMessage({
             command: "validateCell",
             content: {
                 cellId,
-                validate: !isValidated
-            }
+                validate: !isValidated,
+            },
         });
-        
+
         // Optimistically update the UI
         setIsValidated(!isValidated);
-        setCurrentValidations(prev => !isValidated ? prev + 1 : prev - 1);
+        setCurrentValidations((prev) => (!isValidated ? prev + 1 : prev - 1));
     };
 
     // Don't show validation button for source text or if no username is available
@@ -99,11 +107,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const isFullyValidated = currentValidations >= requiredValidations;
 
     return (
-        <VSCodeButton 
+        <VSCodeButton
             appearance="icon"
             onClick={handleValidate}
+            disabled={userCreatedLatestEdit}
             title={isValidated ? "Remove validation" : "Validate this translation"}
-            style={{ 
+            style={{
                 padding: "0",
                 minWidth: "18px",
                 height: "18px",
@@ -112,23 +121,25 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 borderRadius: "4px",
                 transition: "all 0.2s ease",
                 opacity: isValidated ? 1 : 0.6,
-                transform: isValidated ? "scale(1)" : "scale(0.95)"
+                transform: isValidated ? "scale(1)" : "scale(0.95)",
             }}
         >
-            <i 
-                className={`codicon ${isFullyValidated ? 'codicon-check-all' : 'codicon-check'}`}
-                style={{ 
-                    color: isValidated ? "var(--vscode-editor-background)" : "var(--vscode-descriptionForeground)",
+            <i
+                className={`codicon ${isFullyValidated ? "codicon-check-all" : "codicon-check"}`}
+                style={{
+                    color: isValidated
+                        ? "var(--vscode-editor-background)"
+                        : "var(--vscode-descriptionForeground)",
                     fontSize: "14px",
                     transform: isValidated ? "scale(0.8)" : "scale(0.7)",
                     transition: "all 0.2s ease",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center"
+                    justifyContent: "center",
                 }}
             />
         </VSCodeButton>
     );
 };
 
-export default ValidationButton; 
+export default ValidationButton;

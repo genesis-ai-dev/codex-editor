@@ -362,9 +362,20 @@ export default function Editor(props: EditorProps) {
         }
     }, [headerLabel]);
 
+    // Add function to strip HTML tags and decode entities
+    const stripHtmlAndDecode = (html: string): string => {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        return temp.textContent || temp.innerText || '';
+    };
+
     // Add function to generate diff HTML
     const generateDiffHtml = (oldText: string, newText: string): string => {
-        const diff = diffWords(oldText, newText);
+        // Strip HTML from both texts before comparing
+        const cleanOldText = stripHtmlAndDecode(oldText);
+        const cleanNewText = stripHtmlAndDecode(newText);
+        
+        const diff = diffWords(cleanOldText, cleanNewText);
         return diff
             .map((part) => {
                 if (part.added) {
@@ -425,44 +436,107 @@ export default function Editor(props: EditorProps) {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                         {editHistoryForCell && editHistoryForCell.length > 0 ? (
-                            [...editHistoryForCell].reverse().map((entry, index, array) => {
-                                const previousEntry = array[index + 1];
-                                const diffHtml = previousEntry
-                                    ? generateDiffHtml(previousEntry.cellValue, entry.cellValue)
-                                    : entry.cellValue;
+                            [...editHistoryForCell]
+                                .reverse()
+                                // Filter out llm-generation entries that have the same content as the next user-edit
+                                .filter((entry, index, array) => {
+                                    const nextEntry = array[index - 1]; // Since array is reversed, previous entry is next chronologically
+                                    return !(
+                                        entry.type === "llm-generation" &&
+                                        nextEntry?.type === "user-edit" &&
+                                        entry.cellValue === nextEntry.cellValue
+                                    );
+                                })
+                                .map((entry, index, array) => {
+                                    const previousEntry = array[index + 1];
+                                    const diffHtml = previousEntry
+                                        ? generateDiffHtml(previousEntry.cellValue, entry.cellValue)
+                                        : stripHtmlAndDecode(entry.cellValue);
 
-                                return (
-                                    <div
-                                        key={index}
-                                        style={{
-                                            padding: "8px",
-                                            border: "1px solid var(--vscode-editor-foreground)",
-                                            borderRadius: "4px",
-                                        }}
-                                    >
+                                    // Check if this is the most recent entry that matches the initial value
+                                    const isCurrentVersion = entry.cellValue === props.initialValue && 
+                                        !array.slice(0, index).some(e => e.cellValue === props.initialValue);
+
+                                    return (
                                         <div
+                                            key={index}
                                             style={{
-                                                marginBottom: "4px",
-                                                fontSize: "0.9em",
-                                                color: "var(--vscode-descriptionForeground)",
+                                                padding: "8px",
+                                                border: "1px solid var(--vscode-editor-foreground)",
+                                                borderRadius: "4px",
+                                                backgroundColor: isCurrentVersion ? 
+                                                    'var(--vscode-editor-selectionBackground)' : 'transparent'
                                             }}
                                         >
-                                            {new Date(entry.timestamp).toLocaleString()} by {entry.author}
-                                        </div>
-                                        <div style={{ marginBottom: "8px" }}>
                                             <div
                                                 style={{
-                                                    whiteSpace: "pre-wrap",
-                                                    backgroundColor: "var(--vscode-editor-findMatchHighlightBackground)",
-                                                    padding: "4px",
-                                                    borderRadius: "2px",
+                                                    marginBottom: "4px",
+                                                    fontSize: "0.9em",
+                                                    color: "var(--vscode-descriptionForeground)",
+                                                    display: "flex",
+                                                    justifyContent: "space-between",
+                                                    alignItems: "center"
                                                 }}
-                                                dangerouslySetInnerHTML={{ __html: diffHtml }}
-                                            />
+                                            >
+                                                <div>
+                                                    {new Date(entry.timestamp).toLocaleString()} by {entry.author}
+                                                </div>
+                                                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                                    {isCurrentVersion ? (
+                                                        <span style={{ 
+                                                            fontSize: "0.8em",
+                                                            padding: "2px 6px",
+                                                            backgroundColor: "var(--vscode-badge-background)",
+                                                            color: "var(--vscode-badge-foreground)",
+                                                            borderRadius: "4px"
+                                                        }}>
+                                                            Current Version
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (quillRef.current) {
+                                                                    // When selecting a version, use the original HTML
+                                                                    quillRef.current.root.innerHTML = entry.cellValue;
+                                                                    setShowHistoryModal(false);
+                                                                    // Trigger the text-change event to update state
+                                                                    quillRef.current.update();
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                background: "none",
+                                                                border: "none",
+                                                                cursor: "pointer",
+                                                                color: "var(--vscode-button-foreground)",
+                                                                backgroundColor: "var(--vscode-button-background)",
+                                                                padding: "4px 8px",
+                                                                borderRadius: "4px",
+                                                                fontSize: "0.9em",
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                gap: "4px"
+                                                            }}
+                                                        >
+                                                            <i className="codicon codicon-edit"></i>
+                                                            Edit
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div style={{ marginBottom: "8px" }}>
+                                                <div
+                                                    style={{
+                                                        whiteSpace: "pre-wrap",
+                                                        backgroundColor: "var(--vscode-editor-findMatchHighlightBackground)",
+                                                        padding: "4px",
+                                                        borderRadius: "2px",
+                                                    }}
+                                                    dangerouslySetInnerHTML={{ __html: diffHtml }}
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
-                                );
-                            })
+                                    );
+                                })
                         ) : (
                             <div
                                 style={{

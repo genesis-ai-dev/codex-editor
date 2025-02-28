@@ -138,49 +138,40 @@ const CellList: React.FC<CellListProps> = ({
                     backgroundColor: "transparent",
                 }}
             >
-                {group.map(
-                    ({ cellMarkers, cellContent, cellType, cellLabel, timestamps, editHistory }, index) => {
-                        const cellId = cellMarkers.join(" ");
-                        const hasDuplicateId = duplicateCellIds.has(cellId);
-                        const generatedCellLabel = generateCellLabel(
-                            group[index],
-                            startIndex + index
-                        );
+                {group.map((cell, index) => {
+                    const cellId = cell.cellMarkers.join(" ");
+                    const hasDuplicateId = duplicateCellIds.has(cellId);
+                    const generatedCellLabel = generateCellLabel(group[index], startIndex + index);
+                    const cellMarkers = cell.cellMarkers;
 
-                        return (
-                            <span
-                                key={startIndex + index}
-                                style={{
-                                    display:
-                                        cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                            ? "inline"
-                                            : "block",
-                                    verticalAlign: "middle",
-                                    backgroundColor: "transparent",
-                                }}
-                            >
-                                <CellContentDisplay
-                                    key={`cell-${cellMarkers[0]}`}
-                                    cellIds={cellMarkers}
-                                    cellContent={cellContent}
-                                    cellIndex={index}
-                                    cellType={cellType}
-                                    cellLabel={cellLabel || generatedCellLabel}
-                                    setContentBeingUpdated={setContentBeingUpdated}
-                                    vscode={vscode}
-                                    textDirection={textDirection}
-                                    isSourceText={isSourceText}
-                                    hasDuplicateId={hasDuplicateId}
-                                    timestamps={timestamps}
-                                    alertColorCode={alertColorCodes[cellMarkers[0]]}
-                                    highlightedCellId={highlightedCellId}
-                                    scrollSyncEnabled={scrollSyncEnabled}
-                                    editHistory={editHistory}
-                                />
-                            </span>
-                        );
-                    }
-                )}
+                    return (
+                        <span
+                            key={startIndex + index}
+                            style={{
+                                display:
+                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                        ? "inline"
+                                        : "block",
+                                verticalAlign: "middle",
+                                backgroundColor: "transparent",
+                            }}
+                        >
+                            <CellContentDisplay
+                                cell={cell}
+                                cellLabel={cell.cellLabel || generatedCellLabel} // Fixme: We should have a separate label for line numbers line numbers should be different the the label for the cell content
+                                key={`cell-${cellMarkers[0]}`}
+                                setContentBeingUpdated={setContentBeingUpdated}
+                                vscode={vscode}
+                                textDirection={textDirection}
+                                isSourceText={isSourceText}
+                                hasDuplicateId={hasDuplicateId}
+                                alertColorCode={alertColorCodes[cellMarkers[0]]}
+                                highlightedCellId={highlightedCellId}
+                                scrollSyncEnabled={scrollSyncEnabled}
+                            />
+                        </span>
+                    );
+                })}
             </span>
         ),
         [

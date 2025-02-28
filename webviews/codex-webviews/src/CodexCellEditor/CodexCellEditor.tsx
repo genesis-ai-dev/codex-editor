@@ -27,6 +27,8 @@ import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 import { initializeStateStore } from "../../../../src/stateStore";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { generateSubtitleData } from "./utils/subtitleUtils";
+import { CodexCellTypes } from "types/enums";
+import { getCellValueData } from "./utils/shareUtils";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -260,7 +262,11 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const untranslatedUnitsForSection = useMemo(() => {
-        return translationUnitsForSection.filter((unit) => !unit.cellContent.trim());
+        return translationUnitsForSection.filter((unit) => {
+            const cellValueData = getCellValueData(unit);
+            console.log("cellValueData", cellValueData);
+            return (!unit.cellContent.trim() || (cellValueData.editType === "llm-generation" && !cellValueData.validatedBy?.length))  ;
+        });
     }, [translationUnitsForSection]);
 
     const handleAutocompleteChapter = (numberOfCells: number) => {
