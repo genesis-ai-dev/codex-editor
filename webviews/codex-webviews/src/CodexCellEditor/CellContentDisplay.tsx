@@ -24,7 +24,7 @@ interface CellContentDisplayProps {
     alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
-    cellLabel: string;
+    cellLabelOrGeneratedLabel: string;
 }
 
 const DEBUG_ENABLED = false;
@@ -44,8 +44,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     alertColorCode,
     highlightedCellId,
     scrollSyncEnabled,
+    cellLabelOrGeneratedLabel,
 }) => {
-    const { cellContent, timestamps, editHistory, cellLabel } = cell;
+    const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
 
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -83,7 +84,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellMarkers: cellIds,
             cellContent,
             cellChanged: unsavedChanges,
-            cellLabel,
+            cellLabel: cellLabelOrGeneratedLabel,
             timestamps,
             uri: documentUri,
         } as EditorCellContent);
@@ -98,7 +99,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     };
 
     const displayLabel =
-        cellLabel ||
+        cellLabelOrGeneratedLabel ||
         (() => {
             const numbers = cellIds.map((id) => id.split(":").pop());
             const reference =
@@ -168,7 +169,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     {getAlertDot()}
                 </div>
                 <div className="cell-label">
-                    {cellLabel && <span className="cell-label-text">{cellLabel}</span>}
+                    {cellLabelOrGeneratedLabel && (
+                        <span className="cell-label-text">{cellLabelOrGeneratedLabel}</span>
+                    )}
                 </div>
             </div>
             <div

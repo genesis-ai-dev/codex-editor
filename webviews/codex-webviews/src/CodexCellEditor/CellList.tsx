@@ -158,7 +158,7 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={cell}
-                                cellLabel={cell.cellLabel || generatedCellLabel} // Fixme: We should have a separate label for line numbers line numbers should be different the the label for the cell content
+                                cellLabelOrGeneratedLabel={cell.cellLabel || generatedCellLabel} // Fixme: We should have a separate label for line numbers line numbers should be different the the label for the cell content
                                 key={`cell-${cellMarkers[0]}`}
                                 setContentBeingUpdated={setContentBeingUpdated}
                                 vscode={vscode}
