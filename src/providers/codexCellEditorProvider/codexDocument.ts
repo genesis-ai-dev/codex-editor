@@ -142,12 +142,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const userInfo = await authApi?.getUserInfo();
         const author = userInfo?.username || "anonymous";
 
+        // Initialize validatedBy array based on edit type
+        // For user edits, the author is automatically added to validatedBy
+        // For LLM generations, validatedBy starts empty and must be explicitly validated
+        const validatedBy = editType === EditType.USER_EDIT ? [author] : [];
+
         cellToUpdate.metadata.edits.push({
             cellValue: newContent,
             timestamp: Date.now(),
             type: editType,
             author,
-            validatedBy: [],
+            validatedBy,
         });
 
         // Record the edit

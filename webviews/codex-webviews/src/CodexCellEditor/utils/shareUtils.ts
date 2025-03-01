@@ -11,19 +11,23 @@ export const removeHtmlTags = (content: string) => {
 };
 
 export const getCellValueData = (cell: QuillCellContent) => {
-    const latestEditThatMatchesCellValue = (cell.editHistory || [])
+    // Ensure editHistory exists and is an array
+    const editHistory = cell.editHistory || [];
+    
+    // Find the latest edit that matches the current cell content
+    const latestEditThatMatchesCellValue = editHistory
         .slice()
         .reverse()
         .find((edit) => edit.cellValue === cell.cellContent);
 
     return {
-        cellId: cell.cellMarkers[0],
-        cellContent: cell.cellContent,
+        cellId: cell.cellMarkers?.[0] || "",
+        cellContent: cell.cellContent || "",
         cellType: cell.cellType,
-        validatedBy: latestEditThatMatchesCellValue?.validatedBy,
-        editType: latestEditThatMatchesCellValue?.type,
-        author: latestEditThatMatchesCellValue?.author,
-        timestamp: latestEditThatMatchesCellValue?.timestamp,
-        cellLabel: cell.cellLabel,
+        validatedBy: latestEditThatMatchesCellValue?.validatedBy || [],
+        editType: latestEditThatMatchesCellValue?.type || "user-edit",
+        author: latestEditThatMatchesCellValue?.author || "",
+        timestamp: latestEditThatMatchesCellValue?.timestamp || Date.now(),
+        cellLabel: cell.cellLabel || "",
     };
 };

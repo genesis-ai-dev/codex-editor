@@ -28,8 +28,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         });
     };
 
+    // Update validation state when editHistory changes
     useEffect(() => {
-        // Get the required validation count from project settings
         fetchValidationCount();
 
         // Check if there are any edits
@@ -45,11 +45,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
         // Check if the current user has already validated this edit
         if (cellValueData.validatedBy && username) {
-            if (cellValueData.editType === "user-edit" && cellValueData.author === username) {
-                setIsValidated(true);
-            } else {
-                setIsValidated(cellValueData.validatedBy.includes(username));
-            }
+            // Only check if username is in validatedBy array, don't auto-validate for authors
+            setIsValidated(cellValueData.validatedBy.includes(username));
         }
 
         // Set the current number of validations, ensuring only unique users are counted
@@ -66,21 +63,26 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         });
 
         const handleMessage = (event: MessageEvent) => {
-            if (event.data.type === "currentUsername") {
-                setUsername(event.data.content.username);
-            } else if (event.data.type === "validationCount") {
-                setRequiredValidations(event.data.content);
-            } else if (event.data.type === "configurationChanged") {
-                // Refresh validation count when configuration changes
-                fetchValidationCount();
+            const message = event.data;
+            if (message.type === "currentUsername") {
+                setUsername(message.content.username);
+            } else if (message.type === "validationCount") {
+                setRequiredValidations(message.content);
+            } else if (message.type === "providerUpdatesValidationState") {
+                // Handle validation state updates from the backend
+                if (message.content.cellId === cellId) {
+                    const validatedBy = message.content.validatedBy || [];
+                    if (username) {
+                        setIsValidated(validatedBy.includes(username));
+                    }
+                    setCurrentValidations(new Set(validatedBy).size);
+                }
             }
         };
 
         window.addEventListener("message", handleMessage);
-        return () => {
-            window.removeEventListener("message", handleMessage);
-        };
-    }, [vscode]);
+        return () => window.removeEventListener("message", handleMessage);
+    }, [cellId, username]);
 
     const handleValidate = (e: React.MouseEvent) => {
         // Stop the event from bubbling up to prevent editor from opening
@@ -110,14 +112,14 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         <VSCodeButton
             appearance="icon"
             onClick={handleValidate}
-            disabled={userCreatedLatestEdit}
+            // Allow users to validate their own edits
             title={isValidated ? "Remove validation" : "Validate this translation"}
             style={{
                 padding: "0",
                 minWidth: "18px",
                 height: "18px",
-                background: isValidated ? "var(--vscode-terminal-ansiGreen)" : "transparent",
-                border: isValidated ? "none" : "1px solid var(--vscode-descriptionForeground)",
+                backgroundColor: isValidated ? "var(--vscode-button-background)" : "transparent",
+                border: "none",
                 borderRadius: "4px",
                 transition: "all 0.2s ease",
                 opacity: isValidated ? 1 : 0.6,
