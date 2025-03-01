@@ -99,6 +99,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         type: "configurationChanged"
                     });
                 });
+                
+                // Force a refresh of validation state for all open documents
+                this.refreshValidationStateForAllDocuments();
             }
         });
     }
@@ -262,17 +265,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 
                 // Check if this is a validation update
                 if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
-                    // Send specific validation update to the webview
-                    webviewPanel.webview.postMessage({
+                    // Broadcast the validation update to all webviews for this document
+                    const validationUpdate = {
                         type: "providerUpdatesValidationState",
                         content: {
                             cellId: e.edits[0].cellId,
                             validatedBy: e.edits[0].validatedBy
                         }
+                    };
+                    
+                    // Send to all webviews that have this document open
+                    this.webviewPanels.forEach((panel, docUri) => {
+                        if (docUri === document.uri.toString()) {
+                            panel.webview.postMessage(validationUpdate);
+                        }
                     });
+                    
+                    // Still update the current webview with the full content
+                    updateWebview();
+                } else {
+                    // For non-validation updates, just update the webview as normal
+                    updateWebview();
                 }
                 
-                updateWebview();
                 this._onDidChangeCustomDocument.fire({ document });
             })
         );
@@ -750,5 +765,60 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public async getAuthApi() {
         return getAuthApi();
+    }
+
+    /**
+     * Refreshes the validation state for all open documents
+     * This ensures all webviews show the correct validation status when validation requirements change
+     */
+    private refreshValidationStateForAllDocuments() {
+        // Keep track of processed documents to avoid duplicates
+        const processedDocuments = new Set<string>();
+        
+        // For each document URI in the webview panels map
+        this.webviewPanels.forEach((panel, docUri) => {
+            // Skip if already processed
+            if (processedDocuments.has(docUri)) return;
+            processedDocuments.add(docUri);
+            
+            // Try to find the document
+            // The document might be the current document
+            const doc = this.currentDocument?.uri.toString() === docUri 
+                ? this.currentDocument 
+                : undefined;
+                
+            if (doc) {
+                try {
+                    // Access the document's internal data
+                    // Since we might not have direct access to cells, use a simple approach:
+                    // Just refresh all cells by getting all cell IDs with validations
+                    const allCellIds = doc.getAllCellIds();
+                    
+                    // For each cell, broadcast its current validation state to all webviews for this document
+                    allCellIds.forEach((cellId: string) => {
+                        const validatedBy = doc.getCellValidatedBy(cellId);
+                        
+                        // Only send updates for cells that have validations
+                        if (validatedBy && validatedBy.length > 0) {
+                            // Post validation state update to all panels for this document
+                            this.webviewPanels.forEach((webviewPanel, panelUri) => {
+                                if (panelUri === docUri) {
+                                    // Use type assertion to allow sending the validation state message
+                                    this.postMessageToWebview(webviewPanel, {
+                                        type: "providerUpdatesValidationState" as any,
+                                        content: {
+                                            cellId,
+                                            validatedBy
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } catch (error) {
+                    console.error("Error refreshing validation state:", error);
+                }
+            }
+        });
     }
 }

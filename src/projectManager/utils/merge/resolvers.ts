@@ -7,6 +7,7 @@ import { NotebookCommentThread } from "../../../../types/index.d";
 import { NotebookComment } from "../../../../types/index.d";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
+import { EditHistory, ValidationEntry } from "../../../../types/index.d";
 
 const DEBUG_MODE = false;
 const debug = function (...args: any[]) {
@@ -156,14 +157,51 @@ export async function resolveCodexCustomMerge(
 
             debug(`Combined ${mergedEdits.length} edits for cell ${cellId}`);
 
-            // Remove duplicates based on timestamp and cellValue
-            const uniqueEdits = mergedEdits.filter(
-                (edit, index, self) =>
-                    index ===
-                    self.findIndex(
-                        (e) => e.timestamp === edit.timestamp && e.cellValue === edit.cellValue
-                    )
-            );
+            // Remove duplicates based on timestamp and cellValue, while merging validatedBy entries
+            const editMap = new Map<string, EditHistory>();
+
+            // First pass: Group edits by timestamp and cellValue
+            mergedEdits.forEach((edit) => {
+                const key = `${edit.timestamp}:${edit.cellValue}`;
+                if (!editMap.has(key)) {
+                    editMap.set(key, edit);
+                } else {
+                    // Merge validatedBy arrays if both exist
+                    const existingEdit = editMap.get(key)!;
+                    
+                    // Initialize validatedBy arrays if they don't exist
+                    if (!existingEdit.validatedBy) existingEdit.validatedBy = [];
+                    if (!edit.validatedBy) edit.validatedBy = [];
+                    
+                    // Combine validation entries
+                    if (edit.validatedBy.length > 0) {
+                        edit.validatedBy.forEach((validationEntry: ValidationEntry) => {
+                            // Find if this user already has a validation entry
+                            const existingEntryIndex = existingEdit.validatedBy!.findIndex(
+                                (entry: ValidationEntry) => entry.username === validationEntry.username
+                            );
+                            
+                            if (existingEntryIndex === -1) {
+                                // User doesn't have an entry yet, add it
+                                existingEdit.validatedBy!.push(validationEntry);
+                            } else {
+                                // User already has an entry, update it if the new one is more recent
+                                const existingEntry = existingEdit.validatedBy![existingEntryIndex];
+                                if (validationEntry.updatedTimestamp > existingEntry.updatedTimestamp) {
+                                    existingEdit.validatedBy![existingEntryIndex] = {
+                                        ...validationEntry,
+                                        // Keep the original creation timestamp
+                                        creationTimestamp: existingEntry.creationTimestamp
+                                    };
+                                }
+                            }
+                        });
+                    }
+                }
+            });
+            
+            // Convert map back to array
+            const uniqueEdits = Array.from(editMap.values());
 
             debug(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
 

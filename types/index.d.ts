@@ -697,12 +697,22 @@ type AlertCodesServerResponse = {
 
 type GetAlertCodes = { text: string; cellId: string }[];
 
+/**
+ * Represents a validation entry by a user
+ */
+interface ValidationEntry {
+    username: string;
+    creationTimestamp: number;
+    updatedTimestamp: number;
+    isDeleted: boolean;
+}
+
 type EditHistory = {
     author: string;
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
-    validatedBy?: string[];
+    validatedBy?: ValidationEntry[];
 };
 
 type CodexData = Timestamps & {

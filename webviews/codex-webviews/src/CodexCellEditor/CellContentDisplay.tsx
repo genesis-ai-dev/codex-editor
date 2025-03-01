@@ -13,7 +13,7 @@ import { WebviewApi } from "vscode-webview";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import ValidationButton from "./ValidationButton";
 
-const SHOW_VALIDATION_BUTTON = false;
+const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
     cell: QuillCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
