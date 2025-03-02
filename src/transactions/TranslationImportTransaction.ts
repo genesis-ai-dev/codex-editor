@@ -118,10 +118,18 @@ export class TranslationImportTransaction extends ImportTransaction {
             this.importedContent = await this.parseFileContent(tempTranslationFile);
             const serializer = new CodexContentSerializer();
 
-            this.rawImportedContent = await serializer.deserializeNotebook(
-                await vscode.workspace.fs.readFile(tempTranslationFile),
-                new vscode.CancellationTokenSource().token
-            );
+            // Only try to deserialize as notebook if it's a codex file
+            const fileExtension = this.state.sourceFile.fsPath
+                .split(".")
+                .pop()
+                ?.toLowerCase() as keyof typeof fileTypeMap;
+
+            if (fileTypeMap[fileExtension] === "codex") {
+                this.rawImportedContent = await serializer.deserializeNotebook(
+                    await vscode.workspace.fs.readFile(tempTranslationFile),
+                    new vscode.CancellationTokenSource().token
+                );
+            }
 
             // Get source notebook content
             const sourceMetadata = await this.metadataManager.getMetadataById(
@@ -346,7 +354,7 @@ export class TranslationImportTransaction extends ImportTransaction {
             case "usfm":
                 return this.parseUSFM(fileContentString);
             case "codex":
-                return parseCodex(fileContentString);
+                return this.parseCodex(fileContentString);
             default:
                 throw new Error("Unsupported file type.");
         }
@@ -394,6 +402,51 @@ export class TranslationImportTransaction extends ImportTransaction {
         return [];
     }
 
+    private async parseCodex(fileContentString: string): Promise<ImportedContent[]> {
+        debug("Parsing Codex file content");
+        const importedContent: ImportedContent[] = [];
+
+        try {
+            const serializer = new CodexContentSerializer();
+            const notebookData = await serializer.deserializeNotebook(
+                Buffer.from(fileContentString),
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Process each cell in the notebook
+            for (const cell of notebookData.cells) {
+                if (cell.metadata?.id && cell.value) {
+                    debug(`Processing cell with ID: ${cell.metadata.id}`);
+                    importedContent.push({
+                        id: cell.metadata.id,
+                        content: cell.value.trim(),
+                        edits: cell.metadata.edits,
+                        // Include any additional metadata if needed
+                        startTime: cell.metadata.data?.startTime,
+                        endTime: cell.metadata.data?.endTime,
+                    });
+                } else {
+                    debug(`Skipping cell without ID or value:`, cell);
+                }
+            }
+
+            debug("Parsed Codex content", {
+                totalCells: notebookData.cells.length,
+                importedCells: importedContent.length,
+            });
+
+            if (importedContent.length === 0) {
+                throw new Error("No valid cells found in codex file");
+            }
+        } catch (error: any) {
+            debug("Error parsing Codex file:", error);
+            vscode.window.showErrorMessage(`Error parsing Codex file: ${error.message}`);
+            throw error; // Re-throw to ensure the transaction fails properly
+        }
+
+        return importedContent;
+    }
+
     private async cleanupTempFiles(): Promise<void> {
         try {
             for (const tempFile of this.state.tempFiles) {
@@ -415,7 +468,14 @@ export class TranslationImportTransaction extends ImportTransaction {
         rawExistingNotebook?: CodexNotebookAsJSONData,
         rawImportedContent?: CodexNotebookAsJSONData
     ): Promise<CodexNotebookAsJSONData> {
+        debug("Starting mergeTranslations", {
+            importedContentLength: importedContent.length,
+            hasRawExisting: !!rawExistingNotebook,
+            hasRawImported: !!rawImportedContent,
+        });
+
         if (rawExistingNotebook && rawImportedContent) {
+            debug("Using codex merge strategy");
             const resolvedContent = await resolveCodexCustomMerge(
                 JSON.stringify(rawExistingNotebook),
                 JSON.stringify(rawImportedContent)
@@ -423,11 +483,17 @@ export class TranslationImportTransaction extends ImportTransaction {
             return JSON.parse(resolvedContent) as CodexNotebookAsJSONData;
         }
 
+        debug("Using standard cell alignment strategy");
         const cellAligner = this.getAlignerForFileType(this.state.sourceFile);
         const existingCells = existingNotebook.cells;
 
         // Get aligned cells using the appropriate aligner
         const alignedCells = await cellAligner(existingCells, importedContent);
+        debug("Aligned cells", {
+            total: alignedCells.length,
+            withNotebookCell: alignedCells.filter((c) => c.notebookCell).length,
+            paratext: alignedCells.filter((c) => c.isParatext).length,
+        });
 
         // Track statistics for reporting
         let insertedCount = 0;
@@ -839,45 +905,12 @@ export class TranslationImportTransaction extends ImportTransaction {
         return files[0];
     }
 }
-async function parseCodex(fileContentString: string): Promise<ImportedContent[]> {
-    debug("Parsing Codex file content");
-    const importedContent: ImportedContent[] = [];
-
-    try {
-        const serializer = new CodexContentSerializer();
-        const notebookData = await serializer.deserializeNotebook(
-            Buffer.from(fileContentString),
-            new vscode.CancellationTokenSource().token
-        );
-
-        // Process each cell in the notebook
-        notebookData.cells.forEach((cell) => {
-            if (cell.metadata?.id && cell.value) {
-                importedContent.push({
-                    id: cell.metadata.id,
-                    content: cell.value.trim(),
-                    edits: cell.metadata.edits,
-                    // Include any additional metadata if needed
-                    startTime: cell.metadata.data?.startTime,
-                    endTime: cell.metadata.data?.endTime,
-                });
-            }
-        });
-
-        debug("Parsed Codex content", importedContent);
-    } catch (error: any) {
-        debug("Error parsing Codex file:", error);
-        vscode.window.showErrorMessage(`Error parsing Codex file: ${error.message}`);
-    }
-
-    return importedContent;
-}
 
 async function alignCodexCells(
     notebookCells: CustomNotebookCellData[],
     importedContent: ImportedContent[]
 ): Promise<AlignedCell[]> {
-    debug("Aligning Codex cells by matching cell IDs", {
+    debug("Aligning Codex cells", {
         notebookCellsCount: notebookCells.length,
         importedContentCount: importedContent.length,
     });
@@ -885,28 +918,40 @@ async function alignCodexCells(
     const alignedCells: AlignedCell[] = [];
     let totalMatches = 0;
 
-    importedContent.forEach((importedItem) => {
+    // First pass: Match exact IDs
+    for (const importedItem of importedContent) {
         if (!importedItem.content.trim()) {
-            // Skip empty lines
-            return;
+            debug("Skipping empty imported content");
+            continue;
         }
 
-        const notebookCell = notebookCells.find((cell) => cell.metadata.id === importedItem.id);
+        debug(`Looking for match for imported item with ID: ${importedItem.id}`);
+        const notebookCell = notebookCells.find((cell) => cell.metadata?.id === importedItem.id);
+
         if (notebookCell) {
+            debug(`Found matching cell for ID: ${importedItem.id}`);
             alignedCells.push({
                 notebookCell,
                 importedContent: importedItem,
             });
             totalMatches++;
+        } else {
+            debug(`No match found for ID: ${importedItem.id}, treating as paratext`);
+            // If no match found, treat as paratext
+            alignedCells.push({
+                notebookCell: null,
+                importedContent: importedItem,
+                isParatext: true,
+            });
         }
-    });
-
-    if (totalMatches === 0 && importedContent.length > 0) {
-        vscode.window.showErrorMessage(
-            "No matching cell IDs found in Codex. Please check the file format."
-        );
-        throw new Error("No matching cell IDs found in Codex.");
     }
 
+    debug("Alignment complete", {
+        totalMatches,
+        totalAlignedCells: alignedCells.length,
+        paratextCells: alignedCells.filter((c) => c.isParatext).length,
+    });
+
+    // Don't throw an error if we have no matches - we'll treat unmatched content as paratext
     return alignedCells;
 }
