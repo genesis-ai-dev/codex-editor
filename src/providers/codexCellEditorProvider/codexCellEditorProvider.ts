@@ -259,6 +259,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
+                
+                // Check if this is a validation update
+                if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
+                    // Send specific validation update to the webview
+                    webviewPanel.webview.postMessage({
+                        type: "providerUpdatesValidationState",
+                        content: {
+                            cellId: e.edits[0].cellId,
+                            validatedBy: e.edits[0].validatedBy
+                        }
+                    });
+                }
+                
                 updateWebview();
                 this._onDidChangeCustomDocument.fire({ document });
             })
