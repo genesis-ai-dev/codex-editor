@@ -9,7 +9,7 @@ import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
 
 const DEBUG_MODE = false;
-const debug = function (...args: any[]) {
+function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Resolvers]", ...args);
     }
@@ -134,11 +134,11 @@ export async function resolveCodexCustomMerge(
     debugLog("Starting resolveCodexCustomMerge");
     debugLog("Parsing notebook content");
     if (!ourContent) {
-        debug("No our content, returning their content");
+        debugLog("No our content, returning their content");
         return theirContent;
     }
     if (!theirContent) {
-        debug("No their content, returning our content");
+        debugLog("No their content, returning our content");
         return ourContent;
     }
     const ourNotebook = JSON.parse(ourContent);
@@ -535,7 +535,7 @@ export async function resolveConflictFiles(
     conflicts: ConflictFile[],
     workspaceDir: string
 ): Promise<ResolvedFile[]> {
-    debug("Starting conflict resolution with:", { conflicts, workspaceDir });
+    debugLog("Starting conflict resolution with:", { conflicts, workspaceDir });
 
     // Validate inputs
     if (!Array.isArray(conflicts)) {
@@ -580,7 +580,7 @@ export async function resolveConflictFiles(
 
                 // Handle deleted file
                 if (conflict.isDeleted) {
-                    debug(`Deleting file: ${conflict.filepath}`);
+                    debugLog(`Deleting file: ${conflict.filepath}`);
                     try {
                         await vscode.workspace.fs.delete(filePath);
                         resolvedFiles.push({
@@ -600,7 +600,7 @@ export async function resolveConflictFiles(
 
                 // Handle new file
                 if (conflict.isNew) {
-                    debug(`Creating new file: ${conflict.filepath}`);
+                    debugLog(`Creating new file: ${conflict.filepath}`);
                     try {
                         // Use non-empty content (prefer ours, fallback to theirs)
                         const content = conflict.ours || conflict.theirs;
@@ -624,7 +624,7 @@ export async function resolveConflictFiles(
                 try {
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
-                    debug(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
+                    debugLog(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
                     processedConflicts++;
                     progress.report({
                         increment: (1 / totalConflicts) * 100,
