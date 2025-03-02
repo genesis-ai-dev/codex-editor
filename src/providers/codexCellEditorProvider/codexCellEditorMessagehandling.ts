@@ -683,6 +683,13 @@ export const handleMessages = async (
                 // Update the current webview
                 updateWebview();
                 
+                // Get validated entries from the document, this will filter out any string entries
+                const validatedEntries = document.getCellValidatedBy(event.content.cellId);
+                
+                // Log validation count for debugging
+                const validationCount = document.getValidationCount(event.content.cellId);
+                debug(`Cell ${event.content.cellId} validation count: ${validationCount}, active entries: ${validatedEntries.filter(e => !e.isDeleted).length}`);
+                
                 // Post the validation update to all other webview panels for this document
                 (provider as any).webviewPanels.forEach((panel: vscode.WebviewPanel, docUri: string) => {
                     if (docUri === document.uri.toString() && panel !== webviewPanel) {
@@ -690,7 +697,7 @@ export const handleMessages = async (
                             type: "providerUpdatesValidationState",
                             content: {
                                 cellId: event.content.cellId,
-                                validatedBy: document.getCellValidatedBy(event.content.cellId)
+                                validatedBy: validatedEntries
                             }
                         });
                     }

@@ -3,18 +3,31 @@ import * as path from "path";
 import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
-import { NotebookCommentThread } from "../../../../types/index.d";
-import { NotebookComment } from "../../../../types/index.d";
+import { NotebookCommentThread, NotebookComment } from "../../../../types";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
 
 const DEBUG_MODE = false;
-const debug = function (...args: any[]) {
+function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
-        console.log("[resolveConflictFile]", ...args);
+        console.log("[Resolvers]", ...args);
     }
-};
+}
+
+/**
+ * Type guard to check if a value is a ValidationEntry
+ */
+function isValidValidationEntry(value: any): value is ValidationEntry {
+    return (
+        value !== null &&
+        typeof value === 'object' &&
+        typeof value.username === 'string' &&
+        typeof value.creationTimestamp === 'number' &&
+        typeof value.updatedTimestamp === 'number' &&
+        typeof value.isDeleted === 'boolean'
+    );
+}
 
 /**
  * Resolves merge conflicts for a specific file based on its determined strategy
@@ -26,18 +39,18 @@ export async function resolveConflictFile(
     try {
         // No need to read files, we already have the content
         const strategy = determineStrategy(conflict.filepath);
-        debug("Strategy:", strategy);
+        debugLog("Strategy:", strategy);
         let resolvedContent: string;
 
         switch (strategy) {
             case ConflictResolutionStrategy.IGNORE:
-                debug("Ignoring conflict for:", conflict.filepath);
+                debugLog("Ignoring conflict for:", conflict.filepath);
                 resolvedContent = conflict.ours; // Keep our version
                 break;
 
             case ConflictResolutionStrategy.SOURCE:
             case ConflictResolutionStrategy.OVERRIDE: {
-                debug("Resolving conflict for:", conflict.filepath);
+                debugLog("Resolving conflict for:", conflict.filepath);
                 // TODO: Compare content timestamps if embedded in the content
                 // For now, default to our version
                 resolvedContent = conflict.ours;
@@ -45,7 +58,7 @@ export async function resolveConflictFile(
             }
 
             case ConflictResolutionStrategy.JSONL: {
-                debug("Resolving JSONL conflict for:", conflict.filepath);
+                debugLog("Resolving JSONL conflict for:", conflict.filepath);
                 // Parse and merge JSONL content
                 const ourLines = conflict.ours.split("\n").filter(Boolean);
                 const theirLines = conflict.theirs.split("\n").filter(Boolean);
@@ -57,7 +70,7 @@ export async function resolveConflictFile(
             }
 
             case ConflictResolutionStrategy.ARRAY: {
-                debug("Resolving array conflict for:", conflict.filepath);
+                debugLog("Resolving array conflict for:", conflict.filepath);
                 // Special handling for notebook comment thread arrays
                 resolvedContent = await resolveCommentThreadsConflict(
                     conflict.ours,
@@ -68,16 +81,16 @@ export async function resolveConflictFile(
 
             // SPECIAL = "special", // Merge based on timestamps/rules
             case ConflictResolutionStrategy.SPECIAL: {
-                debug("Resolving special conflict for:", conflict.filepath);
+                debugLog("Resolving special conflict for:", conflict.filepath);
                 resolvedContent = await resolveSmartEditsConflict(conflict.ours, conflict.theirs);
                 break;
             }
 
             // CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
             case ConflictResolutionStrategy.CODEX_CUSTOM_MERGE: {
-                debug("Resolving codex custom merge for:", conflict.filepath);
+                debugLog("Resolving codex custom merge for:", conflict.filepath);
                 resolvedContent = await resolveCodexCustomMerge(conflict.ours, conflict.theirs);
-                debug("Successfully merged codex content");
+                debugLog("Successfully merged codex content");
                 break;
             }
 
@@ -87,9 +100,9 @@ export async function resolveConflictFile(
 
         // Write resolved content back to the actual file
         const targetPath = vscode.Uri.file(path.join(workspaceDir, conflict.filepath));
-        debug("Writing resolved content to:", targetPath.fsPath);
+        debugLog("Writing resolved content to:", targetPath.fsPath);
         await vscode.workspace.fs.writeFile(targetPath, Buffer.from(resolvedContent));
-        debug("Successfully wrote content for:", conflict.filepath);
+        debugLog("Successfully wrote content for:", conflict.filepath);
 
         return conflict.filepath;
     } catch (e) {
@@ -100,18 +113,26 @@ export async function resolveConflictFile(
 }
 
 /**
- * Resolves conflicts in Codex notebook cell arrays.
- * - note, resolving metadata distinctions does not have an obvious solution.
- * I suspect this is not going to be an issue, since we hardly use the metadata.
- * - we simply take 'our' version of the metadata.
+ * Custom merge resolution for Codex files
+ * Merges cells from two versions of a notebook, preserving edit history and metadata
+ * 
+ * Special handling for validation entries:
+ * - Legacy validatedBy arrays may contain string usernames
+ * - This function converts any string entries to proper ValidationEntry objects
+ * - It ensures all validatedBy arrays only contain valid ValidationEntry objects in the output
+ * - String entries with the same username as an object entry are removed to avoid duplicates
+ * 
+ * @param ourContent Our version of the notebook JSON content
+ * @param theirContent Their version of the notebook JSON content
+ * @returns Merged notebook JSON content as a string
  */
 export async function resolveCodexCustomMerge(
     ourContent: string,
     theirContent: string
 ): Promise<string> {
-    debug({ ourContent: ourContent.slice(0, 1000), theirContent: theirContent.slice(0, 1000) });
-    debug("Starting resolveCodexCustomMerge");
-    debug("Parsing notebook content");
+    debugLog({ ourContent: ourContent.slice(0, 1000), theirContent: theirContent.slice(0, 1000) });
+    debugLog("Starting resolveCodexCustomMerge");
+    debugLog("Parsing notebook content");
     if (!ourContent) {
         return theirContent;
     }
@@ -123,7 +144,7 @@ export async function resolveCodexCustomMerge(
     const ourCells: CodexCell[] = ourNotebook.cells;
     const theirCells: CodexCell[] = theirNotebook.cells;
 
-    debug(
+    debugLog(
         `Processing ${ourCells.length} cells from our version and ${theirCells.length} cells from their version`
     );
 
@@ -132,7 +153,7 @@ export async function resolveCodexCustomMerge(
     theirCells.forEach((cell) => {
         if (cell.metadata?.id) {
             theirCellsMap.set(cell.metadata.id, cell);
-            debug(`Mapped their cell with ID: ${cell.metadata.id}`);
+            debugLog(`Mapped their cell with ID: ${cell.metadata.id}`);
         }
     });
 
@@ -142,20 +163,20 @@ export async function resolveCodexCustomMerge(
     ourCells.forEach((ourCell) => {
         const cellId = ourCell.metadata?.id;
         if (!cellId) {
-            debug("Skipping cell without ID");
+            debugLog("Skipping cell without ID");
             return;
         }
 
         const theirCell = theirCellsMap.get(cellId);
         if (theirCell) {
-            debug(`Found matching cell ${cellId} - merging content`);
+            debugLog(`Found matching cell ${cellId} - merging content`);
             // Merge edit histories
             const mergedEdits = [
                 ...(ourCell.metadata?.edits || []),
                 ...(theirCell.metadata?.edits || []),
             ].sort((a, b) => a.timestamp - b.timestamp);
 
-            debug(`Combined ${mergedEdits.length} edits for cell ${cellId}`);
+            debugLog(`Combined ${mergedEdits.length} edits for cell ${cellId}`);
 
             // Remove duplicates based on timestamp and cellValue, while merging validatedBy entries
             const editMap = new Map<string, EditHistory>();
@@ -175,27 +196,67 @@ export async function resolveCodexCustomMerge(
                     
                     // Combine validation entries
                     if (edit.validatedBy.length > 0) {
-                        edit.validatedBy.forEach((validationEntry: ValidationEntry) => {
+                        edit.validatedBy.forEach((entry: any) => {
+                            // Convert string entries to ValidationEntry objects
+                            let validationEntry: ValidationEntry;
+                            if (!isValidValidationEntry(entry)) {
+                                // Handle string entries
+                                if (typeof entry === 'string') {
+                                    const currentTimestamp = Date.now();
+                                    validationEntry = {
+                                        username: entry,
+                                        creationTimestamp: currentTimestamp,
+                                        updatedTimestamp: currentTimestamp,
+                                        isDeleted: false
+                                    };
+                                } else {
+                                    // Skip invalid entries that are neither strings nor ValidationEntry objects
+                                    return;
+                                }
+                            } else {
+                                validationEntry = entry;
+                            }
+                            
                             // Find if this user already has a validation entry
                             const existingEntryIndex = existingEdit.validatedBy!.findIndex(
-                                (entry: ValidationEntry) => entry.username === validationEntry.username
+                                (existingEntry: any) => {
+                                    if (typeof existingEntry === 'string') {
+                                        return existingEntry === validationEntry.username;
+                                    }
+                                    return isValidValidationEntry(existingEntry) && 
+                                           existingEntry.username === validationEntry.username;
+                                }
                             );
                             
                             if (existingEntryIndex === -1) {
                                 // User doesn't have an entry yet, add it
                                 existingEdit.validatedBy!.push(validationEntry);
                             } else {
-                                // User already has an entry, update it if the new one is more recent
-                                const existingEntry = existingEdit.validatedBy![existingEntryIndex];
-                                if (validationEntry.updatedTimestamp > existingEntry.updatedTimestamp) {
-                                    existingEdit.validatedBy![existingEntryIndex] = {
-                                        ...validationEntry,
-                                        // Keep the original creation timestamp
-                                        creationTimestamp: existingEntry.creationTimestamp
-                                    };
+                                // User already has an entry
+                                const existingEntryItem = existingEdit.validatedBy![existingEntryIndex];
+                                
+                                // If existing entry is a string, replace it with the object
+                                if (typeof existingEntryItem === 'string') {
+                                    existingEdit.validatedBy![existingEntryIndex] = validationEntry;
+                                } else {
+                                    // Both are objects, update if the new one is more recent
+                                    if (validationEntry.updatedTimestamp > existingEntryItem.updatedTimestamp) {
+                                        existingEdit.validatedBy![existingEntryIndex] = {
+                                            ...validationEntry,
+                                            // Keep the original creation timestamp
+                                            creationTimestamp: existingEntryItem.creationTimestamp
+                                        };
+                                    }
                                 }
                             }
                         });
+                    }
+                    
+                    // After merging, ensure the validatedBy array only contains ValidationEntry objects
+                    if (existingEdit.validatedBy && existingEdit.validatedBy.length > 0) {
+                        existingEdit.validatedBy = existingEdit.validatedBy.filter(entry => 
+                            typeof entry !== 'string'
+                        );
                     }
                 }
             });
@@ -203,14 +264,14 @@ export async function resolveCodexCustomMerge(
             // Convert map back to array
             const uniqueEdits = Array.from(editMap.values());
 
-            debug(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
+            debugLog(`Filtered to ${uniqueEdits.length} unique edits for cell ${cellId}`);
 
             // Sort edits by timestamp to ensure most recent is last
             uniqueEdits.sort((a, b) => a.timestamp - b.timestamp);
-            debug({ uniqueEdits });
+            debugLog({ uniqueEdits });
             const latestEdit = uniqueEdits[uniqueEdits.length - 1];
 
-            debug({ latestEdit });
+            debugLog({ latestEdit });
 
             //! NOTE: the following logic is a bit convoluted, but there may be
             // a case where there is an LLM-generated edit that is the most recent edit,
@@ -244,7 +305,7 @@ export async function resolveCodexCustomMerge(
                 editThatBelongsToOurCellValue,
             ].sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0))[1];
 
-            debug({ editThatBelongsToOurCellValue, editThatBelongsToTheirCellValue });
+            debugLog({ editThatBelongsToOurCellValue, editThatBelongsToTheirCellValue });
 
             // Ensure the latest edit is in the history
             let finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
@@ -255,10 +316,46 @@ export async function resolveCodexCustomMerge(
                 finalValue = theirCell.value;
             }
             const finalEdits = [...uniqueEdits];
-            debug({ finalValue, finalEdits });
+            debugLog({ finalValue, finalEdits });
 
             // Sort one final time to ensure the new edit is properly placed
             finalEdits.sort((a, b) => a.timestamp - b.timestamp);
+
+            // Ensure all edits have properly formatted validatedBy arrays (no strings)
+            finalEdits.forEach(edit => {
+                if (edit.validatedBy) {
+                    // Convert any remaining string entries to ValidationEntry objects
+                    const validatedBy = edit.validatedBy.map(entry => {
+                        if (!isValidValidationEntry(entry)) {
+                            // Handle string entries
+                            if (typeof entry === 'string') {
+                                const currentTimestamp = Date.now();
+                                return {
+                                    username: entry,
+                                    creationTimestamp: currentTimestamp,
+                                    updatedTimestamp: currentTimestamp,
+                                    isDeleted: false
+                                };
+                            }
+                            // Skip invalid entries
+                            return null;
+                        }
+                        return entry;
+                    }).filter(entry => entry !== null) as ValidationEntry[];
+                    
+                    // Deduplicate by username (keep newest)
+                    const usernameMap = new Map<string, ValidationEntry>();
+                    validatedBy.forEach(entry => {
+                        const existingEntry = usernameMap.get(entry.username);
+                        if (!existingEntry || entry.updatedTimestamp > existingEntry.updatedTimestamp) {
+                            usernameMap.set(entry.username, entry);
+                        }
+                    });
+                    
+                    // Replace with deduplicated array
+                    edit.validatedBy = Array.from(usernameMap.values());
+                }
+            });
 
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
@@ -272,22 +369,34 @@ export async function resolveCodexCustomMerge(
                 },
             };
 
-            debug(`Pushing merged cell ${cellId} to results`);
+            debugLog(`Pushing merged cell ${cellId} to results`);
             resultCells.push(mergedCell);
             theirCellsMap.delete(cellId);
         } else {
-            debug(`No conflict for cell ${cellId}, keeping our version`);
+            debugLog(`No conflict for cell ${cellId}, keeping our version`);
             resultCells.push(ourCell);
         }
     });
 
     // Add any new cells from their version
     theirCellsMap.forEach((cell, id) => {
-        debug(`Adding their unique cell ${id} to results`);
+        debugLog(`Adding their unique cell ${id} to results`);
         resultCells.push(cell);
     });
 
-    debug(`Merge complete. Final cell count: ${resultCells.length}`);
+    debugLog(`Merge complete. Final cell count: ${resultCells.length}`);
+
+    // Final safety check: ensure no string entries remain in any validatedBy arrays
+    for (const cell of resultCells) {
+        if (cell.metadata?.edits) {
+            for (const edit of cell.metadata.edits) {
+                if (edit.validatedBy) {
+                    // Filter to only include proper ValidationEntry objects
+                    edit.validatedBy = edit.validatedBy.filter(isValidValidationEntry);
+                }
+            }
+        }
+    }
 
     // Return the full notebook structure with merged cells
     return JSON.stringify(
@@ -419,7 +528,7 @@ export async function resolveConflictFiles(
     conflicts: ConflictFile[],
     workspaceDir: string
 ): Promise<string[]> {
-    debug("RYDER**** Starting conflict resolution with:", { conflicts, workspaceDir });
+    debugLog("RYDER**** Starting conflict resolution with:", { conflicts, workspaceDir });
 
     // Validate inputs
     if (!Array.isArray(conflicts)) {
@@ -465,7 +574,7 @@ export async function resolveConflictFiles(
                 try {
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
-                    debug(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
+                    debugLog(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
                     processedConflicts++;
                     progress.report({
                         increment: (1 / totalConflicts) * 100,

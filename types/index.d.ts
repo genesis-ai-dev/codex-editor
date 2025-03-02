@@ -765,6 +765,7 @@ export interface CustomNotebookMetadata {
         | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
     corpusMarker: string;
     cellDisplayMode?: "inline" | "one-line-per-cell";
+    validationMigrationComplete?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
