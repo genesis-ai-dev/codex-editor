@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.1.36",
+    "version": "0.1.37",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -20,7 +20,6 @@
     "activationEvents": [
         "onCustomEditor:sourceUploadProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
-        "onNotebook:codex-type",
         "onStartupFinished"
     ],
     "main": "./out/extension.js",

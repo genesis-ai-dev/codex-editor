@@ -158,7 +158,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         >
             <div className="cell-header">
                 <div className="cell-actions">
-                    {!isSourceText && (
+                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
                         <ValidationButton
                             cellId={cellIds[0]}
                             cell={cell}
