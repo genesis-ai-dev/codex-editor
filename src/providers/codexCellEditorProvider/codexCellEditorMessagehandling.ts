@@ -1,22 +1,32 @@
-import { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import * as vscode from "vscode";
+import { CodexCellDocument } from "./codexDocument";
+// Use type-only import to break circular dependency
+import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
+import { GlobalMessage, EditorPostMessages } from "../../../types";
 import { EditType } from "../../../types/enums";
 import {
     QuillCellContent,
-    EditorPostMessages,
     SpellCheckResponse,
     AlertCodesServerResponse,
-    GlobalMessage,
     GlobalContentType,
+    ValidationEntry
 } from "../../../types";
 import path from "path";
 import { getWorkSpaceUri } from "../../utils";
 import { SavedBacktranslation } from "../../smartEdits/smartBacktranslation";
-import { CodexCellDocument } from "./codexDocument";
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
+import fs from "fs";
+import { getAuthApi } from "@/extension";
+// Comment out problematic imports
+// import { getAddWordToSpellcheckApi } from "../../extension";
+// import { getSimilarCellIds } from "@/utils/semanticSearch";
+// import { getSpellCheckResponseForText } from "../../extension";
+// import { ChapterGenerationManager } from "./chapterGenerationManager";
+// import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
+// import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
 
 const DEBUG_ENABLED = false;
 function debug(...args: any[]): void {
@@ -666,19 +676,37 @@ export const handleMessages = async (
                     event.content.cellId,
                     event.content.validate
                 );
+                
+                // Make sure to save the document to trigger file system watchers
+                await document.save(new vscode.CancellationTokenSource().token);
+                
+                // Update the current webview
                 updateWebview();
+                
+                // Get validated entries from the document, this will filter out any string entries
+                const validatedEntries = document.getCellValidatedBy(event.content.cellId);
+                
+                // Log validation count for debugging
+                const validationCount = document.getValidationCount(event.content.cellId);
+                debug(`Cell ${event.content.cellId} validation count: ${validationCount}, active entries: ${validatedEntries.filter(e => !e.isDeleted).length}`);
+                
+                // Post the validation update to all other webview panels for this document
+                (provider as any).webviewPanels.forEach((panel: vscode.WebviewPanel, docUri: string) => {
+                    if (docUri === document.uri.toString() && panel !== webviewPanel) {
+                        panel.webview.postMessage({
+                            type: "providerUpdatesValidationState",
+                            content: {
+                                cellId: event.content.cellId,
+                                validatedBy: validatedEntries
+                            }
+                        });
+                    }
+                });
             }
-            break;
-        case "getCurrentUsername":
-            const authApi = await provider.getAuthApi();
-            const userInfo = await authApi?.getUserInfo();
-            webviewPanel.webview.postMessage({
-                type: "currentUsername",
-                content: { username: userInfo?.username || "anonymous" }
-            });
             break;
         case "getValidationCount": {
             try {
+                // Get the configured number of validations required from settings
                 const config = vscode.workspace.getConfiguration("codex-project-manager");
                 const validationCount = config.get("validationCount", 1);
                 provider.postMessageToWebview(webviewPanel, {
@@ -688,6 +716,22 @@ export const handleMessages = async (
             } catch (error) {
                 console.error("Error getting validation count:", error);
                 vscode.window.showErrorMessage("Failed to get validation count.");
+            }
+            return;
+        }
+        case "getCurrentUsername": {
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                const username = userInfo?.username || "anonymous";
+                
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "currentUsername",
+                    content: { username }
+                });
+            } catch (error) {
+                console.error("Error getting current username:", error);
+                vscode.window.showErrorMessage("Failed to get current username.");
             }
             return;
         }

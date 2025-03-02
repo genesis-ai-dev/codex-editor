@@ -697,12 +697,22 @@ type AlertCodesServerResponse = {
 
 type GetAlertCodes = { text: string; cellId: string }[];
 
+/**
+ * Represents a validation entry by a user
+ */
+interface ValidationEntry {
+    username: string;
+    creationTimestamp: number;
+    updatedTimestamp: number;
+    isDeleted: boolean;
+}
+
 type EditHistory = {
     author: string;
     cellValue: string;
     timestamp: number;
     type: import("./enums").EditType;
-    validatedBy?: string[];
+    validatedBy?: ValidationEntry[];
 };
 
 type CodexData = Timestamps & {
@@ -755,6 +765,7 @@ export interface CustomNotebookMetadata {
         | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
     corpusMarker: string;
     cellDisplayMode?: "inline" | "one-line-per-cell";
+    validationMigrationComplete?: boolean;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

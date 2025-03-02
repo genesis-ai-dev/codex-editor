@@ -1,7 +1,19 @@
 import React, { useState, useEffect } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
-import { QuillCellContent } from "../../../../types";
+import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "./utils/shareUtils";
+
+// Helper function to check if an entry is a valid ValidationEntry object
+function isValidValidationEntry(entry: any): entry is ValidationEntry {
+    return (
+        entry !== null &&
+        typeof entry === 'object' &&
+        typeof entry.username === 'string' &&
+        typeof entry.creationTimestamp === 'number' &&
+        typeof entry.updatedTimestamp === 'number' &&
+        typeof entry.isDeleted === 'boolean'
+    );
+}
 
 interface ValidationButtonProps {
     cellId: string;
@@ -45,14 +57,19 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
         // Check if the current user has already validated this edit
         if (cellValueData.validatedBy && username) {
-            // Only check if username is in validatedBy array, don't auto-validate for authors
-            setIsValidated(cellValueData.validatedBy.includes(username));
+            // Look for the user's entry in validatedBy and check if isDeleted is false
+            const userEntry = cellValueData.validatedBy.find(
+                entry => isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+            );
+            setIsValidated(!!userEntry);
         }
 
-        // Set the current number of validations, ensuring only unique users are counted
+        // Set the current number of validations, counting only non-deleted entries
         if (cellValueData.validatedBy) {
-            const uniqueValidators = new Set(cellValueData.validatedBy);
-            setCurrentValidations(uniqueValidators.size);
+            const activeValidations = cellValueData.validatedBy.filter(
+                entry => isValidValidationEntry(entry) && !entry.isDeleted
+            ).length;
+            setCurrentValidations(activeValidations);
         }
     }, [cell.editHistory, username]);
 
@@ -73,10 +90,21 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 if (message.content.cellId === cellId) {
                     const validatedBy = message.content.validatedBy || [];
                     if (username) {
-                        setIsValidated(validatedBy.includes(username));
+                        // Check if the user has an active validation (not deleted)
+                        const userEntry = validatedBy.find(
+                            (entry: any) => isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+                        );
+                        setIsValidated(!!userEntry);
                     }
-                    setCurrentValidations(new Set(validatedBy).size);
+                    // Count active validations (where isDeleted is false)
+                    const activeValidations = validatedBy.filter(
+                        (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
+                    ).length;
+                    setCurrentValidations(activeValidations);
                 }
+            } else if (message.type === "configurationChanged") {
+                // When configuration changes, refetch the validation count
+                fetchValidationCount();
             }
         };
 
