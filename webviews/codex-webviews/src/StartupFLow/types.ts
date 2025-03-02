@@ -3,6 +3,7 @@ import { BiblePreview, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
+import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
@@ -223,5 +224,5 @@ export interface FrontierAPI {
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
     }>;
-    completeMerge: (resolvedFiles: string[]) => Promise<void>;
+    completeMerge: (resolvedFiles: ResolvedFile[]) => Promise<void>;
 }

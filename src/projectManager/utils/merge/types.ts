@@ -23,4 +23,6 @@ export interface ConflictFile {
     ours: string; // The actual content, not a path
     theirs: string; // The actual content, not a path
     base: string; // The actual content, not a path
+    isDeleted: boolean;
+    isNew: boolean;
 }

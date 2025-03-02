@@ -264,8 +264,10 @@ const CodexCellEditor: React.FC = () => {
     const untranslatedUnitsForSection = useMemo(() => {
         return translationUnitsForSection.filter((unit) => {
             const cellValueData = getCellValueData(unit);
-            console.log("cellValueData", cellValueData);
-            return (!unit.cellContent.trim() || (cellValueData.editType === "llm-generation" && !cellValueData.validatedBy?.length))  ;
+            return (
+                !unit.cellContent.trim() ||
+                (cellValueData.editType === "llm-generation" && !cellValueData.validatedBy?.length)
+            );
         });
     }, [translationUnitsForSection]);
 

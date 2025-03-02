@@ -8,7 +8,7 @@ import { NotebookComment } from "../../../../types/index.d";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 
-const DEBUG_MODE = false;
+const DEBUG_MODE = true;
 const debug = function (...args: any[]) {
     if (DEBUG_MODE) {
         console.log("[resolveConflictFile]", ...args);
@@ -112,9 +112,11 @@ export async function resolveCodexCustomMerge(
     debug("Starting resolveCodexCustomMerge");
     debug("Parsing notebook content");
     if (!ourContent) {
+        debug("No our content, returning their content");
         return theirContent;
     }
     if (!theirContent) {
+        debug("No their content, returning our content");
         return ourContent;
     }
     const ourNotebook = JSON.parse(ourContent);
@@ -374,14 +376,19 @@ async function resolveSmartEditsConflict(
     }
 }
 
+export type ResolvedFile = {
+    filepath: string;
+    resolution: "deleted" | "created" | "modified";
+};
+
 /**
  * Main function to resolve all conflict files
  */
 export async function resolveConflictFiles(
     conflicts: ConflictFile[],
     workspaceDir: string
-): Promise<string[]> {
-    debug("RYDER**** Starting conflict resolution with:", { conflicts, workspaceDir });
+): Promise<ResolvedFile[]> {
+    debug("Starting conflict resolution with:", { conflicts, workspaceDir });
 
     // Validate inputs
     if (!Array.isArray(conflicts)) {
@@ -394,7 +401,7 @@ export async function resolveConflictFiles(
         return [];
     }
 
-    const resolvedFiles: string[] = [];
+    const resolvedFiles: ResolvedFile[] = [];
 
     await vscode.window.withProgress(
         {
@@ -419,15 +426,58 @@ export async function resolveConflictFiles(
                     continue;
                 }
 
-                // Check if file exists before trying to resolve
                 const filePath = vscode.Uri.joinPath(
                     vscode.Uri.file(workspaceDir),
                     conflict.filepath
                 );
+
+                // Handle deleted file
+                if (conflict.isDeleted) {
+                    debug(`Deleting file: ${conflict.filepath}`);
+                    try {
+                        await vscode.workspace.fs.delete(filePath);
+                        resolvedFiles.push({
+                            filepath: conflict.filepath,
+                            resolution: "deleted",
+                        });
+                    } catch (e) {
+                        console.error(`Error deleting file ${conflict.filepath}:`, e);
+                    }
+                    processedConflicts++;
+                    progress.report({
+                        increment: (1 / totalConflicts) * 100,
+                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                    });
+                    continue;
+                }
+
+                // Handle new file
+                if (conflict.isNew) {
+                    debug(`Creating new file: ${conflict.filepath}`);
+                    try {
+                        // Use non-empty content (prefer ours, fallback to theirs)
+                        const content = conflict.ours || conflict.theirs;
+                        await vscode.workspace.fs.writeFile(filePath, Buffer.from(content));
+                        resolvedFiles.push({
+                            filepath: conflict.filepath,
+                            resolution: "created",
+                        });
+                    } catch (e) {
+                        console.error(`Error creating new file ${conflict.filepath}:`, e);
+                    }
+                    processedConflicts++;
+                    progress.report({
+                        increment: (1 / totalConflicts) * 100,
+                        message: `Processing file ${processedConflicts}/${totalConflicts}`,
+                    });
+                    continue;
+                }
+
+                // Handle existing file with conflicts
                 try {
                     await vscode.workspace.fs.stat(filePath);
                 } catch {
-                    debug(`Skipping conflict resolution for deleted file: ${conflict.filepath}`);
+                    debug(`Skipping conflict resolution for missing file: ${conflict.filepath}`);
                     processedConflicts++;
                     progress.report({
                         increment: (1 / totalConflicts) * 100,
@@ -438,7 +488,10 @@ export async function resolveConflictFiles(
 
                 const resolvedFile = await resolveConflictFile(conflict, workspaceDir);
                 if (resolvedFile) {
-                    resolvedFiles.push(resolvedFile);
+                    resolvedFiles.push({
+                        filepath: resolvedFile,
+                        resolution: "modified",
+                    });
                 }
                 processedConflicts++;
                 progress.report({
