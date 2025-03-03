@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
-import { extractVerseRefFromLine } from "../utils/verseRefUtils";
+import { extractVerseRefFromLine } from "../../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
-import { CodexCellTypes } from "../../types/enums";
+import { CodexCellTypes } from "../../../types/enums";
 import { basename } from "path";
+import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
+import { generateVttData } from "./vttUtils";
 
 /**
  * PERFORMANCE OPTIMIZATION NOTE:
@@ -18,23 +20,10 @@ import { basename } from "path";
  * that we read directly from the .codex files.
  */
 
-// Add type import for CodexNotebookAsJSONData
-interface CodexNotebookAsJSONData {
-    cells: {
-        kind: number;
-        value: string;
-        metadata?: {
-            type?: string;
-            id?: string;
-            [key: string]: any;
-        };
-        [key: string]: any;
-    }[];
-    metadata: any;
-}
+import { CodexNotebookAsJSONData } from "../../../types";
 
 // Debug flag
-const DEBUG = false;
+const DEBUG = true;
 
 // Custom debug function
 function debug(...args: any[]) {
@@ -283,6 +272,9 @@ export enum CodexExportFormat {
     PLAINTEXT = "plaintext",
     USFM = "usfm",
     HTML = "html",
+    SUBTITLES_SRT = "subtitles-srt",
+    SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
+    SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
 }
 
 export interface ExportOptions {
@@ -305,8 +297,173 @@ export async function exportCodexContent(
         case CodexExportFormat.HTML:
             await exportCodexContentAsHtml(userSelectedPath, filesToExport, options);
             break;
+        case CodexExportFormat.SUBTITLES_VTT_WITH_STYLES:
+            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, true);
+            break;
+        case CodexExportFormat.SUBTITLES_VTT_WITHOUT_STYLES:
+            await exportCodexContentAsSubtitlesVtt(userSelectedPath, filesToExport, options, false);
+            break;
+        case CodexExportFormat.SUBTITLES_SRT:
+            await exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options);
+            break;
     }
 }
+
+export const exportCodexContentAsSubtitlesSrt = async (
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) => {
+    try {
+        debug("Starting exportCodexContentAsSubtitlesSrt function");
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        // Filter codex files based on user selection
+        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
+        debug(`Selected files for export: ${selectedFiles.length}`);
+        if (selectedFiles.length === 0) {
+            vscode.window.showInformationMessage("No files selected for export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Codex Content as SRT Subtitles",
+                cancellable: false,
+            },
+            async (progress) => {
+                let totalCells = 0;
+                const increment = 100 / selectedFiles.length;
+
+                // Create export directory if it doesn't exist
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                for (const [index, file] of selectedFiles.entries()) {
+                    progress.report({
+                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                        increment,
+                    });
+
+                    debug(`Processing file: ${file.fsPath}`);
+
+                    // Read file directly as JSON instead of opening as notebook
+                    const fileData = await vscode.workspace.fs.readFile(file);
+                    const codexData = JSON.parse(
+                        Buffer.from(fileData).toString()
+                    ) as CodexNotebookAsJSONData;
+                    const cells = codexData.cells;
+
+                    totalCells += cells.length;
+                    debug(`File has ${cells.length} cells`);
+
+                    // Generate SRT content
+                    const srtContent = generateSrtData(cells, false); // Don't include styles for SRT
+
+                    // Write file
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
+                    const exportFileName = `${fileName}_${timestamp}.srt`;
+                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+
+                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(srtContent));
+                    debug(`Export file created: ${exportFile.fsPath}`);
+                }
+
+                vscode.window.showInformationMessage(
+                    `SRT Export completed: ${totalCells} cells from ${selectedFiles.length} files exported to ${userSelectedPath}`
+                );
+            }
+        );
+    } catch (error) {
+        console.error("SRT Export failed:", error);
+        vscode.window.showErrorMessage(`SRT Export failed: ${error}`);
+    }
+};
+
+export const exportCodexContentAsSubtitlesVtt = async (
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions,
+    includeStyles: boolean = true
+) => {
+    try {
+        debug("Starting exportCodexContentAsSubtitlesVtt function");
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        // Filter codex files based on user selection
+        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
+        debug(`Selected files for export: ${selectedFiles.length}`);
+        if (selectedFiles.length === 0) {
+            vscode.window.showInformationMessage("No files selected for export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Codex Content as VTT Subtitles",
+                cancellable: false,
+            },
+            async (progress) => {
+                let totalCells = 0;
+                const increment = 100 / selectedFiles.length;
+
+                // Create export directory if it doesn't exist
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                for (const [index, file] of selectedFiles.entries()) {
+                    progress.report({
+                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                        increment,
+                    });
+
+                    debug(`Processing file: ${file.fsPath}`);
+
+                    // Read file directly as JSON instead of opening as notebook
+                    const fileData = await vscode.workspace.fs.readFile(file);
+                    const codexData = JSON.parse(
+                        Buffer.from(fileData).toString()
+                    ) as CodexNotebookAsJSONData;
+                    const cells = codexData.cells;
+
+                    totalCells += cells.length;
+                    debug(`File has ${cells.length} cells`);
+
+                    // Generate VTT content
+                    const vttContent = generateVttData(cells, includeStyles, file.fsPath); // Include styles for VTT
+                    debug({ vttContent, cells, includeStyles });
+
+                    // Write file
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const fileName = basename(file.fsPath).replace(".codex", "") || "unknown";
+                    const exportFileName = `${fileName}_${timestamp}.vtt`;
+                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+
+                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(vttContent));
+                    debug(`Export file created: ${exportFile.fsPath}`);
+                }
+
+                vscode.window.showInformationMessage(
+                    `VTT Export completed: ${totalCells} cells from ${selectedFiles.length} files exported to ${userSelectedPath}`
+                );
+            }
+        );
+    } catch (error) {
+        console.error("VTT Export failed:", error);
+        vscode.window.showErrorMessage(`VTT Export failed: ${error}`);
+    }
+};
 
 async function exportCodexContentAsPlaintext(
     userSelectedPath: string,

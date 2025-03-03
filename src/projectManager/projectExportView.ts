@@ -1,4 +1,4 @@
-import { CodexExportFormat } from "@/commands/exportHandler";
+import { CodexExportFormat } from "../commands/exportHandler/exportHandler";
 import * as vscode from "vscode";
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
@@ -252,6 +252,30 @@ function getWebviewContent(
                             <div>
                                 <strong>HTML</strong>
                                 <p>Export as web pages with chapter navigation</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div class="format-option" data-format="subtitles-srt" style="flex: 1;">
+                            <i class="codicon codicon-device-camera-video"></i>
+                            <div>
+                                <strong>SRT Subtitles</strong>
+                                <p>Export as SubRip subtitle format</p>
+                            </div>
+                        </div>
+                        <div class="format-option" data-format="subtitles-vtt-with-styles" style="flex: 1;">
+                            <i class="codicon codicon-device-camera-video"></i>
+                            <div>
+                                <strong>VTT Subtitles (Styled)</strong>
+                                <p>Export as WebVTT with text styling</p>
+                            </div>
+                        </div>
+                        <div class="format-option" data-format="subtitles-vtt-without-styles" style="flex: 1;">
+                            <i class="codicon codicon-device-camera-video"></i>
+                            <div>
+                                <strong>VTT Subtitles (Plain)</strong>
+                                <p>Export as WebVTT without text styling</p>
                             </div>
                         </div>
                     </div>

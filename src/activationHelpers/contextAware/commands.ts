@@ -18,7 +18,7 @@ import {
     getBibleDataRecordById as getBibleDataRecordById,
     TheographicBibleDataRecord,
 } from "./sourceData";
-import { CodexExportFormat, exportCodexContent } from "../../commands/exportHandler";
+import { CodexExportFormat, exportCodexContent } from "../../commands/exportHandler/exportHandler";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
