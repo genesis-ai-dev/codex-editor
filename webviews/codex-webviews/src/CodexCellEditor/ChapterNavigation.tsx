@@ -8,8 +8,7 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
-import { CustomNotebookMetadata, QuillCellContent } from "../../../../types";
-import ExportDialog from "./ExportDialog";
+import { CustomNotebookMetadata } from "../../../../types";
 
 interface ChapterNavigationProps {
     chapterNumber: number;
@@ -33,7 +32,6 @@ interface ChapterNavigationProps {
     onPickFile: () => void;
     onUpdateVideoUrl: (url: string) => void;
     tempVideoUrl: string;
-    handleExportVtt: (format: string, includeStyles: boolean) => void;
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
 }
@@ -60,7 +58,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     onPickFile,
     onUpdateVideoUrl,
     tempVideoUrl,
-    handleExportVtt: onExportVtt,
     toggleScrollSync,
     scrollSyncEnabled,
 }) => {
@@ -70,7 +67,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         useState(defaultCustomValue);
     const [customValue, setCustomValue] = useState(defaultCustomValue);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
-    const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
     const handleAutocompleteClick = () => {
         setShowConfirm(true);
@@ -103,19 +99,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         if (metadata?.videoUrl) {
             onUpdateVideoUrl(metadata.videoUrl);
         }
-    };
-
-    const handleExportClick = () => {
-        setIsExportDialogOpen(true);
-    };
-
-    const handleExportClose = () => {
-        setIsExportDialogOpen(false);
-    };
-
-    const handleExport = (format: string, includeStyles: boolean) => {
-        onExportVtt(format, includeStyles);
-        setIsExportDialogOpen(false);
     };
 
     return (
@@ -329,13 +312,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         <i className="codicon codicon-notebook"></i>
                     </VSCodeButton>
                 )}
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={handleExportClick}
-                    title="Export Subtitles"
-                >
-                    <i className="codicon codicon-export"></i>
-                </VSCodeButton>
             </div>
             {metadata && (
                 <NotebookMetadataModal
@@ -355,12 +331,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             >
                 <i className="codicon codicon-chevron-right"></i>
             </VSCodeButton>
-
-            <ExportDialog
-                isOpen={isExportDialogOpen}
-                onClose={handleExportClose}
-                onExport={handleExport}
-            />
         </div>
     );
 };

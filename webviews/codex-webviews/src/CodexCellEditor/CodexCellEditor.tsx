@@ -22,11 +22,9 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
-import { generateVttData } from "./utils/vttUtils";
 import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 import { initializeStateStore } from "../../../../src/stateStore";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
-import { generateSubtitleData } from "./utils/subtitleUtils";
 import { CodexCellTypes } from "types/enums";
 import { getCellValueData } from "./utils/shareUtils";
 const vscode = acquireVsCodeApi();
@@ -366,22 +364,6 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
-    const handleExportSubtitles = (format: string, includeStyles: boolean) => {
-        const subtitleData = generateSubtitleData(
-            translationUnitsWithCurrentEditorContent,
-            format,
-            includeStyles
-        );
-        vscode.postMessage({
-            command: "exportFile",
-            content: {
-                subtitleData,
-                format,
-                includeStyles,
-            },
-        } as EditorPostMessages);
-    };
-
     const [headerHeight, setHeaderHeight] = useState(0);
     const [windowHeight, setWindowHeight] = useState(window.innerHeight);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -467,7 +449,6 @@ const CodexCellEditor: React.FC = () => {
                         onSaveMetadata={handleSaveMetadata}
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
-                        handleExportVtt={handleExportSubtitles}
                         toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                         scrollSyncEnabled={scrollSyncEnabled}
                     />
