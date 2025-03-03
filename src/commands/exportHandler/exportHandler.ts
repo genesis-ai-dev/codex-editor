@@ -23,7 +23,7 @@ import { generateVttData } from "./vttUtils";
 import { CodexNotebookAsJSONData } from "../../../types";
 
 // Debug flag
-const DEBUG = true;
+const DEBUG = false;
 
 // Custom debug function
 function debug(...args: any[]) {
