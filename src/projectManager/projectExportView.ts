@@ -224,6 +224,52 @@ function getWebviewContent(
                     flex: 1;
                     margin-right: 8px;
                 }
+                .format-section {
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    overflow: hidden;
+                }
+                .format-section-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 12px;
+                    background-color: var(--vscode-editor-background);
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .format-section-header:hover {
+                    background-color: var(--vscode-list-hoverBackground);
+                }
+                .format-section-header h4 {
+                    margin: 0;
+                    flex: 1;
+                }
+                .format-section-content {
+                    padding: 12px;
+                    background-color: var(--vscode-editor-background);
+                    border-top: 1px solid var(--vscode-input-border);
+                }
+                .format-section-content .format-option {
+                    margin-bottom: 8px;
+                    padding: 12px;
+                }
+                .format-section-content .format-option:last-child {
+                    margin-bottom: 0;
+                }
+                .format-option-content {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .format-tag {
+                    display: inline-block;
+                    padding: 1px 4px;
+                    font-size: 0.85em;
+                    color: var(--vscode-badge-foreground);
+                    opacity: 0.8;
+                    align-self: flex-start;
+                }
             </style>
         </head>
         <body>
@@ -232,50 +278,61 @@ function getWebviewContent(
                     hasLanguages
                         ? `
                     <h3>Select Export Format</h3>
-                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="format-option" data-format="plaintext" style="flex: 1;">
-                            <i class="codicon codicon-file-text"></i>
-                            <div>
-                                <strong>Plaintext</strong>
-                                <p>Export as plain text files with minimal formatting</p>
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
+                        <!-- Standard Export Formats -->
+                        <div style="display: flex; gap: 1rem;">
+                            <div class="format-option" data-format="plaintext" style="flex: 1;">
+                                <i class="codicon codicon-file-text"></i>
+                                <div>
+                                    <strong>Plaintext</strong>
+                                    <p>Export as plain text files with minimal formatting</p>
+                                </div>
+                            </div>
+                            <div class="format-option" data-format="usfm" style="flex: 1;">
+                                <i class="codicon codicon-file-code"></i>
+                                <div>
+                                    <strong>USFM</strong>
+                                    <p>Export in Universal Standard Format Markers</p>
+                                </div>
+                            </div>
+                            <div class="format-option" data-format="html" style="flex: 1;">
+                                <i class="codicon codicon-browser"></i>
+                                <div>
+                                    <strong>HTML</strong>
+                                    <p>Export as web pages with chapter navigation</p>
+                                </div>
                             </div>
                         </div>
-                        <div class="format-option" data-format="usfm" style="flex: 1;">
-                            <i class="codicon codicon-file-code"></i>
-                            <div>
-                                <strong>USFM</strong>
-                                <p>Export in Universal Standard Format Markers</p>
-                            </div>
-                        </div>
-                        <div class="format-option" data-format="html" style="flex: 1;">
-                            <i class="codicon codicon-browser"></i>
-                            <div>
-                                <strong>HTML</strong>
-                                <p>Export as web pages with chapter navigation</p>
-                            </div>
-                        </div>
-                    </div>
 
-                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                        <div class="format-option" data-format="subtitles-srt" style="flex: 1;">
-                            <i class="codicon codicon-device-camera-video"></i>
-                            <div>
-                                <strong>SRT Subtitles</strong>
-                                <p>Export as SubRip subtitle format</p>
+                        <!-- Subtitle Export Section -->
+                        <div class="format-section">
+                            <div class="format-section-header">
+                                <i class="codicon codicon-symbol-event"></i>
+                                <h4>Subtitle Export Options</h4>
+                                <i class="codicon codicon-chevron-down" id="subtitle-section-chevron"></i>
                             </div>
-                        </div>
-                        <div class="format-option" data-format="subtitles-vtt-with-styles" style="flex: 1;">
-                            <i class="codicon codicon-device-camera-video"></i>
-                            <div>
-                                <strong>VTT Subtitles (Styled)</strong>
-                                <p>Export as WebVTT with text styling</p>
-                            </div>
-                        </div>
-                        <div class="format-option" data-format="subtitles-vtt-without-styles" style="flex: 1;">
-                            <i class="codicon codicon-device-camera-video"></i>
-                            <div>
-                                <strong>VTT Subtitles (Plain)</strong>
-                                <p>Export as WebVTT without text styling</p>
+                            <div id="subtitle-formats" class="format-section-content" style="display: none;">
+                                <div class="format-option" data-format="subtitles-srt">
+                                    <div class="format-option-content">
+                                        <strong>SubRip (SRT)</strong>
+                                        <p>Standard subtitle format compatible with most video players</p>
+                                        <span class="format-tag">Plain Text Only</span>
+                                    </div>
+                                </div>
+                                <div class="format-option" data-format="subtitles-vtt-with-styles">
+                                    <div class="format-option-content">
+                                        <strong>WebVTT with Styling</strong>
+                                        <p>Web-native subtitles with text formatting preserved</p>
+                                        <span class="format-tag">Includes Formatting</span>
+                                    </div>
+                                </div>
+                                <div class="format-option" data-format="subtitles-vtt-without-styles">
+                                    <div class="format-option-content">
+                                        <strong>WebVTT Plain</strong>
+                                        <p>Web-native subtitles without text formatting</p>
+                                        <span class="format-tag">Plain Text Only</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -349,23 +406,45 @@ function getWebviewContent(
                 let exportPath = null;
                 let selectedFiles = new Set(${JSON.stringify(codexFiles.filter((f) => f.selected).map((f) => f.path))});
 
-                // Add click handlers to format options
-                document.querySelectorAll('.format-option').forEach(option => {
-                    option.addEventListener('click', () => {
-                        document.querySelectorAll('.format-option').forEach(opt => opt.classList.remove('selected'));
-                        option.classList.add('selected');
-                        selectedFormat = option.dataset.format;
-                        
-                        // Show/hide USFM options
-                        const usfmOptions = document.getElementById('usfmOptions');
-                        if (selectedFormat === 'usfm') {
-                            usfmOptions.style.display = 'block';
-                        } else {
-                            usfmOptions.style.display = 'none';
-                        }
-                        
-                        updateExportButton();
+                // Initialize event handlers after DOM is loaded
+                document.addEventListener('DOMContentLoaded', () => {
+                    // Format options click handler
+                    document.querySelectorAll('.format-option').forEach(option => {
+                        option.addEventListener('click', (e) => {
+                            // Skip if clicking within the section header
+                            if (e.target.closest('.format-section-header')) {
+                                return;
+                            }
+
+                            // Clear all selected states
+                            document.querySelectorAll('.format-option').forEach(opt => {
+                                opt.classList.remove('selected');
+                            });
+
+                            // Select this option
+                            option.classList.add('selected');
+                            selectedFormat = option.dataset.format;
+
+                            // Show/hide USFM options
+                            const usfmOptions = document.getElementById('usfmOptions');
+                            usfmOptions.style.display = selectedFormat === 'usfm' ? 'block' : 'none';
+
+                            updateExportButton();
+                        });
                     });
+
+                    // Subtitle section toggle handler
+                    const sectionHeader = document.querySelector('.format-section-header');
+                    if (sectionHeader) {
+                        sectionHeader.addEventListener('click', () => {
+                            const content = document.getElementById('subtitle-formats');
+                            const chevron = document.getElementById('subtitle-section-chevron');
+                            const isHidden = content.style.display === 'none';
+                            
+                            content.style.display = isHidden ? 'block' : 'none';
+                            chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+                        });
+                    }
                 });
 
                 function updateExportButton() {
