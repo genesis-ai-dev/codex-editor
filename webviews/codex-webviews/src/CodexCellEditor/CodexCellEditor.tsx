@@ -451,6 +451,7 @@ const CodexCellEditor: React.FC = () => {
                         onUpdateVideoUrl={handleUpdateVideoUrl}
                         toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                         scrollSyncEnabled={scrollSyncEnabled}
+                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
@@ -474,9 +475,6 @@ const CodexCellEditor: React.FC = () => {
                 className="scrollable-content"
                 style={{ height: `calc(100vh - ${headerHeight}px)` }}
             >
-                <h1 style={{ marginBottom: "1rem" }}>
-                    {translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}
-                </h1>
                 <div className="editor-container">
                     {autocompletionProgress !== null && (
                         <div className="autocompletion-progress">
