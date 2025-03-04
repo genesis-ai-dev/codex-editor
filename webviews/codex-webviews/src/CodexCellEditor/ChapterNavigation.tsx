@@ -8,7 +8,7 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
-import { CustomNotebookMetadata } from "../../../../types";
+import { CustomNotebookMetadata, QuillCellContent } from "../../../../types";
 
 interface ChapterNavigationProps {
     chapterNumber: number;
@@ -34,6 +34,7 @@ interface ChapterNavigationProps {
     tempVideoUrl: string;
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
+    translationUnitsForSection: QuillCellContent[];
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -60,6 +61,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     tempVideoUrl,
     toggleScrollSync,
     scrollSyncEnabled,
+    translationUnitsForSection,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const defaultCustomValue = Math.min(5, totalCellsToAutocomplete);
@@ -100,20 +102,22 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             onUpdateVideoUrl(metadata.videoUrl);
         }
     };
+    const buttonGap = "0.5rem";
 
     return (
-        <div className="chapter-navigation">
-            <VSCodeButton
-                appearance="icon"
-                disabled={chapterNumber === 1 || unsavedChanges}
-                onClick={() => setChapterNumber(chapterNumber - 1)}
+        <div className="chapter-navigation" style={{ gap: buttonGap }}>
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    flexFlow: "nowrap",
+                    flex: 1,
+                    justifyContent: "center",
+                }}
             >
-                <i className="codicon codicon-chevron-left"></i>
-            </VSCodeButton>
-            <div className="chapter-navigation-group">
                 {isSourceText && (
                     <>
-                        Source Text
                         <VSCodeButton
                             appearance="icon"
                             onClick={() => {
@@ -126,8 +130,52 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                 }`}
                             />
                         </VSCodeButton>
+                        Source Text
                     </>
                 )}
+            </div>
+            <div
+                style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    flexWrap: "nowrap",
+                    alignItems: "center",
+                    flex: 1,
+                    justifyContent: "center",
+                }}
+            >
+                <VSCodeButton
+                    appearance="icon"
+                    disabled={chapterNumber === 1 || unsavedChanges}
+                    onClick={() => setChapterNumber(chapterNumber - 1)}
+                >
+                    <i className="codicon codicon-chevron-left"></i>
+                </VSCodeButton>
+                <h1
+                    style={{
+                        fontSize: "1.5rem",
+                        marginLeft: "1rem",
+                        marginRight: "1rem",
+                    }}
+                >
+                    {(translationUnitsForSection[0]?.cellMarkers?.[0]
+                        ?.split(":")[0]
+                        .split(" ")[0] || "") +
+                        "\u00A0" +
+                        (translationUnitsForSection[0]?.cellMarkers?.[0]
+                            ?.split(":")[0]
+                            .split(" ")[1] || "")}
+                </h1>
+                <VSCodeButton
+                    appearance="icon"
+                    disabled={chapterNumber === totalChapters || unsavedChanges}
+                    onClick={() => setChapterNumber(chapterNumber + 1)}
+                >
+                    <i className="codicon codicon-chevron-right"></i>
+                </VSCodeButton>
+            </div>
+
+            <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
                 {!isSourceText && (
                     <>
                         <VSCodeButton
@@ -294,24 +342,29 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         <i className="codicon codicon-symbol-constant"></i>
                     )}
                 </VSCodeButton>
-                {documentHasVideoAvailable && (
-                    <VSCodeButton appearance="icon" onClick={handleToggleVideoPlayer}>
-                        {shouldShowVideoPlayer ? (
-                            <i className="codicon codicon-close"></i>
-                        ) : (
-                            <i className="codicon codicon-device-camera-video"></i>
-                        )}
-                    </VSCodeButton>
-                )}
-                {metadata && (
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={handleOpenMetadataModal}
-                        title="Edit Notebook Metadata"
-                    >
-                        <i className="codicon codicon-notebook"></i>
-                    </VSCodeButton>
-                )}
+                <div
+                    data-force-break-before="this div is simply here to force a break so we don't have widowed buttons"
+                    style={{ display: "flex", flexDirection: "row", gap: buttonGap }}
+                >
+                    {documentHasVideoAvailable && (
+                        <VSCodeButton appearance="icon" onClick={handleToggleVideoPlayer}>
+                            {shouldShowVideoPlayer ? (
+                                <i className="codicon codicon-close"></i>
+                            ) : (
+                                <i className="codicon codicon-device-camera-video"></i>
+                            )}
+                        </VSCodeButton>
+                    )}
+                    {metadata && (
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={handleOpenMetadataModal}
+                            title="Edit Notebook Metadata"
+                        >
+                            <i className="codicon codicon-notebook"></i>
+                        </VSCodeButton>
+                    )}
+                </div>
             </div>
             {metadata && (
                 <NotebookMetadataModal
@@ -324,13 +377,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     tempVideoUrl={tempVideoUrl}
                 />
             )}
-            <VSCodeButton
-                appearance="icon"
-                disabled={chapterNumber === totalChapters || unsavedChanges}
-                onClick={() => setChapterNumber(chapterNumber + 1)}
-            >
-                <i className="codicon codicon-chevron-right"></i>
-            </VSCodeButton>
         </div>
     );
 };

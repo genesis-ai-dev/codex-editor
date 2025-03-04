@@ -17,7 +17,7 @@
     background-color: var(--vscode-editor-background);
     display: flex;
     flex-direction: column;
-    border-bottom: 1px solid var(--vscode-widget-border);
+    /* border-bottom: 1px solid var(--vscode-widget-border); */
 }
 
 .scrollable-content {
@@ -42,17 +42,24 @@
 
 .chapter-navigation {
     padding: 1rem;
-    background-color: var(--vscode-editor-background);
-    border-bottom: 1px solid var(--vscode-widget-border);
+    /* background-color: var(--vscode-editor-background); */
+    /* border-bottom: 1px solid var(--vscode-widget-border); */
     display: flex;
-    width: 100%;
+    /* width: 100%; */
     justify-content: space-between;
+    background-color: var(--vscode-list-hoverBackground);
+    border-radius: 0.75rem;
+    margin: 1rem;
+    margin-bottom: 0;
+    flex-wrap: wrap;
 }
 
 .chapter-navigation-group {
     display: flex;
-    gap: 0.5rem;
-    align-items: start;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 1;
+    justify-content: center;
 }
 
 .chapter-navigation > button {
@@ -160,7 +167,7 @@
     display: flex;
     align-items: center;
     padding: 0.25rem;
-    margin-left: 2.65rem;  /* This matches the width of cell header (2rem) plus the gap (0.5rem) and some fine-tuning */
+    margin-left: 2.65rem; /* This matches the width of cell header (2rem) plus the gap (0.5rem) and some fine-tuning */
     background-color: var(--vscode-editor-background);
     border: 1px dashed var(--vscode-widget-border);
     border-radius: 4px;

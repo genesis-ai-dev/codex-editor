@@ -661,7 +661,7 @@ export const SourceUploader: React.FC = () => {
                                                                 1,
                                                                 index + 1
                                                             ),
-                                                        type: "source",
+                                                        type: "test",
                                                         otherFields: mapping.metadataColumns.reduce(
                                                             (acc, column) => {
                                                                 acc[column] = row[column] || "";
@@ -681,7 +681,7 @@ export const SourceUploader: React.FC = () => {
                                                                 1,
                                                                 index + 1
                                                             ),
-                                                        type: "source",
+                                                        type: "text",
                                                         otherFields: mapping.metadataColumns.reduce(
                                                             (acc, column) => {
                                                                 acc[column] = row[column] || "";
