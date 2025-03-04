@@ -54,12 +54,22 @@
     flex-wrap: wrap;
 }
 
-.chapter-navigation-group {
+.advanced-settings-container {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     flex: 1;
     justify-content: center;
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 0.75rem;
+}
+
+.chapter-navigation-group {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 1;
+    justify-content: flex-end;
 }
 
 .chapter-navigation > button {

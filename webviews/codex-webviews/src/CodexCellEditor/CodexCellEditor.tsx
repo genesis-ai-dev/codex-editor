@@ -417,6 +417,8 @@ const CodexCellEditor: React.FC = () => {
 
     (window as any).getCurrentEditingCellId = getCurrentEditingCellId;
 
+    const documentHasVideoAvailable = !!metadata.videoUrl;
+
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -442,7 +444,7 @@ const CodexCellEditor: React.FC = () => {
                         totalCellsToAutocomplete={untranslatedUnitsForSection.length}
                         setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                         shouldShowVideoPlayer={shouldShowVideoPlayer}
-                        documentHasVideoAvailable={true}
+                        documentHasVideoAvailable={documentHasVideoAvailable}
                         metadata={metadata}
                         tempVideoUrl={tempVideoUrl}
                         onMetadataChange={handleMetadataChange}
