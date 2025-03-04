@@ -99,7 +99,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             const groups = pathParts.slice(0, -1);
             const fullName = pathParts[pathParts.length - 1]?.replace(/\.git$/, "") || "";
             const nameParts = fullName.split("-");
-            console.log({ nameParts });
 
             // Extract 20-character ID if it exists
             const lastPart = nameParts[nameParts.length - 1];

@@ -208,7 +208,7 @@ export interface FrontierAPI {
             owner: string;
         }>
     >;
-    cloneRepository: (repositoryUrl: string) => Promise<boolean>;
+    cloneRepository: (repositoryUrl: string, cloneToPath?: string) => Promise<boolean>;
     publishWorkspace: (options?: {
         name: string;
         description?: string;

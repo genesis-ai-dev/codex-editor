@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
 import { initializeProjectMetadataAndGit } from "../../projectManager/utils/projectUtils";
+import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
  * Checks if a folder or any of its parent folders is a Codex project
@@ -69,14 +70,26 @@ export async function createNewWorkspaceAndProject() {
 
 /**
  * Creates a new project in a new folder
+ * TODO: let's ONLY use the .codex-projects directory as the parent folder
  */
+const SHOULD_PROMPT_USER_FOR_PARENT_FOLDER = false;
 async function createProjectInNewFolder(projectName: string) {
-    const parentFolderUri = await vscode.window.showOpenDialog({
-        canSelectFolders: true,
-        canSelectFiles: false,
-        canSelectMany: false,
-        openLabel: `Choose location for "${projectName}" folder`,
-    });
+    // Get the .codex-projects directory as the default parent folder
+    const codexProjectsDir = await getCodexProjectsDirectory();
+    let parentFolderUri: vscode.Uri[] | undefined;
+
+    if (SHOULD_PROMPT_USER_FOR_PARENT_FOLDER) {
+        // Allow the user to choose a different location if they want
+        parentFolderUri = await vscode.window.showOpenDialog({
+            canSelectFolders: true,
+            canSelectFiles: false,
+            canSelectMany: false,
+            openLabel: `Choose location for "${projectName}" folder`,
+            defaultUri: codexProjectsDir,
+        });
+    } else {
+        parentFolderUri = [codexProjectsDir];
+    }
 
     if (!parentFolderUri || !parentFolderUri[0]) {
         return;

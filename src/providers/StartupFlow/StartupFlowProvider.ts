@@ -16,6 +16,7 @@ import {
 } from "../../utils/projectCreationUtils/projectCreationUtils";
 import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
+import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 
 // State machine types
 export enum StartupFlowStates {
@@ -1191,9 +1192,41 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 case "project.clone": {
                     debugLog("Cloning repository", message.repoUrl);
-
-                    this.frontierApi?.cloneRepository(message.repoUrl);
-
+                    
+                    try {
+                        // Get the .codex-projects directory
+                        const codexProjectsDir = await getCodexProjectsDirectory();
+                        
+                        // Extract project name from URL to use as folder name
+                        const urlParts = message.repoUrl.split('/');
+                        let projectName = urlParts[urlParts.length - 1];
+                        
+                        // Remove .git extension if present
+                        if (projectName.endsWith('.git')) {
+                            projectName = projectName.slice(0, -4);
+                        }
+                        
+                        // Create a unique folder name if needed
+                        let projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
+                        
+                        // Check if directory already exists
+                        try {
+                            await vscode.workspace.fs.stat(projectDir);
+                            // If we get here, the directory exists
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            const newProjectName = `${projectName}-${timestamp}`;
+                            projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
+                        } catch {
+                            // Directory doesn't exist, which is what we want
+                        }
+                        
+                        // Clone to the .codex-projects directory
+                        this.frontierApi?.cloneRepository(message.repoUrl, projectDir.fsPath);
+                    } catch (error) {
+                        console.error("Error preparing to clone repository:", error);
+                        this.frontierApi?.cloneRepository(message.repoUrl);
+                    }
+                    
                     break;
                 }
             }

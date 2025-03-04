@@ -20,9 +20,13 @@ import {
 } from "./utils/projectUtils";
 import { openSystemMessageEditor } from "../copilotSettings/copilotSettings";
 import { openProjectExportView } from "./projectExportView";
+import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
     console.log("Codex Project Manager is now active!");
+
+    // Ensure .codex-projects directory is in watched folders
+    await ensureCodexProjectsDirInWatchedFolders();
 
     //wrapper for registered commands
     const executeWithRedirecting = (command: (...args: any[]) => Promise<void>) => {
@@ -125,24 +129,18 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
             const countItems = validationCounts.map((count) => ({
                 label: count.toString(),
                 description: count === 1 ? "validation" : "validations",
-                picked: count === currentCount
+                picked: count === currentCount,
             }));
-            
+
             const selectedCount = await vscode.window.showQuickPick(countItems, {
                 placeHolder: "Select number of validations required",
             });
 
             if (selectedCount !== undefined) {
                 const count = parseInt(selectedCount.label);
-                await config.update(
-                    "validationCount",
-                    count,
-                    vscode.ConfigurationTarget.Workspace
-                );
+                await config.update("validationCount", count, vscode.ConfigurationTarget.Workspace);
                 vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
-                vscode.window.showInformationMessage(
-                    `Required validations set to ${count}.`
-                );
+                vscode.window.showInformationMessage(`Required validations set to ${count}.`);
             }
         })
     );
