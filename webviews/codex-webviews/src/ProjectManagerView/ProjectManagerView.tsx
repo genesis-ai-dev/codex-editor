@@ -252,13 +252,13 @@ function ProjectManagerView() {
                                 }
                                 hasWarning={!state.projectOverview?.targetLanguage}
                             />
-                            <ProjectField
+                            {/* <ProjectField
                                 label="Abbreviation"
                                 value={state.projectOverview.abbreviation?.toString() ?? "Missing"}
                                 icon="pencil"
                                 onAction={() => handleAction({ command: "editAbbreviation" })}
                                 hasWarning={!state.projectOverview.abbreviation}
-                            />
+                            /> */}
                             <ProjectField
                                 label="Required Validations"
                                 value={String(state.projectOverview.validationCount || 1)}
@@ -267,14 +267,14 @@ function ProjectManagerView() {
                                 hasWarning={!state.projectOverview.validationCount}
                             />
                             <ProjectField
-                                label="Source Texts"
+                                label="Project Documents"
                                 value={
                                     state.projectOverview.sourceTexts &&
                                     state.projectOverview.sourceTexts.length > 0
                                         ? `${state.projectOverview.sourceTexts.length} texts`
                                         : "Missing"
                                 }
-                                icon="preview"
+                                icon="new-file"
                                 onAction={() => handleAction({ command: "openSourceUpload" })}
                                 hasWarning={!state.projectOverview.sourceTexts?.length}
                             />
