@@ -91,15 +91,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.initializeStateStore();
 
         // Listen for configuration changes
-        vscode.workspace.onDidChangeConfiguration(e => {
-            if (e.affectsConfiguration('codex-project-manager.validationCount')) {
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("codex-project-manager.validationCount")) {
                 // Notify all webviews about the configuration change
                 this.webviewPanels.forEach((panel) => {
                     this.postMessageToWebview(panel, {
-                        type: "configurationChanged"
+                        type: "configurationChanged",
                     });
                 });
-                
+
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
             }
@@ -262,7 +262,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
-                
+
                 // Check if this is a validation update
                 if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
                     // Broadcast the validation update to all webviews for this document
@@ -270,24 +270,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         type: "providerUpdatesValidationState",
                         content: {
                             cellId: e.edits[0].cellId,
-                            validatedBy: e.edits[0].validatedBy
-                        }
+                            validatedBy: e.edits[0].validatedBy,
+                        },
                     };
-                    
+
                     // Send to all webviews that have this document open
                     this.webviewPanels.forEach((panel, docUri) => {
                         if (docUri === document.uri.toString()) {
                             panel.webview.postMessage(validationUpdate);
                         }
                     });
-                    
+
                     // Still update the current webview with the full content
                     updateWebview();
                 } else {
                     // For non-validation updates, just update the webview as normal
                     updateWebview();
                 }
-                
+
                 this._onDidChangeCustomDocument.fire({ document });
             })
         );
@@ -591,7 +591,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             if (cell.cellType === CodexCellTypes.PARATEXT) continue;
             if (cell.cellContent?.trim() === "<range>") continue;
-            if (cell.cellContent?.trim()) continue;
 
             const cellId = cell.cellMarkers[0];
             if (!cellId) {
@@ -603,8 +602,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     `Processing cell ${i + 1}/${currentChapterTranslationUnits.length}, ID: ${cellId}`
                 );
                 // Perform LLM completion for the current cell
-                if (this.currentDocument) {
-                    await performLLMCompletion(cellId, this.currentDocument, true);
+                if (document) {
+                    await performLLMCompletion(cellId, document, true);
                 }
 
                 // Send an update to the webview
@@ -774,30 +773,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private refreshValidationStateForAllDocuments() {
         // Keep track of processed documents to avoid duplicates
         const processedDocuments = new Set<string>();
-        
+
         // For each document URI in the webview panels map
         this.webviewPanels.forEach((panel, docUri) => {
             // Skip if already processed
             if (processedDocuments.has(docUri)) return;
             processedDocuments.add(docUri);
-            
+
             // Try to find the document
             // The document might be the current document
-            const doc = this.currentDocument?.uri.toString() === docUri 
-                ? this.currentDocument 
-                : undefined;
-                
+            const doc =
+                this.currentDocument?.uri.toString() === docUri ? this.currentDocument : undefined;
+
             if (doc) {
                 try {
                     // Access the document's internal data
                     // Since we might not have direct access to cells, use a simple approach:
                     // Just refresh all cells by getting all cell IDs with validations
                     const allCellIds = doc.getAllCellIds();
-                    
+
                     // For each cell, broadcast its current validation state to all webviews for this document
                     allCellIds.forEach((cellId: string) => {
                         const validatedBy = doc.getCellValidatedBy(cellId);
-                        
+
                         // Only send updates for cells that have validations
                         if (validatedBy && validatedBy.length > 0) {
                             // Post validation state update to all panels for this document
@@ -808,8 +806,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                         type: "providerUpdatesValidationState" as any,
                                         content: {
                                             cellId,
-                                            validatedBy
-                                        }
+                                            validatedBy,
+                                        },
                                     });
                                 }
                             });
