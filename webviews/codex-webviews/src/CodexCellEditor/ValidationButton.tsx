@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "./utils/shareUtils";
@@ -14,6 +14,17 @@ function isValidValidationEntry(entry: any): entry is ValidationEntry {
         typeof entry.isDeleted === 'boolean'
     );
 }
+
+// Static tracking for active popover to ensure only one is shown at a time
+const popoverTracker = {
+    activePopoverId: null as string | null,
+    setActivePopover(id: string | null) {
+        this.activePopoverId = id;
+    },
+    getActivePopover() {
+        return this.activePopoverId;
+    }
+};
 
 interface ValidationButtonProps {
     cellId: string;
@@ -31,8 +42,38 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const [isValidated, setIsValidated] = useState(false);
     const [username, setUsername] = useState<string | null>(null);
     const [requiredValidations, setRequiredValidations] = useState(1);
-    const [currentValidations, setCurrentValidations] = useState(0);
     const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
+    const [showPopover, setShowPopover] = useState(false);
+    const [isPersistentPopover, setIsPersistentPopover] = useState(false);
+    const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+    const [validationUsers, setValidationUsers] = useState<ValidationEntry[]>([]);
+    const buttonRef = useRef<HTMLDivElement>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
+    const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
+    
+    // Create a deduplicated list of validation users
+    const uniqueValidationUsers = useMemo(() => {
+        // Use a Map with username as key to ensure only the latest entry per user is kept
+        const uniqueUsers = new Map();
+        
+        // Process all validation entries, keeping only the most recent entry per username
+        validationUsers.forEach(user => {
+            const existing = uniqueUsers.get(user.username);
+            // Only replace if this entry is newer or if no entry exists
+            if (!existing || new Date(user.updatedTimestamp) > new Date(existing.updatedTimestamp)) {
+                uniqueUsers.set(user.username, user);
+            }
+        });
+        
+        // Convert the Map values back to an array
+        return Array.from(uniqueUsers.values());
+    }, [validationUsers]);
+    
+    // Also update how we calculate currentValidations to use the deduplicated list
+    const currentValidations = useMemo(() => {
+        return uniqueValidationUsers.length;
+    }, [uniqueValidationUsers]);
+
     // Function to fetch validation count
     const fetchValidationCount = () => {
         vscode.postMessage({
@@ -62,14 +103,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 entry => isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
             );
             setIsValidated(!!userEntry);
-        }
-
-        // Set the current number of validations, counting only non-deleted entries
-        if (cellValueData.validatedBy) {
+            
+            // Get all active validation users
             const activeValidations = cellValueData.validatedBy.filter(
                 entry => isValidValidationEntry(entry) && !entry.isDeleted
-            ).length;
-            setCurrentValidations(activeValidations);
+            );
+            setValidationUsers(activeValidations);
         }
     }, [cell.editHistory, username]);
 
@@ -95,16 +134,22 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             (entry: any) => isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
                         );
                         setIsValidated(!!userEntry);
+                        
+                        // Update the list of validation users
+                        const activeValidations = validatedBy.filter(
+                            (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
+                        );
+                        setValidationUsers(activeValidations);
                     }
-                    // Count active validations (where isDeleted is false)
-                    const activeValidations = validatedBy.filter(
-                        (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
-                    ).length;
-                    setCurrentValidations(activeValidations);
+                } else if (message.type === "configurationChanged") {
+                    // When configuration changes, refetch the validation count
+                    fetchValidationCount();
+                } else if (message.command === "updateValidationCount") {
+                    setValidationUsers(message.content.validations || []);
+                    setRequiredValidations(message.content.requiredValidations || 1);
+                    setIsValidated(message.content.isValidated);
+                    setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
                 }
-            } else if (message.type === "configurationChanged") {
-                // When configuration changes, refetch the validation count
-                fetchValidationCount();
             }
         };
 
@@ -112,10 +157,87 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         return () => window.removeEventListener("message", handleMessage);
     }, [cellId, username]);
 
-    const handleValidate = (e: React.MouseEvent) => {
-        // Stop the event from bubbling up to prevent editor from opening
-        e.stopPropagation();
+    // Close popover when clicking outside of it
+    useEffect(() => {
+        const handleOutsideClick = (event: MouseEvent) => {
+            if (buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
+                setShowPopover(false);
+                setIsPersistentPopover(false);
+                if (popoverTracker.getActivePopover() === uniqueId.current) {
+                    popoverTracker.setActivePopover(null);
+                }
+            }
+        };
 
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideClick);
+        };
+    }, []);
+    
+    // Check if we should close our popover when another becomes active
+    useEffect(() => {
+        if (showPopover && popoverTracker.getActivePopover() !== uniqueId.current) {
+            setShowPopover(false);
+            setIsPersistentPopover(false);
+        }
+    }, [showPopover]);
+    
+    // Position the popover correctly when it becomes visible
+    useEffect(() => {
+        if (showPopover && popoverRef.current && buttonRef.current) {
+            const buttonRect = buttonRef.current.getBoundingClientRect();
+            const popoverRect = popoverRef.current.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // Determine vertical position (above or below)
+            // If button is in the top portion of the screen, place popover below
+            // If button is in the bottom portion, place popover above
+            let top;
+            const spaceAbove = buttonRect.top;
+            const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
+            
+            if (spaceAbove < popoverRect.height + 10 || spaceAbove < spaceBelow) {
+                // Not enough space above or more space below - position below the button
+                top = buttonRect.height + 5;
+            } else {
+                // More space above - position above the button
+                top = -popoverRect.height - 5;
+            }
+            
+            // Always position to the right of the button
+            let left = buttonRect.width + 5;
+            
+            // If positioning to the right would put it off the screen, try to position it so it's still visible
+            if (buttonRect.left + left + popoverRect.width > viewportWidth - 5) {
+                // Calculate how far off screen it would go
+                const overflowAmount = (buttonRect.left + left + popoverRect.width) - (viewportWidth - 5);
+                
+                // Try to shift it left just enough to keep it on screen
+                if (left - overflowAmount > 0) {
+                    // We can shift it left and still keep it to the right of the button
+                    left -= overflowAmount;
+                } else {
+                    // As a last resort, position it to the left of the button, but ensure it's fully visible
+                    left = -popoverRect.width - 5;
+                    
+                    // Make sure it doesn't go off the left edge of the screen
+                    if (buttonRect.left + left < 5) {
+                        left = -buttonRect.left + 5;
+                    }
+                }
+            }
+            
+            popoverRef.current.style.top = `${top}px`;
+            popoverRef.current.style.left = `${left}px`;
+        }
+    }, [showPopover]);
+
+    const handleValidate = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        
+        // If the user has already validated, this click will unvalidate
         vscode.postMessage({
             command: "validateCell",
             content: {
@@ -123,10 +245,81 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 validate: !isValidated,
             },
         });
-
+        
         // Optimistically update the UI
         setIsValidated(!isValidated);
-        setCurrentValidations((prev) => (!isValidated ? prev + 1 : prev - 1));
+        
+        // Close popover after action
+        setShowPopover(false);
+        setIsPersistentPopover(false);
+        popoverTracker.setActivePopover(null);
+    };
+    
+    const handleButtonClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        
+        // If not validated yet, just validate without showing popover
+        if (!isValidated) {
+            handleValidate(e);
+            return;
+        }
+        
+        // Only show popover if already validated and there are users to display
+        if (uniqueValidationUsers.length > 0) {
+            setShowPopover(true);
+            setIsPersistentPopover(true);
+            popoverTracker.setActivePopover(uniqueId.current);
+        }
+    };
+    
+    const showPopoverHandler = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        
+        // Only show popover if there are users to display
+        if (!showPopover && uniqueValidationUsers.length > 0) {
+            const buttonRect = buttonRef.current?.getBoundingClientRect();
+            if (buttonRect) {
+                // Get viewport dimensions
+                const viewportWidth = window.innerWidth;
+                
+                // Calculate available space on the right of the button
+                const spaceOnRight = viewportWidth - (buttonRect.left + buttonRect.width);
+                
+                // Default position: to the right of the button
+                let left = buttonRect.width + 5; // 5px margin
+                let top = 0;
+                
+                // Check if there's not enough space on the right
+                if (spaceOnRight < 250) { // 250px is max-width of popover
+                    // Place popover to the left of the button
+                    left = -250 - 5; // 5px margin
+                }
+                
+                setPopoverPosition({ top, left });
+                setShowPopover(true);
+                popoverTracker.setActivePopover(uniqueId.current);
+            }
+        }
+    };
+    
+    const hidePopoverHandler = (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        
+        if (!isPersistentPopover) {
+            setShowPopover(false);
+            if (popoverTracker.getActivePopover() === uniqueId.current) {
+                popoverTracker.setActivePopover(null);
+            }
+        }
+    };
+    
+    const closePopover = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setShowPopover(false);
+        setIsPersistentPopover(false);
+        if (popoverTracker.getActivePopover() === uniqueId.current) {
+            popoverTracker.setActivePopover(null);
+        }
     };
 
     // Don't show validation button for source text or if no username is available
@@ -135,40 +328,234 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     }
 
     const isFullyValidated = currentValidations >= requiredValidations;
+    
+    // Modify the button styling variables
+    let iconClassName = "codicon-circle-outline";
+    let buttonTitle = "Validation required";
+    let buttonColor = "var(--vscode-descriptionForeground)";
+    let buttonBackground = "transparent";
+    let iconColor = "var(--vscode-descriptionForeground)";
+
+    // Update the fully validated case to use green color
+    if (isValidated && isFullyValidated) {
+        // Double checkmark case
+        iconClassName = "codicon-check-all"; 
+        buttonTitle = "View validation details";
+        buttonColor = "#4CAF50"; // Green color
+        buttonBackground = "transparent"; 
+        iconColor = "#4CAF50"; // Green color
+    } else if (isValidated && !isFullyValidated) {
+        // Single checkmark case - make it grey instead of the current color
+        iconClassName = "codicon-check";
+        buttonTitle = "View validation details";
+        buttonColor = "#888888"; // Grey color for better visibility
+        buttonBackground = "transparent"; // Keep transparent background
+        iconColor = "#888888"; // Grey color
+    } else if (!isValidated && isFullyValidated) {
+        // "Hover if I did not validate but I need to"
+        iconClassName = "codicon-circle-outline";
+        buttonTitle = "Add your validation to this fully validated translation";
+    } else if (!isValidated && currentValidations > 0 && !isFullyValidated) {
+        // New state: Partially validated by others, current user hasn't validated
+        iconClassName = "codicon-circle-filled"; // Use filled circle instead of outline
+        buttonTitle = "Others have validated this translation";
+        buttonColor = "#888888"; // Use the same grey as single checkmark
+        buttonBackground = "transparent";
+        iconColor = "#888888";
+    } else if (!isValidated && !userCreatedLatestEdit) {
+        // "Hover if I did NOT validate but I DO NOT need to"
+        iconClassName = "codicon-circle-outline";
+        buttonTitle = "Validate this translation";
+    } else if (!isValidated && userCreatedLatestEdit) {
+        // "Hover if I did need to validate and I'm #first"
+        iconClassName = "codicon-circle-outline";
+        buttonTitle = "Validate your own translation (first validator)";
+    }
+    
+    // For "No hover, not validated" case, we use the default styling
 
     return (
-        <VSCodeButton
-            appearance="icon"
-            onClick={handleValidate}
-            // Allow users to validate their own edits
-            title={isValidated ? "Remove validation" : "Validate this translation"}
-            style={{
-                padding: "0",
-                minWidth: "18px",
-                height: "18px",
-                backgroundColor: isValidated ? "var(--vscode-button-background)" : "transparent",
-                border: "none",
-                borderRadius: "4px",
-                transition: "all 0.2s ease",
-                opacity: isValidated ? 1 : 0.6,
-                transform: isValidated ? "scale(1)" : "scale(0.95)",
-            }}
-        >
-            <i
-                className={`codicon ${isFullyValidated ? "codicon-check-all" : "codicon-check"}`}
-                style={{
-                    color: isValidated
-                        ? "var(--vscode-editor-background)"
-                        : "var(--vscode-descriptionForeground)",
-                    fontSize: "14px",
-                    transform: isValidated ? "scale(0.8)" : "scale(0.7)",
-                    transition: "all 0.2s ease",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
+        <div ref={buttonRef} style={{ position: 'relative' }}>
+            <VSCodeButton
+                appearance="icon"
+                onClick={handleButtonClick}
+                onMouseEnter={(e) => {
+                    // Only change border color on hover, not add a new border
+                    const target = e.currentTarget as HTMLElement;
+                    target.style.borderColor = "var(--vscode-focusBorder)";
+                    showPopoverHandler(e);
                 }}
-            />
-        </VSCodeButton>
+                onMouseLeave={(e) => {
+                    // Make border transparent again when not hovering
+                    const target = e.currentTarget as HTMLElement;
+                    target.style.borderColor = "transparent";
+                    hidePopoverHandler(e);
+                }}
+                title={showPopover ? "" : buttonTitle}
+                style={{
+                    padding: "0",
+                    minWidth: "18px",
+                    height: "18px",
+                    backgroundColor: "transparent",
+                    border: "1px solid transparent", // Always have a 1px border, but transparent
+                    borderRadius: "4px",
+                    transition: "all 0.2s ease",
+                    opacity: isValidated ? 1 : 0.6,
+                    transform: isValidated ? "scale(1)" : "scale(0.95)",
+                }}
+            >
+                <i
+                    className={`codicon ${isFullyValidated ? "codicon-check-all" : iconClassName}`}
+                    style={{
+                        color: isValidated ? iconColor : "var(--vscode-descriptionForeground)",
+                        fontSize: "16px",
+                        transform: isValidated ? "scale(0.9)" : "scale(0.8)",
+                        transition: "all 0.2s ease",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                    }}
+                />
+            </VSCodeButton>
+            
+            {/* Popover for validation users */}
+            {showPopover && uniqueValidationUsers.length > 0 && (
+                <div 
+                    ref={popoverRef}
+                    className="validation-popover" 
+                    style={{ 
+                        position: 'absolute',
+                        top: popoverPosition.top,
+                        left: popoverPosition.left,
+                        width: 'max-content',
+                        maxWidth: '250px',
+                        backgroundColor: 'var(--vscode-editor-background)',
+                        border: '1px solid var(--vscode-editorWidget-border)',
+                        borderRadius: '4px',
+                        padding: '8px',
+                        zIndex: 1000,
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                        fontSize: '12px',
+                        color: 'var(--vscode-foreground)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                    }}
+                >
+                    {isPersistentPopover && (
+                        <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            marginBottom: '6px',
+                            borderBottom: '1px solid var(--vscode-editorWidget-border)',
+                            paddingBottom: '6px'
+                        }}>
+                            <span style={{ fontWeight: 'bold' }}>Validators</span>
+                            <i 
+                                className="codicon codicon-close" 
+                                style={{ 
+                                    cursor: 'pointer', 
+                                    fontSize: '12px',
+                                    padding: '4px',
+                                    borderRadius: '3px',
+                                    transition: 'background-color 0.2s ease'
+                                }}
+                                onClick={closePopover}
+                                title="Close"
+                            />
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {uniqueValidationUsers.map((user, index) => (
+                            <React.Fragment key={user.username}>
+                                <span 
+                                    style={{ 
+                                        color: 'var(--vscode-foreground)',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        whiteSpace: 'nowrap',
+                                        padding: '2px 4px',
+                                        backgroundColor: user.username === username ? 'rgba(255, 255, 255, 0.05)' : 'transparent',
+                                        borderRadius: '3px',
+                                        position: 'relative',
+                                        transition: 'all 0.3s ease',
+                                        cursor: user.username === username ? 'pointer' : 'default',
+                                    }}
+                                    onMouseEnter={() => {
+                                        if (user.username === username) {
+                                            const trashIcon = document.getElementById(`trash-icon-${user.username}`);
+                                            if (trashIcon) {
+                                                trashIcon.style.display = 'inline';
+                                                trashIcon.style.animation = 'fadeIn 0.2s ease-in-out';
+                                            }
+                                            
+                                            const usernameElement = document.getElementById(`username-${user.username}`);
+                                            if (usernameElement) {
+                                                usernameElement.style.opacity = '0.5';
+                                            }
+                                        }
+                                    }}
+                                    onMouseLeave={() => {
+                                        if (user.username === username) {
+                                            const trashIcon = document.getElementById(`trash-icon-${user.username}`);
+                                            if (trashIcon) {
+                                                trashIcon.style.display = 'none';
+                                            }
+                                            
+                                            const usernameElement = document.getElementById(`username-${user.username}`);
+                                            if (usernameElement) {
+                                                usernameElement.style.opacity = '1';
+                                            }
+                                        }
+                                    }}
+                                >
+                                    <span id={`username-${user.username}`}>
+                                        {user.username}
+                                    </span>
+                                    {user.username === username && (
+                                        <span
+                                            id={`trash-icon-${user.username}`}
+                                            style={{ 
+                                                display: 'none',
+                                                position: 'absolute',
+                                                left: '50%',
+                                                transform: 'translateX(-50%)',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s ease',
+                                                zIndex: 10,
+                                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                                borderRadius: '50%',
+                                                padding: '3px',
+                                                boxShadow: '0 0 3px rgba(0, 0, 0, 0.2)'
+                                            }}
+                                            onClick={handleValidate}
+                                            title="Remove your validation"
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M3 6H5H21" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                <path d="M10 11V17" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                                <path d="M14 11V17" stroke="#ff5252" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                            </svg>
+                                        </span>
+                                    )}
+                                </span>
+                                {index < uniqueValidationUsers.length - 1 && (
+                                    <span style={{ 
+                                        padding: '0 2px',
+                                        color: 'var(--vscode-descriptionForeground)',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        cursor: 'default'
+                                    }}>•</span>
+                                )}
+                            </React.Fragment>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
 
