@@ -9,7 +9,7 @@ import {
     SpellCheckResponse,
     AlertCodesServerResponse,
     GlobalContentType,
-    ValidationEntry
+    ValidationEntry,
 } from "../../../types";
 import path from "path";
 import { getWorkSpaceUri } from "../../utils";
@@ -278,7 +278,8 @@ export const handleMessages = async (
 
                 const completionResult = await performLLMCompletion(
                     event.content.currentLineId,
-                    document
+                    document,
+                    event.content.addContentToValue
                 );
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsLLMCompletionResponse",
@@ -672,36 +673,37 @@ export const handleMessages = async (
         }
         case "validateCell":
             if (event.content && event.content.cellId) {
-                await document.validateCellContent(
-                    event.content.cellId,
-                    event.content.validate
-                );
-                
+                await document.validateCellContent(event.content.cellId, event.content.validate);
+
                 // Make sure to save the document to trigger file system watchers
                 await document.save(new vscode.CancellationTokenSource().token);
-                
+
                 // Update the current webview
                 updateWebview();
-                
+
                 // Get validated entries from the document, this will filter out any string entries
                 const validatedEntries = document.getCellValidatedBy(event.content.cellId);
-                
+
                 // Log validation count for debugging
                 const validationCount = document.getValidationCount(event.content.cellId);
-                debug(`Cell ${event.content.cellId} validation count: ${validationCount}, active entries: ${validatedEntries.filter(e => !e.isDeleted).length}`);
-                
+                debug(
+                    `Cell ${event.content.cellId} validation count: ${validationCount}, active entries: ${validatedEntries.filter((e) => !e.isDeleted).length}`
+                );
+
                 // Post the validation update to all other webview panels for this document
-                (provider as any).webviewPanels.forEach((panel: vscode.WebviewPanel, docUri: string) => {
-                    if (docUri === document.uri.toString() && panel !== webviewPanel) {
-                        panel.webview.postMessage({
-                            type: "providerUpdatesValidationState",
-                            content: {
-                                cellId: event.content.cellId,
-                                validatedBy: validatedEntries
-                            }
-                        });
+                (provider as any).webviewPanels.forEach(
+                    (panel: vscode.WebviewPanel, docUri: string) => {
+                        if (docUri === document.uri.toString() && panel !== webviewPanel) {
+                            panel.webview.postMessage({
+                                type: "providerUpdatesValidationState",
+                                content: {
+                                    cellId: event.content.cellId,
+                                    validatedBy: validatedEntries,
+                                },
+                            });
+                        }
                     }
-                });
+                );
             }
             break;
         case "getValidationCount": {
@@ -711,7 +713,7 @@ export const handleMessages = async (
                 const validationCount = config.get("validationCount", 1);
                 provider.postMessageToWebview(webviewPanel, {
                     type: "validationCount",
-                    content: validationCount
+                    content: validationCount,
                 });
             } catch (error) {
                 console.error("Error getting validation count:", error);
@@ -724,10 +726,10 @@ export const handleMessages = async (
                 const authApi = await provider.getAuthApi();
                 const userInfo = await authApi?.getUserInfo();
                 const username = userInfo?.username || "anonymous";
-                
+
                 provider.postMessageToWebview(webviewPanel, {
                     type: "currentUsername",
-                    content: { username }
+                    content: { username },
                 });
             } catch (error) {
                 console.error("Error getting current username:", error);

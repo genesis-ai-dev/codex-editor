@@ -289,15 +289,42 @@ const CellList: React.FC<CellListProps> = ({
 
                     const emptyCellDisplay =
                         cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? (
-                            <EmptyCellDisplay
-                                key={cellMarkers.join(" ")}
-                                cellMarkers={cellMarkers}
-                                cellLabel={cellLabel || generatedCellLabel}
-                                setContentBeingUpdated={setContentBeingUpdated}
-                                textDirection={textDirection}
-                                vscode={vscode}
-                                openCellById={openCellById}
-                            />
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    marginLeft: "1.2rem",
+                                    gap: "0.5rem",
+                                }}
+                            >
+                                <VSCodeButton
+                                    appearance="icon"
+                                    style={{ height: "15px" }}
+                                    onClick={() =>
+                                        vscode.postMessage({
+                                            command: "llmCompletion",
+                                            content: {
+                                                currentLineId: cellMarkers[0],
+                                                addContentToValue: true,
+                                            },
+                                        })
+                                    }
+                                >
+                                    <i
+                                        className="codicon codicon-sparkle"
+                                        style={{ fontSize: "12px" }}
+                                    ></i>
+                                </VSCodeButton>
+                                <EmptyCellDisplay
+                                    key={cellMarkers.join(" ")}
+                                    cellMarkers={cellMarkers}
+                                    cellLabel={cellLabel || generatedCellLabel}
+                                    setContentBeingUpdated={setContentBeingUpdated}
+                                    textDirection={textDirection}
+                                    vscode={vscode}
+                                    openCellById={openCellById}
+                                />
+                            </div>
                         ) : (
                             <VSCodeButton
                                 appearance="secondary"

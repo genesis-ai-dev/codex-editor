@@ -595,7 +595,7 @@ export type EditorPostMessages =
           command: "setCurrentIdToGlobalState";
           content: { currentLineId: string };
       }
-    | { command: "llmCompletion"; content: { currentLineId: string } }
+    | { command: "llmCompletion"; content: { currentLineId: string; addContentToValue?: boolean } }
     | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
     | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
     | { command: "openSourceText"; content: { chapterNumber: number } }

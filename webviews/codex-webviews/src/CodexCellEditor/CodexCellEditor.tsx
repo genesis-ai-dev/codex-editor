@@ -259,7 +259,7 @@ const CodexCellEditor: React.FC = () => {
         handleCloseEditor();
     };
 
-    const untranslatedUnitsForSection = useMemo(() => {
+    const untranslatedOrUnvalidatedUnitsForSection = useMemo(() => {
         return translationUnitsForSection.filter((unit) => {
             const cellValueData = getCellValueData(unit);
             return (
@@ -273,7 +273,7 @@ const CodexCellEditor: React.FC = () => {
         console.log("Autocomplete chapter", numberOfCells);
         vscode.postMessage({
             command: "requestAutocompleteChapter",
-            content: untranslatedUnitsForSection.slice(0, numberOfCells),
+            content: untranslatedOrUnvalidatedUnitsForSection.slice(0, numberOfCells),
         } as EditorPostMessages);
     };
 
@@ -441,7 +441,7 @@ const CodexCellEditor: React.FC = () => {
                         cellDisplayMode={cellDisplayMode}
                         isSourceText={isSourceText}
                         openSourceText={openSourceText}
-                        totalCellsToAutocomplete={untranslatedUnitsForSection.length}
+                        totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
                         setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                         shouldShowVideoPlayer={shouldShowVideoPlayer}
                         documentHasVideoAvailable={documentHasVideoAvailable}
