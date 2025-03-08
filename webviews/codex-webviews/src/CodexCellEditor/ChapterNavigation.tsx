@@ -107,7 +107,16 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                     setNumberOfCellsToAutocomplete(cappedValue);
                                 }
                             }}
-                            style={{ width: "60px", marginLeft: "8px" }}
+                            style={{ 
+                                width: "60px", 
+                                marginLeft: "8px",
+                                border: "2px solid var(--vscode-focusBorder)",
+                                borderRadius: "4px",
+                                padding: "4px",
+                                outline: "none",
+                                boxShadow: "0 0 0 1px var(--vscode-focusBorder)"
+                            }}
+                            className="autocomplete-number-input"
                         />
                     </VSCodeRadio>
                     <VSCodeRadio value={totalCellsToAutocomplete.toString()}>

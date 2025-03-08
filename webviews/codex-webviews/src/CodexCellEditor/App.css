@@ -416,6 +416,22 @@ li {
     width: 100%;
 }
 
+/* Styles for the autocomplete number input */
+.autocomplete-number-input {
+    border: 2px solid var(--vscode-input-border) !important;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    box-shadow: 0 0 0 1px var(--vscode-input-border);
+    display: inline-block !important;
+    appearance: textfield !important;
+    -webkit-appearance: textfield !important;
+}
+
+.autocomplete-number-input:focus {
+    border-color: var(--vscode-focusBorder) !important;
+    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
 /* Styles for the VideoPlayer */
 .player-wrapper {
     width: 100%;
