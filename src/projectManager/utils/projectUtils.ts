@@ -15,6 +15,25 @@ import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 
+// Flag to temporarily disable metadata to config sync during direct updates
+let syncDisabled = false;
+const SYNC_DISABLE_TIMEOUT = 2000; // 2 seconds
+
+/**
+ * Temporarily disables synchronization from metadata to config
+ * to prevent race conditions during direct updates
+ */
+export function disableSyncTemporarily() {
+    console.log("Temporarily disabling metadata-to-config sync");
+    syncDisabled = true;
+    
+    // Re-enable after timeout
+    setTimeout(() => {
+        syncDisabled = false;
+        console.log("Re-enabled metadata-to-config sync");
+    }, SYNC_DISABLE_TIMEOUT);
+}
+
 export interface ProjectDetails {
     projectName?: string;
     projectCategory?: string;
@@ -447,32 +466,57 @@ export async function updateMetadataFile() {
 
     let project;
     try {
+        // Force read from disk to avoid cache issues
         const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
         project = JSON.parse(projectFileData.toString());
+        console.log("Read existing metadata.json file");
     } catch (error) {
         console.warn("Metadata file does not exist, creating a new one.");
         project = {}; // Initialize an empty project object if the file does not exist
     }
 
     const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
-    const projectName = projectSettings.get("projectName", "");
-    console.log("Project name loaded:", projectName);
-
+    
+    // Preserving existing validation count if it exists
+    const existingValidationCount = project.meta?.validationCount;
+    const configValidationCount = projectSettings.get("validationCount", 1);
+    
+    console.log(`Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`);
+    
+    // Check if we're in a sync disabled state (meaning a direct update is occurring)
+    if (syncDisabled) {
+        console.log("Direct update in progress - using config value for validation count");
+    }
+    
+    // Update project properties
     project.projectName = projectSettings.get("projectName", "");
     project.meta = project.meta || {}; // Ensure meta object exists
-    project.meta.validationCount = projectSettings.get("validationCount", 1);
+    
+    // Explicitly update validation count
+    project.meta.validationCount = configValidationCount;
+    
     project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
     project.meta.generator.userName = projectSettings.get("userName", "");
     project.meta.generator.userEmail = projectSettings.get("userEmail", "");
-    project.languages[0] = projectSettings.get("sourceLanguage", "");
-    project.languages[1] = projectSettings.get("targetLanguage", "");
+    project.languages = project.languages || [null, null];
+    project.languages[0] = projectSettings.get("sourceLanguage", project.languages[0] || "");
+    project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
     project.meta.abbreviation = projectSettings.get("abbreviation", "");
     project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
+    
     // Update other fields as needed
-    console.log("Project settings loaded:", { projectSettings, project });
-    const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
-    await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
-    vscode.window.showInformationMessage(`Project metadata updated at ${projectFilePath.fsPath}`);
+    console.log("Project settings loaded, preparing to write to metadata.json");
+    
+    try {
+        const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
+        await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
+        console.log("Successfully wrote metadata.json with validation count:", project.meta.validationCount);
+        
+        // Small delay to ensure file system operations complete before further operations
+        await new Promise(resolve => setTimeout(resolve, 100));
+    } catch (error) {
+        console.error("Error writing metadata.json:", error);
+    }
 }
 
 export const projectFileExists = async () => {
@@ -610,7 +654,56 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
     }
 }
 
-export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => {
+/**
+ * Synchronizes metadata values to configuration settings
+ * Use this when opening/loading a project to ensure configuration matches metadata values
+ */
+export async function syncMetadataToConfiguration() {
+    // Skip if temporarily disabled
+    if (syncDisabled) {
+        console.log("Metadata-to-config sync is temporarily disabled, skipping");
+        return;
+    }
+    
+    try {
+        const metadata = await accessMetadataFile();
+        if (!metadata || !metadata.meta) {
+            console.log("No metadata or meta object found to sync to configuration");
+            return;
+        }
+
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        
+        // Sync validationCount from metadata to config
+        if (metadata.meta && 'validationCount' in metadata.meta && typeof metadata.meta.validationCount === 'number') {
+            console.log(`Syncing validationCount from metadata (${metadata.meta.validationCount}) to configuration`);
+            
+            const currentConfigValue = config.get("validationCount", 1);
+            if (currentConfigValue !== metadata.meta.validationCount) {
+                console.log(`Current config value (${currentConfigValue}) differs from metadata (${metadata.meta.validationCount}), updating...`);
+                
+                await config.update(
+                    "validationCount", 
+                    metadata.meta.validationCount, 
+                    vscode.ConfigurationTarget.Workspace
+                );
+                
+                console.log(`Configuration updated to match metadata validationCount: ${metadata.meta.validationCount}`);
+            } else {
+                console.log(`Configuration already matches metadata validationCount: ${metadata.meta.validationCount}`);
+            }
+        } else {
+            console.log("No valid validationCount found in metadata");
+        }
+        
+        // Add other metadata properties sync here as needed
+        
+    } catch (error) {
+        console.error("Error syncing metadata to configuration:", error);
+    }
+}
+
+export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.log("No workspace folder found"); // Changed to log since this is expected when no folder is open
@@ -626,6 +719,9 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
         // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
         metadataExists = true;
+        
+        // Sync metadata values to configuration
+        await syncMetadataToConfiguration();
     } catch {
         console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
     }

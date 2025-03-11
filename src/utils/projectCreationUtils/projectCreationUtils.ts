@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as semver from "semver";
-import { initializeProjectMetadataAndGit } from "../../projectManager/utils/projectUtils";
+import { initializeProjectMetadataAndGit, syncMetadataToConfiguration } from "../../projectManager/utils/projectUtils";
 import { getCodexProjectsDirectory } from "../projectLocationUtils";
 
 /**
@@ -222,7 +222,13 @@ export async function openProject(projectPath: string) {
                 vscode.ConfigurationTarget.Global
             );
 
+            // Open folder and wait for it to open
             await vscode.commands.executeCommand("vscode.openFolder", uri);
+            
+            // Sync metadata values to configuration after folder is open
+            // Note: This doesn't execute immediately as the above command opens a new window
+            // The syncMetadataToConfiguration will be called when checkIfMetadataAndGitIsInitialized
+            // is invoked in the new window
         } catch (error) {
             await vscode.window.showErrorMessage(
                 "This folder is no longer a valid Codex project. It may have been moved or deleted.",

@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
     VSCodeBadge,
     VSCodeButton,
     VSCodeRadio,
     VSCodeRadioGroup,
     VSCodeTag,
+    VSCodeCheckbox,
 } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
@@ -13,8 +14,9 @@ import { CustomNotebookMetadata, QuillCellContent } from "../../../../types";
 interface AutocompleteModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (numberOfCells: number) => void;
+    onConfirm: (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => void;
     totalCellsToAutocomplete: number;
+    totalCellsWithCurrentUserOption: number;
     defaultValue?: number;
 }
 
@@ -23,10 +25,97 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     onClose,
     onConfirm,
     totalCellsToAutocomplete,
-    defaultValue = Math.min(5, totalCellsToAutocomplete),
+    totalCellsWithCurrentUserOption,
+    defaultValue = Math.min(5, totalCellsToAutocomplete > 0 ? totalCellsToAutocomplete : 5),
 }) => {
-    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(defaultValue);
-    const [customValue, setCustomValue] = useState(defaultValue);
+    // Initialize with the correct value for non-user-validated cells
+    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(
+        totalCellsToAutocomplete > 0 ? defaultValue : 0
+    );
+    const [customValue, setCustomValue] = useState(
+        totalCellsToAutocomplete > 0 ? defaultValue : 0
+    );
+    const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
+    // Start with the base total (cells without content or without any validators)
+    const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalCellsToAutocomplete);
+
+    // Log initial values to debug
+    useEffect(() => {
+        console.log('Modal initialized with:', {
+            totalCellsToAutocomplete,
+            totalCellsWithCurrentUserOption,
+            defaultValue,
+            effectiveTotalCells
+        });
+    }, []);
+
+    // Update effective total cells when props change
+    useEffect(() => {
+        console.log("Props changed:", {
+            totalCellsToAutocomplete,
+            totalCellsWithCurrentUserOption
+        });
+        
+        if (includeNotValidatedByCurrentUser) {
+            setEffectiveTotalCells(totalCellsWithCurrentUserOption);
+        } else {
+            setEffectiveTotalCells(totalCellsToAutocomplete);
+        }
+        
+        // Adjust default values if needed
+        const newEffectiveTotal = includeNotValidatedByCurrentUser ? 
+            totalCellsWithCurrentUserOption : totalCellsToAutocomplete;
+            
+        if (numberOfCellsToAutocomplete > newEffectiveTotal) {
+            const newDefaultValue = Math.min(5, newEffectiveTotal);
+            setNumberOfCellsToAutocomplete(newDefaultValue);
+            setCustomValue(newDefaultValue);
+        }
+    }, [totalCellsToAutocomplete, totalCellsWithCurrentUserOption, includeNotValidatedByCurrentUser]);
+
+    // Update effective total cells when checkbox state changes
+    const handleCheckboxChange = () => {
+        const newValue = !includeNotValidatedByCurrentUser;
+        console.log("CHECKBOX CHANGED TO:", newValue, "- THIS SHOULD UPDATE THE DISPLAY");
+        
+        // Update checkbox state
+        setIncludeNotValidatedByCurrentUser(newValue);
+        
+        // Update the effective total based on checkbox state
+        const newTotalCells = newValue ? totalCellsWithCurrentUserOption : totalCellsToAutocomplete;
+        console.log('CHECKBOX CHANGE EFFECT:', { 
+            newValue, 
+            totalCellsToAutocomplete, 
+            totalCellsWithCurrentUserOption, 
+            newTotalCells 
+        });
+        
+        // Force immediate update of effectiveTotalCells
+        setEffectiveTotalCells(newTotalCells);
+        
+        // Update the number of cells to autocomplete if needed
+        if (numberOfCellsToAutocomplete > newTotalCells) {
+            // Cap to new maximum
+            setNumberOfCellsToAutocomplete(newTotalCells);
+            setCustomValue(newTotalCells);
+        } else if (numberOfCellsToAutocomplete === 0 && newTotalCells > 0) {
+            // Set to default if currently 0
+            const newDefaultValue = Math.min(5, newTotalCells);
+            setNumberOfCellsToAutocomplete(newDefaultValue);
+            setCustomValue(newDefaultValue);
+        }
+        
+        // For debugging only - should show state changes
+        setTimeout(() => {
+            console.log("AFTER CHECKBOX CHANGE:", {
+                includeNotValidatedByCurrentUser: newValue,
+                effectiveTotalCells: newTotalCells,
+                numberOfCellsToAutocomplete: (numberOfCellsToAutocomplete > newTotalCells) 
+                    ? newTotalCells 
+                    : numberOfCellsToAutocomplete
+            });
+        }, 0);
+    };
 
     if (!isOpen) return null;
 
@@ -39,25 +128,25 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 </VSCodeTag>
                 <VSCodeRadioGroup
                     value={
-                        numberOfCellsToAutocomplete === totalCellsToAutocomplete
-                            ? totalCellsToAutocomplete.toString()
+                        numberOfCellsToAutocomplete === effectiveTotalCells
+                            ? effectiveTotalCells.toString()
                             : "custom"
                     }
                     onChange={(e) => {
                         const target = e.target as HTMLInputElement;
                         if (target.value === "custom") {
-                            if (totalCellsToAutocomplete === 0) {
+                            if (effectiveTotalCells === 0) {
                                 setCustomValue(0);
                                 setNumberOfCellsToAutocomplete(0);
                             } else if (!customValue) {
-                                const defaultValue = Math.min(5, totalCellsToAutocomplete);
+                                const defaultValue = Math.min(5, effectiveTotalCells);
                                 setCustomValue(defaultValue);
                                 setNumberOfCellsToAutocomplete(defaultValue);
                             } else {
                                 setNumberOfCellsToAutocomplete(customValue);
                             }
-                        } else if (target.value === totalCellsToAutocomplete.toString()) {
-                            setNumberOfCellsToAutocomplete(totalCellsToAutocomplete);
+                        } else if (target.value === effectiveTotalCells.toString()) {
+                            setNumberOfCellsToAutocomplete(effectiveTotalCells);
                         }
                     }}
                 >
@@ -66,15 +155,15 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         <input
                             type="number"
                             min="1"
-                            max={totalCellsToAutocomplete}
-                            defaultValue={Math.min(5, totalCellsToAutocomplete)}
+                            max={effectiveTotalCells}
+                            defaultValue={Math.min(5, effectiveTotalCells)}
                             value={
                                 customValue === 0
                                     ? "0"
-                                    : Math.min(customValue, totalCellsToAutocomplete)
+                                    : Math.min(customValue, effectiveTotalCells)
                             }
                             onFocus={(e) => {
-                                const defaultValue = Math.min(5, totalCellsToAutocomplete);
+                                const defaultValue = Math.min(5, effectiveTotalCells);
                                 if (!customValue) {
                                     setCustomValue(defaultValue);
                                 }
@@ -102,7 +191,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 }
                                 const value = parseInt(inputValue);
                                 if (!isNaN(value) && value >= 0) {
-                                    const cappedValue = Math.min(value, totalCellsToAutocomplete);
+                                    const cappedValue = Math.min(value, effectiveTotalCells);
                                     setCustomValue(cappedValue);
                                     setNumberOfCellsToAutocomplete(cappedValue);
                                 }
@@ -119,19 +208,67 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             className="autocomplete-number-input"
                         />
                     </VSCodeRadio>
-                    <VSCodeRadio value={totalCellsToAutocomplete.toString()}>
-                        All ({totalCellsToAutocomplete})
+                    <VSCodeRadio value={effectiveTotalCells.toString()}>
+                        All ({effectiveTotalCells})
                     </VSCodeRadio>
                 </VSCodeRadioGroup>
+                
+                <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
+                    <label 
+                        className="checkbox-container" 
+                        style={{ display: "flex", alignItems: "center", cursor: "pointer" }}
+                    >
+                        <div 
+                            className="custom-checkbox" 
+                            style={{
+                                width: "18px",
+                                height: "18px",
+                                border: "2px solid var(--vscode-checkbox-border, #6c757d)",
+                                borderRadius: "3px",
+                                backgroundColor: includeNotValidatedByCurrentUser ? 
+                                    "var(--vscode-focusBorder, #007fd4)" : 
+                                    "var(--vscode-checkbox-background, #252526)",
+                                display: "flex",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                marginRight: "8px",
+                                position: "relative",
+                                cursor: "pointer",
+                                boxShadow: includeNotValidatedByCurrentUser ? 
+                                    "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : 
+                                    "none"
+                            }}
+                            onClick={handleCheckboxChange}
+                        >
+                            {includeNotValidatedByCurrentUser && (
+                                <div 
+                                    style={{
+                                        width: "6px",
+                                        height: "10px",
+                                        borderRight: "2px solid white",
+                                        borderBottom: "2px solid white",
+                                        transform: "rotate(45deg) translate(-1px, -1px)",
+                                        position: "absolute"
+                                    }}
+                                />
+                            )}
+                        </div>
+                        <span onClick={handleCheckboxChange}>
+                            Include cells not validated by the current user
+
+                        </span>
+                    </label>
+                </div>
+                
                 <div className="modal-actions">
+                    <VSCodeButton onClick={onClose} appearance="secondary">
+                        Cancel
+                    </VSCodeButton>
                     <VSCodeButton
-                        onClick={() => onConfirm(numberOfCellsToAutocomplete)}
+                        onClick={() => onConfirm(numberOfCellsToAutocomplete, includeNotValidatedByCurrentUser)}
                         disabled={numberOfCellsToAutocomplete === 0}
                     >
                         Confirm
-                    </VSCodeButton>
-                    <VSCodeButton onClick={onClose} appearance="secondary">
-                        Cancel
                     </VSCodeButton>
                 </div>
             </div>
@@ -143,7 +280,7 @@ interface ChapterNavigationProps {
     chapterNumber: number;
     setChapterNumber: React.Dispatch<React.SetStateAction<number>>;
     unsavedChanges: boolean;
-    onAutocompleteChapter: (numberOfCells: number) => void;
+    onAutocompleteChapter: (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => void;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
@@ -151,6 +288,7 @@ interface ChapterNavigationProps {
     isSourceText: boolean;
     totalChapters: number;
     totalCellsToAutocomplete: number;
+    totalCellsWithCurrentUserOption: number;
     openSourceText: (chapterNumber: number) => void;
     shouldShowVideoPlayer: boolean;
     setShouldShowVideoPlayer: React.Dispatch<React.SetStateAction<boolean>>;
@@ -178,6 +316,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     isSourceText,
     totalChapters,
     totalCellsToAutocomplete,
+    totalCellsWithCurrentUserOption,
     openSourceText,
     shouldShowVideoPlayer,
     setShouldShowVideoPlayer,
@@ -197,11 +336,21 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
 
     const handleAutocompleteClick = () => {
+        console.log("Autocomplete clicked, showing modal with:", {
+            totalCellsToAutocomplete,
+            totalCellsWithCurrentUserOption
+        });
         setShowConfirm(true);
     };
 
-    const handleConfirmAutocomplete = (numberOfCells: number) => {
-        onAutocompleteChapter(numberOfCells);
+    const handleConfirmAutocomplete = (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => {
+        console.log('Confirm autocomplete:', {
+            numberOfCells,
+            includeNotValidatedByCurrentUser,
+            totalCellsToAutocomplete,
+            totalCellsWithCurrentUserOption
+        });
+        onAutocompleteChapter(numberOfCells, includeNotValidatedByCurrentUser);
         setShowConfirm(false);
     };
 
@@ -322,6 +471,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             onClose={handleCancelAutocomplete}
                             onConfirm={handleConfirmAutocomplete}
                             totalCellsToAutocomplete={totalCellsToAutocomplete}
+                            totalCellsWithCurrentUserOption={totalCellsWithCurrentUserOption}
                         />
                     </>
                 )}

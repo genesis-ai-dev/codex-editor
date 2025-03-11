@@ -704,3 +704,42 @@ li {
     line-height: 1.5;
     padding-top: 0.1rem;
 }
+
+/* Custom checkbox styling */
+.checkbox-container input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--vscode-checkbox-border, #6c757d);
+    border-radius: 3px;
+    background: var(--vscode-checkbox-background, #252526);
+    position: relative;
+    cursor: pointer;
+    vertical-align: middle;
+    outline: none; /* Remove focus outline */
+}
+
+.checkbox-container input[type="checkbox"]:checked {
+    background-color: var(--vscode-focusBorder, #007fd4);
+    border-color: var(--vscode-focusBorder, #007fd4);
+}
+
+.checkbox-container input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 1px;
+    width: 5px;
+    height: 10px;
+    border: solid #ffffff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    display: block; /* Ensure display is set */
+}
+
+.checkbox-container {
+    color: var(--vscode-foreground);
+    font-size: 14px;
+    user-select: none;
+}

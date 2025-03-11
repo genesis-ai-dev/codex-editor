@@ -129,6 +129,26 @@ export const handleMessages = async (
             // The webview is ready to receive messages
             console.log("Webview is ready");
             return;
+        case "requestUsername": {
+            // Send the current username to the webview
+            try {
+                const api = await getAuthApi();
+                const username = api ? api.username : "anonymous_user";
+                console.log("Sending username to webview:", username);
+                webviewPanel.webview.postMessage({
+                    type: "setUsername",
+                    value: username
+                });
+            } catch (error) {
+                console.error("Error getting username:", error);
+                // Send a default username if there's an error
+                webviewPanel.webview.postMessage({
+                    type: "setUsername",
+                    value: "anonymous_user"
+                });
+            }
+            return;
+        }
         case "addWord": {
             try {
                 const result = await vscode.commands.executeCommand(

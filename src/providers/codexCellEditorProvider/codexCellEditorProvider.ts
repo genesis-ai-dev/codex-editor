@@ -104,6 +104,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.refreshValidationStateForAllDocuments();
             }
         });
+        
+        // Register a command to update validation indicators
+        this.context.subscriptions.push(
+            vscode.commands.registerCommand("codex-editor-extension.updateValidationIndicators", () => {
+                // Send validation count to all webviews
+                this.updateValidationIndicatorsForAllDocuments();
+            })
+        );
     }
 
     private async initializeStateStore() {
@@ -773,12 +781,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private refreshValidationStateForAllDocuments() {
         // Keep track of processed documents to avoid duplicates
         const processedDocuments = new Set<string>();
+        
+        // Get the current validation count
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
 
         // For each document URI in the webview panels map
         this.webviewPanels.forEach((panel, docUri) => {
             // Skip if already processed
             if (processedDocuments.has(docUri)) return;
             processedDocuments.add(docUri);
+            
+            // Send the current validation count to each panel
+            this.postMessageToWebview(panel, {
+                type: "validationCount",
+                content: validationCount,
+            });
 
             // Try to find the document
             // The document might be the current document
@@ -818,5 +836,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
         });
+    }
+
+    /**
+     * Updates the validation count in all open editor webviews
+     * This ensures the validation indicators reflect the current required validation count
+     */
+    private updateValidationIndicatorsForAllDocuments() {
+        // Get the current configuration
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        
+        debug(`Updating validation indicators for all documents with validation count: ${validationCount}`);
+        
+        // Send to all webviews
+        this.webviewPanels.forEach((panel) => {
+            this.postMessageToWebview(panel, {
+                type: "validationCount",
+                content: validationCount,
+            });
+        });
+        
+        // Also refresh the validation state to ensure displays are consistent
+        this.refreshValidationStateForAllDocuments();
     }
 }
