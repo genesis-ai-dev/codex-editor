@@ -577,6 +577,7 @@ export type EditorPostMessages =
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
     | { command: "getCurrentUsername" }
     | { command: "getValidationCount" }
+    | { command: "requestUsername" }
     | {
           command: "makeChildOfCell";
           content: {

@@ -4,7 +4,7 @@ import { QuillCellContent, ValidationEntry } from "../../../../types";
 import { getCellValueData } from "./utils/shareUtils";
 
 // Helper function to check if an entry is a valid ValidationEntry object
-function isValidValidationEntry(entry: any): entry is ValidationEntry {
+export function isValidValidationEntry(entry: any): entry is ValidationEntry {
     return (
         entry !== null &&
         typeof entry === 'object' &&
