@@ -8,7 +8,7 @@ import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 
 export async function llmCompletion(
-    currentNotebookReader: CodexNotebookReader,
+    currentNotebookReader: CodexNotebookReader, // FIXME: if we just read the file as CodexNotebookAsJSONData (or whatever it's called), we can speed this up a lot because the notebook deserializer is really slow
     currentCellId: string,
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken,
@@ -153,7 +153,7 @@ export async function llmCompletion(
                 .slice(0, numberOfFewShotExamples)
                 .map(
                     (pair) =>
-                        `${pair.sourceCell.content} -> ${pair.targetCell?.content?.replace(/<[^>]*?>/g, "").trim()}` // remove HTML tags
+                        `${pair.sourceCell.content} -> ${pair.targetCell?.content?.replace(/<[^>]*?>/g, "").trim()}` // remove HTML tags // NOTE: do we want to strip the HTML from the examples?
                 )
                 .join("\n");
 
@@ -171,6 +171,9 @@ export async function llmCompletion(
             let systemMessage = chatSystemMessage || `You are a helpful assistant`;
             systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
             systemMessage += `\n\n${userMessageInstructions}`;
+
+            // FIXME: now that we are tracking validations on cells, perhaps we should use a validatedTranslationPairsIndex
+            // and only use validated translation pairs in the few-shot examples and preceding translation pairs
 
             const userMessage = [
                 "## Instructions",
