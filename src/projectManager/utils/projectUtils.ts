@@ -610,7 +610,36 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
     }
 }
 
-export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => {
+/**
+ * Synchronizes metadata values to configuration settings
+ * Use this when opening/loading a project to ensure configuration matches metadata values
+ */
+export async function syncMetadataToConfiguration() {
+    try {
+        const metadata = await accessMetadataFile();
+        if (!metadata || !metadata.meta) {
+            return;
+        }
+
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        
+        // Sync validationCount from metadata to config
+        if (metadata.meta && 'validationCount' in metadata.meta && typeof metadata.meta.validationCount === 'number') {
+            await config.update(
+                "validationCount", 
+                metadata.meta.validationCount, 
+                vscode.ConfigurationTarget.Workspace
+            );
+        }
+        
+        // Add other metadata properties sync here as needed
+        
+    } catch (error) {
+        console.error("Error syncing metadata to configuration:", error);
+    }
+}
+
+export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.log("No workspace folder found"); // Changed to log since this is expected when no folder is open
@@ -626,6 +655,9 @@ export const checkIfMetadataAndGitIsInitialized = async (): Promise<boolean> => 
         // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
         metadataExists = true;
+        
+        // Sync metadata values to configuration
+        await syncMetadataToConfiguration();
     } catch {
         console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
     }
