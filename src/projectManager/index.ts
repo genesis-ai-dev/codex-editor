@@ -8,6 +8,7 @@ import {
     initializeProjectMetadataAndGit,
     accessMetadataFile,
     reopenWalkthrough,
+    disableSyncTemporarily,
 } from "./utils/projectUtils";
 import { setTargetFont } from "./projectInitializers";
 import { migration_changeDraftFolderToFilesFolder } from "./utils/migrationUtils";
@@ -138,8 +139,42 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
 
             if (selectedCount !== undefined) {
                 const count = parseInt(selectedCount.label);
+                
+                // Temporarily disable syncing from metadata to prevent race condition
+                disableSyncTemporarily();
+                
+                // Update configuration
                 await config.update("validationCount", count, vscode.ConfigurationTarget.Workspace);
-                vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                
+                // Directly update the metadata file to ensure it happens
+                const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
+                if (workspaceFolder) {
+                    const projectFilePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), "metadata.json");
+                    try {
+                        // Read existing metadata
+                        const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
+                        const project = JSON.parse(projectFileData.toString());
+                        
+                        // Update validation count
+                        project.meta = project.meta || {};
+                        project.meta.validationCount = count;
+                        
+                        // Write back to metadata file
+                        const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
+                        await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
+                        
+                        console.log("Metadata file directly updated with validation count:", count);
+                    } catch (error) {
+                        console.error("Error updating metadata file directly:", error);
+                        
+                        // Fall back to using the command
+                        vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                    }
+                } else {
+                    // Fall back to using the command if no workspace folder
+                    vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                }
+                
                 vscode.window.showInformationMessage(`Required validations set to ${count}.`);
             }
         })
