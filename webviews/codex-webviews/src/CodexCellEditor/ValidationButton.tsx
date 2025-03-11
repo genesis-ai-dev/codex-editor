@@ -123,7 +123,11 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             if (message.type === "currentUsername") {
                 setUsername(message.content.username);
             } else if (message.type === "validationCount") {
+                console.log(`Received updated validation count: ${message.content}`);
                 setRequiredValidations(message.content);
+                
+                // The component will re-render with the new requiredValidations value
+                // which will recalculate isFullyValidated in the render function
             } else if (message.type === "providerUpdatesValidationState") {
                 // Handle validation state updates from the backend
                 if (message.content.cellId === cellId) {
@@ -141,15 +145,16 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         );
                         setValidationUsers(activeValidations);
                     }
-                } else if (message.type === "configurationChanged") {
-                    // When configuration changes, refetch the validation count
-                    fetchValidationCount();
-                } else if (message.command === "updateValidationCount") {
-                    setValidationUsers(message.content.validations || []);
-                    setRequiredValidations(message.content.requiredValidations || 1);
-                    setIsValidated(message.content.isValidated);
-                    setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
                 }
+            } else if (message.type === "configurationChanged") {
+                // When configuration changes, refetch the validation count
+                console.log("Configuration changed, refetching validation count");
+                fetchValidationCount();
+            } else if (message.command === "updateValidationCount") {
+                setValidationUsers(message.content.validations || []);
+                setRequiredValidations(message.content.requiredValidations || 1);
+                setIsValidated(message.content.isValidated);
+                setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
             }
         };
 
