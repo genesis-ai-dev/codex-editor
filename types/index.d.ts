@@ -578,6 +578,7 @@ export type EditorPostMessages =
     | { command: "getCurrentUsername" }
     | { command: "getValidationCount" }
     | { command: "requestUsername" }
+    | { command: "stopAutocompleteChapter" }
     | {
           command: "makeChildOfCell";
           content: {
@@ -653,9 +654,22 @@ type EditorReceiveMessages =
       }
     | {
           type: "providerUpdatesCell";
-          content: { cellId: string; progress: number };
+          content: { 
+              cellId: string; 
+              progress: number;
+              completedCells?: number; 
+              totalCells?: number;
+              text?: string;
+          };
       }
-    | { type: "providerCompletesChapterAutocompletion" }
+    | { 
+          type: "providerCompletesChapterAutocompletion";
+          content?: {
+              progress?: number;
+              completedCells?: number;
+              totalCells?: number;
+          }
+      }
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
     | {
           type: "providerSendsgetAlertCodeResponse";

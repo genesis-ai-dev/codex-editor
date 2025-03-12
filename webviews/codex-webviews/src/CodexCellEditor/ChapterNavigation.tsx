@@ -281,6 +281,8 @@ interface ChapterNavigationProps {
     setChapterNumber: React.Dispatch<React.SetStateAction<number>>;
     unsavedChanges: boolean;
     onAutocompleteChapter: (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => void;
+    onStopAutocomplete: () => void;
+    isAutocompletingChapter: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
     textDirection: "ltr" | "rtl";
     onSetCellDisplayMode: (mode: CELL_DISPLAY_MODES) => void;
@@ -309,6 +311,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     setChapterNumber,
     unsavedChanges,
     onAutocompleteChapter,
+    onStopAutocomplete,
+    isAutocompletingChapter,
     onSetTextDirection,
     textDirection,
     onSetCellDisplayMode,
@@ -458,14 +462,28 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
                 {!isSourceText && (
                     <>
-                        <VSCodeButton
-                            appearance="icon"
-                            onClick={handleAutocompleteClick}
-                            disabled={unsavedChanges}
-                            title="Autocomplete Chapter"
-                        >
-                            <i className="codicon codicon-sparkle"></i>
-                        </VSCodeButton>
+                        {isAutocompletingChapter ? (
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={onStopAutocomplete}
+                                title="Stop Autocomplete"
+                                style={{
+                                    backgroundColor: 'var(--vscode-editor-findMatchHighlightBackground)',
+                                    borderRadius: '4px'
+                                }}
+                            >
+                                <i className="codicon codicon-circle-slash"></i>
+                            </VSCodeButton>
+                        ) : (
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={handleAutocompleteClick}
+                                disabled={unsavedChanges}
+                                title="Autocomplete Chapter"
+                            >
+                                <i className="codicon codicon-sparkle"></i>
+                            </VSCodeButton>
+                        )}
                         <AutocompleteModal
                             isOpen={showConfirm}
                             onClose={handleCancelAutocomplete}

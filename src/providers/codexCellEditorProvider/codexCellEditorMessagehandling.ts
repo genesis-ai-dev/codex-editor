@@ -313,6 +313,28 @@ export const handleMessages = async (
             }
             return;
         }
+        case "stopAutocompleteChapter": {
+            console.log("stopAutocompleteChapter message received");
+            try {
+                // Call the method to cancel the ongoing operation
+                const cancelled = provider.cancelAutocompleteChapter();
+                
+                if (cancelled) {
+                    vscode.window.showInformationMessage("Autocomplete operation stopped.");
+                } else {
+                    console.log("No active autocomplete operation to stop");
+                }
+                
+                // Notify the webview that autocompletion has been stopped
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerCompletesChapterAutocompletion",
+                });
+            } catch (error) {
+                console.error("Error stopping autocomplete chapter:", error);
+                vscode.window.showErrorMessage("Failed to stop autocomplete operation.");
+            }
+            return;
+        }
         case "requestAutocompleteChapter": {
             console.log("requestAutocompleteChapter message received", { event });
             try {
