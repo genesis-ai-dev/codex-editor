@@ -7,6 +7,7 @@ interface ProgressNotificationProps {
   completedCells: number;
   isVisible: boolean;
   currentCellId?: string; // Optional ID of the cell currently being processed
+  isSingleCell?: boolean; // Whether this is a single cell translation
 }
 
 // Simple reducer that just increments a counter to force re-renders
@@ -17,7 +18,8 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
   totalCells, 
   completedCells,
   isVisible,
-  currentCellId 
+  currentCellId,
+  isSingleCell
 }) => {
   // Create a stable reference for the total number of cells to prevent fluctuations
   const stableTotalRef = useRef(totalCells);
@@ -677,7 +679,11 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
         <div className="progress-notification-header">
           <span className="progress-notification-title">
             <i className={`codicon ${showCompletionMessage ? "codicon-check" : "codicon-sparkle"}`}></i>
-            {showCompletionMessage ? "Translation Completed" : "Autocompleting Translation Cells"}
+            {showCompletionMessage 
+              ? "Translation Completed" 
+              : isSingleCell 
+                ? "Translating Cell" 
+                : "Autocompleting Translation Cells"}
           </span>
           <button 
             className="progress-notification-close"

@@ -300,15 +300,19 @@ const CellList: React.FC<CellListProps> = ({
                                 <VSCodeButton
                                     appearance="icon"
                                     style={{ height: "15px" }}
-                                    onClick={() =>
-                                        vscode.postMessage({
-                                            command: "llmCompletion",
-                                            content: {
-                                                currentLineId: cellMarkers[0],
-                                                addContentToValue: true,
-                                            },
-                                        })
-                                    }
+                                    onClick={() => {
+                                        if (typeof (window as any).handleSparkleButtonClick === 'function') {
+                                            (window as any).handleSparkleButtonClick(cellMarkers[0]);
+                                        } else {
+                                            vscode.postMessage({
+                                                command: "llmCompletion",
+                                                content: {
+                                                    currentLineId: cellMarkers[0],
+                                                    addContentToValue: true,
+                                                },
+                                            });
+                                        }
+                                    }}
                                 >
                                     <i
                                         className="codicon codicon-sparkle"

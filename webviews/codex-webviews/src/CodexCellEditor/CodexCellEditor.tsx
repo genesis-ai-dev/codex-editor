@@ -61,6 +61,11 @@ const CodexCellEditor: React.FC = () => {
     const [currentProcessingCellId, setCurrentProcessingCellId] = useState<string | undefined>(undefined);
     const [cellsToProcess, setCellsToProcess] = useState<string[]>([]);
 
+    // Add these additional state variables to track single cell translations
+    const [isSingleCellTranslating, setIsSingleCellTranslating] = useState(false);
+    const [singleCellId, setSingleCellId] = useState<string | undefined>(undefined);
+    const [singleCellProgress, setSingleCellProgress] = useState<number | null>(null);
+
     // Initialize state store after webview is ready
     useEffect(() => {
         const handleWebviewReady = (event: MessageEvent) => {
@@ -1050,6 +1055,76 @@ const CodexCellEditor: React.FC = () => {
         return () => window.removeEventListener("message", handleCellUpdateMessages);
     }, [cellsToProcess, totalCellsToAutoComplete]);
 
+    // Add this useEffect to listen for single cell translation messages
+    useEffect(() => {
+        const handleSingleCellTranslation = (event: MessageEvent) => {
+            if (event.data.type === "singleCellTranslationStarted") {
+                console.log("Single cell translation started", event.data);
+                setIsSingleCellTranslating(true);
+                setSingleCellId(event.data.cellId);
+                setSingleCellProgress(0);
+            } else if (event.data.type === "singleCellTranslationProgress") {
+                console.log("Single cell translation progress", event.data);
+                setSingleCellProgress(event.data.progress);
+            } else if (event.data.type === "singleCellTranslationCompleted") {
+                console.log("Single cell translation completed", event.data);
+                // Set progress to 100% first
+                setSingleCellProgress(1);
+                
+                // Then delay clearing the notification
+                setTimeout(() => {
+                    setIsSingleCellTranslating(false);
+                    setSingleCellId(undefined);
+                    setSingleCellProgress(null);
+                }, 1500); // Keep showing 100% for 1.5 seconds
+            } else if (event.data.type === "singleCellTranslationFailed") {
+                console.log("Single cell translation failed", event.data);
+                setIsSingleCellTranslating(false);
+                setSingleCellId(undefined);
+                setSingleCellProgress(null);
+            } else if (event.data.type === "providerSendsLLMCompletionResponse") {
+                console.log("LLM completion response received", event.data);
+                // Set progress to 100%
+                setSingleCellProgress(1);
+                
+                // Then delay clearing the notification
+                setTimeout(() => {
+                    setIsSingleCellTranslating(false);
+                    setSingleCellId(undefined);
+                    setSingleCellProgress(null);
+                }, 1500); // Keep showing 100% for 1.5 seconds
+            }
+        };
+        
+        window.addEventListener("message", handleSingleCellTranslation);
+        return () => window.removeEventListener("message", handleSingleCellTranslation);
+    }, []);
+
+    // Add a function to handle clicks on the sparkle button
+    const handleSparkleButtonClick = (cellId: string) => {
+        console.log("Sparkle button clicked for cell", cellId);
+        
+        // Start showing the progress notification
+        setIsSingleCellTranslating(true);
+        setSingleCellId(cellId);
+        setSingleCellProgress(0.1); // Start with 10% to show immediate feedback
+        
+        // Post the message to initiate LLM completion
+        vscode.postMessage({
+            command: "llmCompletion",
+            content: {
+                currentLineId: cellId,
+                addContentToValue: true,
+            },
+        });
+    };
+
+    // Modify the existing code to expose this function
+    useEffect(() => {
+        // Make the sparkle button handler available to the CellList component
+        (window as any).handleSparkleButtonClick = handleSparkleButtonClick;
+    }, []);
+
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -1140,11 +1215,12 @@ const CodexCellEditor: React.FC = () => {
                 </div>
             </div>
             <ProgressNotification 
-                progress={autocompletionProgress}
-                totalCells={totalCellsToAutoComplete}
-                completedCells={cellsAutoCompleted}
-                isVisible={isAutocompletingChapter}
-                currentCellId={currentProcessingCellId}
+                progress={isAutocompletingChapter ? autocompletionProgress : singleCellProgress}
+                totalCells={isAutocompletingChapter ? totalCellsToAutoComplete : 1}
+                completedCells={isAutocompletingChapter ? cellsAutoCompleted : (singleCellProgress === 1 ? 1 : 0)}
+                isVisible={isAutocompletingChapter || isSingleCellTranslating}
+                currentCellId={isAutocompletingChapter ? currentProcessingCellId : singleCellId}
+                isSingleCell={isSingleCellTranslating}
             />
         </div>
     );

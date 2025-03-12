@@ -697,6 +697,24 @@ type EditorReceiveMessages =
           content: SavedBacktranslation | null;
       }
     | {
+          type: "singleCellTranslationStarted";
+          cellId: string;
+      }
+    | {
+          type: "singleCellTranslationProgress";
+          progress: number;
+          cellId: string;
+      }
+    | {
+          type: "singleCellTranslationCompleted";
+          cellId: string;
+      }
+    | {
+          type: "singleCellTranslationFailed";
+          cellId: string;
+          error: string;
+      }
+    | {
           type: "providerConfirmsBacktranslationSet";
           content: SavedBacktranslation | null;
       }

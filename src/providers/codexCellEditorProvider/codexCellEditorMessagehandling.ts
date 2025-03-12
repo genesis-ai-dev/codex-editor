@@ -60,13 +60,51 @@ export async function performLLMCompletion(
         },
         async (progress) => {
             try {
-                progress.report({ message: "Fetching completion configuration..." });
+                // Find the webview panel for this document
+                const panel = Array.from((vscode.window.tabGroups.all || []).flatMap(g => g.tabs))
+                    .find(tab => tab.input instanceof vscode.TabInputCustom && 
+                                tab.input.uri.toString() === currentDocument.uri.toString())
+                    ?.input;
+                
+                const webviewPanel = panel ? 
+                    (vscode.window as any).createWebviewPanel?.owner?.webviewPanels?.get(currentDocument.uri.toString()) : 
+                    undefined;
+                
+                // Notify the webview that we're starting a single cell translation
+                if (webviewPanel) {
+                    webviewPanel.webview.postMessage({
+                        type: "singleCellTranslationStarted",
+                        cellId: currentCellId,
+                    });
+                }
+                
+                progress.report({ message: "Fetching completion configuration...", increment: 20 });
+                
+                // Notify progress to webview
+                if (webviewPanel) {
+                    webviewPanel.webview.postMessage({
+                        type: "singleCellTranslationProgress",
+                        progress: 0.2,
+                        cellId: currentCellId,
+                    });
+                }
+                
                 // Fetch completion configuration
                 const completionConfig = await fetchCompletionConfig();
                 const notebookReader = new CodexNotebookReader(currentDocument.uri);
                 console.log("Document URI: ", notebookReader);
 
-                progress.report({ message: "Generating translation with LLM..." });
+                progress.report({ message: "Generating translation with LLM...", increment: 30 });
+                
+                // Notify progress to webview
+                if (webviewPanel) {
+                    webviewPanel.webview.postMessage({
+                        type: "singleCellTranslationProgress",
+                        progress: 0.5,
+                        cellId: currentCellId,
+                    });
+                }
+                
                 // Perform LLM completion
                 const result = await llmCompletion(
                     notebookReader,
@@ -75,7 +113,17 @@ export async function performLLMCompletion(
                     new vscode.CancellationTokenSource().token
                 );
 
-                progress.report({ message: "Updating document..." });
+                progress.report({ message: "Updating document...", increment: 40 });
+                
+                // Notify progress to webview
+                if (webviewPanel) {
+                    webviewPanel.webview.postMessage({
+                        type: "singleCellTranslationProgress",
+                        progress: 0.9,
+                        cellId: currentCellId,
+                    });
+                }
+                
                 // Update content and metadata atomically
                 currentDocument.updateCellContent(
                     currentCellId,
@@ -84,11 +132,39 @@ export async function performLLMCompletion(
                     shouldUpdateValue
                 );
 
+                // Notify completion to webview
+                if (webviewPanel) {
+                    webviewPanel.webview.postMessage({
+                        type: "singleCellTranslationCompleted",
+                        cellId: currentCellId,
+                    });
+                }
+
                 console.log("LLM completion result", { result });
                 return result;
             } catch (error: any) {
                 console.error("Error in performLLMCompletion:", error);
                 vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
+                
+                // Find the webview panel for this document
+                const panel = Array.from((vscode.window.tabGroups.all || []).flatMap(g => g.tabs))
+                    .find(tab => tab.input instanceof vscode.TabInputCustom && 
+                                tab.input.uri.toString() === currentDocument.uri.toString())
+                    ?.input;
+                
+                const webviewPanel = panel ? 
+                    (vscode.window as any).createWebviewPanel?.owner?.webviewPanels?.get(currentDocument.uri.toString()) : 
+                    undefined;
+                
+                // Notify failure to webview
+                if (webviewPanel) {
+                    webviewPanel.webview.postMessage({
+                        type: "singleCellTranslationFailed",
+                        cellId: currentCellId,
+                        error: error.message
+                    });
+                }
+                
                 throw error;
             }
         }
@@ -296,11 +372,19 @@ export const handleMessages = async (
                     updateWebview,
                 });
 
+                // Send initial notification that we're starting the translation
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "singleCellTranslationStarted",
+                    cellId: event.content.currentLineId,
+                });
+
                 const completionResult = await performLLMCompletion(
                     event.content.currentLineId,
                     document,
                     event.content.addContentToValue
                 );
+                
+                // Send the completion result to the webview
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsLLMCompletionResponse",
                     content: {
@@ -310,6 +394,13 @@ export const handleMessages = async (
             } catch (error) {
                 console.error("Error during LLM completion:", error);
                 vscode.window.showErrorMessage("LLM completion failed.");
+                
+                // Send failure notification
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "singleCellTranslationFailed",
+                    cellId: event.content.currentLineId,
+                    error: (error as Error).message || "Unknown error"
+                });
             }
             return;
         }
