@@ -57,6 +57,35 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
+    
+    // New state for autocompletion process
+    private autocompletionState: {
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    } = {
+        isProcessing: false,
+        totalCells: 0,
+        completedCells: 0,
+        currentCellId: undefined,
+        cellsToProcess: [],
+        progress: 0
+    };
+    
+    // Single cell translation state
+    private singleCellTranslationState: {
+        isProcessing: boolean;
+        cellId?: string;
+        progress: number;
+    } = {
+        isProcessing: false,
+        cellId: undefined,
+        progress: 0
+    };
+    
     // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
     private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
 
@@ -602,77 +631,31 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
         this.autocompleteCancellation = new vscode.CancellationTokenSource();
         
-        // First, send an initial progress update of 0%
-        this.postMessageToWebview(webviewPanel, {
-            type: "providerUpdatesCell",
-            content: {
-                cellId: "initialization",
-                progress: 0.01, // Start with a tiny bit of progress to show the bar
-                completedCells: 0, // Explicitly set 0 completed cells at start
-                totalCells: 0, // Will be updated below once we know the total
-            },
-        });
-
-        // Calculate total cells for better progress tracking
-        const cellsToProcess = currentChapterTranslationUnits.filter(
-            cell => cell.cellType !== CodexCellTypes.PARATEXT && cell.cellContent?.trim() !== "<range>"
-        );
-
-        const totalCells = cellsToProcess.length;
-        
-        debug(`Found ${totalCells} cells to process for autocompletion`);
-
-        // Create a queue of cell IDs to process
-        const cellIdsToProcess = cellsToProcess.map(cell => cell.cellMarkers[0]);
-        console.log(`Cell IDs to process: ${cellIdsToProcess.join(', ')}`);
-        
-        // Send initial queue to client
-        this.postMessageToWebview(webviewPanel, {
-            type: "providerUpdatesCell",
-            content: {
-                cellId: "initialization",
-                progress: 0.01, // Start with a tiny bit of progress to show the bar
-                completedCells: 0, // Explicitly set 0 completed cells
-                totalCells: totalCells // Now we know the total
-            },
-        });
-        
-        // Additional initial message with cell info
         try {
-            // Send initial cell list via the webview postMessage directly (bypassing type checking)
-            webviewPanel.webview.postMessage({
-                type: "cellsToProcessList",
-                cellIds: cellIdsToProcess,
-                totalCells
-            });
+            // Calculate cells to process (filter out paratext and range cells)
+            const cellsToProcess = currentChapterTranslationUnits.filter(
+                cell => cell.cellType !== CodexCellTypes.PARATEXT && cell.cellContent?.trim() !== "<range>"
+            );
+            const totalCells = cellsToProcess.length;
+            const cellIds = cellsToProcess.map(cell => cell.cellMarkers[0]);
             
-            let completedCells = 0;
+            // Update state in the provider first
+            this.autocompletionState = {
+                isProcessing: true,
+                totalCells,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: cellIds,
+                progress: 0.01 // Start with a tiny bit of progress
+            };
             
-            // Start a progress heartbeat to ensure client stays updated
-            const heartbeatInterval = setInterval(() => {
-                if (completedCells < totalCells) {
-                    // Send a heartbeat update with current progress
-                    const progress = completedCells / totalCells;
-                    const currentCellId = cellIdsToProcess[completedCells] || "unknown";
-                    
-                    debug(`Progress heartbeat: ${Math.round(progress * 100)}%, Cell ${completedCells + 1}/${totalCells}`);
-                    
-                    this.postMessageToWebview(webviewPanel, {
-                        type: "providerUpdatesCell",
-                        content: {
-                            cellId: currentCellId,
-                            progress: progress,
-                            completedCells: completedCells,
-                            totalCells: totalCells
-                        }
-                    });
-                }
-            }, 1000); // Send update every second
+            // Send state to webview
+            this.broadcastAutocompletionState();
             
-            // Process cells
+            // Process each cell
             for (let i = 0; i < cellsToProcess.length; i++) {
-                // Check if the operation has been cancelled
-                if (this.autocompleteCancellation.token.isCancellationRequested) {
+                // Check if cancelled
+                if (this.autocompleteCancellation?.token.isCancellationRequested) {
                     debug("Autocomplete operation cancelled");
                     break;
                 }
@@ -684,93 +667,70 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 try {
-                    debug(`Processing cell ${i + 1}/${cellsToProcess.length}, ID: ${cellId}`);
+                    // Update current cell in provider state
+                    this.autocompletionState.currentCellId = cellId;
+                    this.autocompletionState.progress = (i / totalCells) + (0.5 / totalCells);
+                    this.broadcastAutocompletionState();
                     
-                    // Send a progress update before processing this cell - always include cell ID
-                    this.postMessageToWebview(webviewPanel, {
-                        type: "providerUpdatesCell",
-                        content: {
-                            cellId, // Send the actual cell ID for tracking
-                            progress: completedCells / totalCells,
-                            completedCells: completedCells,
-                            totalCells: totalCells
-                        },
-                    });
-
-                    // Artificially stagger updates to show progress more clearly
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                    
-                    debug(`Starting cell ${cellId}, Progress: ${Math.round((completedCells / totalCells) * 100)}%, Cell ${completedCells + 1}/${totalCells}`);
-
-                    // Perform LLM completion for the current cell
+                    // Perform LLM completion
                     if (document) {
                         await performLLMCompletion(cellId, document, true);
                     }
-
-                    // Increment completed cells counter after cell is processed
-                    completedCells++;
                     
-                    // Send another update to the webview with the updated progress after completion
-                    this.postMessageToWebview(webviewPanel, {
-                        type: "providerUpdatesCell",
-                        content: {
-                            cellId, // Include cell ID so frontend knows which cell was completed
-                            progress: completedCells / totalCells,
-                            completedCells: completedCells,
-                            totalCells: totalCells
-                        },
-                    });
+                    // Update completion status in provider state
+                    this.autocompletionState.completedCells++;
+                    this.autocompletionState.cellsToProcess = this.autocompletionState.cellsToProcess.filter(id => id !== cellId);
+                    this.autocompletionState.progress = (i + 1) / totalCells;
+                    this.broadcastAutocompletionState();
                     
-                    debug(`Completed cell ${cellId}, Progress: ${Math.round((completedCells / totalCells) * 100)}%, Cell ${completedCells}/${totalCells}`);
-
-                    // Add a small delay between cells to allow UI to update
+                    // Add a small delay between cells
                     await new Promise((resolve) => setTimeout(resolve, 250));
                 } catch (error) {
                     console.error(`Error autocompleting cell ${cellId}:`, error);
                     vscode.window.showErrorMessage(`Failed to autocomplete cell ${cellId}`);
-                    completedCells++; // Still increment to maintain accurate progress
+                    
+                    // Count errors as "completed" to maintain progress
+                    this.autocompletionState.completedCells++;
+                    this.autocompletionState.cellsToProcess = this.autocompletionState.cellsToProcess.filter(id => id !== cellId);
+                    this.autocompletionState.progress = (i + 1) / totalCells;
+                    this.broadcastAutocompletionState();
                 }
-
-                const debounceTimeToAllowIndexesToSettle = 1000;
-                await new Promise((resolve) => 
-                    setTimeout(resolve, debounceTimeToAllowIndexesToSettle)
-                );
             }
             
-            // Clear the heartbeat interval
-            clearInterval(heartbeatInterval);
+            // Mark completion in provider state
+            this.autocompletionState.progress = 1.0;
+            this.broadcastAutocompletionState();
             
-            // Send a final 100% progress update
-            this.postMessageToWebview(webviewPanel, {
-                type: "providerUpdatesCell",
-                content: {
-                    cellId: "completion",
-                    progress: 1.0, // 100%
-                    completedCells: completedCells,
-                    totalCells: totalCells
-                },
-            });
+            // After a short delay, reset state
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            this.autocompletionState = {
+                isProcessing: false,
+                totalCells: 0,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: [],
+                progress: 0
+            };
+            this.broadcastAutocompletionState();
             
-            debug("Final progress update sent: 100%");
-
-            // Add a small delay before sending completion signal
-            await new Promise(resolve => setTimeout(resolve, 500));
         } finally {
-            // Clean up the cancellation token source
+            // Clean up
             if (this.autocompleteCancellation) {
                 this.autocompleteCancellation.dispose();
                 this.autocompleteCancellation = undefined;
             }
         }
-
-        debug("Chapter autocompletion completed");
-        // Send a final update to indicate completion
-        this.postMessageToWebview(webviewPanel, {
-            type: "providerCompletesChapterAutocompletion",
-            content: {
-                progress: 1.0,
-                completedCells: totalCells,
-                totalCells: totalCells
+    }
+    
+    // New method to broadcast the current autocompletion state to all webviews
+    private broadcastAutocompletionState() {
+        // Only send to webviews that have the current document open
+        this.webviewPanels.forEach((panel, uri) => {
+            if (this.currentDocument && uri === this.currentDocument.uri.toString()) {
+                this.postMessageToWebview(panel, {
+                    type: "providerAutocompletionState",
+                    state: this.autocompletionState
+                });
             }
         });
     }
@@ -779,9 +739,82 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         if (this.autocompleteCancellation) {
             debug("Cancelling chapter autocompletion");
             this.autocompleteCancellation.cancel();
+            
+            // Reset state
+            this.autocompletionState = {
+                isProcessing: false,
+                totalCells: 0,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: [],
+                progress: 0
+            };
+            this.broadcastAutocompletionState();
+            
             return true;
         }
         return false;
+    }
+    
+    // New method to set single cell translation state
+    public async startSingleCellTranslation(cellId: string) {
+        this.singleCellTranslationState = {
+            isProcessing: true,
+            cellId,
+            progress: 0.1 // Start with a small amount of progress
+        };
+        this.broadcastSingleCellTranslationState();
+    }
+    
+    // New method to update single cell translation progress
+    public updateSingleCellTranslationProgress(progress: number) {
+        if (this.singleCellTranslationState.isProcessing) {
+            this.singleCellTranslationState.progress = progress;
+            this.broadcastSingleCellTranslationState();
+        }
+    }
+    
+    // New method to complete single cell translation
+    public completeSingleCellTranslation() {
+        this.singleCellTranslationState.progress = 1.0;
+        this.broadcastSingleCellTranslationState();
+        
+        // After a short delay, reset state
+        setTimeout(() => {
+            this.singleCellTranslationState = {
+                isProcessing: false,
+                cellId: undefined,
+                progress: 0
+            };
+            this.broadcastSingleCellTranslationState();
+        }, 1500);
+    }
+    
+    // New method to handle single cell translation error
+    public failSingleCellTranslation(error?: string) {
+        this.singleCellTranslationState = {
+            isProcessing: false,
+            cellId: undefined,
+            progress: 0
+        };
+        this.broadcastSingleCellTranslationState();
+        
+        if (error) {
+            vscode.window.showErrorMessage(`Translation failed: ${error}`);
+        }
+    }
+    
+    // New method to broadcast single cell translation state
+    private broadcastSingleCellTranslationState() {
+        // Only send to webviews that have the current document open
+        this.webviewPanels.forEach((panel, uri) => {
+            if (this.currentDocument && uri === this.currentDocument.uri.toString()) {
+                this.postMessageToWebview(panel, {
+                    type: "providerSingleCellTranslationState",
+                    state: this.singleCellTranslationState
+                });
+            }
+        });
     }
 
     private processNotebookData(notebook: vscode.NotebookData) {

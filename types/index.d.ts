@@ -653,6 +653,25 @@ type EditorReceiveMessages =
           sourceCellMap: { [k: string]: { content: string; versions: string[] } };
       }
     | {
+          type: "providerAutocompletionState";
+          state: {
+              isProcessing: boolean;
+              totalCells: number;
+              completedCells: number;
+              currentCellId?: string;
+              cellsToProcess: string[];
+              progress: number;
+          };
+      }
+    | {
+          type: "providerSingleCellTranslationState";
+          state: {
+              isProcessing: boolean;
+              cellId?: string;
+              progress: number;
+          };
+      }
+    | {
           type: "providerUpdatesCell";
           content: { 
               cellId: string; 
@@ -669,6 +688,33 @@ type EditorReceiveMessages =
               completedCells?: number;
               totalCells?: number;
           }
+      }
+    | {
+          type: "autocompleteChapterStart";
+          cellIds: string[];
+          totalCells: number;
+      }
+    | {
+          type: "processingCell";
+          cellId: string;
+          index: number;
+          totalCells: number;
+      }
+    | {
+          type: "cellCompleted";
+          cellId: string;
+          index: number;
+          totalCells: number;
+      }
+    | {
+          type: "cellError";
+          cellId: string;
+          index: number;
+          totalCells: number;
+      }
+    | {
+          type: "autocompleteChapterComplete";
+          totalCells?: number;
       }
     | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
     | {

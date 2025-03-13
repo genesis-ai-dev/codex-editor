@@ -372,19 +372,22 @@ export const handleMessages = async (
                     updateWebview,
                 });
 
-                // Send initial notification that we're starting the translation
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "singleCellTranslationStarted",
-                    cellId: event.content.currentLineId,
-                });
+                const cellId = event.content.currentLineId;
+                const addContentToValue = event.content.addContentToValue;
+                
+                // Use the provider's state management instead of direct messages
+                provider.startSingleCellTranslation(cellId);
 
                 const completionResult = await performLLMCompletion(
-                    event.content.currentLineId,
+                    cellId,
                     document,
-                    event.content.addContentToValue
+                    addContentToValue
                 );
                 
-                // Send the completion result to the webview
+                // Update state in provider to completed
+                provider.completeSingleCellTranslation();
+                
+                // Still send the completion result for backwards compatibility
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsLLMCompletionResponse",
                     content: {
@@ -395,12 +398,8 @@ export const handleMessages = async (
                 console.error("Error during LLM completion:", error);
                 vscode.window.showErrorMessage("LLM completion failed.");
                 
-                // Send failure notification
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "singleCellTranslationFailed",
-                    cellId: event.content.currentLineId,
-                    error: (error as Error).message || "Unknown error"
-                });
+                // Use provider state management for failure
+                provider.failSingleCellTranslation(error instanceof Error ? error.message : "Unknown error");
             }
             return;
         }
@@ -416,10 +415,7 @@ export const handleMessages = async (
                     console.log("No active autocomplete operation to stop");
                 }
                 
-                // Notify the webview that autocompletion has been stopped
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerCompletesChapterAutocompletion",
-                });
+                // Provider's cancelAutocompleteChapter already handles updating the state and broadcasting
             } catch (error) {
                 console.error("Error stopping autocomplete chapter:", error);
                 vscode.window.showErrorMessage("Failed to stop autocomplete operation.");

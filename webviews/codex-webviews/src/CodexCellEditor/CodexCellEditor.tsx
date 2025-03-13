@@ -54,49 +54,90 @@ const CodexCellEditor: React.FC = () => {
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
+    
+    // Basic state variables
+    const [chapterNumber, setChapterNumber] = useState<number>(
+        (window as any).initialData?.cachedChapter || 1
+    );
+    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
+        (window as any).initialData?.metadata?.textDirection || "ltr"
+    );
+    const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
+        (window as any).initialData?.metadata?.cellDisplayMode ||
+            CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+    );
+    const [isSourceText, setIsSourceText] = useState<boolean>(false);
+    const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
+    
+    const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
+        videoUrl: "", // FIXME: use attachments instead of videoUrl
+    } as CustomNotebookMetadata);
+    const [videoUrl, setVideoUrl] = useState<string>("");
+    const playerRef = useRef<ReactPlayer>(null);
+    const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
+    const { setSourceCellMap } = useContext(SourceCellContext);
+    
+    // Simplified state - now we just mirror the provider's state
+    const [autocompletionState, setAutocompletionState] = useState<{
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    }>({
+        isProcessing: false,
+        totalCells: 0,
+        completedCells: 0,
+        currentCellId: undefined,
+        cellsToProcess: [],
+        progress: 0
+    });
+    
+    const [singleCellTranslationState, setSingleCellTranslationState] = useState<{
+        isProcessing: boolean;
+        cellId?: string;
+        progress: number;
+    }>({
+        isProcessing: false,
+        cellId: undefined,
+        progress: 0
+    });
+    
+    // Keep these state variables for backward compatibility and UI display
     const [isAutocompletingChapter, setIsAutocompletingChapter] = useState<boolean>(false);
     const [totalCellsToAutoComplete, setTotalCellsToAutoComplete] = useState<number>(0);
     const [cellsAutoCompleted, setCellsAutoCompleted] = useState<number>(0);
     const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
     const [currentProcessingCellId, setCurrentProcessingCellId] = useState<string | undefined>(undefined);
-    const [cellsToProcess, setCellsToProcess] = useState<string[]>([]);
-
-    // Add these additional state variables to track single cell translations
+    
     const [isSingleCellTranslating, setIsSingleCellTranslating] = useState(false);
     const [singleCellId, setSingleCellId] = useState<string | undefined>(undefined);
     const [singleCellProgress, setSingleCellProgress] = useState<number | null>(null);
-
-    // Initialize state store after webview is ready
-    useEffect(() => {
-        const handleWebviewReady = (event: MessageEvent) => {
-            if (event.data.type === "webviewReady") {
-                setIsWebviewReady(true);
-            }
-        };
-        window.addEventListener("message", handleWebviewReady);
-        return () => window.removeEventListener("message", handleWebviewReady);
-    }, []);
-
-    // Listen for highlight messages from the extension
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            const message = event.data;
-            if (message.type === "highlightCell" && message.cellId) {
-                setHighlightedCellId(message.cellId);
-            }
-        };
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
-    }, []);
-
-    useEffect(() => {
-        if (highlightedCellId && scrollSyncEnabled) {
-            const cellId = highlightedCellId;
-            const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            setChapterNumber(parseInt(chapter) || 1);
-        }
-    }, [highlightedCellId]);
-
+    
+    // Required state variables that were removed
+    const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
+    const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>({} as EditorCellContent);
+    const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
+    
+    // A "temp" video URL that is used to update the video URL in the metadata modal.
+    // We need to use the client-side file picker, so we need to then pass the picked
+    // video URL back to the extension so the user can save or cancel the change.
+    const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
+    
+    const handleSetContentBeingUpdated = (content: EditorCellContent) => {
+        setContentBeingUpdated(content);
+        setCurrentEditingCellId(content.cellMarkers?.[0] || null);
+    };
+    
+    // Add the removeHtmlTags function
+    const removeHtmlTags = (text: string) => {
+        const temp = document.createElement('div');
+        temp.innerHTML = text;
+        return temp.textContent || temp.innerText || '';
+    };
+    
+    // Function to check alert codes
     const checkAlertCodes = () => {
         const cellContentAndId = translationUnits.map((unit) => ({
             text: removeHtmlTags(unit.cellContent),
@@ -113,46 +154,20 @@ const CodexCellEditor: React.FC = () => {
         checkAlertCodes();
     }, [translationUnits]);
 
-    const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
-    const [contentBeingUpdated, setContentBeingUpdated] = useState<EditorCellContent>(
-        {} as EditorCellContent
-    );
-    const [chapterNumber, setChapterNumber] = useState<number>(
-        (window as any).initialData?.cachedChapter || 1
-    );
-    const [textDirection, setTextDirection] = useState<"ltr" | "rtl">(
-        (window as any).initialData?.metadata?.textDirection || "ltr"
-    );
-    const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
-        (window as any).initialData?.metadata?.cellDisplayMode ||
-            CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-    );
-    const [isSourceText, setIsSourceText] = useState<boolean>(false);
-    const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
-
-    const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
-        videoUrl: "", // FIXME: use attachments instead of videoUrl
-    } as CustomNotebookMetadata);
-    const [videoUrl, setVideoUrl] = useState<string>("");
-    const playerRef = useRef<ReactPlayer>(null);
-    const [shouldShowVideoPlayer, setShouldShowVideoPlayer] = useState<boolean>(false);
-    const { setSourceCellMap } = useContext(SourceCellContext);
-    const { extractTextFromHtml } = useQuillTextExtractor();
-
-    const removeHtmlTags = (text: string) => {
-        return extractTextFromHtml(text);
-    };
-    // A "temp" video URL that is used to update the video URL in the metadata modal.
-    // We need to use the client-side file picker, so we need to then pass the picked
-    // video URL back to the extension so the user can save or cancel the change.
-    const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
-    // const [documentHasVideoAvailable, setDocumentHasVideoAvailable] = useState<boolean>(false);
-    const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
-
-    const handleSetContentBeingUpdated = (content: EditorCellContent) => {
-        setContentBeingUpdated(content);
-        setCurrentEditingCellId(content.cellMarkers?.[0] || null);
-    };
+    // Update local state when provider sends updated state
+    useEffect(() => {
+        // Sync local state with provider state for autocompletion
+        setIsAutocompletingChapter(autocompletionState.isProcessing);
+        setTotalCellsToAutoComplete(autocompletionState.totalCells);
+        setCellsAutoCompleted(autocompletionState.completedCells);
+        setCurrentProcessingCellId(autocompletionState.currentCellId);
+        setAutocompletionProgress(autocompletionState.progress);
+        
+        // Sync local state with provider state for single cell translation
+        setIsSingleCellTranslating(singleCellTranslationState.isProcessing);
+        setSingleCellId(singleCellTranslationState.cellId);
+        setSingleCellProgress(singleCellTranslationState.progress);
+    }, [autocompletionState, singleCellTranslationState]);
 
     useVSCodeMessageHandler({
         setContent: (
@@ -169,24 +184,7 @@ const CodexCellEditor: React.FC = () => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             setChapterNumber(parseInt(chapter) || 1);
         },
-        updateCell: (data: {
-            cellId: string;
-            newContent: string;
-            progress: number;
-            cellLabel?: string;
-        }) => {
-            console.log(`🔄 RECEIVED CELL UPDATE: Cell ${data.cellId}, Progress: ${Math.round(data.progress * 100)}%`);
-            
-            // Track if we've already processed a completion
-            const hasReachedCompletion = cellsAutoCompleted >= totalCellsToAutoComplete && totalCellsToAutoComplete > 0;
-            
-            // Don't process updates if we've already completed
-            if (hasReachedCompletion && (data.cellId === "completion" || data.progress >= 0.99)) {
-                console.log("🛑 Ignoring update - already reached completion state");
-                return;
-            }
-            
-            // Update the cell content first
+        updateCell: (data) => {
             if (data.cellId !== "initialization" && data.cellId !== "completion" && data.newContent) {
                 setTranslationUnits((prevUnits) =>
                     prevUnits.map((unit) =>
@@ -194,98 +192,36 @@ const CodexCellEditor: React.FC = () => {
                             ? {
                                   ...unit,
                                   cellContent: data.newContent,
-                                  cellLabel: data.cellLabel || unit.cellLabel,
+                                  cellLabel: unit.cellLabel,
                               }
                             : unit
                     )
                 );
             }
             
-            // Update the currently processing cell - ALWAYS do this regardless of whether content was updated
             if (data.cellId !== "initialization" && data.cellId !== "completion") {
-                console.log(`🎯 Setting current processing cell: ${data.cellId}`);
                 setCurrentProcessingCellId(data.cellId);
-                
-                // If this cell is in our list of cells to process, mark it as completed
-                if (cellsToProcess.includes(data.cellId)) {
-                    console.log(`✅ Marking cell ${data.cellId} as completed`);
-                    // Remove this cell from the list of cells to process
-                    setCellsToProcess((prev) => {
-                        const updated = prev.filter(id => id !== data.cellId);
-                        console.log(`📊 Cells remaining to process: ${updated.length}`);
-                        return updated;
-                    });
-                    
-                    // Directly increment completed cells count instead of waiting for derived state
-                    setCellsAutoCompleted(prev => {
-                        const newCount = prev + 1;
-                        console.log(`📈 Updated completed cells: ${newCount}/${totalCellsToAutoComplete}`);
-                        return newCount;
-                    });
-                }
             }
             
-            // ALWAYS update progress regardless of any conditions
-            // Special case: don't reset progress to 0 on completion or if we're in a completed state
-            // This prevents re-showing the notification with 0 progress after completion
-            if (data.cellId !== "completion" || data.progress > 0.9) {
-                console.log(`📊 Updating progress: ${data.progress * 100}%`);
-                setAutocompletionProgress(data.progress);
-                
-                // Only set autocompletingChapter to true if we're still in an active session
-                // Don't re-trigger the autocompletion state if we've completed it
-                if (!hasReachedCompletion) {
-                    setIsAutocompletingChapter(true);
-                }
-            }
-            
-            // Force a re-render to update the UI
-            // This uses a setTimeout of 0ms to push this to the next event loop
-            setTimeout(() => {
-                // If we saw a timestamp when a cell was completed, update the state again to force a re-render
-                setAutocompletionProgress(currentProgress => {
-                    // Just return the same value, but this will trigger a re-render
-                    return currentProgress; 
-                });
-            }, 0);
-            
-            // Check if this appears to be the last cell (progress around 100%)
-            if (data.progress >= 0.999) {
-                console.log("🏁 Progress at 100%, scheduling reset of autocompletion state");
-                
-                // Force a little delay and then reset the state
-                setTimeout(() => {
-                    console.log("🔄 Resetting autocompletion state after completion");
-                    // Don't reset to prevent false re-renders
-                    setIsAutocompletingChapter(false);
-                    // Don't reset progress to null - keep the last value
-                }, 3000);
-            }
+            setAutocompletionProgress(data.progress);
         },
+        
+        // Add this for compatibility
         autocompleteChapterComplete: () => {
-            console.log("Received completion signal from server, resetting autocompletion state");
-            
-            // Mark as completed to prevent re-showing notifications
-            completionStateRef.current = {
-                hasCompleted: true,
-                completionTimestamp: Date.now()
-            };
-            
-            // Clear the safety timeout
-            if (safetyTimeoutRef.current) {
-                clearTimeout(safetyTimeoutRef.current);
-                safetyTimeoutRef.current = null;
-            }
-            
-            // Only set isAutocompletingChapter to false, but don't reset other state
-            // This prevents showing 0/0 notifications
-            setTimeout(() => {
-                setIsAutocompletingChapter(false);
-                
-                // Refresh content
-                vscode.postMessage({ command: "getContent" } as EditorPostMessages);
-            }, 100);
+            console.log("Autocomplete chapter complete (legacy handler)");
         },
+        
+        // New handlers for provider-centric state management
+        updateAutocompletionState: (state) => {
+            console.log("Received autocompletion state from provider:", state);
+            setAutocompletionState(state);
+        },
+        
+        updateSingleCellTranslationState: (state) => {
+            console.log("Received single cell translation state from provider:", state);
+            setSingleCellTranslationState(state);
+        },
+        
         updateTextDirection: (direction) => {
             setTextDirection(direction);
         },
@@ -545,103 +481,24 @@ const CodexCellEditor: React.FC = () => {
     const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const handleAutocompleteChapter = (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => {
-        console.log("Autocomplete chapter", numberOfCells, includeNotValidatedByCurrentUser);
+        console.log("Requesting autocomplete chapter:", numberOfCells, includeNotValidatedByCurrentUser);
         
         // Choose which set of cells to use based on the include option
         const cellsToAutocomplete = includeNotValidatedByCurrentUser
             ? untranslatedOrNotValidatedByCurrentUserUnitsForSection.slice(0, numberOfCells)
             : untranslatedOrUnvalidatedUnitsForSection.slice(0, numberOfCells);
-            
-        console.log("Starting autocomplete with explicit state updates:");
         
-        // Get array of cell IDs to track
-        const cellIds = cellsToAutocomplete.map(cell => cell.cellMarkers[0]);
-        
-        // Reset completion state reference
-        completionStateRef.current = {
-            hasCompleted: false,
-            completionTimestamp: null
-        };
-        
-        // Force reset state first to ensure clean start
-        setIsAutocompletingChapter(false);
-        setAutocompletionProgress(null);
-        setCellsAutoCompleted(0);
-        setTotalCellsToAutoComplete(0);
-        setCurrentProcessingCellId(undefined);
-        setCellsToProcess([]);
-        
-        // Small delay to ensure state reset completes
-        setTimeout(() => {
-            // Set state variables explicitly with debugging
-            setIsAutocompletingChapter(true);
-            console.log("Set isAutocompletingChapter to:", true);
-            
-            setTotalCellsToAutoComplete(cellsToAutocomplete.length);
-            console.log("Set totalCellsToAutoComplete to:", cellsToAutocomplete.length);
-            
-            setCellsAutoCompleted(0);
-            console.log("Set cellsAutoCompleted to:", 0);
-            
-            // Set the cells to process
-            setCellsToProcess(cellIds);
-            console.log("Set cellsToProcess to:", cellIds);
-            
-            // Starting with a small non-zero value helps ensure the bar is visible
-            setAutocompletionProgress(0.01);
-            console.log("Set autocompletionProgress to:", 0.01);
-            
-            // Set a safety timeout to reset the state if no other mechanism does it
-            const maxTimePerCell = 30000; // 30 seconds per cell as maximum
-            const safetyTimeout = setTimeout(() => {
-                console.log("Safety timeout triggered, resetting autocompletion state");
-                setIsAutocompletingChapter(false);
-                setAutocompletionProgress(null);
-                setCellsAutoCompleted(0);
-                setTotalCellsToAutoComplete(0);
-                setCurrentProcessingCellId(undefined);
-                setCellsToProcess([]);
-            }, Math.max(60000, cellsToAutocomplete.length * maxTimePerCell)); // At least 60 seconds or more based on cell count
-            
-            // Store the timeout ID in a ref so we can clear it if needed
-            if (safetyTimeoutRef.current) {
-                clearTimeout(safetyTimeoutRef.current);
-            }
-            safetyTimeoutRef.current = safetyTimeout;
-            
-            vscode.postMessage({
-                command: "requestAutocompleteChapter",
-                content: cellsToAutocomplete,
-            } as EditorPostMessages);
-            
-            // Debug log after all state changes
-            setTimeout(() => {
-                console.log("State after handleAutocompleteChapter:", {
-                    isAutocompletingChapter,
-                    autocompletionProgress,
-                    totalCellsToAutoComplete,
-                    cellsAutoCompleted,
-                    cellsToProcess: cellIds
-                });
-            }, 0);
-        }, 10);
+        // Send the request to the provider - it will handle all state updates
+        vscode.postMessage({
+            command: "requestAutocompleteChapter",
+            content: cellsToAutocomplete,
+        } as EditorPostMessages);
     };
 
     const handleStopAutocomplete = () => {
         console.log("Stopping autocomplete chapter");
         
-        // Clear the safety timeout
-        if (safetyTimeoutRef.current) {
-            clearTimeout(safetyTimeoutRef.current);
-            safetyTimeoutRef.current = null;
-        }
-        
-        setIsAutocompletingChapter(false);
-        setAutocompletionProgress(null);
-        setCellsAutoCompleted(0);
-        setTotalCellsToAutoComplete(0);
-        setCurrentProcessingCellId(undefined);
-        setCellsToProcess([]);
+        // Just send the stop command, provider will update state
         vscode.postMessage({
             command: "stopAutocompleteChapter"
         } as EditorPostMessages);
@@ -697,11 +554,6 @@ const CodexCellEditor: React.FC = () => {
             return unit;
         });
     }, [contentBeingUpdated, translationUnitsForSection]);
-
-    // const handleCloseMetadataModal = () => {
-    //     setTempVideoUrl(""); // Reset temp video URL when closing without saving
-    //     setIsMetadataModalOpen(false);
-    // };
 
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev) => {
@@ -823,293 +675,23 @@ const CodexCellEditor: React.FC = () => {
         username
     });
 
-    // Add a ref to track the overall completion state
-    const completionStateRef = useRef<{
-        hasCompleted: boolean;
-        completionTimestamp: number | null;
-    }>({
-        hasCompleted: false,
-        completionTimestamp: null
-    });
-
-    // Update the useEffect that monitors completion
+    // Clean up when component unmounts
     useEffect(() => {
-        // As a backup mechanism, check if all cells have been completed
-        if (totalCellsToAutoComplete > 0 && cellsAutoCompleted >= totalCellsToAutoComplete) {
-            console.log("All cells completed via useEffect check, resetting autocompletion state");
-            
-            // Mark as completed to prevent re-showing notifications
-            completionStateRef.current = {
-                hasCompleted: true,
-                completionTimestamp: Date.now()
-            };
-            
-            // Add a slight delay to avoid conflicts with other state updates
-            const timer = setTimeout(() => {
-                // Only reset isAutocompletingChapter to avoid showing 0/0 notifications
-                setIsAutocompletingChapter(false);
-            }, 300);
-            
-            // Clean up the timer
-            return () => clearTimeout(timer);
-        }
-    }, [cellsAutoCompleted, totalCellsToAutoComplete]);
-
-    // Modify the server message handler
-    useEffect(() => {
-        // This is a backup listener for server messages
-        const handleServerMessages = (event: MessageEvent) => {
-            const message = event.data;
-            
-            // Look for completion signal
-            if (message.type === "providerCompletesChapterAutocompletion") {
-                console.log("EXPLICIT COMPLETION SIGNAL RECEIVED, forcing reset of autocompletion state");
-                
-                // Mark as completed
-                completionStateRef.current = {
-                    hasCompleted: true,
-                    completionTimestamp: Date.now()
-                };
-                
-                // Only mark as not autocompletingChapter, but preserve current progress values
-                // This prevents the notification from re-appearing with 0/0
-                setIsAutocompletingChapter(false);
-            }
-            
-            // Also look for cell updates with progress data
-            if (message.type === "providerUpdatesCell" && message.content?.progress) {
-                const progress = message.content.progress;
-                console.log(`Server progress update: ${progress * 100}%`);
-                
-                // Check if we've recently marked as completed
-                const hasRecentlyCompleted = 
-                    completionStateRef.current.hasCompleted && 
-                    completionStateRef.current.completionTimestamp && 
-                    (Date.now() - completionStateRef.current.completionTimestamp) < 10000;
-                
-                // If we've already completed, don't process these updates
-                if (hasRecentlyCompleted) {
-                    console.log("Ignoring server progress update - already completed");
-                    return;
-                }
-                
-                // If progress is at or near 100%, force reset
-                if (progress >= 0.999) {
-                    console.log("Server reports 100% progress, forcing reset");
-                    
-                    // Mark as completed
-                    completionStateRef.current = {
-                        hasCompleted: true,
-                        completionTimestamp: Date.now()
-                    };
-                    
-                    setTimeout(() => {
-                        setIsAutocompletingChapter(false);
-                    }, 300);
-                }
+        return () => {
+            // Cancel any in-progress autocompletion when component unmounts
+            if (autocompletionState.isProcessing) {
+                vscode.postMessage({
+                    command: "stopAutocompleteChapter"
+                } as EditorPostMessages);
             }
         };
-        
-        window.addEventListener("message", handleServerMessages);
-        return () => window.removeEventListener("message", handleServerMessages);
-    }, []);
+    }, [autocompletionState.isProcessing]);
 
-    // Add a reference to store the last progress value and timestamp
-    const lastProgressRef = useRef<{ value: number | null; timestamp: number }>({ 
-        value: null, 
-        timestamp: Date.now() 
-    });
-
-    // Add an interval check to detect if autocompletion gets stuck
-    useEffect(() => {
-        // Only start monitoring if autocomplete is in progress
-        if (!isAutocompletingChapter) {
-            return;
-        }
-        
-        console.log("Starting progress monitoring interval");
-        
-        // Check every 5 seconds if progress has stalled
-        const intervalId = setInterval(() => {
-            const currentTime = Date.now();
-            const progressRef = lastProgressRef.current;
-            
-            // If no progress updates for 15 seconds and we're still in autocomplete mode
-            if (progressRef.value !== null && 
-                currentTime - progressRef.timestamp > 15000 && 
-                isAutocompletingChapter) {
-                
-                console.log("No progress updates for 15+ seconds, force resetting state");
-                
-                // Force reset all state
-                setIsAutocompletingChapter(false);
-                setAutocompletionProgress(null);
-                setCellsAutoCompleted(0);
-                setTotalCellsToAutoComplete(0);
-            }
-        }, 5000);
-        
-        return () => clearInterval(intervalId);
-    }, [isAutocompletingChapter]);
-
-    // Update the progress reference whenever autocompletionProgress changes
-    useEffect(() => {
-        if (autocompletionProgress !== null) {
-            lastProgressRef.current = {
-                value: autocompletionProgress,
-                timestamp: Date.now()
-            };
-        }
-    }, [autocompletionProgress]);
-
-    // Add debug effect to monitor autocomplete state changes
-    useEffect(() => {
-        console.log("Autocomplete State:", {
-            isAutocompletingChapter,
-            autocompletionProgress,
-            totalCellsToAutoComplete,
-            cellsAutoCompleted
-        });
-    }, [isAutocompletingChapter, autocompletionProgress, totalCellsToAutoComplete, cellsAutoCompleted]);
-
-    // Add a new useEffect to handle calculating completedCells based on cellsToProcess
-    useEffect(() => {
-        if (isAutocompletingChapter && totalCellsToAutoComplete > 0) {
-            // Calculate completed cells based on the cells that have been removed from cellsToProcess
-            const completed = totalCellsToAutoComplete - cellsToProcess.length;
-            
-            // Only update if the calculated value is different from the current value
-            if (completed !== cellsAutoCompleted) {
-                console.log(`Updating cellsAutoCompleted based on cellsToProcess: ${completed}/${totalCellsToAutoComplete}`);
-                setCellsAutoCompleted(completed);
-            }
-        }
-    }, [cellsToProcess, isAutocompletingChapter, totalCellsToAutoComplete]);
-
-    // Also, add a better listener for server messages about cell updates
-    // Add this useEffect after the other message handlers
-    useEffect(() => {
-        const handleCellUpdateMessages = (event: MessageEvent) => {
-            const message = event.data;
-            
-            // Look specifically for cell updates with progress info
-            if (message.type === "providerUpdatesCell" && message.content) {
-                // Extract the data we need
-                const { cellId, progress, newContent } = message.content;
-                
-                console.log(`📡 Cell update message received: ${cellId}, Progress: ${Math.round((progress || 0) * 100)}%`);
-                
-                // Check if we're already completed
-                const hasRecentlyCompleted = 
-                    completionStateRef.current.hasCompleted && 
-                    completionStateRef.current.completionTimestamp && 
-                    (Date.now() - completionStateRef.current.completionTimestamp) < 10000;
-                
-                if (hasRecentlyCompleted) {
-                    console.log("Ignoring cell update - already completed");
-                    return;
-                }
-                
-                // Update currently processing cell ID
-                if (cellId && cellId !== "initialization" && cellId !== "completion") {
-                    setCurrentProcessingCellId(cellId);
-                    
-                    // Track completed cells
-                    if (cellsToProcess.includes(cellId)) {
-                        console.log(`✅ Direct message handler marking cell ${cellId} as completed`);
-                        setCellsToProcess(prev => {
-                            const updated = prev.filter(id => id !== cellId);
-                            return updated;
-                        });
-                        
-                        // Directly update completed cells count
-                        setCellsAutoCompleted(prev => {
-                            const newValue = prev + 1;
-                            console.log(`📊 Direct handler - Completed cells: ${newValue}/${totalCellsToAutoComplete}`);
-                            return newValue;
-                        });
-                    }
-                }
-                
-                // If we're at 100% progress, mark as completed
-                if (typeof progress === 'number' && progress >= 0.999) {
-                    completionStateRef.current = {
-                        hasCompleted: true,
-                        completionTimestamp: Date.now()
-                    };
-                    
-                    // Set a timeout to turn off the notification
-                    setTimeout(() => {
-                        setIsAutocompletingChapter(false);
-                    }, 300);
-                }
-                // Otherwise update progress normally
-                else if (typeof progress === 'number' && !hasRecentlyCompleted) {
-                    setAutocompletionProgress(progress);
-                    setIsAutocompletingChapter(true);
-                }
-            }
-        };
-        
-        window.addEventListener("message", handleCellUpdateMessages);
-        return () => window.removeEventListener("message", handleCellUpdateMessages);
-    }, [cellsToProcess, totalCellsToAutoComplete]);
-
-    // Add this useEffect to listen for single cell translation messages
-    useEffect(() => {
-        const handleSingleCellTranslation = (event: MessageEvent) => {
-            if (event.data.type === "singleCellTranslationStarted") {
-                console.log("Single cell translation started", event.data);
-                setIsSingleCellTranslating(true);
-                setSingleCellId(event.data.cellId);
-                setSingleCellProgress(0);
-            } else if (event.data.type === "singleCellTranslationProgress") {
-                console.log("Single cell translation progress", event.data);
-                setSingleCellProgress(event.data.progress);
-            } else if (event.data.type === "singleCellTranslationCompleted") {
-                console.log("Single cell translation completed", event.data);
-                // Set progress to 100% first
-                setSingleCellProgress(1);
-                
-                // Then delay clearing the notification
-                setTimeout(() => {
-                    setIsSingleCellTranslating(false);
-                    setSingleCellId(undefined);
-                    setSingleCellProgress(null);
-                }, 1500); // Keep showing 100% for 1.5 seconds
-            } else if (event.data.type === "singleCellTranslationFailed") {
-                console.log("Single cell translation failed", event.data);
-                setIsSingleCellTranslating(false);
-                setSingleCellId(undefined);
-                setSingleCellProgress(null);
-            } else if (event.data.type === "providerSendsLLMCompletionResponse") {
-                console.log("LLM completion response received", event.data);
-                // Set progress to 100%
-                setSingleCellProgress(1);
-                
-                // Then delay clearing the notification
-                setTimeout(() => {
-                    setIsSingleCellTranslating(false);
-                    setSingleCellId(undefined);
-                    setSingleCellProgress(null);
-                }, 1500); // Keep showing 100% for 1.5 seconds
-            }
-        };
-        
-        window.addEventListener("message", handleSingleCellTranslation);
-        return () => window.removeEventListener("message", handleSingleCellTranslation);
-    }, []);
-
-    // Add a function to handle clicks on the sparkle button
+    // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
         console.log("Sparkle button clicked for cell", cellId);
         
-        // Start showing the progress notification
-        setIsSingleCellTranslating(true);
-        setSingleCellId(cellId);
-        setSingleCellProgress(0.1); // Start with 10% to show immediate feedback
-        
-        // Post the message to initiate LLM completion
+        // Request translation - provider will update state
         vscode.postMessage({
             command: "llmCompletion",
             content: {
@@ -1215,12 +797,12 @@ const CodexCellEditor: React.FC = () => {
                 </div>
             </div>
             <ProgressNotification 
-                progress={isAutocompletingChapter ? autocompletionProgress : singleCellProgress}
-                totalCells={isAutocompletingChapter ? totalCellsToAutoComplete : 1}
-                completedCells={isAutocompletingChapter ? cellsAutoCompleted : (singleCellProgress === 1 ? 1 : 0)}
-                isVisible={isAutocompletingChapter || isSingleCellTranslating}
-                currentCellId={isAutocompletingChapter ? currentProcessingCellId : singleCellId}
-                isSingleCell={isSingleCellTranslating}
+                progress={autocompletionState.isProcessing ? autocompletionState.progress : singleCellTranslationState.progress}
+                totalCells={autocompletionState.isProcessing ? autocompletionState.totalCells : 1}
+                completedCells={autocompletionState.isProcessing ? autocompletionState.completedCells : (singleCellTranslationState.progress === 1 ? 1 : 0)}
+                isVisible={autocompletionState.isProcessing || singleCellTranslationState.isProcessing}
+                currentCellId={autocompletionState.isProcessing ? autocompletionState.currentCellId : singleCellTranslationState.cellId}
+                isSingleCell={singleCellTranslationState.isProcessing}
             />
         </div>
     );
