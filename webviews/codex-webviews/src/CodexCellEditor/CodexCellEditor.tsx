@@ -104,16 +104,17 @@ const CodexCellEditor: React.FC = () => {
         progress: 0
     });
     
-    // Keep these state variables for backward compatibility and UI display
-    const [isAutocompletingChapter, setIsAutocompletingChapter] = useState<boolean>(false);
-    const [totalCellsToAutoComplete, setTotalCellsToAutoComplete] = useState<number>(0);
-    const [cellsAutoCompleted, setCellsAutoCompleted] = useState<number>(0);
-    const [autocompletionProgress, setAutocompletionProgress] = useState<number | null>(null);
-    const [currentProcessingCellId, setCurrentProcessingCellId] = useState<string | undefined>(undefined);
+    // Instead of separate state variables, use computed properties
+    // These provide backward compatibility for any code that might use these variables
+    const isAutocompletingChapter = autocompletionState.isProcessing;
+    const totalCellsToAutoComplete = autocompletionState.totalCells;
+    const cellsAutoCompleted = autocompletionState.completedCells;
+    const autocompletionProgress = autocompletionState.progress;
+    const currentProcessingCellId = autocompletionState.currentCellId;
     
-    const [isSingleCellTranslating, setIsSingleCellTranslating] = useState(false);
-    const [singleCellId, setSingleCellId] = useState<string | undefined>(undefined);
-    const [singleCellProgress, setSingleCellProgress] = useState<number | null>(null);
+    const isSingleCellTranslating = singleCellTranslationState.isProcessing;
+    const singleCellId = singleCellTranslationState.cellId;
+    const singleCellProgress = singleCellTranslationState.progress;
     
     // Required state variables that were removed
     const [spellCheckResponse, setSpellCheckResponse] = useState<SpellCheckResponse | null>(null);
@@ -154,21 +155,6 @@ const CodexCellEditor: React.FC = () => {
         checkAlertCodes();
     }, [translationUnits]);
 
-    // Update local state when provider sends updated state
-    useEffect(() => {
-        // Sync local state with provider state for autocompletion
-        setIsAutocompletingChapter(autocompletionState.isProcessing);
-        setTotalCellsToAutoComplete(autocompletionState.totalCells);
-        setCellsAutoCompleted(autocompletionState.completedCells);
-        setCurrentProcessingCellId(autocompletionState.currentCellId);
-        setAutocompletionProgress(autocompletionState.progress);
-        
-        // Sync local state with provider state for single cell translation
-        setIsSingleCellTranslating(singleCellTranslationState.isProcessing);
-        setSingleCellId(singleCellTranslationState.cellId);
-        setSingleCellProgress(singleCellTranslationState.progress);
-    }, [autocompletionState, singleCellTranslationState]);
-
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -198,12 +184,6 @@ const CodexCellEditor: React.FC = () => {
                     )
                 );
             }
-            
-            if (data.cellId !== "initialization" && data.cellId !== "completion") {
-                setCurrentProcessingCellId(data.cellId);
-            }
-            
-            setAutocompletionProgress(data.progress);
         },
         
         // Add this for compatibility
