@@ -12,6 +12,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import ValidationButton from "./ValidationButton";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -25,6 +26,7 @@ interface CellContentDisplayProps {
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
     cellLabelOrGeneratedLabel: string;
+    isInTranslationProcess?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -45,6 +47,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     highlightedCellId,
     scrollSyncEnabled,
     cellLabelOrGeneratedLabel,
+    isInTranslationProcess = false,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -96,6 +99,24 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 currentLineId: cellIds[0],
             },
         } as EditorPostMessages);
+    };
+
+    // Handler for stopping translation when clicked on the spinner
+    const handleStopTranslation = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent the cell click handler from firing
+        
+        // If we're in a translation process, stop it
+        if (isInTranslationProcess) {
+            // Stop autocomplete chapter
+            vscode.postMessage({
+                command: "stopAutocompleteChapter"
+            } as EditorPostMessages);
+            
+            // Also stop single cell translations
+            vscode.postMessage({
+                command: "stopSingleCellTranslation"
+            } as any); // Use any type to bypass type checking
+        }
     };
 
     const displayLabel =
@@ -158,14 +179,24 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         >
             <div className="cell-header">
                 <div className="cell-actions">
-                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
-                        <ValidationButton
-                            cellId={cellIds[0]}
-                            cell={cell}
-                            vscode={vscode}
-                            isSourceText={isSourceText}
-                        />
-                    )}
+                    <div className="action-button-container">
+                        {!isSourceText && isInTranslationProcess && (
+                            <VSCodeButton
+                                appearance="icon"
+                                onClick={handleStopTranslation}
+                            >
+                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                            </VSCodeButton>
+                        )}
+                        {!isSourceText && SHOW_VALIDATION_BUTTON && !isInTranslationProcess && (
+                            <ValidationButton
+                                cellId={cellIds[0]}
+                                cell={cell}
+                                vscode={vscode}
+                                isSourceText={isSourceText}
+                            />
+                        )}
+                    </div>
                     {getAlertDot()}
                 </div>
                 <div className="cell-label">

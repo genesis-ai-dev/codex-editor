@@ -1,5 +1,5 @@
 import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
-import React, { useMemo, useCallback, useState, useEffect } from "react";
+import React, { useMemo, useCallback, useState, useEffect, useRef } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
@@ -24,6 +24,9 @@ export interface CellListProps {
     alertColorCodes: { [cellId: string]: number };
     highlightedCellId: string | null;
     scrollSyncEnabled: boolean;
+    translationQueue?: string[]; // Queue of cells waiting for translation
+    currentProcessingCellId?: string; // Currently processing cell ID
+    cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
 }
 
 const DEBUG_ENABLED = false;
@@ -49,6 +52,9 @@ const CellList: React.FC<CellListProps> = ({
     alertColorCodes,
     highlightedCellId,
     scrollSyncEnabled,
+    translationQueue = [],
+    currentProcessingCellId,
+    cellsInAutocompleteQueue = [],
 }) => {
     const numberOfEmptyCellsToRender = 1;
 
@@ -66,6 +72,34 @@ const CellList: React.FC<CellListProps> = ({
 
         return duplicates;
     }, [translationUnits]);
+    
+    // Helper function to check if a cell is in the translation queue or currently processing
+    const isCellInTranslationProcess = useCallback((cellId: string) => {
+        return translationQueue.includes(cellId) || 
+               cellId === currentProcessingCellId || 
+               cellsInAutocompleteQueue.includes(cellId);
+    }, [translationQueue, currentProcessingCellId, cellsInAutocompleteQueue]);
+
+    // Handle sparkle button click
+    const handleCellTranslation = useCallback((cellId: string) => {
+        // Skip if this cell is already being translated
+        if (isCellInTranslationProcess(cellId)) {
+            return;
+        }
+        
+        // Call the global handler function
+        if (typeof (window as any).handleSparkleButtonClick === 'function') {
+            (window as any).handleSparkleButtonClick(cellId);
+        } else {
+            vscode.postMessage({
+                command: "llmCompletion",
+                content: {
+                    currentLineId: cellId,
+                    addContentToValue: true,
+                },
+            });
+        }
+    }, [isCellInTranslationProcess, vscode]);
 
     // Helper function to generate appropriate cell label
     const generateCellLabel = useCallback(
@@ -168,6 +202,7 @@ const CellList: React.FC<CellListProps> = ({
                                 alertColorCode={alertColorCodes[cellMarkers[0]]}
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
+                                isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                             />
                         </span>
                     );
@@ -185,6 +220,7 @@ const CellList: React.FC<CellListProps> = ({
             scrollSyncEnabled,
             alertColorCodes,
             generateCellLabel,
+            isCellInTranslationProcess,
         ]
     );
 
@@ -300,22 +336,10 @@ const CellList: React.FC<CellListProps> = ({
                                 <VSCodeButton
                                     appearance="icon"
                                     style={{ height: "15px" }}
-                                    onClick={() => {
-                                        if (typeof (window as any).handleSparkleButtonClick === 'function') {
-                                            (window as any).handleSparkleButtonClick(cellMarkers[0]);
-                                        } else {
-                                            vscode.postMessage({
-                                                command: "llmCompletion",
-                                                content: {
-                                                    currentLineId: cellMarkers[0],
-                                                    addContentToValue: true,
-                                                },
-                                            });
-                                        }
-                                    }}
+                                    onClick={() => handleCellTranslation(cellMarkers[0])}
                                 >
                                     <i
-                                        className="codicon codicon-sparkle"
+                                        className={`codicon ${isCellInTranslationProcess(cellMarkers[0]) ? "codicon-loading" : "codicon-sparkle"} ${isCellInTranslationProcess(cellMarkers[0]) ? "codicon-modifier-spin" : ""}`}
                                         style={{ fontSize: "12px" }}
                                     ></i>
                                 </VSCodeButton>
@@ -370,6 +394,8 @@ const CellList: React.FC<CellListProps> = ({
         openCellById,
         cellDisplayMode,
         generateCellLabel,
+        handleCellTranslation,
+        isCellInTranslationProcess,
     ]);
 
     // Debug log to see the structure of translationUnits

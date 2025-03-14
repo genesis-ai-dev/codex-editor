@@ -304,6 +304,8 @@ interface ChapterNavigationProps {
     toggleScrollSync: () => void;
     scrollSyncEnabled: boolean;
     translationUnitsForSection: QuillCellContent[];
+    isTranslatingCell?: boolean;
+    onStopSingleCellTranslation?: () => void;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -334,6 +336,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     toggleScrollSync,
     scrollSyncEnabled,
     translationUnitsForSection,
+    isTranslatingCell = false,
+    onStopSingleCellTranslation,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -381,6 +385,19 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             onUpdateVideoUrl(metadata.videoUrl);
         }
     };
+
+    // Helper to determine if any translation is in progress (either autocomplete or single cell)
+    const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
+    
+    // Common handler for stopping any kind of translation
+    const handleStopTranslation = () => {
+        if (isAutocompletingChapter) {
+            onStopAutocomplete();
+        } else if (isTranslatingCell && onStopSingleCellTranslation) {
+            onStopSingleCellTranslation();
+        }
+    };
+
     const buttonGap = "0.5rem";
 
     return (
@@ -462,11 +479,11 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
                 {!isSourceText && (
                     <>
-                        {isAutocompletingChapter ? (
+                        {isAnyTranslationInProgress ? (
                             <VSCodeButton
                                 appearance="icon"
-                                onClick={onStopAutocomplete}
-                                title="Stop Autocomplete"
+                                onClick={handleStopTranslation}
+                                title={isAutocompletingChapter ? "Stop Autocomplete" : "Stop Translation"}
                                 style={{
                                     backgroundColor: 'var(--vscode-editor-findMatchHighlightBackground)',
                                     borderRadius: '4px'

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useContext } from "react";
+import React, { useState, useEffect, useRef, useMemo, useContext, useCallback } from "react";
 import ReactPlayer from "react-player";
 import Quill from "quill";
 import {
@@ -28,7 +28,6 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { CodexCellTypes } from "types/enums";
 import { getCellValueData } from "./utils/shareUtils";
 import { isValidValidationEntry } from "./ValidationButton";
-import ProgressNotification from './ProgressNotification';
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -54,6 +53,16 @@ const CodexCellEditor: React.FC = () => {
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const { setContentToScrollTo } = useContext(ScrollToContentContext);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
+    
+    // Translation queue state for single cell translations
+    const [translationQueue, setTranslationQueue] = useState<string[]>([]);
+    // Flag to track if a cell is currently being translated
+    const [isProcessingCell, setIsProcessingCell] = useState<boolean>(false);
+    // Currently processing cell ID
+    const [singleCellQueueProcessingId, setSingleCellQueueProcessingId] = useState<string | undefined>(undefined);
+    
+    // Keep track of cell content for detecting changes
+    const cellContentMapRef = useRef<Map<string, string>>(new Map());
     
     // Basic state variables
     const [chapterNumber, setChapterNumber] = useState<number>(
@@ -126,6 +135,9 @@ const CodexCellEditor: React.FC = () => {
     // video URL back to the extension so the user can save or cancel the change.
     const [tempVideoUrl, setTempVideoUrl] = useState<string>("");
     
+    // Debug timestamp to track when a cell started processing
+    const processingStartTimeRef = useRef<number | null>(null);
+    
     const handleSetContentBeingUpdated = (content: EditorCellContent) => {
         setContentBeingUpdated(content);
         setCurrentEditingCellId(content.cellMarkers?.[0] || null);
@@ -172,6 +184,9 @@ const CodexCellEditor: React.FC = () => {
         },
         updateCell: (data) => {
             if (data.cellId !== "initialization" && data.cellId !== "completion" && data.newContent) {
+                console.log(`Cell update received for: ${data.cellId}, current processing: ${singleCellQueueProcessingId}`);
+                
+                // Update the translation units first
                 setTranslationUnits((prevUnits) =>
                     prevUnits.map((unit) =>
                         unit.cellMarkers[0] === data.cellId
@@ -183,6 +198,16 @@ const CodexCellEditor: React.FC = () => {
                             : unit
                     )
                 );
+                
+                // Check if this is the cell we're currently processing
+                if (data.cellId === singleCellQueueProcessingId) {
+                    console.log(`Cell translation completed: ${data.cellId}. Resetting processing state.`);
+                    
+                    // Reset processing state to allow the next cell to be processed
+                    // Important: call both state updates in sequence to ensure they happen in the same render cycle
+                    setSingleCellQueueProcessingId(undefined);
+                    setIsProcessingCell(false);
+                }
             }
         },
         
@@ -214,6 +239,16 @@ const CodexCellEditor: React.FC = () => {
         setAlertColorCodes: setAlertColorCodes,
         recheckAlertCodes: () => {
             checkAlertCodes();
+        },
+        // Use cellError handler instead of showErrorMessage
+        cellError: (data) => {
+            console.log(`Error with cell: ${data.cellId}, index: ${data.index}, total: ${data.totalCells}`);
+            
+            // If we're currently processing a cell that matches, assume it failed
+            if (isProcessingCell && singleCellQueueProcessingId === data.cellId) {
+                console.log(`Handling error for currently processing cell: ${singleCellQueueProcessingId}`);
+                handleTranslationError(singleCellQueueProcessingId);
+            }
         },
     });
 
@@ -667,25 +702,212 @@ const CodexCellEditor: React.FC = () => {
         };
     }, [autocompletionState.isProcessing]);
 
+    // Handle cells in the queue sequentially
+    useEffect(() => {
+        if (translationQueue.length === 0) {
+            // No items in queue
+            return;
+        }
+        
+        if (isProcessingCell) {
+            // Already processing a cell
+            console.log(`Currently processing cell: ${singleCellQueueProcessingId}, queue: [${translationQueue.join(', ')}]`);
+            return;
+        }
+        
+        // Get the next cell to process
+        const nextCellId = translationQueue[0];
+        console.log(`Processing next cell in queue: ${nextCellId}. Queue length: ${translationQueue.length}`);
+        
+        // First update the queue by removing the cell we're about to process
+        // This is important to do first to avoid race conditions
+        setTranslationQueue(prev => {
+            const remaining = prev.slice(1);
+            console.log(`Updated queue after removing current cell: [${remaining.join(', ')}]`);
+            return remaining;
+        });
+        
+        // Set the processing start time for tracking
+        processingStartTimeRef.current = Date.now();
+        
+        // Then update processing state
+        setSingleCellQueueProcessingId(nextCellId);
+        setIsProcessingCell(true);
+        
+        // Send the translation request - do this outside of state updates
+        setTimeout(() => {
+            console.log(`Sending translation request for: ${nextCellId}`);
+            vscode.postMessage({
+                command: "llmCompletion",
+                content: {
+                    currentLineId: nextCellId,
+                    addContentToValue: true,
+                },
+            });
+        }, 0);
+        
+        // Set up a safety timeout in case the cell never completes
+        const safetyTimeout = setTimeout(() => {
+            console.log(`Safety timeout for cell: ${nextCellId}`);
+            if (singleCellQueueProcessingId === nextCellId && isProcessingCell) {
+                console.log("Forcing queue to continue");
+                setSingleCellQueueProcessingId(undefined);
+                setIsProcessingCell(false);
+            }
+        }, 30000); // 30 second timeout
+        
+        return () => clearTimeout(safetyTimeout);
+    }, [translationQueue, isProcessingCell, singleCellQueueProcessingId]);
+
+    // Add an additional safeguard to detect if a cell has been processing for too long
+    useEffect(() => {
+        if (!isProcessingCell) {
+            // Reset the timer when not processing
+            processingStartTimeRef.current = null;
+            return;
+        }
+        
+        // Set up an interval to check if we've been processing too long
+        const checkInterval = setInterval(() => {
+            if (processingStartTimeRef.current && isProcessingCell) {
+                const processingTime = Date.now() - processingStartTimeRef.current;
+                if (processingTime > 20000) { // 20 seconds
+                    console.log(`Cell ${singleCellQueueProcessingId} has been processing for ${processingTime}ms, which seems excessive`);
+                }
+                
+                if (processingTime > 45000) { // 45 seconds (before the 60s timeout)
+                    console.log(`WARNING: Cell ${singleCellQueueProcessingId} has been processing for ${processingTime}ms. Forcing reset.`);
+                    // Reset state to allow next cell to process
+                    setSingleCellQueueProcessingId(undefined);
+                    setIsProcessingCell(false);
+                    processingStartTimeRef.current = null;
+                }
+            }
+        }, 5000); // Check every 5 seconds
+        
+        return () => clearInterval(checkInterval);
+    }, [isProcessingCell, singleCellQueueProcessingId]);
+
     // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
-        console.log("Sparkle button clicked for cell", cellId);
+        console.log(`Sparkle button clicked for cell: ${cellId}`);
         
-        // Request translation - provider will update state
-        vscode.postMessage({
-            command: "llmCompletion",
-            content: {
-                currentLineId: cellId,
-                addContentToValue: true,
-            },
+        // Add the cell to the queue instead of processing immediately
+        setTranslationQueue(queue => {
+            // Check if this cell is already in the queue or is currently processing
+            if (queue.includes(cellId) || cellId === singleCellQueueProcessingId) {
+                console.log(`Cell already in queue or processing: ${cellId}`);
+                return queue; // Return unchanged queue
+            }
+            
+            // Check that the cell ID is valid
+            if (!cellId || cellId.trim() === '') {
+                console.log("Invalid cell ID, skipping:", cellId);
+                return queue;
+            }
+            
+            console.log(`Adding cell to translation queue: ${cellId}. Current queue length: ${queue.length}`);
+            
+            // Create a new queue with the cell added
+            const newQueue = [...queue, cellId];
+            
+            // Debug info
+            console.log(`Updated queue: [${newQueue.join(', ')}]`);
+            return newQueue;
         });
     };
+
+    // Error handler for failed translations
+    const handleTranslationError = useCallback((cellId: string) => {
+        console.log(`Translation failed for cell: ${cellId}`);
+        
+        // Reset the processing state so the queue can continue
+        setIsProcessingCell(false);
+        setSingleCellQueueProcessingId(undefined);
+        
+        // Could show an error message here if desired
+    }, []);
+    
+    // Handler to stop all single-cell translations
+    const handleStopSingleCellTranslation = useCallback(() => {
+        console.log("Stopping pending cell translations");
+        
+        // Only clear the queue, but keep the currently processing cell active
+        // This ensures the spinner continues showing for cells already being translated
+        setTranslationQueue([]);
+        
+        // Don't reset processing state for the currently processing cell
+        // We want to keep the spinner showing for that cell since a response will eventually come back
+        
+        console.log(`Queue cleared. Currently processing cell (${singleCellQueueProcessingId}) will complete normally.`);
+    }, [singleCellQueueProcessingId]);
 
     // Modify the existing code to expose this function
     useEffect(() => {
         // Make the sparkle button handler available to the CellList component
         (window as any).handleSparkleButtonClick = handleSparkleButtonClick;
-    }, []);
+        
+        // Also make the error handler available
+        (window as any).handleTranslationError = handleTranslationError;
+    }, [handleTranslationError]);
+
+    // Add a monitoring effect to detect stuck translations
+    useEffect(() => {
+        // If we're processing a cell, set up a timeout to detect if it gets stuck
+        if (isProcessingCell && singleCellQueueProcessingId) {
+            console.log(`Setting up stuck translation monitor for cell: ${singleCellQueueProcessingId}`);
+            
+            const stuckTimeout = setTimeout(() => {
+                if (isProcessingCell && singleCellQueueProcessingId) {
+                    console.log(`Cell translation appears stuck: ${singleCellQueueProcessingId}`);
+                    
+                    // Reset processing state to continue the queue
+                    handleTranslationError(singleCellQueueProcessingId);
+                }
+            }, 60000); // 60 seconds should be more than enough for any normal translation
+            
+            return () => clearTimeout(stuckTimeout);
+        }
+    }, [isProcessingCell, singleCellQueueProcessingId, handleTranslationError]);
+
+    // Add a special effect to detect content changes that might indicate a completed translation
+    useEffect(() => {
+        // If we're processing a cell, check if its content has changed
+        if (isProcessingCell && singleCellQueueProcessingId) {
+            // Find this cell in the current translation units
+            const cell = translationUnits.find(unit => unit.cellMarkers[0] === singleCellQueueProcessingId);
+            
+            if (cell) {
+                // Get previous content (if we've seen this cell before)
+                const previousContent = cellContentMapRef.current.get(singleCellQueueProcessingId);
+                
+                // If we have previous content and it's different from current, the translation likely completed
+                if (previousContent !== undefined && 
+                    previousContent !== cell.cellContent && 
+                    cell.cellContent.trim().length > 0) {
+                    
+                    console.log(`Detected content change for cell ${singleCellQueueProcessingId}!`);
+                    console.log(`Previous: "${previousContent.substring(0, 50)}..."`);
+                    console.log(`Current: "${cell.cellContent.substring(0, 50)}..."`);
+                    
+                    // Content has changed, mark translation as complete
+                    console.log(`Cell content changed - assuming translation complete for ${singleCellQueueProcessingId}`);
+                    setSingleCellQueueProcessingId(undefined);
+                    setIsProcessingCell(false);
+                }
+                
+                // Always update our content map with the latest
+                cellContentMapRef.current.set(singleCellQueueProcessingId, cell.cellContent);
+            }
+        }
+        
+        // Keep our content map updated with all cells' content
+        translationUnits.forEach(unit => {
+            if (unit.cellMarkers[0]) {
+                cellContentMapRef.current.set(unit.cellMarkers[0], unit.cellContent);
+            }
+        });
+    }, [translationUnits, isProcessingCell, singleCellQueueProcessingId]);
 
     return (
         <div className="codex-cell-editor">
@@ -733,6 +955,8 @@ const CodexCellEditor: React.FC = () => {
                         toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                         scrollSyncEnabled={scrollSyncEnabled}
                         translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                        isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
+                        onStopSingleCellTranslation={handleStopSingleCellTranslation}
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
@@ -773,17 +997,16 @@ const CodexCellEditor: React.FC = () => {
                         alertColorCodes={alertColorCodes}
                         highlightedCellId={highlightedCellId}
                         scrollSyncEnabled={scrollSyncEnabled}
+                        translationQueue={translationQueue}
+                        currentProcessingCellId={singleCellQueueProcessingId}
+                        cellsInAutocompleteQueue={autocompletionState.isProcessing ? 
+                            autocompletionState.cellsToProcess : 
+                            // Keep showing spinner for current processing cell even if autocomplete was canceled
+                            (autocompletionState.currentCellId ? [autocompletionState.currentCellId] : [])
+                        }
                     />
                 </div>
             </div>
-            <ProgressNotification 
-                progress={autocompletionState.isProcessing ? autocompletionState.progress : singleCellTranslationState.progress}
-                totalCells={autocompletionState.isProcessing ? autocompletionState.totalCells : 1}
-                completedCells={autocompletionState.isProcessing ? autocompletionState.completedCells : (singleCellTranslationState.progress === 1 ? 1 : 0)}
-                isVisible={autocompletionState.isProcessing || singleCellTranslationState.isProcessing}
-                currentCellId={autocompletionState.isProcessing ? autocompletionState.currentCellId : singleCellTranslationState.cellId}
-                isSingleCell={singleCellTranslationState.isProcessing}
-            />
         </div>
     );
 };

@@ -399,14 +399,18 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 title={showPopover ? "" : buttonTitle}
                 style={{
                     padding: "0",
-                    minWidth: "18px",
-                    height: "18px",
+                    minWidth: "15px",
+                    height: "15px",
+                    width: "15px",
                     backgroundColor: "transparent",
                     border: "1px solid transparent", // Always have a 1px border, but transparent
                     borderRadius: "4px",
                     transition: "all 0.2s ease",
                     opacity: isValidated ? 1 : 0.6,
                     transform: isValidated ? "scale(1)" : "scale(0.95)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
                 }}
             >
                 <i

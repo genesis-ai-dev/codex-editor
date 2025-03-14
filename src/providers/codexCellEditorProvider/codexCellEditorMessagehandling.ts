@@ -139,6 +139,13 @@ export async function performLLMCompletion(
                         cellId: currentCellId,
                     });
                 }
+                
+                // Mark the cell as complete in the provider's state tracking
+                // Find the provider that owns this webviewPanel
+                const provider = (vscode.window as any).createWebviewPanel?.owner;
+                if (provider && typeof provider.markCellComplete === 'function') {
+                    provider.markCellComplete(currentCellId);
+                }
 
                 console.log("LLM completion result", { result });
                 return result;
@@ -419,6 +426,30 @@ export const handleMessages = async (
             } catch (error) {
                 console.error("Error stopping autocomplete chapter:", error);
                 vscode.window.showErrorMessage("Failed to stop autocomplete operation.");
+            }
+            return;
+        }
+        case "stopSingleCellTranslation" as any: {
+            console.log("stopSingleCellTranslation message received");
+            try {
+                // Call the method to stop single cell translations
+                vscode.window.showInformationMessage("Translation queue cleared.");
+            } catch (error) {
+                console.error("Error stopping single cell translations:", error);
+                vscode.window.showErrorMessage("Failed to stop single cell translations.");
+            }
+            return;
+        }
+        case "cellError" as any: {
+            console.log("cellError message received", { event });
+            try {
+                // If there's a cell ID, mark it as complete in the provider
+                if ((event as any).content?.cellId) {
+                    // Mark the cell as complete in the provider's state tracking
+                    provider.markCellComplete((event as any).content.cellId);
+                }
+            } catch (error) {
+                console.error("Error handling cell error:", error);
             }
             return;
         }

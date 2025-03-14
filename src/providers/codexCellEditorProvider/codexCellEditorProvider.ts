@@ -740,12 +740,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("Cancelling chapter autocompletion");
             this.autocompleteCancellation.cancel();
             
-            // Reset state
+            // Store the current cell that was being processed
+            const currentProcessingCell = this.autocompletionState.currentCellId;
+            
+            // Reset state but preserve the currentCellId for the cell that's still being processed
             this.autocompletionState = {
                 isProcessing: false,
                 totalCells: 0,
                 completedCells: 0,
-                currentCellId: undefined,
+                currentCellId: currentProcessingCell, // Keep the current cell ID
                 cellsToProcess: [],
                 progress: 0
             };
@@ -1035,5 +1038,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         
         // Also refresh the validation state to ensure displays are consistent
         this.refreshValidationStateForAllDocuments();
+    }
+
+    // When a cell completes processing (to be called from handleMessages)
+    public markCellComplete(cellId: string) {
+        // If this cell is the current processing cell, clear it
+        if (this.autocompletionState.currentCellId === cellId) {
+            debug(`Cell ${cellId} processing complete, updating state`);
+            
+            // Update state to clear the current cell
+            this.autocompletionState.currentCellId = undefined;
+            
+            // Broadcast the updated state
+            this.broadcastAutocompletionState();
+        }
     }
 }

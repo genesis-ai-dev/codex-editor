@@ -149,6 +149,45 @@
     flex-shrink: 0;
 }
 
+.cell-actions {
+    display: flex;
+    align-items: center;
+    min-width: 20px; /* Ensure consistent width for the action area */
+}
+
+.action-button-container {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    width: 15px !important;
+    height: 15px !important;
+    margin-right: 4px;
+}
+
+/* Styles for the spinner button */
+.action-button-container .codicon-loading {
+    font-size: 12px !important;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-button-container vscode-button {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .cell-header h3 {
     margin: 0;
 }
