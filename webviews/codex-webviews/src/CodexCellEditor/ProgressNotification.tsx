@@ -668,9 +668,20 @@ const ProgressNotification: React.FC<ProgressNotificationProps> = ({
   // Calculate remaining cells
   const remainingCells = Math.max(0, displayTotal - displayCompleted);
   
-  // Get a simple display name for the current cell if available
+  // Get a display name for the current cell that includes the book ID and formats the chapter:verse
   const currentCellName = currentCellId ? 
-    `Cell ${currentCellId.split(" ")[1]?.split(":").join(".")}` : 
+    (() => {
+      const parts = currentCellId.split(" ");
+      // Check if we have at least 2 parts (book and cell reference)
+      if (parts.length >= 2) {
+        const [book, cellRef] = [parts[0], parts[1]];
+        // Format chapter:verse as chapter.verse if possible
+        const formattedCellRef = cellRef?.split(":").join(".");
+        return `${book} ${formattedCellRef}`;
+      }
+      // If the format is unexpected, just return the original ID
+      return currentCellId;
+    })() : 
     "next cell";
 
   return (
