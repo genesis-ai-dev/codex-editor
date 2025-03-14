@@ -998,7 +998,7 @@ const CodexCellEditor: React.FC = () => {
                         highlightedCellId={highlightedCellId}
                         scrollSyncEnabled={scrollSyncEnabled}
                         translationQueue={translationQueue}
-                        currentProcessingCellId={singleCellQueueProcessingId}
+                        currentProcessingCellId={singleCellQueueProcessingId || autocompletionState.currentCellId}
                         cellsInAutocompleteQueue={autocompletionState.isProcessing ? 
                             autocompletionState.cellsToProcess : 
                             // Keep showing spinner for current processing cell even if autocomplete was canceled

@@ -720,15 +720,19 @@ li {
 .cell-display-one-line-per-cell .cell-header {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 0.15rem;
     min-width: 2rem;
     flex-shrink: 0;
+    height: 21px; /* Fixed height for consistent alignment */
 }
 
 .cell-display-one-line-per-cell .cell-actions {
     display: flex;
     align-items: center;
-    gap: 0.15rem;
+    justify-content: center;
+    min-width: 20px; 
+    height: 100%;
 }
 
 .cell-display-one-line-per-cell .cell-label {
@@ -736,6 +740,9 @@ li {
     white-space: nowrap;
     min-width: fit-content;
     line-height: 1.5;
+    display: flex;
+    align-items: center;
+    height: 100%;
 }
 
 .cell-display-one-line-per-cell .cell-content {
@@ -781,4 +788,82 @@ li {
     color: var(--vscode-foreground);
     font-size: 14px;
     user-select: none;
+}
+
+/* Style for cells in different translation states */
+.cell-translation-waiting {
+    border: 2px solid #ff6b6b !important; /* Red */
+    transition: border-color 0.3s ease, opacity 0.8s ease !important;
+    box-shadow: 0 0 5px rgba(255, 107, 107, 0.4) !important;
+    margin: 2px !important;
+}
+
+.cell-translation-processing {
+    border: 2px solid #ffc14d !important; /* Yellow */
+    transition: border-color 0.3s ease, opacity 0.8s ease !important;
+    box-shadow: 0 0 8px rgba(255, 193, 77, 0.5) !important;
+    margin: 2px !important;
+}
+
+.cell-translation-completed {
+    border: 2px solid #4caf50 !important; /* Green */
+    transition: border-color 0.3s ease, opacity 0.8s ease !important;
+    box-shadow: 0 0 5px rgba(76, 175, 80, 0.4) !important;
+    margin: 2px !important;
+}
+
+.cell-translation-fading {
+    border: 2px solid #4caf50 !important; /* Green */
+    opacity: 0 !important;
+    transition: opacity 0.8s ease !important;
+    margin: 2px !important;
+}
+
+/* Animation for translation processing */
+@keyframes pulseBorder {
+    0% {
+        border-color: #ffc14d88;
+        box-shadow: 0 0 3px rgba(255, 193, 77, 0.3);
+    }
+    50% {
+        border-color: #ffc14d;
+        box-shadow: 0 0 10px rgba(255, 193, 77, 0.6);
+    }
+    100% {
+        border-color: #ffc14d88;
+        box-shadow: 0 0 3px rgba(255, 193, 77, 0.3);
+    }
+}
+
+.cell-translation-processing {
+    animation: pulseBorder 1.5s infinite ease-in-out;
+}
+
+/* Add border-radius to all cells with translation state */
+.cell-translation-waiting,
+.cell-translation-processing,
+.cell-translation-completed,
+.cell-translation-fading {
+    border-radius: 4px !important;
+    padding: 2px !important;
+}
+
+/* Special styles for inline mode to handle borders */
+.cell-display-inline .cell-translation-waiting,
+.cell-display-inline .cell-translation-processing,
+.cell-display-inline .cell-translation-completed,
+.cell-display-inline .cell-translation-fading {
+    display: inline-block !important;
+    margin: 0 2px !important;
+}
+
+/* Validation button container styling */
+.validation-button-container {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    position: relative !important;
+    width: 16px !important;
+    height: 16px !important;
+    vertical-align: middle !important;
 }

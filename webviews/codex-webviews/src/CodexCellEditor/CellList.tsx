@@ -57,6 +57,26 @@ const CellList: React.FC<CellListProps> = ({
     cellsInAutocompleteQueue = [],
 }) => {
     const numberOfEmptyCellsToRender = 1;
+    
+    // Add state to track completed translations
+    const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
+    const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
+    
+    // Move useRef hook to component level - this fixes React hooks rule violation
+    const prevQueueRef = useRef<string[]>([]);
+
+    // Add debug logging for translation state tracking
+    useEffect(() => {
+        if (DEBUG_ENABLED) {
+            debug("Translation tracking state updated:", {
+                queue: translationQueue,
+                processing: currentProcessingCellId,
+                autocompleteQueue: cellsInAutocompleteQueue,
+                completed: Array.from(completedTranslations),
+                allComplete: allTranslationsComplete
+            });
+        }
+    }, [translationQueue, currentProcessingCellId, cellsInAutocompleteQueue, completedTranslations, allTranslationsComplete]);
 
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -79,6 +99,83 @@ const CellList: React.FC<CellListProps> = ({
                cellId === currentProcessingCellId || 
                cellsInAutocompleteQueue.includes(cellId);
     }, [translationQueue, currentProcessingCellId, cellsInAutocompleteQueue]);
+    
+    // Track cells that move from processing to completed
+    useEffect(() => {
+        if (!currentProcessingCellId) return;
+        
+        if (DEBUG_ENABLED) {
+            debug("Current processing cell updated:", currentProcessingCellId);
+        }
+        
+        // When a cell is no longer the current processing cell, mark it as completed
+        const checkForCompletion = () => {
+            if (currentProcessingCellId) {
+                if (DEBUG_ENABLED) {
+                    debug("Cell completed:", currentProcessingCellId);
+                }
+                
+                setCompletedTranslations(prev => {
+                    const newSet = new Set(prev);
+                    newSet.add(currentProcessingCellId);
+                    return newSet;
+                });
+            }
+        };
+        
+        // Set up cleanup function to run when currentProcessingCellId changes
+        return () => {
+            checkForCompletion();
+        };
+    }, [currentProcessingCellId]);
+
+    // Initialize prevQueueRef when component mounts
+    useEffect(() => {
+        prevQueueRef.current = [...cellsInAutocompleteQueue];
+    }, [cellsInAutocompleteQueue]);
+
+    // Helper function to determine the translation state of a cell
+    const getCellTranslationState = useCallback((cellId: string): 'waiting' | 'processing' | 'completed' | null => {
+        // First check if this cell is completed - highest priority
+        if (completedTranslations.has(cellId)) {
+            if (DEBUG_ENABLED && Math.random() < 0.01) { // log occasionally to prevent spam
+                debug(`Cell ${cellId} state: completed`);
+            }
+            return 'completed';
+        }
+        
+        // If cell is not in any translation process and not completed, return null
+        if (!isCellInTranslationProcess(cellId)) {
+            return null;
+        }
+        
+        // Check if this is the current processing cell (either single cell or autocomplete)
+        if (cellId === currentProcessingCellId) {
+            if (DEBUG_ENABLED && Math.random() < 0.01) { // log occasionally to prevent spam
+                debug(`Cell ${cellId} state: processing`);
+            }
+            return 'processing';
+        }
+        
+        // For cells in translation queue (waiting to be processed)
+        if (translationQueue.includes(cellId)) {
+            if (DEBUG_ENABLED && Math.random() < 0.01) { // log occasionally to prevent spam
+                debug(`Cell ${cellId} state: waiting (in translation queue)`);
+            }
+            return 'waiting';
+        }
+        
+        // For cells in autocomplete queue
+        if (cellsInAutocompleteQueue.includes(cellId)) {
+            if (DEBUG_ENABLED && Math.random() < 0.01) { // log occasionally to prevent spam
+                debug(`Cell ${cellId} state: waiting (in autocomplete queue)`);
+            }
+            return 'waiting';
+        }
+        
+        // Default fallback (shouldn't get here based on other checks)
+        return null;
+    }, [isCellInTranslationProcess, currentProcessingCellId, translationQueue, completedTranslations, cellsInAutocompleteQueue]);
 
     // Handle sparkle button click
     const handleCellTranslation = useCallback((cellId: string) => {
@@ -100,6 +197,68 @@ const CellList: React.FC<CellListProps> = ({
             });
         }
     }, [isCellInTranslationProcess, vscode]);
+
+    // When cells are added/removed from translation queue or completed
+    useEffect(() => {
+        try {
+            // If all queues are empty and we have completed translations
+            const noActiveTranslations = translationQueue.length === 0 && 
+                                        currentProcessingCellId === undefined &&
+                                        cellsInAutocompleteQueue.length === 0;
+                                        
+            if (noActiveTranslations && completedTranslations.size > 0) {
+                // Only set to true if it wasn't already true
+                if (!allTranslationsComplete) {
+                    debug("All translations complete - starting fade timer");
+                    setAllTranslationsComplete(true);
+                    
+                    // Reset completed translations after fade-out period
+                    setTimeout(() => {
+                        setCompletedTranslations(new Set());
+                        setAllTranslationsComplete(false);
+                        debug("Fade complete - reset state");
+                    }, 1500); // 1.5s display + 0.5s fade
+                }
+            } else {
+                setAllTranslationsComplete(false);
+            }
+        } catch (error) {
+            console.error("Error in translation queue/completion monitoring:", error);
+        }
+    }, [translationQueue, currentProcessingCellId, cellsInAutocompleteQueue, completedTranslations]);
+
+    // Also track changes in cellsInAutocompleteQueue to detect completed cells
+    useEffect(() => {
+        try {
+            // Skip effect on first render or if queue is empty
+            if (cellsInAutocompleteQueue.length === 0 && prevQueueRef.current.length === 0) {
+                return;
+            }
+            
+            // Check which cells were in the previous queue but not in the current one
+            const removedCells = prevQueueRef.current.filter(cellId => 
+                !cellsInAutocompleteQueue.includes(cellId)
+            );
+            
+            // Mark removed cells as completed
+            if (removedCells.length > 0) {
+                if (DEBUG_ENABLED) {
+                    debug("Cells completed from autocomplete queue:", removedCells);
+                }
+                
+                setCompletedTranslations(prev => {
+                    const newSet = new Set(prev);
+                    removedCells.forEach(cellId => newSet.add(cellId));
+                    return newSet;
+                });
+            }
+            
+            // Update the previous queue reference for next comparison
+            prevQueueRef.current = [...cellsInAutocompleteQueue];
+        } catch (error) {
+            console.error("Error in autocomplete queue monitoring:", error);
+        }
+    }, [cellsInAutocompleteQueue]);
 
     // Helper function to generate appropriate cell label
     const generateCellLabel = useCallback(
@@ -177,6 +336,8 @@ const CellList: React.FC<CellListProps> = ({
                     const hasDuplicateId = duplicateCellIds.has(cellId);
                     const generatedCellLabel = generateCellLabel(group[index], startIndex + index);
                     const cellMarkers = cell.cellMarkers;
+                    const cellIdForTranslation = cellMarkers[0];
+                    const translationState = getCellTranslationState(cellIdForTranslation);
 
                     return (
                         <span
@@ -203,6 +364,8 @@ const CellList: React.FC<CellListProps> = ({
                                 highlightedCellId={highlightedCellId}
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
+                                translationState={translationState}
+                                allTranslationsComplete={allTranslationsComplete}
                             />
                         </span>
                     );
@@ -221,6 +384,8 @@ const CellList: React.FC<CellListProps> = ({
             alertColorCodes,
             generateCellLabel,
             isCellInTranslationProcess,
+            getCellTranslationState,
+            allTranslationsComplete
         ]
     );
 
@@ -322,6 +487,9 @@ const CellList: React.FC<CellListProps> = ({
                     i === 0
                 ) {
                     const generatedCellLabel = generateCellLabel(translationUnits[i], i);
+                    const cellIdForTranslation = cellMarkers[0];
+                    const isInProcess = isCellInTranslationProcess(cellIdForTranslation);
+                    const translationState = getCellTranslationState(cellIdForTranslation);
 
                     const emptyCellDisplay =
                         cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ? (
@@ -331,15 +499,33 @@ const CellList: React.FC<CellListProps> = ({
                                     alignItems: "center",
                                     marginLeft: "1.2rem",
                                     gap: "0.5rem",
+                                    padding: "4px",
+                                    border: translationState ? `2px solid ${
+                                        translationState === 'waiting' ? '#ff6b6b' : 
+                                        translationState === 'processing' ? '#ffc14d' : 
+                                        translationState === 'completed' ? '#4caf50' : 'transparent'
+                                    }` : 'none',
+                                    borderRadius: "4px",
+                                    transition: "border-color 0.3s ease, opacity 0.5s ease",
+                                    opacity: allTranslationsComplete && translationState === 'completed' ? 0 : 1,
+                                    margin: translationState ? "4px 0" : "0",
+                                    height: "21px" /* Match the fixed height of cell headers */
                                 }}
                             >
                                 <VSCodeButton
                                     appearance="icon"
-                                    style={{ height: "15px" }}
+                                    style={{ 
+                                        height: "16px",
+                                        width: "16px",
+                                        padding: 0,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center"
+                                    }}
                                     onClick={() => handleCellTranslation(cellMarkers[0])}
                                 >
                                     <i
-                                        className={`codicon ${isCellInTranslationProcess(cellMarkers[0]) ? "codicon-loading" : "codicon-sparkle"} ${isCellInTranslationProcess(cellMarkers[0]) ? "codicon-modifier-spin" : ""}`}
+                                        className={`codicon ${isInProcess ? "codicon-loading" : "codicon-sparkle"} ${isInProcess ? "codicon-modifier-spin" : ""}`}
                                         style={{ fontSize: "12px" }}
                                     ></i>
                                 </VSCodeButton>
@@ -356,7 +542,19 @@ const CellList: React.FC<CellListProps> = ({
                         ) : (
                             <VSCodeButton
                                 appearance="secondary"
-                                style={{ height: "15px" }}
+                                style={{ 
+                                    height: "15px",
+                                    border: translationState ? `2px solid ${
+                                        translationState === 'waiting' ? '#ff6b6b' : 
+                                        translationState === 'processing' ? '#ffc14d' : 
+                                        translationState === 'completed' ? '#4caf50' : 'transparent'
+                                    }` : 'none',
+                                    borderRadius: "4px",
+                                    transition: "border-color 0.3s ease, opacity 0.5s ease",
+                                    opacity: allTranslationsComplete && translationState === 'completed' ? 0 : 1,
+                                    padding: "2px",
+                                    margin: translationState ? "0 2px" : "0",
+                                }}
                                 onClick={() => openCellById(cellMarkers[0], "")}
                             >
                                 <i
@@ -396,6 +594,8 @@ const CellList: React.FC<CellListProps> = ({
         generateCellLabel,
         handleCellTranslation,
         isCellInTranslationProcess,
+        getCellTranslationState,
+        allTranslationsComplete
     ]);
 
     // Debug log to see the structure of translationUnits

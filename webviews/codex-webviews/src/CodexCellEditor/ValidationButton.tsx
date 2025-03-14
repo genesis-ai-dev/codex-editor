@@ -334,97 +334,41 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     const isFullyValidated = currentValidations >= requiredValidations;
     
-    // Modify the button styling variables
-    let iconClassName = "codicon-circle-outline";
-    let buttonTitle = "Validation required";
-    let buttonColor = "var(--vscode-descriptionForeground)";
-    let buttonBackground = "transparent";
-    let iconColor = "var(--vscode-descriptionForeground)";
-
-    // Update the fully validated case to use green color
-    if (isValidated && isFullyValidated) {
-        // Double checkmark case
-        iconClassName = "codicon-check-all"; 
-        buttonTitle = "View validation details";
-        buttonColor = "#4CAF50"; // Green color
-        buttonBackground = "transparent"; 
-        iconColor = "#4CAF50"; // Green color
-    } else if (isValidated && !isFullyValidated) {
-        // Single checkmark case - make it grey instead of the current color
-        iconClassName = "codicon-check";
-        buttonTitle = "View validation details";
-        buttonColor = "#888888"; // Grey color for better visibility
-        buttonBackground = "transparent"; // Keep transparent background
-        iconColor = "#888888"; // Grey color
-    } else if (!isValidated && isFullyValidated) {
-        // "Hover if I did not validate but I need to"
-        iconClassName = "codicon-circle-outline";
-        buttonTitle = "Add your validation to this fully validated translation";
-    } else if (!isValidated && currentValidations > 0 && !isFullyValidated) {
-        // New state: Partially validated by others, current user hasn't validated
-        iconClassName = "codicon-circle-filled"; // Use filled circle instead of outline
-        buttonTitle = "Others have validated this translation";
-        buttonColor = "#888888"; // Use the same grey as single checkmark
-        buttonBackground = "transparent";
-        iconColor = "#888888";
-    } else if (!isValidated && !userCreatedLatestEdit) {
-        // "Hover if I did NOT validate but I DO NOT need to"
-        iconClassName = "codicon-circle-outline";
-        buttonTitle = "Validate this translation";
-    } else if (!isValidated && userCreatedLatestEdit) {
-        // "Hover if I did need to validate and I'm #first"
-        iconClassName = "codicon-circle-outline";
-        buttonTitle = "Validate your own translation (first validator)";
-    }
+    const buttonStyle = {
+        height: "16px",
+        width: "16px",
+        padding: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+    };
     
-    // For "No hover, not validated" case, we use the default styling
-
     return (
-        <div ref={buttonRef} style={{ position: 'relative' }}>
-            <VSCodeButton
+        <div 
+            ref={buttonRef}
+            className="validation-button-container"
+            onMouseOver={showPopoverHandler}
+            onMouseOut={hidePopoverHandler}
+            onClick={handleButtonClick}
+            style={{ position: "relative", display: "inline-block" }}
+        >
+            <VSCodeButton 
                 appearance="icon"
-                onClick={handleButtonClick}
-                onMouseEnter={(e) => {
-                    // Only change border color on hover, not add a new border
-                    const target = e.currentTarget as HTMLElement;
-                    target.style.borderColor = "var(--vscode-focusBorder)";
-                    showPopoverHandler(e);
-                }}
-                onMouseLeave={(e) => {
-                    // Make border transparent again when not hovering
-                    const target = e.currentTarget as HTMLElement;
-                    target.style.borderColor = "transparent";
-                    hidePopoverHandler(e);
-                }}
-                title={showPopover ? "" : buttonTitle}
-                style={{
-                    padding: "0",
-                    minWidth: "15px",
-                    height: "15px",
-                    width: "15px",
-                    backgroundColor: "transparent",
-                    border: "1px solid transparent", // Always have a 1px border, but transparent
-                    borderRadius: "4px",
-                    transition: "all 0.2s ease",
-                    opacity: isValidated ? 1 : 0.6,
-                    transform: isValidated ? "scale(1)" : "scale(0.95)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                }}
+                style={buttonStyle}
+                onClick={handleValidate}
+                disabled={isSourceText || userCreatedLatestEdit}
             >
-                <i
-                    className={`codicon ${isFullyValidated ? "codicon-check-all" : iconClassName}`}
+                <i 
+                    className={`codicon ${
+                        isFullyValidated ? "codicon-check" : isValidated ? "codicon-pass" : "codicon-circle-outline"
+                    }`}
                     style={{
-                        color: isValidated ? iconColor : "var(--vscode-descriptionForeground)",
-                        fontSize: "16px",
-                        transform: isValidated ? "scale(0.9)" : "scale(0.8)",
-                        transition: "all 0.2s ease",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
+                        fontSize: "12px",
+                        color: isValidated 
+                            ? isFullyValidated ? "var(--vscode-testing-iconPassed)" : "var(--vscode-charts-yellow)" 
+                            : "var(--vscode-descriptionForeground)",
                     }}
-                />
+                ></i>
             </VSCodeButton>
             
             {/* Popover for validation users */}

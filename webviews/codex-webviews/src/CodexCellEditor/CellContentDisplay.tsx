@@ -27,6 +27,8 @@ interface CellContentDisplayProps {
     scrollSyncEnabled: boolean;
     cellLabelOrGeneratedLabel: string;
     isInTranslationProcess?: boolean;
+    translationState?: 'waiting' | 'processing' | 'completed' | null;
+    allTranslationsComplete?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -48,14 +50,29 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     scrollSyncEnabled,
     cellLabelOrGeneratedLabel,
     isInTranslationProcess = false,
+    translationState = null,
+    allTranslationsComplete = false,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
+    const [fadingOut, setFadingOut] = useState(false);
 
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
     const cellRef = useRef<HTMLDivElement>(null);
     const { contentToScrollTo } = useContext(ScrollToContentContext);
+
+    // Handle fade-out effect when all translations complete
+    useEffect(() => {
+        if (allTranslationsComplete && translationState === 'completed') {
+            const timer = setTimeout(() => {
+                setFadingOut(true);
+            }, 2000);
+            return () => clearTimeout(timer);
+        } else if (!allTranslationsComplete) {
+            setFadingOut(false);
+        }
+    }, [allTranslationsComplete, translationState]);
 
     useEffect(() => {
         if (
@@ -164,16 +181,66 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         return "transparent";
     };
 
+    // Get the border style based on translation state
+    const getBorderStyle = () => {
+        if (hasDuplicateId) {
+            return { borderColor: "red" };
+        }
+        
+        if (!translationState || fadingOut) {
+            return {};
+        }
+        
+        let borderColor = "transparent";
+        let borderStyle = "solid";
+        let opacity = 1;
+        
+        if (translationState === 'waiting') {
+            borderColor = "#ff6b6b"; // Red
+        } else if (translationState === 'processing') {
+            borderColor = "#ffc14d"; // Yellow
+        } else if (translationState === 'completed') {
+            borderColor = "#4caf50"; // Green
+        }
+        
+        // Let CSS handle most of the styling through classes
+        // Just return minimal inline styles needed
+        return { 
+            borderColor, 
+            borderStyle, 
+            borderWidth: "2px",
+            transition: "border-color 0.3s ease, opacity 0.8s ease",
+            opacity: fadingOut ? 0 : 1
+        };
+    };
+
+    // Get the CSS class based on translation state
+    const getTranslationStateClass = () => {
+        if (!translationState) return '';
+        
+        if (fadingOut) return 'cell-translation-fading';
+        
+        if (translationState === 'waiting') {
+            return 'cell-translation-waiting';
+        } else if (translationState === 'processing') {
+            return 'cell-translation-processing';
+        } else if (translationState === 'completed') {
+            return 'cell-translation-completed';
+        }
+        
+        return '';
+    };
+
     return (
         <div
             ref={cellRef}
             className={`cell-content-display ${
                 highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
-            }`}
+            } ${getTranslationStateClass()}`}
             style={{
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,
-                borderColor: hasDuplicateId ? "red" : undefined,
+                ...getBorderStyle()
             }}
             onClick={handleVerseClick}
         >
@@ -184,6 +251,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             <VSCodeButton
                                 appearance="icon"
                                 onClick={handleStopTranslation}
+                                style={{ 
+                                    height: "16px",
+                                    width: "16px",
+                                    padding: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center"
+                                }}
                             >
                                 <i className="codicon codicon-loading codicon-modifier-spin"></i>
                             </VSCodeButton>
