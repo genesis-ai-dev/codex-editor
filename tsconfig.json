@@ -23,9 +23,10 @@
             "@types/*": ["types/*"],
             "types": ["types/index.d.ts"],
             "types/*": ["types/*"],
-            "webviews/*": ["webviews/*"]
+            "webviews/*": ["webviews/*"],
+            "@sharedUtils/*": ["sharedUtils/*"]
         }
     },
-    "include": ["src/**/*", "types/**/*", "custom.d.ts"],
+    "include": ["src/**/*", "types/**/*", "custom.d.ts", "sharedUtils/**/*"],
     "exclude": ["node_modules", "webviews"]
 }

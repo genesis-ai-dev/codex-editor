@@ -28,9 +28,10 @@
         "paths": {
             "types": ["../../types/index.d.ts"],
             "types/*": ["../../types/*"],
-            "webviews/*": ["./src/*"]
+            "webviews/*": ["./src/*"],
+            "@sharedUtils/*": ["../../sharedUtils/*"]
         }
     },
-    "include": ["src/**/*", "../../types/index.d.ts"],
+    "include": ["src/**/*", "../../types/index.d.ts", "../../sharedUtils/**/*"],
     "exclude": ["node_modules", "build", "dist", "../../src/**/*"]
 }
