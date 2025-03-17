@@ -502,6 +502,7 @@ const CellList: React.FC<CellListProps> = ({
                                     marginLeft: "1.2rem",
                                     gap: "0.5rem",
                                     padding: "4px",
+                                    width: "100%",
                                     border: translationState ? `2px solid ${
                                         translationState === 'waiting' ? '#ff6b6b' : 
                                         translationState === 'processing' ? '#ffc14d' : 
@@ -511,7 +512,7 @@ const CellList: React.FC<CellListProps> = ({
                                     transition: "border-color 0.3s ease, opacity 0.5s ease",
                                     opacity: allTranslationsComplete && translationState === 'completed' ? 0 : 1,
                                     margin: translationState ? "4px 0" : "0",
-                                    height: "21px" /* Match the fixed height of cell headers */
+                                    height: "21px"
                                 }}
                             >
                                 <VSCodeButton
@@ -523,7 +524,7 @@ const CellList: React.FC<CellListProps> = ({
                                         display: "flex",
                                         alignItems: "center",
                                         justifyContent: "center",
-                                        marginLeft: "51px" /* Increased to align with sparkle buttons in regular cells */
+                                        marginLeft: "51px"
                                     }}
                                     onClick={() => handleCellTranslation(cellMarkers[0])}
                                 >
@@ -532,7 +533,7 @@ const CellList: React.FC<CellListProps> = ({
                                         style={{ fontSize: "12px" }}
                                     ></i>
                                 </VSCodeButton>
-                                <div style={{ marginLeft: "-2px" }}>
+                                <div style={{ marginLeft: "-2px", flex: "1", width: "100%" }}>
                                     <EmptyCellDisplay
                                         key={cellMarkers.join(" ")}
                                         cellMarkers={cellMarkers}
@@ -619,6 +620,7 @@ const CellList: React.FC<CellListProps> = ({
                 display: cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? "inline-block" : "block",
                 width: "100%",
                 backgroundColor: "transparent",
+                maxWidth: "100%"
             }}
         >
             {renderCells()}

@@ -39,10 +39,13 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
         <div
             className="empty-cell-display"
             onClick={handleClick}
-            style={{ direction: textDirection }}
+            style={{ 
+                direction: textDirection,
+                width: "100%"
+            }}
         >
             <span className="empty-cell-marker">{cellLabel || cellMarkers.join("-")}</span>
-            <span className="empty-cell-prompt">Click to translate </span>
+            <span className="empty-cell-prompt">Click to translate</span>
         </div>
     );
 };

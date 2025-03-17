@@ -218,6 +218,7 @@
     align-items: center;
     padding: 0.25rem;
     flex: 1;
+    width: 100%; /* Make it full width */
     /* margin-left: 2.65rem; This matches the width of cell header (2rem) plus the gap (0.5rem) and some fine-tuning */
     background-color: var(--vscode-editor-background);
     border: 1px dashed var(--vscode-widget-border);
@@ -238,6 +239,7 @@
 .empty-cell-prompt {
     color: var(--vscode-descriptionForeground);
     font-style: italic;
+    flex: 1; /* Make this element take up remaining space */
 }
 
 li {
@@ -716,6 +718,12 @@ li {
     align-items: flex-start;
     gap: 0.5rem;
     padding: 0.25rem;
+    width: 100%; /* Make sure content displays take full width */
+}
+
+/* Specific style for empty cells in one-line-per-cell mode */
+.cell-display-one-line-per-cell .empty-cell-display {
+    width: 100%; /* Ensure empty cells take full width */
 }
 
 .cell-display-one-line-per-cell .cell-header {
