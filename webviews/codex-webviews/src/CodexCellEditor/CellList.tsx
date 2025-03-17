@@ -366,6 +366,7 @@ const CellList: React.FC<CellListProps> = ({
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                                 translationState={translationState}
                                 allTranslationsComplete={allTranslationsComplete}
+                                handleCellTranslation={handleCellTranslation}
                             />
                         </span>
                     );
@@ -385,7 +386,8 @@ const CellList: React.FC<CellListProps> = ({
             generateCellLabel,
             isCellInTranslationProcess,
             getCellTranslationState,
-            allTranslationsComplete
+            allTranslationsComplete,
+            handleCellTranslation
         ]
     );
 
@@ -520,7 +522,8 @@ const CellList: React.FC<CellListProps> = ({
                                         padding: 0,
                                         display: "flex",
                                         alignItems: "center",
-                                        justifyContent: "center"
+                                        justifyContent: "center",
+                                        marginLeft: "51px" /* Increased to align with sparkle buttons in regular cells */
                                     }}
                                     onClick={() => handleCellTranslation(cellMarkers[0])}
                                 >
@@ -529,15 +532,17 @@ const CellList: React.FC<CellListProps> = ({
                                         style={{ fontSize: "12px" }}
                                     ></i>
                                 </VSCodeButton>
-                                <EmptyCellDisplay
-                                    key={cellMarkers.join(" ")}
-                                    cellMarkers={cellMarkers}
-                                    cellLabel={cellLabel || generatedCellLabel}
-                                    setContentBeingUpdated={setContentBeingUpdated}
-                                    textDirection={textDirection}
-                                    vscode={vscode}
-                                    openCellById={openCellById}
-                                />
+                                <div style={{ marginLeft: "-2px" }}>
+                                    <EmptyCellDisplay
+                                        key={cellMarkers.join(" ")}
+                                        cellMarkers={cellMarkers}
+                                        cellLabel={cellLabel || generatedCellLabel}
+                                        setContentBeingUpdated={setContentBeingUpdated}
+                                        textDirection={textDirection}
+                                        vscode={vscode}
+                                        openCellById={openCellById}
+                                    />
+                                </div>
                             </div>
                         ) : (
                             <VSCodeButton

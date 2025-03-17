@@ -29,6 +29,7 @@ interface CellContentDisplayProps {
     isInTranslationProcess?: boolean;
     translationState?: 'waiting' | 'processing' | 'completed' | null;
     allTranslationsComplete?: boolean;
+    handleCellTranslation?: (cellId: string) => void;
 }
 
 const DEBUG_ENABLED = false;
@@ -52,6 +53,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     isInTranslationProcess = false,
     translationState = null,
     allTranslationsComplete = false,
+    handleCellTranslation,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -133,6 +135,32 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             vscode.postMessage({
                 command: "stopSingleCellTranslation"
             } as any); // Use any type to bypass type checking
+        }
+    };
+
+    // Handler for sparkle button click
+    const handleSparkleButtonClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent the cell click handler from firing
+        
+        // Skip if already in translation process
+        if (isInTranslationProcess) return;
+        
+        // Call the handleCellTranslation function if available
+        if (handleCellTranslation && cellIds.length > 0) {
+            handleCellTranslation(cellIds[0]);
+        } else {
+            // Fallback if handleCellTranslation is not provided
+            if (typeof (window as any).handleSparkleButtonClick === 'function') {
+                (window as any).handleSparkleButtonClick(cellIds[0]);
+            } else {
+                vscode.postMessage({
+                    command: "llmCompletion",
+                    content: {
+                        currentLineId: cellIds[0],
+                        addContentToValue: true,
+                    },
+                });
+            }
         }
     };
 
@@ -245,8 +273,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             onClick={handleVerseClick}
         >
             <div className="cell-header">
-                <div className="cell-actions">
-                    <div className="action-button-container">
+                <div className="cell-actions" style={{ display: "flex", alignItems: "center", minWidth: "60px", justifyContent: "space-between" }}>
+                    <div className="action-button-container" style={{ 
+                        display: "flex", 
+                        gap: "8px", 
+                        minWidth: "50px",
+                        marginLeft: "20px"
+                    }}>
                         {!isSourceText && isInTranslationProcess && (
                             <VSCodeButton
                                 appearance="icon"
@@ -257,19 +290,41 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                     padding: 0,
                                     display: "flex",
                                     alignItems: "center",
-                                    justifyContent: "center"
+                                    justifyContent: "center",
+                                    flexShrink: 0
                                 }}
                             >
                                 <i className="codicon codicon-loading codicon-modifier-spin"></i>
                             </VSCodeButton>
                         )}
-                        {!isSourceText && SHOW_VALIDATION_BUTTON && !isInTranslationProcess && (
-                            <ValidationButton
-                                cellId={cellIds[0]}
-                                cell={cell}
-                                vscode={vscode}
-                                isSourceText={isSourceText}
-                            />
+                        {!isSourceText && !isInTranslationProcess && (
+                            <>
+                                {SHOW_VALIDATION_BUTTON && (
+                                    <div style={{ flexShrink: 0 }}>
+                                        <ValidationButton
+                                            cellId={cellIds[0]}
+                                            cell={cell}
+                                            vscode={vscode}
+                                            isSourceText={isSourceText}
+                                        />
+                                    </div>
+                                )}
+                                <VSCodeButton
+                                    appearance="icon"
+                                    onClick={handleSparkleButtonClick}
+                                    style={{ 
+                                        height: "16px",
+                                        width: "16px",
+                                        padding: 0,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        flexShrink: 0
+                                    }}
+                                >
+                                    <i className="codicon codicon-sparkle" style={{ fontSize: "12px" }}></i>
+                                </VSCodeButton>
+                            </>
                         )}
                     </div>
                     {getAlertDot()}

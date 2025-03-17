@@ -152,17 +152,20 @@
 .cell-actions {
     display: flex;
     align-items: center;
-    min-width: 20px; /* Ensure consistent width for the action area */
+    min-width: 50px; /* Increased from 20px to accommodate multiple buttons */
+    justify-content: space-between;
 }
 
 .action-button-container {
     display: inline-flex !important;
     align-items: center !important;
-    justify-content: center !important;
+    justify-content: flex-start !important;
     position: relative !important;
-    width: 15px !important;
-    height: 15px !important;
+    min-width: 40px !important; /* Increased from 15px to accommodate multiple buttons */
+    height: auto !important; /* Changed from fixed height to auto */
     margin-right: 4px;
+    margin-left: 20px !important; /* Add margin-left for alignment */
+    gap: 8px !important;
 }
 
 /* Styles for the spinner button */
@@ -176,11 +179,9 @@
 }
 
 .action-button-container vscode-button {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 15px;
-    height: 15px;
+    position: relative;
+    width: 16px;
+    height: 16px;
     padding: 0;
     margin: 0;
     display: flex;
