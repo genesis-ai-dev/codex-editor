@@ -15,6 +15,7 @@ interface CodexMetadata {
     codexLastModified?: string;
     gitStatus?: string;
     corpusMarker?: string;
+    progress?: number;
 }
 
 export interface NextGenCodexItem {
@@ -23,6 +24,7 @@ export interface NextGenCodexItem {
     type: CodexTreeItemType;
     children?: NextGenCodexItem[];
     corpusMarker?: string;
+    progress?: number;
 }
 
 export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<NextGenCodexItem> {
@@ -123,11 +125,19 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             const metadata = notebookData.metadata as CodexMetadata;
             const fileName = path.basename(uri.fsPath, ".codex");
 
+            // Calculate progress based on cells with values
+            const totalCells = notebookData.cells.length;
+            const cellsWithValues = notebookData.cells.filter(
+                (cell) => cell.value && cell.value.trim().length > 0
+            ).length;
+            const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
+
             return {
                 uri,
                 label: `${fileName} Codex`,
                 type: "codexDocument",
                 corpusMarker: metadata?.corpusMarker,
+                progress: progress,
             };
         } catch (error) {
             console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
@@ -153,11 +163,16 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
         // Create corpus group nodes
         const groupedItems: NextGenCodexItem[] = [];
         corpusGroups.forEach((items, corpusMarker) => {
+            // Calculate average progress for the corpus
+            const totalProgress = items.reduce((sum, item) => sum + (item.progress || 0), 0);
+            const averageProgress = items.length > 0 ? totalProgress / items.length : 0;
+
             groupedItems.push({
                 uri: items[0].uri, // Use first item's URI for the group
                 label: corpusMarker,
                 type: "corpus",
                 children: items.sort((a, b) => a.label.localeCompare(b.label)),
+                progress: averageProgress,
             });
         });
 
@@ -192,6 +207,11 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
                 : vscode.TreeItemCollapsibleState.None
         );
 
+        // Add progress to the description
+        if (element.progress !== undefined) {
+            treeItem.description = `${Math.round(element.progress)}% complete`;
+        }
+
         if (element.type === "codexDocument") {
             treeItem.command = {
                 command: "vscode.openWith",
@@ -199,6 +219,9 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
                 arguments: [element.uri, "codex.cellEditor"],
             };
             treeItem.iconPath = new vscode.ThemeIcon("book");
+
+            // Add tooltip with progress information
+            treeItem.tooltip = `${element.label}\n${Math.round(element.progress || 0)}% complete`;
         } else if (element.type === "dictionary") {
             treeItem.command = {
                 command: "vscode.open",
@@ -208,6 +231,10 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             treeItem.iconPath = new vscode.ThemeIcon("book");
         } else if (element.type === "corpus") {
             treeItem.iconPath = new vscode.ThemeIcon("library");
+            // Add tooltip with progress information for corpus
+            if (element.progress !== undefined) {
+                treeItem.tooltip = `${element.label}\nAverage Progress: ${Math.round(element.progress)}%`;
+            }
         }
 
         return treeItem;
