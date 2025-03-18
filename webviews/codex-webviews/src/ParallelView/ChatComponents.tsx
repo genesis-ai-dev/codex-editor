@@ -5,7 +5,6 @@ import "./SharedStyles.css";
 interface IndividuallyTranslatedVerseProps {
     text: string;
     cellId: string;
-    onApplyTranslation: (cellId: string, text: string) => void;
     onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
 }
 
@@ -24,12 +23,16 @@ interface GuessNextPromptsProps {
     prompts: string[];
     onClick: (prompt: string) => void;
 }
-interface RequestPinningProps {
-    cellIds: string[];
-    handleRequestPinning: (cellIds: string[]) => void;
-}
+
 interface YoutubeVideoProps {
     videoId: string;
+}
+
+interface PinnedVerseProps {
+    cellId: string;
+    sourceText: string;
+    targetText?: string;
+    onUnpin: (cellId: string) => void;
 }
 
 export const RegEx = {
@@ -37,13 +40,14 @@ export const RegEx = {
     AddedFeedback: /<AddedFeedback\s+([^>]+)\s*\/>/g,
     ShowUserPreference: /<ShowUserPreference\s+([^>]+)\s*\/>/g,
     GuessNextPrompts: /<GuessNextPrompts\s+([^>]+)\s*\/>/g,
-    RequestPinning: /<RequestPinning\s+([^>]+)\s*\/>/g,
     YoutubeVideo: /<YoutubeVideo\s+([^>]+)\s*\/>/g,
+    PinnedVerse: /<PinnedVerse\s+([^>]+)\s*\/>/g,
 } as const;
 
 export const onCopy = (content: string) => {
     navigator.clipboard.writeText(content);
 };
+
 export const GuessNextPromptsComponent: React.FC<GuessNextPromptsProps> = ({
     prompts,
     onClick,
@@ -96,7 +100,6 @@ export const ShowUserPreferenceComponent: React.FC<ShowUserPreferenceProps> = ({
 export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslatedVerseProps> = ({
     text,
     cellId,
-    onApplyTranslation,
     onSendFeedback,
 }) => {
     const [feedbackText, setFeedbackText] = useState("");
@@ -119,7 +122,7 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
         <div className="assistant-response">
             {cellId && (
                 <div className="cell-id">
-                    <strong>Cell ID:</strong> {cellId}
+                    <strong>Verse:</strong> {cellId}
                 </div>
             )}
             <div className="response-content">
@@ -130,16 +133,9 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
                     <VSCodeButton
                         appearance="icon"
                         onClick={() => onCopy(text)}
-                        title="Copy response"
+                        title="Copy translation"
                     >
                         <span className="codicon codicon-copy"></span>
-                    </VSCodeButton>
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={() => cellId && onApplyTranslation(text, cellId)}
-                        title="Apply response"
-                    >
-                        <span className="codicon codicon-check"></span>
                     </VSCodeButton>
                 </div>
             </div>
@@ -163,49 +159,6 @@ export const IndividuallyTranslatedVerseComponent: React.FC<IndividuallyTranslat
         </div>
     );
 };
-export const RequestPinningComponent: React.FC<RequestPinningProps> = ({
-    cellIds,
-    handleRequestPinning,
-}) => {
-    const [isPinning, setIsPinning] = useState(false);
-    const [pinnedCells, setPinnedCells] = useState<string[]>([]);
-
-    useEffect(() => {
-        const requestPinning = async () => {
-            setIsPinning(true);
-            await handleRequestPinning(cellIds);
-            setIsPinning(false);
-            setPinnedCells(cellIds);
-        };
-
-        requestPinning();
-    }, []);
-
-    return (
-        <div className="request-pinning">
-            {isPinning ? (
-                <div className="pinning-status">
-                    <VSCodeProgressRing />
-                    <span>Requesting Pinning...</span>
-                </div>
-            ) : (
-                <div className="pinning-complete">
-                    <div className="pinned-verses-section">
-                        <br />
-                        <div className="pinned-verses-list">
-                            {pinnedCells.map((cellId) => (
-                                <span key={cellId} className="pinned-verse-id">
-                                    {cellId}
-                                </span>
-                            ))}
-                        </div>
-                        <br />
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
 
 export const YoutubeVideoComponent: React.FC<YoutubeVideoProps> = ({ videoId }) => {
     return (
@@ -216,6 +169,44 @@ export const YoutubeVideoComponent: React.FC<YoutubeVideoProps> = ({ videoId }) 
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
             ></iframe>
+        </div>
+    );
+};
+
+export const PinnedVerseComponent: React.FC<PinnedVerseProps> = ({
+    cellId,
+    sourceText,
+    targetText,
+    onUnpin
+}) => {
+    return (
+        <div className="pinned-verse-component">
+            <div className="pinned-verse-header">
+                <div className="pinned-verse-id">
+                    <span className="codicon codicon-pin"></span>
+                    <strong>{cellId}</strong>
+                </div>
+                <div className="pinned-verse-actions">
+                    <button 
+                        className="action-button" 
+                        onClick={() => onUnpin(cellId)} 
+                        title="Unpin verse">
+                        <span className="codicon codicon-pinned-filled"></span>
+                    </button>
+                </div>
+            </div>
+            <div className="pinned-verse-content">
+                <div className="verse-source">
+                    <div className="verse-label">Source:</div>
+                    <div className="verse-text source-text">{sourceText}</div>
+                </div>
+                {targetText && (
+                    <div className="verse-target">
+                        <div className="verse-label">Target:</div>
+                        <div className="verse-text target-text">{targetText}</div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

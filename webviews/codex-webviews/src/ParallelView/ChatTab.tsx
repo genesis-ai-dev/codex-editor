@@ -17,7 +17,7 @@ import {
     AddedFeedbackComponent,
     GuessNextPromptsComponent,
     YoutubeVideoComponent,
-    RequestPinningComponent,
+    PinnedVerseComponent,
 } from "./ChatComponents";
 import { format } from "date-fns";
 import { UserFeedbackComponent, RegEx as UserChatRegEx } from "./UserChatComponents";
@@ -40,7 +40,6 @@ interface ChatTabProps {
         assistant: React.CSSProperties;
     };
     pinnedVerses: TranslationPair[];
-    onApplyTranslation: (cellId: string, text: string) => void;
     handleAddedFeedback: (cellId: string, feedback: string) => void;
     sessionInfo: SessionInfo | null;
     allSessions: SessionInfo[];
@@ -51,10 +50,10 @@ interface ChatTabProps {
     onSendFeedback: (originalText: string, feedbackText: string, cellId: string) => void;
     isSessionMenuOpen: boolean;
     setIsSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
-    handleRequestPinning: (cellIds: string[]) => void;
+    onUnpinVerse: (cellId: string) => void;
 }
 
-function ChatTab({
+const ChatTab: React.FC<ChatTabProps> = ({
     chatHistory,
     chatInput,
     onChatInputChange,
@@ -62,7 +61,6 @@ function ChatTab({
     onChatFocus,
     onEditMessage,
     pinnedVerses,
-    onApplyTranslation,
     handleAddedFeedback,
     sessionInfo,
     allSessions,
@@ -73,94 +71,59 @@ function ChatTab({
     onSendFeedback,
     isSessionMenuOpen,
     setIsSessionMenuOpen,
-    handleRequestPinning,
-}: ChatTabProps) {
+    onUnpinVerse,
+}) => {
     const chatHistoryRef = useRef<HTMLDivElement>(null);
-    const [pendingSubmit, setPendingSubmit] = useState(false);
-    const [currentMessage, setCurrentMessage] = useState("");
-    const [isStreaming, setIsStreaming] = useState(false);
+    const sessionMenuRef = useRef<HTMLDivElement>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [filteredSessions, setFilteredSessions] = useState(allSessions);
-    const [pendingAssistantMessage, setPendingAssistantMessage] = useState<string | null>(null);
+    const [isChatFocused, setIsChatFocused] = useState(chatHistory.length > 1);
+    const [showSessionDropdown, setShowSessionDropdown] = useState(false);
+    const [pinnedSectionCollapsed, setPinnedSectionCollapsed] = useState(true);
+    
+    // Handle clicks outside of the session dropdown to close it
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (sessionMenuRef.current && !sessionMenuRef.current.contains(event.target as Node)) {
+                setShowSessionDropdown(false);
+            }
+        };
+        
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
 
+    // Auto-scroll to the bottom of the chat when new messages arrive
     useEffect(() => {
         if (chatHistoryRef.current) {
             chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
         }
     }, [chatHistory]);
 
+    // Update filtered sessions when search term or allSessions changes
     useEffect(() => {
-        const filtered = allSessions
-            .filter((session) => session.name.toLowerCase().includes(searchTerm.toLowerCase()))
-            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        setIsChatFocused(chatHistory.length > 1);
+        
+        const filtered = searchTerm ? 
+            allSessions.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            : allSessions;
         setFilteredSessions(filtered);
+    }, [searchTerm, allSessions, chatHistory]);
 
-        if (searchTerm.length > 0) {
-            setIsSessionMenuOpen(true);
-        }
-    }, [searchTerm, allSessions]);
-
+    // Handle editing a message and submitting again
     const handleRedoMessage = useCallback(
         (index: number, content: string) => {
             onEditMessage(index);
             onChatInputChange(content);
-            setPendingSubmit(true);
+            setTimeout(() => onChatSubmit(), 0);
         },
-        [onEditMessage, onChatInputChange]
+        [onEditMessage, onChatInputChange, onChatSubmit]
     );
 
-    useEffect(() => {
-        if (pendingSubmit) {
-            onChatSubmit();
-            setPendingSubmit(false);
-        }
-    }, [pendingSubmit, onChatSubmit]);
-
-    const handleIncomingChunk = useCallback(
-        (message: any) => {
-            if (message.command === "chatResponseStream") {
-                try {
-                    const parsedChunk = JSON.parse(message.data);
-                    const { content, isLast } = parsedChunk;
-
-                    if (content) {
-                        setPendingAssistantMessage((prevMessage) => (prevMessage || "") + content);
-                        setIsStreaming(true);
-                    }
-
-                    if (isLast) {
-                        setChatHistory((prevHistory) => {
-                            const newHistory = [...prevHistory];
-                            const lastMessage = newHistory[newHistory.length - 1];
-                            if (
-                                lastMessage &&
-                                lastMessage.role === "assistant" &&
-                                !lastMessage.content
-                            ) {
-                                // Update the last message if it's an empty assistant message
-                                lastMessage.content = pendingAssistantMessage || "";
-                            } else {
-                                // Add a new message only if there's content
-                                if (pendingAssistantMessage) {
-                                    newHistory.push({
-                                        role: "assistant",
-                                        content: pendingAssistantMessage,
-                                    });
-                                }
-                            }
-                            return newHistory;
-                        });
-                        setPendingAssistantMessage(null);
-                        setIsStreaming(false);
-                    }
-                } catch (error) {
-                    console.error("Error parsing chunk data:", error);
-                }
-            }
-        },
-        [pendingAssistantMessage, setChatHistory]
-    );
-
+    // Handle clicking on a suggested prompt
     const handlePromptClick = useCallback(
         (prompt: string) => {
             onChatInputChange(prompt);
@@ -169,17 +132,7 @@ function ChatTab({
         [onChatInputChange, onChatSubmit]
     );
 
-    useEffect(() => {
-        const handleMessage = (event: MessageEvent) => {
-            if (event.data.command === "chatResponseStream") {
-                handleIncomingChunk(event.data.data);
-            }
-        };
-
-        window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
-    }, [handleIncomingChunk]);
-
+    // Process message content for special components
     const parseMessage = (content: string) => {
         const parts = [];
         let lastIndex = 0;
@@ -199,11 +152,7 @@ function ChatTab({
                 regex.lastIndex = i;
                 const match = regex.exec(content);
                 if (match && (!earliestMatch || match.index < earliestMatch.match.index)) {
-                    earliestMatch = {
-                        regex,
-                        match,
-                        type,
-                    };
+                    earliestMatch = { regex, match, type };
                 }
             }
 
@@ -248,19 +197,15 @@ function ChatTab({
         return parts;
     };
 
+    // Function to handle sending feedback for translated verses
     const handleSendFeedback = useCallback(
         (originalText: string, feedbackText: string, cellId: string) => {
-            const newMessage: ChatMessage = {
-                role: "user",
-                content: `<UserFeedback cellId="${cellId}" originalText="${originalText}" feedbackText="${feedbackText}" />`,
-            };
-            setChatHistory((prev) => [...prev, newMessage]);
-
             onSendFeedback(originalText, feedbackText, cellId);
         },
-        [setChatHistory, onSendFeedback]
+        [onSendFeedback]
     );
 
+    // Render a chat message with its special components
     const renderMessage = useCallback(
         (content: string, role: "user" | "assistant") => {
             const parsedContent = parseMessage(content);
@@ -277,7 +222,7 @@ function ChatTab({
             return (
                 <>
                     {parsedContent.map((part, index) => {
-                        if (part.type === "text" && part.content?.trim() !== "") {
+                        if (part.type === "text" && part.content?.trim()) {
                             return (
                                 <p
                                     key={index}
@@ -299,7 +244,6 @@ function ChatTab({
                                     key={`tr-${index}`}
                                     text={part.props.text || ""}
                                     cellId={part.props.cellId}
-                                    onApplyTranslation={onApplyTranslation}
                                     onSendFeedback={handleSendFeedback}
                                 />
                             );
@@ -309,9 +253,7 @@ function ChatTab({
                                     key={`af-${index}`}
                                     feedback={part.props.feedback}
                                     cellId={part.props.cellId}
-                                    handleAddedFeedback={(cellId, feedback) =>
-                                        handleAddedFeedback(cellId, feedback)
-                                    }
+                                    handleAddedFeedback={handleAddedFeedback}
                                 />
                             );
                         } else if (part.type === "ShowUserPreference" && part.props) {
@@ -327,15 +269,7 @@ function ChatTab({
                                 <GuessNextPromptsComponent
                                     key={`gp-${index}`}
                                     prompts={part.props.prompts.split(",")}
-                                    onClick={(prompt) => handlePromptClick(prompt)}
-                                />
-                            );
-                        } else if (part.type === "RequestPinning" && part.props) {
-                            return (
-                                <RequestPinningComponent
-                                    key={`rp-${index}`}
-                                    cellIds={part.props.cellIds.split(", ")}
-                                    handleRequestPinning={handleRequestPinning}
+                                    onClick={handlePromptClick}
                                 />
                             );
                         } else if (part.type === "YoutubeVideo" && part.props) {
@@ -345,167 +279,293 @@ function ChatTab({
                                     videoId={part.props.videoId}
                                 />
                             );
+                        } else if (part.type === "PinnedVerse" && part.props) {
+                            return (
+                                <PinnedVerseComponent
+                                    key={`pv-${index}`}
+                                    cellId={part.props.cellId}
+                                    sourceText={decodeURIComponent(part.props.sourceText)}
+                                    targetText={part.props.targetText ? decodeURIComponent(part.props.targetText) : undefined}
+                                    onUnpin={onUnpinVerse}
+                                />
+                            );
                         }
                         return null;
                     })}
                 </>
             );
         },
-        [
-            onApplyTranslation,
-            handleSendFeedback,
-            handleAddedFeedback,
-            handlePromptClick,
-            handleRequestPinning,
-        ]
+        [handleSendFeedback, handleAddedFeedback, handlePromptClick, onUnpinVerse]
     );
 
-    return (
-        <div className="tab-container">
-            <div className="session-management">
-                <div className="session-controls">
-                    <VSCodeTextField
-                        placeholder="Search or create a session..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
-                    >
-                        <span slot="start" className="codicon codicon-search"></span>
-                    </VSCodeTextField>
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={() => setIsSessionMenuOpen(!isSessionMenuOpen)}
-                        title="Session list"
-                    >
-                        <span className="codicon codicon-clock"></span>
-                    </VSCodeButton>
-                </div>
-                <div className="pinned-verses-section">
-                    {pinnedVerses.length > 0 ? (
-                        <div className="pinned-verses-list">
-                            {pinnedVerses.map((verse) => (
-                                <VSCodeBadge key={verse.cellId}>{verse.cellId}</VSCodeBadge>
-                            ))}
-                        </div>
-                    ) : (
-                        <br></br>
-                    )}
-                </div>
-            </div>
+    const handleFocus = () => {
+        setIsChatFocused(true);
+        onChatFocus();
+    };
 
-            {(isSessionMenuOpen || searchTerm.length > 0) && (
-                <div className="session-menu">
-                    <div className="session-list">
-                        {filteredSessions.map((session) => (
-                            <div
-                                key={session.id}
-                                className={`session-item ${
-                                    sessionInfo?.id === session.id ? "active" : ""
-                                }`}
-                            >
-                                <div
-                                    className="session-item-content"
-                                    onClick={() => onLoadSession(session.id)}
-                                >
-                                    <span>{session.name}</span>
-                                    {/* <span>{format(new Date(session.timestamp), "PP")}</span> */}
-                                </div>
-                                <div className="session-item-actions">
-                                    <VSCodeButton
-                                        appearance="icon"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onDeleteSession(session.id);
-                                        }}
-                                        title="Delete session"
-                                    >
-                                        <span className="codicon codicon-trash"></span>
-                                    </VSCodeButton>
-                                </div>
+    // Handle session management
+    const toggleSessionDropdown = () => {
+        setShowSessionDropdown(prev => !prev);
+        setSearchTerm("");
+    };
+
+    const handleNewSession = () => {
+        onStartNewSession();
+        setShowSessionDropdown(false);
+    };
+
+    const handleLoadSession = (sessionId: string) => {
+        onLoadSession(sessionId);
+        setShowSessionDropdown(false);
+    };
+
+    // Render session list item
+    const renderSessionItem = (session: SessionInfo) => (
+        <div 
+            key={session.id} 
+            className={`session-item ${sessionInfo?.id === session.id ? "active" : ""}`}
+        >
+            <div className="session-item-content" onClick={() => handleLoadSession(session.id)}>
+                <span className="session-name">{session.name}</span>
+                <span className="session-date">
+                    {format(new Date(session.timestamp), "MMM d, yyyy 'at' h:mm a")}
+                </span>
+            </div>
+            <div className="session-item-actions">
+                <VSCodeButton 
+                    appearance="icon" 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteSession(session.id);
+                    }} 
+                    title="Delete session"
+                >
+                    <span className="codicon codicon-trash"></span>
+                </VSCodeButton>
+            </div>
+        </div>
+    );
+
+    // Render empty state for when there are no messages
+    const renderEmptyState = () => (
+        <div className="empty-state">
+            <div className="empty-state-icon codicon codicon-book"></div>
+            <p className="empty-state-description">
+                Ask questions about verse translations, get help with complex passages, 
+                or discuss contextual meanings.
+            </p>
+            <div className="empty-state-action">
+                <VSCodeButton onClick={() => {
+                    onChatInputChange("Help me translate this verse");
+                    onChatSubmit();
+                }}>
+                    Start Translation
+                </VSCodeButton>
+            </div>
+        </div>
+    );
+
+    // Toggle handler for pinned verses section
+    const togglePinnedSection = () => {
+        setPinnedSectionCollapsed(!pinnedSectionCollapsed);
+    };
+
+    return (
+        <div className={`tab-container ${isChatFocused ? 'chat-focused' : ''}`}>
+            {/* Compact header with minimal controls */}
+            <div className="session-management">
+                <div className="chat-header">
+                    <div className="chat-header-left">
+                        {sessionInfo && (
+                            <div className="current-session">
+                                <span className="session-label">Current Session:</span>
+                                <span className="session-name">{sessionInfo.name}</span>
                             </div>
-                        ))}
+                        )}
+                    </div>
+                    
+                    <div className="chat-header-actions">
+                        {/* Pin indicator */}
+                        {pinnedVerses.length > 0 && (
+                            <div className="pin-indicator">
+                                <span className="codicon codicon-pin"></span>
+                                <VSCodeBadge>{pinnedVerses.length}</VSCodeBadge>
+                            </div>
+                        )}
+                        
+                        {/* Session dropdown trigger */}
+                        <div className="session-dropdown-container" ref={sessionMenuRef}>
+                            <VSCodeButton 
+                                appearance="icon"
+                                onClick={toggleSessionDropdown}
+                                title="Sessions"
+                                className={showSessionDropdown ? 'active' : ''}
+                            >
+                                <span className="codicon codicon-history"></span>
+                            </VSCodeButton>
+                            
+                            {/* Session dropdown menu */}
+                            {showSessionDropdown && (
+                                <div className="sessions-dropdown">
+                                    <div className="dropdown-header">
+                                        <h3>Translation Sessions</h3>
+                                        <div className="dropdown-actions">
+                                            <VSCodeButton 
+                                                appearance="icon" 
+                                                onClick={handleNewSession}
+                                                title="New Session"
+                                            >
+                                                <span className="codicon codicon-add"></span>
+                                            </VSCodeButton>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="dropdown-search">
+                                        <VSCodeTextField
+                                            placeholder="Search sessions..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm((e.target as HTMLInputElement).value)}
+                                        >
+                                            <span slot="start" className="codicon codicon-search"></span>
+                                            {searchTerm && (
+                                                <span 
+                                                    slot="end" 
+                                                    className="codicon codicon-close"
+                                                    style={{ cursor: 'pointer' }}
+                                                    onClick={() => setSearchTerm('')}
+                                                ></span>
+                                            )}
+                                        </VSCodeTextField>
+                                    </div>
+                                    
+                                    <VSCodeDivider />
+                                    
+                                    <div className="session-list">
+                                        {filteredSessions.length > 0 ? (
+                                            filteredSessions.map(renderSessionItem)
+                                        ) : (
+                                            <div className="empty-sessions">
+                                                <p>No sessions found {searchTerm && `matching "${searchTerm}"`}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* New session button */}
+                        <VSCodeButton 
+                            appearance="icon"
+                            onClick={handleNewSession}
+                            title="New Session"
+                        >
+                            <span className="codicon codicon-new-file"></span>
+                        </VSCodeButton>
                     </div>
                 </div>
-            )}
+                
+                {/* Display pinned verses badges if any */}
+                {pinnedVerses.length > 0 && (
+                    <div className="pinned-verses-section">
+                        <div 
+                            className={`collapse-toggle ${!pinnedSectionCollapsed ? 'expanded' : ''}`}
+                            onClick={togglePinnedSection}
+                        >
+                            <span className="collapse-icon codicon codicon-chevron-right"></span>
+                            <span className="pinned-verses-label">
+                                Pinned ({pinnedVerses.length}):
+                            </span>
+                        </div>
+                        
+                        {!pinnedSectionCollapsed && (
+                            <div className="pinned-verses-list">
+                                {pinnedVerses.map((verse) => (
+                                    <VSCodeBadge key={verse.cellId}>{verse.cellId}</VSCodeBadge>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
+            {/* Chat message history */}
             <div ref={chatHistoryRef} className="message-history">
                 {chatHistory.length > 1 ? (
                     <div className="chat-messages">
                         {chatHistory
                             .slice(1)
-                            .filter(
-                                (message) =>
-                                    !message.content.includes("don't-render") &&
-                                    message.content.trim() !== ""
-                            )
+                            .filter(message => !message.content.includes("don't-render") && message.content.trim() !== "")
                             .map((message, index) => (
-                                <div key={index} className={`chat-message ${message.role}`}>
-                                    {renderMessage(message.content, message.role)}
-                                    <div className="chat-message-actions">
-                                        {message.role === "user" && (
-                                            <>
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    onClick={() => onEditMessage(index + 1)}
+                                <div key={index} className={`chat-bubble ${message.role}`}>
+                                    <div className="message-header">
+                                        <div className={`avatar ${message.role}`}>
+                                            {message.role === 'user' ? 'U' : 'C'}
+                                        </div>
+                                        <div className="message-info">
+                                            <span className="message-sender">
+                                                {message.role === 'user' ? 'You' : 'Codex Assistant'}
+                                            </span>
+                                            {message.isStreaming && (
+                                                <div className="typing-indicator">
+                                                    <span></span>
+                                                    <span></span>
+                                                    <span></span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="message-actions">
+                                            {message.role === 'user' && (
+                                                <button 
+                                                    className="action-button" 
+                                                    onClick={() => handleRedoMessage(
+                                                        chatHistory.indexOf(message), message.content
+                                                    )} 
                                                     title="Edit message"
                                                 >
-                                                    <span className="codicon codicon-edit" />
-                                                </VSCodeButton>
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    onClick={() =>
-                                                        handleRedoMessage(
-                                                            index + 1,
-                                                            message.content
-                                                        )
-                                                    }
-                                                    title="Redo message"
-                                                >
-                                                    <span className="codicon codicon-refresh" />
-                                                </VSCodeButton>
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    onClick={() => onCopy(message.content)}
-                                                    title="Copy message"
-                                                >
-                                                    <span className="codicon codicon-copy" />
-                                                </VSCodeButton>
-                                            </>
-                                        )}
-                                        {message.role === "assistant" && !message.isStreaming && (
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                onClick={() => onCopy(message.content)}
-                                                title="Copy response"
+                                                    <span className="codicon codicon-edit"></span>
+                                                </button>
+                                            )}
+                                            <button 
+                                                className="action-button" 
+                                                onClick={() => onCopy(message.content)} 
+                                                title="Copy"
                                             >
-                                                <span className="codicon codicon-copy" />
-                                            </VSCodeButton>
-                                        )}
+                                                <span className="codicon codicon-copy"></span>
+                                            </button>
+                                        </div>
                                     </div>
+                                    
+                                    <div className="message-content">
+                                        {renderMessage(message.content, message.role)}
+                                    </div>
+                                    
+                                    {!message.isStreaming && message.role === 'assistant' && (
+                                        <div className="message-status sent">
+                                            <span className="codicon codicon-check"></span>
+                                            <span>Completed</span>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
-                        {pendingAssistantMessage &&
-                            !pendingAssistantMessage.includes("don't-render") &&
-                            pendingAssistantMessage.trim() !== "" && (
-                                <div className="chat-message assistant">
-                                    {renderMessage(pendingAssistantMessage, "assistant")}
-                                </div>
-                            )}
                     </div>
                 ) : (
-                    <div className="chat-empty-message">No messages yet. Start a conversation!</div>
+                    renderEmptyState()
                 )}
             </div>
 
-            <div className="input-container">
+            {/* Chat input area */}
+            <div className="chat-input-wrapper">
                 <ChatInput
                     value={chatInput}
                     onChange={onChatInputChange}
                     onSubmit={onChatSubmit}
-                    onFocus={onChatFocus}
+                    onFocus={handleFocus}
+                    placeholder="Type your translation question..."
+                    disabled={false}
                 />
             </div>
         </div>
     );
-}
+};
 
 export default React.memo(ChatTab);
