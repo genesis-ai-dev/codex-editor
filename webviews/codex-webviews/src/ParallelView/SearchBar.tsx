@@ -51,7 +51,6 @@ const SearchBar: React.FC<SearchBarProps> = ({ query, onQueryChange, onSearch })
                 appearance="icon"
                 title="Search"
             >
-                <span className="codicon codicon-search" />
             </VSCodeButton>
         </form>
     );

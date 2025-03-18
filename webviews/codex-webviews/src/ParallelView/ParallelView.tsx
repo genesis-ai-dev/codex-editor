@@ -4,13 +4,14 @@ import {
     VSCodePanelView,
     VSCodePanels,
     VSCodeButton,
+    VSCodeBadge,
+    VSCodeDivider,
 } from "@vscode/webview-ui-toolkit/react";
 import "./App.css";
 import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
 import ChatTab from "./ChatTab";
 import { TranslationPair } from "../../../../types";
-import { GlobalMessage } from "../../../../types";
 
 const vscode = acquireVsCodeApi();
 
@@ -56,6 +57,8 @@ function ParallelView() {
     const [loadedMessages, setLoadedMessages] = useState<ChatMessage[]>([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const [isSessionMenuOpen, setIsSessionMenuOpen] = useState(true);
+    const [activeTab, setActiveTab] = useState<"search" | "chat">("search");
+    const [pinnedCount, setPinnedCount] = useState<number>(0);
 
     // Helper function to process pending chunks in order
     const processNextChunk = () => {
@@ -96,6 +99,8 @@ function ParallelView() {
             switch (message.command) {
                 case "searchResults":
                     setVerses([...pinnedVerses, ...(message.data as TranslationPair[])]);
+                    // Auto-switch to search tab when search results arrive
+                    setActiveTab("search");
                     break;
                 case "pinCell": {
                     // Check if the cell is already pinned
@@ -150,6 +155,9 @@ function ParallelView() {
                         });
 
                         setIsStreaming(true);
+                        
+                        // Auto-switch to chat tab when receiving a message
+                        setActiveTab("chat");
 
                         // If this is the last chunk, don't end streaming yet
                         if (chunk.isLast) {
@@ -175,6 +183,7 @@ function ParallelView() {
                     // Replace the entire chat history with the loaded messages
                     setChatHistory(message.data.messages);
                     setSessionInfo(message.data.sessionInfo);
+                    setActiveTab("chat");
                     break;
             }
         };
@@ -182,6 +191,11 @@ function ParallelView() {
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, [pinnedVerses, isStreaming]);
+
+    // Update pinned count for badge
+    useEffect(() => {
+        setPinnedCount(pinnedVerses.length);
+    }, [pinnedVerses]);
 
     const handleUriClick = (uri: string, word: string) => {
         console.log("handleUriClick", uri, word);
@@ -210,40 +224,6 @@ function ParallelView() {
         } else {
             setPinnedVerses(pinnedVerses.filter((v) => v.cellId !== item.cellId));
         }
-    };
-    const handleRequestPinning = (cellIds: string[]) => {
-        for (const cellId of cellIds) {
-            // ensure cell is not already pinned
-            if (!pinnedVerses.some((v) => v.cellId === cellId)) {
-                const globalMessage: GlobalMessage = {
-                    command: "requestPinning",
-                    destination: "provider",
-                    content: {
-                        type: "cellId",
-                        cellId: cellId,
-                    },
-                };
-                // wait 100 ms
-                setTimeout(() => {
-                    vscode.postMessage(globalMessage);
-                }, 100);
-            }
-        }
-        sendMessage(
-            "Automated message: Pinning Complete, please continue talking with the user in their language. don't-render"
-        );
-    };
-    const handleApplyTranslation = (translation: string, cellId: string) => {
-        const globalMessage: GlobalMessage = {
-            command: "applyTranslation",
-            destination: "provider",
-            content: {
-                type: "cellAndText",
-                cellId: cellId,
-                text: translation,
-            },
-        };
-        vscode.postMessage(globalMessage);
     };
 
     const handleEditMessage = (index: number) => {
@@ -280,29 +260,75 @@ function ParallelView() {
         sendMessage(chatInput);
         setChatInput("");
         setIsSessionMenuOpen(false);
+        
+        // Auto-switch to chat tab when sending a message
+        setActiveTab("chat");
+    };
+
+    // Helper function to strip HTML tags from content
+    const stripHtmlTags = (html: string) => {
+        // Use a simple regex to remove HTML tags
+        return html.replace(/<[^>]*>/g, '');
+    };
+
+    const handleUnpinVerse = (cellId: string) => {
+        // Remove the verse from pinned verses
+        setPinnedVerses(prev => prev.filter(verse => verse.cellId !== cellId));
     };
 
     const sendMessage = (messageContent: string) => {
+        // Format pinned verses to include in the message using the PinnedVerse component
+        let fullMessage = messageContent;
+        
+        // Only add the pinned verses if there are any and the message is not a feedback message
+        if (pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback')) {
+            // Convert pinned verses to PinnedVerse components in the message
+            const pinnedVersesComponents = pinnedVerses.map(verse => {
+                const sourceText = stripHtmlTags(verse.sourceCell?.content || "No source text available");
+                const targetText = stripHtmlTags(verse.targetCell?.content || "");
+                
+                return `<PinnedVerse cellId="${verse.cellId}" sourceText="${encodeURIComponent(sourceText)}" targetText="${encodeURIComponent(targetText)}" />`;
+            }).join("\n");
+            
+            // Add the PinnedVerse components to the user's message
+            fullMessage = `${messageContent}\n\n${pinnedVersesComponents}`;
+        }
+
         const newHistory: ChatMessage[] = [
             ...chatHistory,
             {
                 role: "user",
-                content: messageContent,
-            },
-            {
-                role: "assistant",
-                content: "",
-                isStreaming: true,
+                content: fullMessage,
             },
         ];
 
         setChatHistory(newHistory);
 
+        // Also add the plain text version for the API
+        const plainTextPinnedVerses = pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback') 
+            ? pinnedVerses.map(verse => {
+                const sourceText = stripHtmlTags(verse.sourceCell?.content || "No source text available");
+                const targetText = stripHtmlTags(verse.targetCell?.content || "");
+                
+                return `\n---\nVerse: ${verse.cellId}\nSource: ${sourceText}\nTarget: ${targetText ? `${targetText}` : ""}`;
+              }).join('\n')
+            : '';
+
+        const apiMessage = pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback')
+            ? `${messageContent}\n\nCONTEXT (PINNED VERSES):${plainTextPinnedVerses}\n---`
+            : messageContent;
+
         vscode.postMessage({
             command: "chatStream",
-            query: messageContent,
-            context: verses.map((verse) => verse.cellId),
+            query: apiMessage,
+            context: [],  // Empty context as we're now including verses directly in the message
         });
+        
+        // Automatically unpin all verses after they've been included in a message
+        // but only if this is not a feedback message
+        if (pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback')) {
+            setPinnedVerses([]);
+        }
     };
 
     const handleSendFeedback = (originalText: string, feedbackText: string, cellId: string) => {
@@ -322,6 +348,7 @@ function ParallelView() {
             feedback: feedback,
         });
     };
+    
     const handlePinAll = () => {
         const unpinnedVerses = verses.filter(
             (verse) => !pinnedVerses.some((pinned) => pinned.cellId === verse.cellId)
@@ -360,6 +387,10 @@ function ParallelView() {
         );
     };
 
+    const handleChangeTab = (tabName: "search" | "chat") => {
+        setActiveTab(tabName);
+    };
+
     useEffect(() => {
         // Request current session info and all sessions on component mount
         vscode.postMessage({ command: "getCurrentChatSessionInfo" });
@@ -367,52 +398,72 @@ function ParallelView() {
     }, []);
 
     return (
-        <VSCodePanels>
-            {/* <VSCodePanelTab id="tab-search">Search</VSCodePanelTab>
-            <VSCodePanelTab id="tab-chat">Chat</VSCodePanelTab> */}
-
-            {/* Search Tab */}
-            <VSCodePanelView id="view-search">
-                <SearchTab
-                    verses={verses}
-                    pinnedVerses={pinnedVerses}
-                    lastQuery={lastQuery}
-                    onQueryChange={setLastQuery}
-                    completeOnly={completeOnly}
-                    onCompleteOnlyChange={setCompleteOnly}
-                    onSearch={searchBoth}
-                    onPinToggle={handlePinToggle}
-                    onUriClick={handleUriClick}
-                    onPinAll={handlePinAll}
-                />
-            </VSCodePanelView>
-
-            {/* Chat Tab */}
-            {/* <VSCodePanelView id="view-chat">
-                <ChatTab
-                    chatHistory={chatHistory}
-                    chatInput={chatInput}
-                    onChatInputChange={setChatInput}
-                    onChatSubmit={handleChatSubmit}
-                    onChatFocus={handleChatFocus}
-                    onEditMessage={handleEditMessage}
-                    messageStyles={messageStyles}
-                    pinnedVerses={pinnedVerses}
-                    onApplyTranslation={handleApplyTranslation}
-                    handleAddedFeedback={handleAddedFeedback}
-                    sessionInfo={sessionInfo}
-                    allSessions={allSessions}
-                    onStartNewSession={handleStartNewSession}
-                    onLoadSession={handleLoadSession}
-                    onDeleteSession={handleDeleteSession}
-                    setChatHistory={setChatHistory}
-                    onSendFeedback={handleSendFeedback}
-                    isSessionMenuOpen={isSessionMenuOpen}
-                    setIsSessionMenuOpen={setIsSessionMenuOpen}
-                    handleRequestPinning={handleRequestPinning}
-                />
-            </VSCodePanelView> */}
-        </VSCodePanels>
+        <div className="parallel-view-container">
+            <div className="tab-navigation">
+                <div 
+                    className={`tab-button ${activeTab === 'search' ? 'active' : ''}`}
+                    onClick={() => handleChangeTab('search')}
+                >
+                    <span className="codicon codicon-search"></span>
+                    <span className="tab-label">Search</span>
+                </div>
+                <div 
+                    className={`tab-button ${activeTab === 'chat' ? 'active' : ''}`}
+                    onClick={() => handleChangeTab('chat')}
+                >
+                    <span className="codicon codicon-comment"></span>
+                    <span className="tab-label">Chat</span>
+                    {chatHistory.length > 0 && <VSCodeBadge>{chatHistory.length}</VSCodeBadge>}
+                </div>
+                <div className="pinned-indicator">
+                    <span className="codicon codicon-pin"></span>
+                    {pinnedCount > 0 && <VSCodeBadge>{pinnedCount}</VSCodeBadge>}
+                </div>
+            </div>
+            
+            <VSCodeDivider />
+            
+            <div className="tab-content">
+                <div className={`tab-panel ${activeTab === 'search' ? 'active' : ''}`}>
+                    <SearchTab
+                        verses={verses}
+                        pinnedVerses={pinnedVerses}
+                        lastQuery={lastQuery}
+                        onQueryChange={setLastQuery}
+                        completeOnly={completeOnly}
+                        onCompleteOnlyChange={setCompleteOnly}
+                        onSearch={searchBoth}
+                        onPinToggle={handlePinToggle}
+                        onUriClick={handleUriClick}
+                        onPinAll={handlePinAll}
+                    />
+                </div>
+                
+                <div className={`tab-panel ${activeTab === 'chat' ? 'active' : ''}`}>
+                    <ChatTab
+                        chatHistory={chatHistory}
+                        chatInput={chatInput}
+                        onChatInputChange={setChatInput}
+                        onChatSubmit={handleChatSubmit}
+                        onChatFocus={handleChatFocus}
+                        onEditMessage={handleEditMessage}
+                        messageStyles={messageStyles}
+                        pinnedVerses={pinnedVerses}
+                        handleAddedFeedback={handleAddedFeedback}
+                        sessionInfo={sessionInfo}
+                        allSessions={allSessions}
+                        onStartNewSession={handleStartNewSession}
+                        onLoadSession={handleLoadSession}
+                        onDeleteSession={handleDeleteSession}
+                        setChatHistory={setChatHistory}
+                        onSendFeedback={handleSendFeedback}
+                        isSessionMenuOpen={isSessionMenuOpen}
+                        setIsSessionMenuOpen={setIsSessionMenuOpen}
+                        onUnpinVerse={handleUnpinVerse}
+                    />
+                </div>
+            </div>
+        </div>
     );
 }
 
