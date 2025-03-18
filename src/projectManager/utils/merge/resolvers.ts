@@ -21,11 +21,11 @@ function debugLog(...args: any[]): void {
 function isValidValidationEntry(value: any): value is ValidationEntry {
     return (
         value !== null &&
-        typeof value === 'object' &&
-        typeof value.username === 'string' &&
-        typeof value.creationTimestamp === 'number' &&
-        typeof value.updatedTimestamp === 'number' &&
-        typeof value.isDeleted === 'boolean'
+        typeof value === "object" &&
+        typeof value.username === "string" &&
+        typeof value.creationTimestamp === "number" &&
+        typeof value.updatedTimestamp === "number" &&
+        typeof value.isDeleted === "boolean"
     );
 }
 
@@ -115,13 +115,13 @@ export async function resolveConflictFile(
 /**
  * Custom merge resolution for Codex files
  * Merges cells from two versions of a notebook, preserving edit history and metadata
- * 
+ *
  * Special handling for validation entries:
  * - Legacy validatedBy arrays may contain string usernames
  * - This function converts any string entries to proper ValidationEntry objects
  * - It ensures all validatedBy arrays only contain valid ValidationEntry objects in the output
  * - String entries with the same username as an object entry are removed to avoid duplicates
- * 
+ *
  * @param ourContent Our version of the notebook JSON content
  * @param theirContent Their version of the notebook JSON content
  * @returns Merged notebook JSON content as a string
@@ -191,11 +191,11 @@ export async function resolveCodexCustomMerge(
                 } else {
                     // Merge validatedBy arrays if both exist
                     const existingEdit = editMap.get(key)!;
-                    
+
                     // Initialize validatedBy arrays if they don't exist
                     if (!existingEdit.validatedBy) existingEdit.validatedBy = [];
                     if (!edit.validatedBy) edit.validatedBy = [];
-                    
+
                     // Combine validation entries
                     if (edit.validatedBy.length > 0) {
                         edit.validatedBy.forEach((entry: any) => {
@@ -203,13 +203,13 @@ export async function resolveCodexCustomMerge(
                             let validationEntry: ValidationEntry;
                             if (!isValidValidationEntry(entry)) {
                                 // Handle string entries
-                                if (typeof entry === 'string') {
+                                if (typeof entry === "string") {
                                     const currentTimestamp = Date.now();
                                     validationEntry = {
                                         username: entry,
                                         creationTimestamp: currentTimestamp,
                                         updatedTimestamp: currentTimestamp,
-                                        isDeleted: false
+                                        isDeleted: false,
                                     };
                                 } else {
                                     // Skip invalid entries that are neither strings nor ValidationEntry objects
@@ -218,51 +218,57 @@ export async function resolveCodexCustomMerge(
                             } else {
                                 validationEntry = entry;
                             }
-                            
+
                             // Find if this user already has a validation entry
                             const existingEntryIndex = existingEdit.validatedBy!.findIndex(
                                 (existingEntry: any) => {
-                                    if (typeof existingEntry === 'string') {
+                                    if (typeof existingEntry === "string") {
                                         return existingEntry === validationEntry.username;
                                     }
-                                    return isValidValidationEntry(existingEntry) && 
-                                           existingEntry.username === validationEntry.username;
+                                    return (
+                                        isValidValidationEntry(existingEntry) &&
+                                        existingEntry.username === validationEntry.username
+                                    );
                                 }
                             );
-                            
+
                             if (existingEntryIndex === -1) {
                                 // User doesn't have an entry yet, add it
                                 existingEdit.validatedBy!.push(validationEntry);
                             } else {
                                 // User already has an entry
-                                const existingEntryItem = existingEdit.validatedBy![existingEntryIndex];
-                                
+                                const existingEntryItem =
+                                    existingEdit.validatedBy![existingEntryIndex];
+
                                 // If existing entry is a string, replace it with the object
-                                if (typeof existingEntryItem === 'string') {
+                                if (typeof existingEntryItem === "string") {
                                     existingEdit.validatedBy![existingEntryIndex] = validationEntry;
                                 } else {
                                     // Both are objects, update if the new one is more recent
-                                    if (validationEntry.updatedTimestamp > existingEntryItem.updatedTimestamp) {
+                                    if (
+                                        validationEntry.updatedTimestamp >
+                                        existingEntryItem.updatedTimestamp
+                                    ) {
                                         existingEdit.validatedBy![existingEntryIndex] = {
                                             ...validationEntry,
                                             // Keep the original creation timestamp
-                                            creationTimestamp: existingEntryItem.creationTimestamp
+                                            creationTimestamp: existingEntryItem.creationTimestamp,
                                         };
                                     }
                                 }
                             }
                         });
                     }
-                    
+
                     // After merging, ensure the validatedBy array only contains ValidationEntry objects
                     if (existingEdit.validatedBy && existingEdit.validatedBy.length > 0) {
-                        existingEdit.validatedBy = existingEdit.validatedBy.filter(entry => 
-                            typeof entry !== 'string'
+                        existingEdit.validatedBy = existingEdit.validatedBy.filter(
+                            (entry) => typeof entry !== "string"
                         );
                     }
                 }
             });
-            
+
             // Convert map back to array
             const uniqueEdits = Array.from(editMap.values());
 
@@ -309,8 +315,11 @@ export async function resolveCodexCustomMerge(
 
             debugLog({ editThatBelongsToOurCellValue, editThatBelongsToTheirCellValue });
 
+            // A fallback value is needed because sometimes edit history can be lost but one of the files has a cell value.
+            // We default our own but if ours is an empty string we use their cell value
+            const fallbackValue = ourCell.value || theirCell.value;
             // Ensure the latest edit is in the history
-            let finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? ourCell.value; // Nullish coalescing to keep empty strings from being overwritten
+            let finalValue = mostRecentOfTheirAndOurEdits?.cellValue ?? fallbackValue; // Nullish coalescing to keep empty strings from being overwritten
             if (
                 (ourCell.metadata?.edits?.length || 0) === 0 &&
                 (theirCell.metadata?.edits?.length || 0) > 0
@@ -324,36 +333,41 @@ export async function resolveCodexCustomMerge(
             finalEdits.sort((a, b) => a.timestamp - b.timestamp);
 
             // Ensure all edits have properly formatted validatedBy arrays (no strings)
-            finalEdits.forEach(edit => {
+            finalEdits.forEach((edit) => {
                 if (edit.validatedBy) {
                     // Convert any remaining string entries to ValidationEntry objects
-                    const validatedBy = edit.validatedBy.map(entry => {
-                        if (!isValidValidationEntry(entry)) {
-                            // Handle string entries
-                            if (typeof entry === 'string') {
-                                const currentTimestamp = Date.now();
-                                return {
-                                    username: entry,
-                                    creationTimestamp: currentTimestamp,
-                                    updatedTimestamp: currentTimestamp,
-                                    isDeleted: false
-                                };
+                    const validatedBy = edit.validatedBy
+                        .map((entry) => {
+                            if (!isValidValidationEntry(entry)) {
+                                // Handle string entries
+                                if (typeof entry === "string") {
+                                    const currentTimestamp = Date.now();
+                                    return {
+                                        username: entry,
+                                        creationTimestamp: currentTimestamp,
+                                        updatedTimestamp: currentTimestamp,
+                                        isDeleted: false,
+                                    };
+                                }
+                                // Skip invalid entries
+                                return null;
                             }
-                            // Skip invalid entries
-                            return null;
-                        }
-                        return entry;
-                    }).filter(entry => entry !== null) as ValidationEntry[];
-                    
+                            return entry;
+                        })
+                        .filter((entry) => entry !== null) as ValidationEntry[];
+
                     // Deduplicate by username (keep newest)
                     const usernameMap = new Map<string, ValidationEntry>();
-                    validatedBy.forEach(entry => {
+                    validatedBy.forEach((entry) => {
                         const existingEntry = usernameMap.get(entry.username);
-                        if (!existingEntry || entry.updatedTimestamp > existingEntry.updatedTimestamp) {
+                        if (
+                            !existingEntry ||
+                            entry.updatedTimestamp > existingEntry.updatedTimestamp
+                        ) {
                             usernameMap.set(entry.username, entry);
                         }
                     });
-                    
+
                     // Replace with deduplicated array
                     edit.validatedBy = Array.from(usernameMap.values());
                 }
