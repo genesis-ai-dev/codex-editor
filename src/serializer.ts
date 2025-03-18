@@ -11,12 +11,29 @@ export interface CodexNotebookDocument extends vscode.NotebookDocument {
     getCellIndex(cell: vscode.NotebookCell): number;
     cellAt(index: number): vscode.NotebookCell;
     cellsUpTo(index: number): vscode.NotebookCell[];
+<<<<<<< HEAD
+=======
 }
 
 interface RawNotebookData {
     cells: CustomNotebookCellData[];
     metadata?: { [key: string]: any };
+>>>>>>> main
 }
+const DEBUG = false;
+
+<<<<<<< HEAD
+interface RawNotebookData {
+    cells: CustomNotebookCellData[];
+    metadata?: { [key: string]: any };
+}
+=======
+const debug = (...args: any[]) => {
+    if (DEBUG) {
+        console.log("CodexContentSerializer", ...args);
+    }
+};
+>>>>>>> main
 
 export class CodexContentSerializer implements vscode.NotebookSerializer {
     public readonly label: string = "Codex Translation Notebook Serializer";
@@ -25,16 +42,29 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         data: Uint8Array,
         token: vscode.CancellationToken
     ): Promise<CodexNotebookAsJSONData> {
+<<<<<<< HEAD
         const contents = new TextDecoder().decode(data); // convert to String
+=======
+        debug("Deserializing notebook data");
+        const contents = new TextDecoder().decode(data); // convert to String
+        debug("Contents:", contents);
+>>>>>>> main
         // Read file contents
         let raw: RawNotebookData;
         try {
             raw = <RawNotebookData>JSON.parse(contents);
+            debug("Successfully parsed notebook contents", { cellCount: raw.cells.length });
+            return raw as CodexNotebookAsJSONData;
         } catch {
+<<<<<<< HEAD
+=======
+            debug("Failed to parse notebook contents, creating empty notebook");
+>>>>>>> main
             raw = { cells: [], metadata: {} };
         }
         // Create array of Notebook cells for the VS Code API from file contents
         const cells = raw.cells.map((item) => {
+            debug("Processing cell", { id: item.metadata?.id, kind: item.kind });
             const cell = new vscode.NotebookCellData(
                 item.kind,
                 item.value,
@@ -46,9 +76,16 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             }
             return cell;
         });
+<<<<<<< HEAD
 
         const notebookData = new vscode.NotebookData(cells);
         notebookData.metadata = raw.metadata || {};
+=======
+        console.log("Cells:", cells);
+        const notebookData = new vscode.NotebookData(cells);
+        notebookData.metadata = raw.metadata || {};
+        debug("Notebook deserialization complete", { cellCount: cells.length });
+>>>>>>> main
         return notebookData as CodexNotebookAsJSONData;
     }
 
@@ -56,12 +93,14 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         data: vscode.NotebookData,
         token: vscode.CancellationToken
     ): Promise<Uint8Array> {
+        debug("Serializing notebook data", { cellCount: data.cells.length });
         // Map the Notebook data into the format we want to save the Notebook data as
         const contents: RawNotebookData = {
             cells: [],
             metadata: data.metadata,
         };
         for (const cell of data.cells) {
+            debug("Processing cell for serialization", { id: cell.metadata?.id, kind: cell.kind });
             contents.cells.push({
                 kind: cell.kind,
                 languageId: cell.languageId,
@@ -74,15 +113,48 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
             });
         }
 
+        debug("Notebook serialization complete", { cellCount: contents.cells.length });
         return new TextEncoder().encode(JSON.stringify(contents, null, 4));
     }
 }
 
 export class CodexNotebookReader {
     private notebookDocument: vscode.NotebookDocument | undefined;
+<<<<<<< HEAD
 
     constructor(private readonly uri: vscode.Uri) {}
 
+=======
+    private notebookData: CodexNotebookAsJSONData | undefined;
+    private isDirectMode: boolean = false;
+
+    constructor(private readonly uri: vscode.Uri) {}
+
+    /**
+     * Reads the notebook file directly as JSON without opening it as a VS Code notebook.
+     * This is significantly faster for operations that only need to read data.
+     */
+    private async readNotebookAsJson(): Promise<CodexNotebookAsJSONData> {
+        if (this.notebookData) {
+            return this.notebookData;
+        }
+        
+        try {
+            const fileData = await vscode.workspace.fs.readFile(this.uri);
+            const serializer = new CodexContentSerializer();
+            this.notebookData = await serializer.deserializeNotebook(
+                fileData,
+                new vscode.CancellationTokenSource().token
+            );
+            this.isDirectMode = true;
+            return this.notebookData;
+        } catch (error) {
+            console.error(`Failed to read notebook as JSON: ${this.uri.fsPath}`, error);
+            throw error;
+        }
+    }
+
+>>>>>>> main
     private async ensureNotebookDocument(): Promise<void> {
         if (!this.notebookDocument) {
             const specificUri = vscode.Uri.parse(this.uri.toString());
@@ -91,12 +163,52 @@ export class CodexNotebookReader {
     }
 
     async getCells(): Promise<vscode.NotebookCell[]> {
+<<<<<<< HEAD
         await this.ensureNotebookDocument();
         return this.notebookDocument!.getCells();
+=======
+        // Try direct JSON access first
+        try {
+            const data = await this.readNotebookAsJson();
+            if (this.notebookDocument) {
+                // If we already have the document open, use it
+                return this.notebookDocument.getCells();
+            }
+            
+            // Otherwise, convert JSON cells to a compatible format
+            // Note: This returns a compatible interface but not actual NotebookCell objects
+            return data.cells.map((cell, index) => ({
+                document: {
+                    getText: () => cell.value,
+                    uri: vscode.Uri.parse(`${this.uri.toString()}#cell-${index}`)
+                },
+                kind: cell.kind,
+                metadata: cell.metadata,
+                notebook: { uri: this.uri } as vscode.NotebookDocument,
+                executionSummary: undefined,
+                index,
+                outputs: []
+            } as unknown as vscode.NotebookCell));
+        } catch (error) {
+            // Fall back to traditional method
+            await this.ensureNotebookDocument();
+            return this.notebookDocument!.getCells();
+        }
+>>>>>>> main
     }
 
     async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string }): Promise<number> {
         const { cell, id } = props;
+<<<<<<< HEAD
+=======
+        
+        if (this.isDirectMode && this.notebookData) {
+            return this.notebookData.cells.findIndex(
+                (c) => c.metadata?.id === cell?.metadata?.id || c.metadata?.id === id
+            );
+        }
+        
+>>>>>>> main
         const cells = await this.getCells();
         return cells.findIndex(
             (c) => c.metadata?.id === cell?.metadata?.id || c.metadata?.id === id
@@ -118,6 +230,7 @@ export class CodexNotebookReader {
         if (!cell) {
             return false; // If cell is undefined, it's not a range cell
         }
+<<<<<<< HEAD
         return cell.document.getText().trim() === "<range>";
     }
 
@@ -125,6 +238,22 @@ export class CodexNotebookReader {
     async getCellIds(cellIndex: number): Promise<string[]> {
         const cells = await this.getCells();
         const ids: string[] = [];
+=======
+        
+        if (this.isDirectMode) {
+            // In direct mode, we need to check the value directly
+            return (cell as any).document.getText().trim() === "<range>";
+        }
+        
+        return cell.document.getText().trim() === "<range>";
+    }
+
+    // Get the cell IDs, including subsequent range cells
+    async getCellIds(cellIndex: number): Promise<string[]> {
+        const cells = await this.getCells();
+        const ids: string[] = [];
+        
+>>>>>>> main
         // If the current cell is a range marker, find the preceding cell
         if (cellIndex < 0 || cellIndex >= cells.length) {
             return ids; // Return empty array if index is out of bounds
@@ -147,7 +276,11 @@ export class CodexNotebookReader {
         return ids;
     }
 
+<<<<<<< HEAD
     // Get cell IDs, including subsequent range cells
+=======
+    // Get effective cell content, including subsequent range cells
+>>>>>>> main
     async getEffectiveCellContent(cellIndex: number): Promise<string> {
         const cells = await this.getCells();
         let content = "";

@@ -2,7 +2,11 @@ import React from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { ImportType } from "../types";
 
+<<<<<<< HEAD
 const FEATURE_FLAG_TRANSLATION_PAIRS = false;
+=======
+const FEATURE_FLAG_TRANSLATION_PAIRS = true;
+>>>>>>> main
 
 interface ImportTypeSelectorProps {
     onSelect: (type: ImportType) => void;
@@ -12,7 +16,11 @@ interface ImportTypeSelectorProps {
 export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect, onCancel }) => {
     return (
         <div style={{ padding: "1.5rem", textAlign: "center" }}>
+<<<<<<< HEAD
             <h2 style={{ marginBottom: "1.5rem" }}>What would you like to import?</h2>
+=======
+            <h2 style={{ marginBottom: "1.5rem" }}>What would you like to import? </h2>
+>>>>>>> main
 
             <div
                 style={{
@@ -20,7 +28,11 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                     gap: "1.5rem",
                     justifyContent: "center",
                     flexWrap: "wrap",
+<<<<<<< HEAD
                     marginBottom: "2rem"
+=======
+                    marginBottom: "2rem",
+>>>>>>> main
                 }}
             >
                 <div
@@ -90,6 +102,7 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                         className="import-option"
                         onClick={() => onSelect("translation-pairs")}
                         style={{
+<<<<<<< HEAD
                         padding: "1.5rem",
                         border: "2px solid var(--vscode-button-background)",
                         borderRadius: "6px",
@@ -113,6 +126,31 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                             fontSize: "0.9em",
                         }}
                     >
+=======
+                            padding: "1.5rem",
+                            border: "2px solid var(--vscode-button-background)",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            width: "180px",
+                            transition: "background-color 0.2s",
+                        }}
+                    >
+                        <i
+                            className="codicon codicon-split-horizontal"
+                            style={{
+                                fontSize: "1.5rem",
+                                marginBottom: "0.5rem",
+                                display: "block",
+                            }}
+                        />
+                        <h3 style={{ marginBottom: "0.5rem" }}>Translation Pairs</h3>
+                        <p
+                            style={{
+                                color: "var(--vscode-descriptionForeground)",
+                                fontSize: "0.9em",
+                            }}
+                        >
+>>>>>>> main
                             Import CSV/TSV with source and target columns
                         </p>
                     </div>

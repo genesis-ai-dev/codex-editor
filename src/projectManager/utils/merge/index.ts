@@ -15,6 +15,10 @@
 import * as vscode from "vscode";
 import git from "isomorphic-git";
 import fs from "fs";
+<<<<<<< HEAD
+=======
+import http from "isomorphic-git/http/web";
+>>>>>>> main
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
@@ -37,8 +41,14 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
 
     try {
         // First check if we have a valid git repo
+<<<<<<< HEAD
         try {
             const remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+=======
+        let remotes;
+        try {
+            remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+>>>>>>> main
             if (remotes.length === 0) {
                 console.log("No remotes found");
                 return;
@@ -48,6 +58,7 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
             return;
         }
 
+<<<<<<< HEAD
         // Get the status before syncing to check for unmerged paths
         const status = await git.statusMatrix({ fs, dir: workspaceFolder });
 
@@ -78,6 +89,22 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         } else {
             vscode.window.showInformationMessage("Project is fully synced.");
         }
+=======
+        // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
+        // which handles authentication properly
+        const conflictsResponse = await authApi.syncChanges();
+
+        if (conflictsResponse?.hasConflicts) {
+            const resolvedFiles = await resolveConflictFiles(
+                conflictsResponse.conflicts || [],
+                workspaceFolder
+            );
+            if (resolvedFiles.length > 0) {
+                await authApi.completeMerge(resolvedFiles);
+            }
+        }
+        vscode.window.showInformationMessage("Project is fully synced.");
+>>>>>>> main
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(

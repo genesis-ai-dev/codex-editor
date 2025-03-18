@@ -1,9 +1,17 @@
 import { useMemo } from "react";
 import { QuillCellContent } from "../../../../../types";
+<<<<<<< HEAD
 
 export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     const subtitleData = useMemo(() => {
         return generateVttData(translationUnits);
+=======
+import { removeHtmlTags } from "./shareUtils";
+
+export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
+    const subtitleData = useMemo(() => {
+        return generateVttData(translationUnits, true);
+>>>>>>> main
     }, [translationUnits]);
     const subtitleBlob = useMemo(
         () => new Blob([subtitleData], { type: "text/vtt" }),
@@ -14,7 +22,14 @@ export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     return { subtitleUrl, subtitleData };
 };
 
+<<<<<<< HEAD
 export const generateVttData = (translationUnits: QuillCellContent[]): string => {
+=======
+export const generateVttData = (
+    translationUnits: QuillCellContent[],
+    includeStyles: boolean
+): string => {
+>>>>>>> main
     if (!translationUnits.length) return "";
 
     const formatTime = (seconds: number): string => {
@@ -29,7 +44,11 @@ export const generateVttData = (translationUnits: QuillCellContent[]): string =>
             const endTime = unit.timestamps?.endTime ?? index + 1;
             return `${unit.cellMarkers[0]}
 ${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
+<<<<<<< HEAD
 ${unit.cellContent}
+=======
+${includeStyles ? unit.cellContent : removeHtmlTags(unit.cellContent)}
+>>>>>>> main
 
 `;
         })

@@ -38,6 +38,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     isLoading,
 }) => {
     const [searchQuery, setSearchQuery] = useState("");
+<<<<<<< HEAD
+=======
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+    const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+>>>>>>> main
 
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
@@ -100,7 +105,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
             // Extract 20-character ID if it exists
             const lastPart = nameParts[nameParts.length - 1];
+<<<<<<< HEAD
             const hasUniqueId = lastPart?.length === 20;
+=======
+            const hasUniqueId = lastPart?.length >= 20;
+>>>>>>> main
             const uniqueId = hasUniqueId ? nameParts.pop()! : "";
             const cleanName = nameParts.join("-");
 
@@ -202,9 +211,45 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const { cleanName, displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isUnpublished = !project.gitOriginUrl;
         const status = getStatusIcon(project.syncStatus);
+<<<<<<< HEAD
 
         return (
             <div className="project-card" key={project.name}>
+=======
+        const isExpanded = expandedProjects[project.name];
+
+        const mainAction = () => {
+            if (project.syncStatus === "cloudOnlyNotSynced") {
+                return (
+                    <VSCodeButton
+                        appearance="secondary"
+                        onClick={() => onCloneProject(project)}
+                        title="Download project"
+                    >
+                        <i className="codicon codicon-cloud-download"></i>
+                    </VSCodeButton>
+                );
+            }
+            if (
+                project.syncStatus === "downloadedAndSynced" ||
+                project.syncStatus === "localOnlyNotSynced"
+            ) {
+                return (
+                    <VSCodeButton
+                        appearance="primary"
+                        onClick={() => onOpenProject(project)}
+                        title="Open project"
+                    >
+                        <i className="codicon codicon-folder-opened"></i>
+                    </VSCodeButton>
+                );
+            }
+            return null;
+        };
+
+        return (
+            <div className={`project-card ${isExpanded ? "expanded" : ""}`} key={project.name}>
+>>>>>>> main
                 <div className="card-header">
                     <div className="status-and-name">
                         <i
@@ -215,6 +260,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             <span className="name">{cleanName || project.name}</span>
                             {isUnpublished && <VSCodeBadge>Unpublished</VSCodeBadge>}
                         </div>
+<<<<<<< HEAD
                     </div>
                     <div
                         className="card-actions"
@@ -265,6 +311,65 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         </div>
                     )}
                 </div>
+=======
+                        {uniqueId && (
+                            <span
+                                style={{
+                                    opacity: 0.4,
+                                    transition: "opacity 0.2s ease",
+                                    fontSize: "0.9em",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = "1";
+                                    e.currentTarget.textContent = `#${uniqueId}`;
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = "0.4";
+                                    e.currentTarget.textContent = `#${uniqueId.slice(0, 3)}...`;
+                                }}
+                                title={`Full ID: ${uniqueId}`}
+                            >
+                                #{uniqueId.slice(0, 3)}...
+                            </span>
+                        )}
+                    </div>
+                    <div className="card-actions">
+                        {mainAction()}
+                        {displayUrl && (
+                            <span
+                                className={`expand-button ${isExpanded ? "expanded" : ""}`}
+                                onClick={() =>
+                                    setExpandedProjects((prev) => ({
+                                        ...prev,
+                                        [project.name]: !prev[project.name],
+                                    }))
+                                }
+                                title={isExpanded ? "Hide URL" : "Show URL"}
+                            >
+                                <i className="codicon codicon-chevron-down" />
+                            </span>
+                        )}
+                    </div>
+                </div>
+                {isExpanded && displayUrl && (
+                    <div className="card-content">
+                        <div className="url-container">
+                            <p className="url">{displayUrl}</p>
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={() =>
+                                    navigator.clipboard.writeText(project.gitOriginUrl || "")
+                                }
+                                title="Copy URL to clipboard"
+                            >
+                                <i className="codicon codicon-copy"></i>
+                            </VSCodeButton>
+                            {uniqueId && <span className="unique-id">#{uniqueId}</span>}
+                        </div>
+                    </div>
+                )}
+>>>>>>> main
             </div>
         );
     };
@@ -279,18 +384,43 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             return filteredSubgroupProjects.length > 0;
         });
 
+<<<<<<< HEAD
         // Hide empty groups when searching
+=======
+>>>>>>> main
         if (searchQuery && filteredProjects.length === 0 && !hasSubgroupsWithProjects) {
             return null;
         }
 
+<<<<<<< HEAD
         return (
             <div className="group-section" key={group.name}>
                 <div className="group-header">
+=======
+        const isExpanded = expandedGroups[group.name] ?? true;
+
+        return (
+            <div className="group-section" key={group.name}>
+                <div
+                    className="group-header"
+                    onClick={() =>
+                        setExpandedGroups((prev) => ({
+                            ...prev,
+                            [group.name]: !prev[group.name],
+                        }))
+                    }
+                >
+                    <i
+                        className={`codicon ${
+                            isExpanded ? "codicon-chevron-down" : "codicon-chevron-right"
+                        }`}
+                    />
+>>>>>>> main
                     <i className="codicon codicon-folder" />
                     <h2 className="group-name">{(group.name || "").replace(/_/g, " ")}</h2>
                     <VSCodeBadge>{filteredProjects.length}</VSCodeBadge>
                 </div>
+<<<<<<< HEAD
                 {filteredProjects.length > 0 && (
                     <div className="projects-grid">
                         {filteredProjects.map((project) => renderProjectCard(project))}
@@ -298,6 +428,19 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 )}
                 {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) =>
                     subgroup ? renderGroupSection(subgroup, depth + 1) : null
+=======
+                {isExpanded && (
+                    <>
+                        {filteredProjects.length > 0 && (
+                            <div className="projects-grid">
+                                {filteredProjects.map((project) => renderProjectCard(project))}
+                            </div>
+                        )}
+                        {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) =>
+                            subgroup ? renderGroupSection(subgroup, depth + 1) : null
+                        )}
+                    </>
+>>>>>>> main
                 )}
             </div>
         );
@@ -311,7 +454,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 <VSCodeTextField
                     placeholder="Search projects..."
                     value={searchQuery}
+<<<<<<< HEAD
                     onChange={(e: any) => setSearchQuery(e.target.value)}
+=======
+                    onInput={(e: any) => setSearchQuery((e.target as HTMLInputElement).value)}
+>>>>>>> main
                 >
                     <i slot="start" className="codicon codicon-search"></i>
                 </VSCodeTextField>

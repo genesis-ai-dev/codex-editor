@@ -1,5 +1,9 @@
 import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
 import {
+<<<<<<< HEAD
+=======
+    EditHistory,
+>>>>>>> main
     EditorCellContent,
     EditorPostMessages,
     SpellCheckResponse,
@@ -41,6 +45,10 @@ interface CellEditorProps {
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
     openCellById: (cellId: string, text: string) => void;
+<<<<<<< HEAD
+=======
+    editHistory: EditHistory[];
+>>>>>>> main
 }
 
 const DEBUG_ENABLED = false;
@@ -53,6 +61,10 @@ function debug(message: string, ...args: any[]): void {
 const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
     cellContent,
+<<<<<<< HEAD
+=======
+    editHistory,
+>>>>>>> main
     cellIndex,
     cellType,
     spellCheckResponse,
@@ -114,6 +126,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [activeSearchPosition, setActiveSearchPosition] = useState<number | null>(null);
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
+<<<<<<< HEAD
+=======
+    const [showAdvancedControls, setShowAdvancedControls] = useState(false);
+>>>>>>> main
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -268,6 +284,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Add effect to fetch source text
     useEffect(() => {
+<<<<<<< HEAD
         const messageContent: EditorPostMessages = {
             command: "getSourceText",
             content: {
@@ -276,6 +293,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
         window.vscodeApi.postMessage(messageContent);
     }, [cellMarkers]);
+=======
+        // Only fetch source text for non-paratext and non-child cells
+        if (cellType !== CodexCellTypes.PARATEXT && !cellIsChild) {
+            const messageContent: EditorPostMessages = {
+                command: "getSourceText",
+                content: {
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        } else {
+            // Clear source text for paratext or child cells
+            setSourceText(null);
+        }
+    }, [cellMarkers, cellType, cellIsChild]);
+>>>>>>> main
 
     // Add effect to handle source text response
     useEffect(() => {
@@ -398,6 +431,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
                     style={{ cursor: "pointer" }}
                 >
+<<<<<<< HEAD
                     <i className="codicon codicon-menu"></i>
                 </div>
                 <div className="action-buttons">
@@ -430,6 +464,72 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     >
                         <i className={`codicon ${isPinned ? "codicon-pinned" : "codicon-pin"}`}></i>
                     </VSCodeButton>
+=======
+                    {isEditorControlsExpanded ? (
+                        <i className="codicon codicon-close"></i>
+                    ) : (
+                        <div className="header-label">
+                            <h3></h3>
+                            {editableLabel} <i className="codicon codicon-edit"></i>
+                        </div>
+                    )}
+                </div>
+                <div className="action-buttons">
+                    {showAdvancedControls ? (
+                        <div>
+                            <AddParatextButton
+                                cellId={cellMarkers[0]}
+                                cellTimestamps={cellTimestamps}
+                            />
+                            {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                                <VSCodeButton
+                                    onClick={makeChild}
+                                    appearance="icon"
+                                    title="Add Child Cell"
+                                >
+                                    <i className="codicon codicon-type-hierarchy-sub"></i>
+                                </VSCodeButton>
+                            )}
+                            {!sourceCellContent && (
+                                <ConfirmationButton
+                                    icon="trash"
+                                    onClick={deleteCell}
+                                    disabled={cellHasContent}
+                                />
+                            )}
+                            <VSCodeButton
+                                onClick={handlePinCell}
+                                appearance="icon"
+                                title={
+                                    isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"
+                                }
+                                style={{
+                                    backgroundColor: isPinned
+                                        ? "var(--vscode-button-background)"
+                                        : "transparent",
+                                    color: isPinned
+                                        ? "var(--vscode-button-foreground)"
+                                        : "var(--vscode-editor-foreground)",
+                                    marginLeft: "auto", // This pushes it to the right
+                                }}
+                            >
+                                <i
+                                    className={`codicon ${
+                                        isPinned ? "codicon-pinned" : "codicon-pin"
+                                    }`}
+                                ></i>
+                            </VSCodeButton>
+                        </div>
+                    ) : (
+                        <VSCodeButton
+                            onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                            appearance="icon"
+                            title="Show Advanced Controls"
+                        >
+                            <i className="codicon codicon-gear"></i>
+                        </VSCodeButton>
+                    )}
+>>>>>>> main
                     {unsavedChanges ? (
                         <>
                             <VSCodeButton
@@ -491,6 +591,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     key={`${cellIndex}-quill`}
                     initialValue={editorContent}
                     spellCheckResponse={spellCheckResponse}
+<<<<<<< HEAD
+=======
+                    editHistory={editHistory}
+>>>>>>> main
                     onChange={({ html }) => {
                         setEditorContent(html);
 

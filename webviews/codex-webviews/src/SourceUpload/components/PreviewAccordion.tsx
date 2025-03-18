@@ -4,7 +4,15 @@ import { MultiPreviewItem } from "../types";
 import { formatFileSize } from "../../../../../src/utils/formatters";
 import { SourcePreview } from "./SourcePreview";
 import { TranslationPreview } from "./TranslationPreview";
+<<<<<<< HEAD
 
+=======
+import {
+    TranslationPreview as ITranslationPreview,
+    TranslationPairsPreview as ITranslationPairsPreview,
+} from "../../../../../types";
+import { TranslationPairPreview } from "./TranslationPairPreview";
+>>>>>>> main
 interface PreviewAccordionProps {
     previews: MultiPreviewItem[];
     onReject: (id: string) => void;
@@ -12,12 +20,26 @@ interface PreviewAccordionProps {
     selectedId?: string;
 }
 
+<<<<<<< HEAD
+=======
+const DEBUG = false;
+const debug = function (...args: any[]) {
+    if (DEBUG) {
+        console.log("[PreviewAccordion]", ...args);
+    }
+};
+
+>>>>>>> main
 export const PreviewAccordion: React.FC<PreviewAccordionProps> = ({
     previews,
     onReject,
     onSelect,
     selectedId,
 }) => {
+<<<<<<< HEAD
+=======
+    debug({ previews, onReject, onSelect, selectedId });
+>>>>>>> main
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set([previews[0]?.id]));
 
     const toggleExpand = (id: string) => {
@@ -31,6 +53,27 @@ export const PreviewAccordion: React.FC<PreviewAccordionProps> = ({
         onSelect(id);
     };
 
+<<<<<<< HEAD
+=======
+    const renderPreviewComponent = (preview: MultiPreviewItem) => {
+        switch (preview.preview.type) {
+            case "source":
+                return <SourcePreview preview={preview.preview} hideActions />;
+            case "translation":
+                return (
+                    <TranslationPreview
+                        preview={preview.preview as ITranslationPreview}
+                        hideActions
+                    />
+                );
+            case "translation-pairs":
+                return <TranslationPairPreview preview={preview.preview} hideActions />;
+            default:
+                return <div>Unsupported preview type: {preview.preview.type}</div>;
+        }
+    };
+
+>>>>>>> main
     return (
         <div className="preview-accordion">
             {previews.map((preview, index) => (
@@ -87,6 +130,7 @@ export const PreviewAccordion: React.FC<PreviewAccordionProps> = ({
                         )}
                     </div>
                     {expandedIds.has(preview.id) && (
+<<<<<<< HEAD
                         <div style={{ padding: "1rem" }}>
                             {preview.preview.type === "source" ? (
                                 <SourcePreview preview={preview.preview} hideActions />
@@ -94,6 +138,9 @@ export const PreviewAccordion: React.FC<PreviewAccordionProps> = ({
                                 <TranslationPreview preview={preview.preview} hideActions />
                             )}
                         </div>
+=======
+                        <div style={{ padding: "1rem" }}>{renderPreviewComponent(preview)}</div>
+>>>>>>> main
                     )}
                 </React.Fragment>
             ))}

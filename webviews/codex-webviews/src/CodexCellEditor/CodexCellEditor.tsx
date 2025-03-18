@@ -22,10 +22,18 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
+<<<<<<< HEAD
 import { generateVttData } from "./utils/vttUtils";
 import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 import { initializeStateStore } from "../../../../src/stateStore";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
+=======
+import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
+import { initializeStateStore } from "../../../../src/stateStore";
+import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
+import { CodexCellTypes } from "types/enums";
+import { getCellValueData } from "./utils/shareUtils";
+>>>>>>> main
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 
@@ -111,7 +119,12 @@ const CodexCellEditor: React.FC = () => {
         (window as any).initialData?.metadata?.textDirection || "ltr"
     );
     const [cellDisplayMode, setCellDisplayMode] = useState<CELL_DISPLAY_MODES>(
+<<<<<<< HEAD
         CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+=======
+        (window as any).initialData?.metadata?.cellDisplayMode ||
+            CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+>>>>>>> main
     );
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
@@ -258,7 +271,17 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const untranslatedUnitsForSection = useMemo(() => {
+<<<<<<< HEAD
         return translationUnitsForSection.filter((unit) => !unit.cellContent.trim());
+=======
+        return translationUnitsForSection.filter((unit) => {
+            const cellValueData = getCellValueData(unit);
+            return (
+                !unit.cellContent.trim() ||
+                (cellValueData.editType === "llm-generation" && !cellValueData.validatedBy?.length)
+            );
+        });
+>>>>>>> main
     }, [translationUnitsForSection]);
 
     const handleAutocompleteChapter = (numberOfCells: number) => {
@@ -356,6 +379,7 @@ const CodexCellEditor: React.FC = () => {
         setVideoUrl(url);
     };
 
+<<<<<<< HEAD
     const handleExportVtt = () => {
         const subtitleData = generateVttData(translationUnitsWithCurrentEditorContent);
         vscode.postMessage({
@@ -364,6 +388,8 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+=======
+>>>>>>> main
     const [headerHeight, setHeaderHeight] = useState(0);
     const [windowHeight, setWindowHeight] = useState(window.innerHeight);
     const headerRef = useRef<HTMLDivElement>(null);
@@ -417,6 +443,11 @@ const CodexCellEditor: React.FC = () => {
 
     (window as any).getCurrentEditingCellId = getCurrentEditingCellId;
 
+<<<<<<< HEAD
+=======
+    const documentHasVideoAvailable = !!metadata.videoUrl;
+
+>>>>>>> main
     return (
         <div className="codex-cell-editor">
             <div className="static-header" ref={headerRef}>
@@ -442,16 +473,26 @@ const CodexCellEditor: React.FC = () => {
                         totalCellsToAutocomplete={untranslatedUnitsForSection.length}
                         setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                         shouldShowVideoPlayer={shouldShowVideoPlayer}
+<<<<<<< HEAD
                         documentHasVideoAvailable={true}
+=======
+                        documentHasVideoAvailable={documentHasVideoAvailable}
+>>>>>>> main
                         metadata={metadata}
                         tempVideoUrl={tempVideoUrl}
                         onMetadataChange={handleMetadataChange}
                         onSaveMetadata={handleSaveMetadata}
                         onPickFile={handlePickFile}
                         onUpdateVideoUrl={handleUpdateVideoUrl}
+<<<<<<< HEAD
                         handleExportVtt={handleExportVtt}
                         toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
                         scrollSyncEnabled={scrollSyncEnabled}
+=======
+                        toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
+                        scrollSyncEnabled={scrollSyncEnabled}
+                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+>>>>>>> main
                     />
                 </div>
                 {shouldShowVideoPlayer && videoUrl && (
@@ -475,9 +516,12 @@ const CodexCellEditor: React.FC = () => {
                 className="scrollable-content"
                 style={{ height: `calc(100vh - ${headerHeight}px)` }}
             >
+<<<<<<< HEAD
                 <h1 style={{ marginBottom: "1rem" }}>
                     {translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]}
                 </h1>
+=======
+>>>>>>> main
                 <div className="editor-container">
                     {autocompletionProgress !== null && (
                         <div className="autocompletion-progress">

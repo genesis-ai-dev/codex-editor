@@ -237,6 +237,7 @@ export type SourceUploadPostMessages =
               sourceId: string;
           }>;
       }
+<<<<<<< HEAD
     | {
           command: "setColumnMapping";
           mapping: {
@@ -246,11 +247,17 @@ export type SourceUploadPostMessages =
               metadataColumns: string[];
           };
       }
+=======
+>>>>>>> main
     | { command: "error"; errorMessage: string }
     | { command: "getAvailableCodexFiles" }
     | { command: "selectSourceFile" }
     | { command: "confirmSourceImport" }
     | { command: "confirmTranslationImport" }
+<<<<<<< HEAD
+=======
+    | { command: "confirmTranslationPairsImport"; headers: string[]; data: TranslationPairsPreview }
+>>>>>>> main
     | { command: "cancelSourceImport" }
     | { command: "cancelTranslationImport" }
     | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }
@@ -307,7 +314,11 @@ export type SourceUploadResponseMessages =
     | { command: "bibleDownloadError"; error: string }
     | {
           command: "biblePreview";
+<<<<<<< HEAD
           preview: BiblePreviewData;
+=======
+          preview: BiblePreview;
+>>>>>>> main
           transaction: DownloadBibleTransaction;
       }
     | { command: "fileHeaders"; headers: string[] }
@@ -349,7 +360,11 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsSyncStatus" }
     | { command: "project.open"; projectPath: string }
     | { command: "project.createEmpty" }
+<<<<<<< HEAD
     | { command: "project.initialize" }
+=======
+    | { command: "project.initialize"; waitForStateUpdate?: boolean }
+>>>>>>> main
     | { command: "metadata.check" };
 
 export type GitLabProject = {
@@ -571,6 +586,10 @@ export type EditorPostMessages =
     | { command: "webviewFocused"; content: { uri: string } }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
     | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
+<<<<<<< HEAD
+=======
+    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell" }
+>>>>>>> main
     | { command: "pickVideoFile" }
     | { command: "togglePinPrompt"; content: { cellId: string; promptText: string } }
     | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
@@ -581,6 +600,12 @@ export type EditorPostMessages =
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
     | { command: "executeCommand"; content: { command: string; args: any[] } }
+<<<<<<< HEAD
+=======
+    | { command: "validateCell"; content: { cellId: string; validate: boolean } }
+    | { command: "getCurrentUsername" }
+    | { command: "getValidationCount" }
+>>>>>>> main
     | {
           command: "makeChildOfCell";
           content: {
@@ -614,7 +639,14 @@ export type EditorPostMessages =
               editHistory: EditHistoryEntry[];
           };
       }
+<<<<<<< HEAD
     | { command: "exportVttFile"; content: { subtitleData: string } }
+=======
+    | {
+          command: "exportFile";
+          content: { subtitleData: string; format: string; includeStyles: boolean };
+      }
+>>>>>>> main
     | { command: "generateBacktranslation"; content: { text: string; cellId: string } }
     | {
           command: "editBacktranslation";
@@ -685,6 +717,7 @@ type EditorReceiveMessages =
     | {
           type: "providerConfirmsBacktranslationSet";
           content: SavedBacktranslation | null;
+<<<<<<< HEAD
       };
 
 type AlertCodesServerResponse = {
@@ -1075,6 +1108,416 @@ interface LocalProject {
     isOutdated?: boolean;
 }
 
+=======
+      }
+    | { type: "currentUsername"; content: { username: string } }
+    | { type: "validationCount"; content: number }
+    | { type: "configurationChanged" };
+
+type AlertCodesServerResponse = {
+    code: number;
+    cellId: string;
+    savedSuggestions: { suggestions: string[] };
+}[];
+
+type GetAlertCodes = { text: string; cellId: string }[];
+
+/**
+ * Represents a validation entry by a user
+ */
+interface ValidationEntry {
+    username: string;
+    creationTimestamp: number;
+    updatedTimestamp: number;
+    isDeleted: boolean;
+}
+
+type EditHistory = {
+    author: string;
+    cellValue: string;
+    timestamp: number;
+    type: import("./enums").EditType;
+    validatedBy?: ValidationEntry[];
+};
+
+type CodexData = Timestamps & {
+    [key: string]: any;
+};
+
+type CustomCellMetaData = {
+    id: string;
+    type: import("./enums").CodexCellTypes;
+    data?: CodexData;
+    edits?: EditHistory[];
+    attachments?: {
+        [key: string]: {
+            url: string;
+            type: string;
+        };
+    };
+    cellLabel?: string;
+};
+
+type CustomNotebookCellData = vscode.NotebookCellData & {
+    metadata: CustomCellMetaData;
+};
+
+export interface CustomNotebookMetadata {
+    id: string;
+    textDirection?: "ltr" | "rtl";
+    perf?: any;
+    attachments?: {
+        [key: string]: {
+            url: string;
+            type: string;
+        };
+    };
+    originalName: string;
+    sourceFsPath: string | undefined;
+    codexFsPath: string | undefined;
+    navigation: NavigationCell[];
+    videoUrl?: string;
+    sourceCreatedAt: string;
+    codexLastModified?: string;
+    gitStatus:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
+    corpusMarker: string;
+    cellDisplayMode?: "inline" | "one-line-per-cell";
+    validationMigrationComplete?: boolean;
+}
+
+type CustomNotebookDocument = vscode.NotebookDocument & {
+    metadata: CustomNotebookMetadata;
+};
+
+type CodexNotebookAsJSONData = {
+    cells: CustomNotebookCellData[];
+    metadata: CustomNotebookMetadata;
+};
+
+interface QuillCellContent {
+    cellMarkers: string[];
+    cellContent: string;
+    cellType: import("./enums").CodexCellTypes;
+    editHistory: Array<EditHistory>;
+    timestamps?: Timestamps;
+    cellLabel?: string;
+}
+
+interface Timestamps {
+    startTime?: number;
+    endTime?: number;
+}
+
+interface SpellCheckResponse {
+    id: string;
+    text: string;
+    replacements: Array<{ value: string }>;
+    offset: number;
+    length: number;
+}
+
+type SpellCheckResult = SpellCheckResponse[];
+
+/* This is the project overview that populates the project manager webview */
+interface ProjectOverview extends Project {
+    projectName: string;
+    projectId: string;
+    abbreviation: string;
+    sourceLanguage: LanguageMetadata;
+    targetLanguage: LanguageMetadata;
+    category?: string; // Keep for backward compatibility
+    validationCount?: number;
+    userName: string;
+    userEmail: string;
+    sourceTexts?: vscode.Uri[] | never[];
+    targetTexts?: vscode.Uri[] | never[];
+    targetFont: string;
+    primarySourceText?: vscode.Uri;
+    isAuthenticated: boolean;
+    meta: Omit<Project["meta"], "generator"> & {
+        generator: Project["meta"]["generator"] & { userEmail?: string };
+        validationCount?: number;
+    };
+    spellcheckIsEnabled: boolean;
+}
+
+/* This is the project metadata that is saved in the metadata.json file */
+type ProjectMetadata = {
+    format: string;
+    meta: {
+        version: string;
+        category: string;
+        generator: {
+            softwareName: string;
+            softwareVersion: string;
+            userName: string;
+            userEmail?: string;
+        };
+        defaultLocale: string;
+        dateCreated: string;
+        normalization: string;
+        comments?: string[];
+        primarySourceText?: vscode.Uri;
+    };
+    idAuthorities: {
+        [key: string]: {
+            id: string;
+            name: {
+                [lang: string]: string;
+            };
+        };
+    };
+    identification: {
+        primary: {
+            [authority: string]: {
+                [id: string]: {
+                    revision: string;
+                    timestamp: string;
+                };
+            };
+        };
+        name: {
+            [lang: string]: string;
+        };
+        description: {
+            [lang: string]: string;
+        };
+        abbreviation: {
+            [lang: string]: string;
+        };
+    };
+    languages: Array<{
+        tag: string;
+        name: {
+            [lang: string]: string;
+        };
+    }>;
+    type: {
+        flavorType: {
+            name: string;
+            flavor: {
+                name: string;
+                usfmVersion?: string;
+                translationType?: string;
+                audience?: string;
+                projectType?: string;
+            };
+            currentScope: {
+                [book: string]: any[];
+            };
+        };
+    };
+    confidential: boolean;
+    agencies: Array<{
+        id: string;
+        roles: string[];
+        url?: string;
+        name: {
+            [lang: string]: string;
+        };
+        abbr?: {
+            [lang: string]: string;
+        };
+    }>;
+    targetAreas?: Array<{
+        code: string;
+        name: {
+            [lang: string]: string;
+        };
+    }>;
+    ingredients?: {
+        [path: string]: {
+            checksum: {
+                md5: string;
+            };
+            mimeType: string;
+            size: number;
+            scope?: {
+                [book: string]: any[];
+            };
+        };
+    };
+    copyright?: {
+        shortStatements: Array<{
+            statement: string;
+            mimetype: string;
+            lang: string;
+        }>;
+    };
+};
+
+// Update or add these function signatures
+declare function searchTargetCellsByQuery(
+    translationPairsIndex: MiniSearch,
+    query: string,
+    k?: number
+): MinimalCellResult[];
+
+declare function getTranslationPairsFromSourceCellQuery(
+    translationPairsIndex: MiniSearch,
+    query: string,
+    k?: number
+): TranslationPair[];
+
+declare function getSourceCellByCellIdFromAllSourceCells(
+    sourceTextIndex: MiniSearch,
+    cellId: string
+): SourceCellVersions | null;
+
+declare function getTargetCellByCellId(
+    translationPairsIndex: MiniSearch,
+    cellId: string
+): MinimalCellResult | null;
+
+declare function getTranslationPairFromProject(
+    translationPairsIndex: MiniSearch,
+    cellId: string
+): TranslationPair | null;
+
+declare function searchParallelCells(
+    translationPairsIndex: MiniSearch,
+    sourceTextIndex: MiniSearch,
+    query: string,
+    k?: number
+): TranslationPair[];
+
+export type SupportedFileExtension = "vtt" | "txt" | "usfm" | "sfm" | "SFM" | "USFM";
+
+export type FileType = "subtitles" | "plaintext" | "usfm" | "usx" | "csv" | "tsv" | "codex";
+
+export interface FileTypeMap {
+    vtt: "subtitles";
+    txt: "plaintext";
+    usfm: "usfm";
+    usx: "usx";
+    sfm: "usfm";
+    SFM: "usfm";
+    USFM: "usfm";
+    codex: "codex";
+}
+
+export interface AggregatedMetadata {
+    id: string;
+    originalName: string;
+    sourceFsPath?: string;
+    codexFsPath?: string;
+    videoUrl?: string;
+    lastModified?: string;
+    gitStatus?:
+        | "uninitialized"
+        | "modified"
+        | "added"
+        | "deleted"
+        | "renamed"
+        | "conflict"
+        | "untracked"
+        | "committed";
+}
+
+// Add these to your existing types
+export interface ValidationResult {
+    isValid: boolean;
+    errors: ValidationError[];
+}
+
+export interface ValidationError {
+    code: ValidationErrorCode;
+    message: string;
+    details?: unknown;
+}
+
+export interface SourceFileValidationOptions {
+    maxFileSizeBytes?: number;
+    supportedExtensions?: FileTypeMap;
+    minDiskSpaceBytes?: number;
+}
+
+interface ImportedContent {
+    id: string;
+    content: string;
+    startTime?: number;
+    endTime?: number;
+    edits?: EditHistory[];
+}
+
+// Add or verify these message types
+type ProjectManagerMessageFromWebview =
+    | { command: "sendProjectsList"; data: Project[] }
+    | { command: "requestProjectOverview" }
+    | { command: "error"; message: string }
+    | { command: "webviewReady" }
+    | { command: "refreshState" }
+    | { command: "initializeProject" }
+    | { command: "renameProject" }
+    | { command: "changeSourceLanguage"; language: LanguageMetadata }
+    | { command: "changeTargetLanguage"; language: LanguageMetadata }
+    | { command: "editAbbreviation" }
+    | { command: "selectCategory" }
+    | { command: "setValidationCount" }
+    | { command: "openSourceUpload" }
+    | { command: "openAISettings" }
+    | { command: "openExportView" }
+    | { command: "closeProject" }
+    | { command: "createNewWorkspaceAndProject" }
+    | { command: "openProject"; data: { path: string } }
+    | { command: "addWatchFolder" }
+    | { command: "removeWatchFolder"; data: { path: string } }
+    | { command: "refreshProjects" }
+    | { command: "openProjectSettings" }
+    | { command: "downloadSourceText" }
+    | { command: "selectprimarySourceText"; data: string }
+    | { command: "openBible"; data: { path: string } }
+    | { command: "checkPublishStatus" }
+    | { command: "publishProject" }
+    | { command: "syncProject" }
+    | { command: "openEditAnalysis" }
+    | { command: "toggleSpellcheck" };
+
+interface ProjectManagerState {
+    projectOverview: ProjectOverview | null;
+    webviewReady: boolean;
+    watchedFolders: string[];
+    projects: Array<LocalProject> | null;
+    isScanning: boolean;
+    canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
+    repoHasRemote: boolean;
+    isInitializing: boolean;
+}
+type ProjectManagerMessageToWebview =
+    | {
+          command: "stateUpdate";
+          data: ProjectManagerState;
+      }
+    | {
+          command: "publishStatus";
+          data: {
+              repoHasRemote: boolean;
+          };
+      };
+
+// Ensure the Project type is correctly defined
+interface LocalProject {
+    name: string;
+    path: string;
+    lastOpened?: Date;
+    lastModified: Date;
+    version: string;
+    hasVersionMismatch?: boolean;
+    gitOriginUrl?: string;
+    description: string;
+    isOutdated?: boolean;
+}
+
+>>>>>>> main
 interface BasePreview {
     fileName: string;
     fileSize: number;
@@ -1099,6 +1542,40 @@ export interface SourcePreview extends BasePreview {
         validationResults: ValidationResult[];
     };
 }
+<<<<<<< HEAD
+=======
+//     original: {
+//         preview: string;
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+//     transformed: {
+//         sourceNotebooks: NotebookPreview[];
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+export interface BiblePreview extends BasePreview {
+    type: "bible";
+    original: {
+        preview: string;
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+    transformed: {
+        sourceNotebooks: NotebookPreview[];
+        validationResults: {
+            isValid: boolean;
+            errors: Array<{ message: string }>;
+        }[];
+    };
+}
+>>>>>>> main
 
 interface RawSourcePreview {
     fileName: string;
@@ -1136,8 +1613,50 @@ export interface TranslationPreview extends BasePreview {
         validationResults: ValidationResult[];
     };
 }
+<<<<<<< HEAD
 
 export type PreviewContent = SourcePreview | TranslationPreview | BiblePreview;
+=======
+export interface TranslationPairsPreview extends BasePreview {
+    type: "translation-pairs";
+    preview: {
+        original: {
+            preview: string;
+            validationResults: ValidationResult[];
+        };
+        transformed: {
+            sourceNotebook: {
+                name: string;
+                cells: Array<{
+                    value: string;
+                    metadata: { id: string; type: string };
+                    kind: 2 | 1;
+                    languageId: "html" | "markdown" | "usj";
+                }>;
+            };
+            targetNotebook: {
+                name: string;
+                cells: Array<{
+                    value: string;
+                    metadata: { id: string; type: string };
+                    kind: 2 | 1;
+                    languageId: "html" | "markdown" | "usj";
+                }>;
+            };
+            matchedCells: number;
+            unmatchedContent: number;
+            paratextItems: number;
+            validationResults: ValidationResult[];
+        };
+    };
+}
+
+export type PreviewContent =
+    | SourcePreview
+    | TranslationPreview
+    | BiblePreview
+    | TranslationPairsPreview;
+>>>>>>> main
 
 // Add new interfaces to support the preview structure
 export interface NotebookPreview {
@@ -1202,6 +1721,7 @@ export interface CustomNotebookPreviewWithMetadata {
     preview: PreviewContent;
 }
 
+<<<<<<< HEAD
 export interface BiblePreviewData {
     type: "bible";
     original: {
@@ -1219,6 +1739,25 @@ export interface BiblePreviewData {
         }[];
     };
 }
+=======
+// export interface BiblePreviewData {
+//     type: "bible";
+//     original: {
+//         preview: string;
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+//     transformed: {
+//         sourceNotebooks: NotebookPreview[];
+//         validationResults: {
+//             isValid: boolean;
+//             errors: Array<{ message: string }>;
+//         }[];
+//     };
+// }
+>>>>>>> main
 
 export interface WorkflowState {
     step: WorkflowStep;

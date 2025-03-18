@@ -27,6 +27,7 @@ const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);
+<<<<<<< HEAD
     useEffect(() => {
         // Notify the extension that the webview is ready
         vscode.postMessage({ command: "webview.ready" });
@@ -34,6 +35,13 @@ export const StartupFlowView: React.FC = () => {
         // Request initial auth and workspace status
         vscode.postMessage({ command: "auth.status" });
         vscode.postMessage({ command: "workspace.status" });
+=======
+    const [isInitializing, setIsInitializing] = useState(false);
+
+    useEffect(() => {
+        // Request metadata check to determine initial state
+        vscode.postMessage({ command: "webview.ready" });
+>>>>>>> main
 
         // Listen for messages from the extension
         const messageHandler = (event: MessageEvent</* MessagesFromStartupFlowProvider */ any>) => {
@@ -44,6 +52,30 @@ export const StartupFlowView: React.FC = () => {
                     setValue(message.state.value);
                     break;
                 }
+<<<<<<< HEAD
+=======
+                case "project.initializationStatus": {
+                    const { isInitialized } = message;
+                    if (isInitialized) {
+                        // Project is initialized, move to critical data state
+                        setValue(StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA);
+                        setIsInitializing(false);
+                        // Request metadata check to get latest data
+                        vscode.postMessage({ command: "metadata.check" });
+                        // Show Project Manager view
+                        vscode.postMessage({ command: "project.showManager" });
+                    }
+                    break;
+                }
+                case "metadata.checkResponse": {
+                    // Only handle metadata response if we're in the critical data state
+                    if (value === StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA) {
+                        // Show Project Manager view
+                        vscode.postMessage({ command: "project.showManager" });
+                    }
+                    break;
+                }
+>>>>>>> main
                 case "updateAuthState": {
                     console.log("updateAuthState", JSON.stringify(message, null, 2));
                     const authState: AuthState = message.authState;
@@ -110,6 +142,7 @@ export const StartupFlowView: React.FC = () => {
                     }
                     break;
                 }
+<<<<<<< HEAD
                 case "metadata.checkResponse":
                     console.log("metadata.checkResponse", JSON.stringify(message, null, 2));
                     if (message.data.exists) {
@@ -122,6 +155,8 @@ export const StartupFlowView: React.FC = () => {
                         // send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
                     }
                     break;
+=======
+>>>>>>> main
                 case "setupIncompleteCriticalDataMissing": {
                     // console.log("setupIncompleteCriticalDataMissing called", {
                     //     state,
@@ -138,9 +173,13 @@ export const StartupFlowView: React.FC = () => {
         };
 
         window.addEventListener("message", messageHandler);
+<<<<<<< HEAD
         return () => {
             window.removeEventListener("message", messageHandler);
         };
+=======
+        return () => window.removeEventListener("message", messageHandler);
+>>>>>>> main
     }, []);
 
     const handleLogin = (username: string, password: string) => {
@@ -247,6 +286,7 @@ export const StartupFlowView: React.FC = () => {
                             className="codicon codicon-symbol-variable"
                             style={{ fontSize: "72px" }}
                         ></i>
+<<<<<<< HEAD
                         <VSCodeButton
                             onClick={() => {
                                 // send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
@@ -257,6 +297,20 @@ export const StartupFlowView: React.FC = () => {
                         >
                             Initialize Project <i className="codicon codicon-arrow-right"></i>
                         </VSCodeButton>
+=======
+                        <InitializeProjectButton
+                            isInitializing={isInitializing}
+                            onClick={async () => {
+                                if (!isInitializing) {
+                                    setIsInitializing(true);
+                                    vscode.postMessage({
+                                        command: "project.initialize",
+                                        waitForStateUpdate: true
+                                    } as MessagesToStartupFlowProvider);
+                                }
+                            }}
+                        />
+>>>>>>> main
                     </div>
                 </div>
             )}
@@ -267,3 +321,57 @@ export const StartupFlowView: React.FC = () => {
         </div>
     );
 };
+<<<<<<< HEAD
+=======
+
+const InitializeProjectButton = ({ 
+    onClick,
+    isInitializing 
+}: { 
+    onClick: () => void;
+    isInitializing: boolean;
+}) => {
+    const [dots, setDots] = useState('');
+    
+    useEffect(() => {
+        if (!isInitializing) return;
+        
+        const interval = setInterval(() => {
+            setDots(prev => prev.length >= 3 ? '' : prev + '.');
+        }, 500);
+        
+        return () => clearInterval(interval);
+    }, [isInitializing]);
+    
+    return (
+        <VSCodeButton
+            onClick={onClick}
+            style={{
+                width: '200px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '4px'
+            }}
+        >
+            <div style={{ 
+                minWidth: '140px',
+                display: 'flex',
+                justifyContent: 'center'
+            }}>
+                {isInitializing ? (
+                    <>
+                        Initializing Project
+                        <span style={{ width: '18px', textAlign: 'left' }}>{dots}</span>
+                    </>
+                ) : (
+                    <>
+                        Initialize Project
+                        <i className="codicon codicon-arrow-right" style={{ marginLeft: '4px' }}></i>
+                    </>
+                )}
+            </div>
+        </VSCodeButton>
+    );
+};
+>>>>>>> main

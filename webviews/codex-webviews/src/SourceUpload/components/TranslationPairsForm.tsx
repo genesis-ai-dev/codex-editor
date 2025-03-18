@@ -54,6 +54,16 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
         if (!sourceColumn || !targetColumn) {
             return;
         }
+<<<<<<< HEAD
+=======
+        console.log({
+            sourceColumn,
+            targetColumn,
+            ...(idColumn ? { idColumn } : {}),
+            metadataColumns,
+            hasHeaders,
+        });
+>>>>>>> main
 
         onSubmit({
             sourceColumn,
@@ -72,14 +82,22 @@ export const TranslationPairsForm: React.FC<TranslationPairsFormProps> = ({
             </p>
 
             <div className="form-group">
+<<<<<<< HEAD
                 <label className="checkbox-label">
+=======
+                {/* <label className="checkbox-label">
+>>>>>>> main
                     <input
                         type="checkbox"
                         checked={hasHeaders}
                         onChange={(e) => setHasHeaders(e.target.checked)}
                     />
                     File has headers
+<<<<<<< HEAD
                 </label>
+=======
+                </label> */}
+>>>>>>> main
                 <p className="help-text">
                     {hasHeaders
                         ? "The first row contains column names"

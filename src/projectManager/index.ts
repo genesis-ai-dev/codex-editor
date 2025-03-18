@@ -19,10 +19,21 @@ import {
     updateProjectSettings,
 } from "./utils/projectUtils";
 import { openSystemMessageEditor } from "../copilotSettings/copilotSettings";
+<<<<<<< HEAD
+=======
+import { openProjectExportView } from "./projectExportView";
+import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
+>>>>>>> main
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
     console.log("Codex Project Manager is now active!");
 
+<<<<<<< HEAD
+=======
+    // Ensure .codex-projects directory is in watched folders
+    await ensureCodexProjectsDirInWatchedFolders();
+
+>>>>>>> main
     //wrapper for registered commands
     const executeWithRedirecting = (command: (...args: any[]) => Promise<void>) => {
         return async (...args: any[]) => {
@@ -112,6 +123,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         })
     );
 
+<<<<<<< HEAD
     const selectCategoryCommand = vscode.commands.registerCommand(
         "codex-project-manager.selectCategory",
         executeWithRedirecting(async () => {
@@ -137,6 +149,32 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(
                     `Project category set to ${selectedCategory.label}.`
                 );
+=======
+    const setValidationCountCommand = vscode.commands.registerCommand(
+        "codex-project-manager.setValidationCount",
+        executeWithRedirecting(async () => {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const currentCount = config.get("validationCount", 1);
+
+            // Create array of numbers from 1 to 15
+            const validationCounts = Array.from({ length: 15 }, (_, i) => i + 1);
+
+            const countItems = validationCounts.map((count) => ({
+                label: count.toString(),
+                description: count === 1 ? "validation" : "validations",
+                picked: count === currentCount,
+            }));
+
+            const selectedCount = await vscode.window.showQuickPick(countItems, {
+                placeHolder: "Select number of validations required",
+            });
+
+            if (selectedCount !== undefined) {
+                const count = parseInt(selectedCount.label);
+                await config.update("validationCount", count, vscode.ConfigurationTarget.Workspace);
+                vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
+                vscode.window.showInformationMessage(`Required validations set to ${count}.`);
+>>>>>>> main
             }
         })
     );
@@ -468,6 +506,14 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openSystemMessageEditor
     );
 
+<<<<<<< HEAD
+=======
+    const openExportViewCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openExportView",
+        () => openProjectExportView(context)
+    );
+
+>>>>>>> main
     const toggleSpellcheckCommand = vscode.commands.registerCommand(
         "codex-project-manager.toggleSpellcheck",
         executeWithRedirecting(async () => {
@@ -507,7 +553,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         openAutoSaveSettingsCommand,
         editAbbreviationCommand,
+<<<<<<< HEAD
         selectCategoryCommand,
+=======
+        setValidationCountCommand,
+>>>>>>> main
         setEditorFontToTargetLanguageCommand,
         changeTargetLanguageCommand,
         changeSourceLanguageCommand,
@@ -521,6 +571,10 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         reinstallExtensionsCommand,
         showProjectOverviewCommand,
         openAISettingsCommand,
+<<<<<<< HEAD
+=======
+        openExportViewCommand,
+>>>>>>> main
         importLocalUsfmSourceBibleCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,

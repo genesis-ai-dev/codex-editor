@@ -1,10 +1,21 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
+<<<<<<< HEAD
 import { EditorCellContent, EditorPostMessages, Timestamps } from "../../../../types";
+=======
+import {
+    EditorCellContent,
+    EditorPostMessages,
+    Timestamps,
+    EditHistory,
+    QuillCellContent,
+} from "../../../../types";
+>>>>>>> main
 import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
+<<<<<<< HEAD
 
 interface CellContentDisplayProps {
     cellIds: string[];
@@ -12,15 +23,29 @@ interface CellContentDisplayProps {
     cellIndex: number;
     cellType: CodexCellTypes;
     cellLabel?: string;
+=======
+import ValidationButton from "./ValidationButton";
+
+const SHOW_VALIDATION_BUTTON = false;
+interface CellContentDisplayProps {
+    cell: QuillCellContent;
+>>>>>>> main
     setContentBeingUpdated: (content: EditorCellContent) => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
     hasDuplicateId: boolean;
+<<<<<<< HEAD
     timestamps: Timestamps | undefined;
     alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
+=======
+    alertColorCode: number | undefined;
+    highlightedCellId?: string | null;
+    scrollSyncEnabled: boolean;
+    cellLabelOrGeneratedLabel: string;
+>>>>>>> main
 }
 
 const DEBUG_ENABLED = false;
@@ -31,20 +56,35 @@ function debug(message: string, ...args: any[]): void {
 }
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
+<<<<<<< HEAD
     cellIds,
     cellContent,
     cellType,
     cellLabel,
+=======
+    cell,
+>>>>>>> main
     setContentBeingUpdated,
     vscode,
     textDirection,
     isSourceText,
     hasDuplicateId,
+<<<<<<< HEAD
     timestamps,
     alertColorCode,
     highlightedCellId,
     scrollSyncEnabled,
 }) => {
+=======
+    alertColorCode,
+    highlightedCellId,
+    scrollSyncEnabled,
+    cellLabelOrGeneratedLabel,
+}) => {
+    const { cellContent, timestamps, editHistory } = cell;
+    const cellIds = cell.cellMarkers;
+
+>>>>>>> main
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
     const cellRef = useRef<HTMLDivElement>(null);
@@ -80,7 +120,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellMarkers: cellIds,
             cellContent,
             cellChanged: unsavedChanges,
+<<<<<<< HEAD
             cellLabel,
+=======
+            cellLabel: cellLabelOrGeneratedLabel,
+>>>>>>> main
             timestamps,
             uri: documentUri,
         } as EditorCellContent);
@@ -95,7 +139,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     };
 
     const displayLabel =
+<<<<<<< HEAD
         cellLabel ||
+=======
+        cellLabelOrGeneratedLabel ||
+>>>>>>> main
         (() => {
             const numbers = cellIds.map((id) => id.split(":").pop());
             const reference =
@@ -142,6 +190,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     return (
         <div
             ref={cellRef}
+<<<<<<< HEAD
             className={`cell-content ${hasDuplicateId ? "duplicate-cell" : ""} ${
                 highlightedCellId === cellIds[0] && scrollSyncEnabled ? "highlighted-cell" : ""
             }`}
@@ -173,6 +222,42 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
             />
+=======
+            className={`cell-content-display ${
+                highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
+            }`}
+            style={{
+                backgroundColor: getBackgroundColor(),
+                direction: textDirection,
+                borderColor: hasDuplicateId ? "red" : undefined,
+            }}
+            onClick={handleVerseClick}
+        >
+            <div className="cell-header">
+                <div className="cell-actions">
+                    {!isSourceText && SHOW_VALIDATION_BUTTON && (
+                        <ValidationButton
+                            cellId={cellIds[0]}
+                            cell={cell}
+                            vscode={vscode}
+                            isSourceText={isSourceText}
+                        />
+                    )}
+                    {getAlertDot()}
+                </div>
+                <div className="cell-label">
+                    {cellLabelOrGeneratedLabel && (
+                        <span className="cell-label-text">{cellLabelOrGeneratedLabel}</span>
+                    )}
+                </div>
+            </div>
+            <div
+                className="cell-content"
+                dangerouslySetInnerHTML={{
+                    __html: HACKY_removeContiguousSpans(cellContent),
+                }}
+            ></div>
+>>>>>>> main
         </div>
     );
 };

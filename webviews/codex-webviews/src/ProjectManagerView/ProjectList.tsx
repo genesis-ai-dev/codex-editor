@@ -1,3 +1,8 @@
+<<<<<<< HEAD
+=======
+/** Ryder: I think this file is deprecated now. */
+
+>>>>>>> main
 import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import { formatDistanceToNow } from "date-fns";
 

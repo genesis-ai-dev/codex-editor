@@ -40,6 +40,7 @@ export async function openSystemMessageEditor() {
                         return;
                     }
 
+<<<<<<< HEAD
                     const llmConfig: CompletionConfig = {
                         apiKey: config.get("openAIKey") || "",
                         model: config.get("model") || "gpt-4",
@@ -79,6 +80,60 @@ export async function openSystemMessageEditor() {
                         response,
                         sourceLanguage,
                         targetLanguage
+=======
+                    return vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Generating AI Translation Instructions",
+                            cancellable: false,
+                        },
+                        async (progress) => {
+                            progress.report({ message: "Loading configuration..." });
+                            const llmConfig: CompletionConfig = {
+                                apiKey: config.get("openAIKey") || "",
+                                model: config.get("model") || "gpt-4",
+                                endpoint: config.get("endpoint") || "https://api.openai.com/v1",
+                                maxTokens: 500,
+                                temperature: 0.3,
+                                customModel: "",
+                                contextSize: "2000",
+                                additionalResourceDirectory: "",
+                                contextOmission: false,
+                                sourceBookWhitelist: "",
+                                mainChatLanguage: "en",
+                                chatSystemMessage: "",
+                                numberOfFewShotExamples: 0,
+                                debugMode: false,
+                            };
+
+                            progress.report({ message: "Preparing prompt..." });
+                            const prompt = `Generate a concise, one-paragraph set of linguistic instructions critical for a linguistically informed translator to keep in mind at all times when translating from ${sourceLanguage.refName} to ${targetLanguage.refName}. Keep it to a single plaintext paragraph. Note key lexicosemantic, information structuring, register-relevant and other key distinctions necessary for grammatical, natural text in ${targetLanguage.refName} if the starting place is ${sourceLanguage.refName}`;
+
+                            progress.report({ message: "Generating instructions with AI..." });
+                            const response = await callLLM(
+                                [
+                                    {
+                                        role: "user",
+                                        content: prompt,
+                                    },
+                                ],
+                                llmConfig
+                            );
+
+                            progress.report({ message: "Updating configuration..." });
+                            // Update the message and re-render the view
+                            await config.update(
+                                "chatSystemMessage",
+                                response,
+                                vscode.ConfigurationTarget.Workspace
+                            );
+                            panel.webview.html = getWebviewContent(
+                                response,
+                                sourceLanguage,
+                                targetLanguage
+                            );
+                        }
+>>>>>>> main
                     );
                 } catch (error) {
                     vscode.window.showErrorMessage(

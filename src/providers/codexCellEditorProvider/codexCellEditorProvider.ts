@@ -55,8 +55,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private userInfo: { username: string; email: string } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
+<<<<<<< HEAD
     private commitTimer: NodeJS.Timeout | undefined;
     private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+=======
+    private commitTimer: NodeJS.Timeout | number | undefined;
+    // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
+    private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
+>>>>>>> main
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -88,6 +94,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     constructor(private readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
+<<<<<<< HEAD
+=======
+
+        // Listen for configuration changes
+        vscode.workspace.onDidChangeConfiguration(e => {
+            if (e.affectsConfiguration('codex-project-manager.validationCount')) {
+                // Notify all webviews about the configuration change
+                this.webviewPanels.forEach((panel) => {
+                    this.postMessageToWebview(panel, {
+                        type: "configurationChanged"
+                    });
+                });
+                
+                // Force a refresh of validation state for all open documents
+                this.refreshValidationStateForAllDocuments();
+            }
+        });
+>>>>>>> main
     }
 
     private async initializeStateStore() {
@@ -164,7 +188,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Initial setup
         this.currentDocument = document;
+<<<<<<< HEAD
         const authApi = await getAuthApi();
+=======
+        const authApi = await this.getAuthApi();
+>>>>>>> main
         this.userInfo = await authApi?.getUserInfo();
         debug("User info retrieved:", this.userInfo);
 
@@ -246,7 +274,36 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
                 debug("Document changed for VS Code and webview");
+<<<<<<< HEAD
                 updateWebview();
+=======
+                
+                // Check if this is a validation update
+                if (e.edits && e.edits.length > 0 && e.edits[0].type === "validation") {
+                    // Broadcast the validation update to all webviews for this document
+                    const validationUpdate = {
+                        type: "providerUpdatesValidationState",
+                        content: {
+                            cellId: e.edits[0].cellId,
+                            validatedBy: e.edits[0].validatedBy
+                        }
+                    };
+                    
+                    // Send to all webviews that have this document open
+                    this.webviewPanels.forEach((panel, docUri) => {
+                        if (docUri === document.uri.toString()) {
+                            panel.webview.postMessage(validationUpdate);
+                        }
+                    });
+                    
+                    // Still update the current webview with the full content
+                    updateWebview();
+                } else {
+                    // For non-validation updates, just update the webview as normal
+                    updateWebview();
+                }
+                
+>>>>>>> main
                 this._onDidChangeCustomDocument.fire({ document });
             })
         );
@@ -563,7 +620,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 );
                 // Perform LLM completion for the current cell
                 if (this.currentDocument) {
+<<<<<<< HEAD
                     await performLLMCompletion(cellId, this.currentDocument);
+=======
+                    await performLLMCompletion(cellId, this.currentDocument, true);
+>>>>>>> main
                 }
 
                 // Send an update to the webview
@@ -721,4 +782,66 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             },
         });
     }
+<<<<<<< HEAD
+=======
+
+    public async getAuthApi() {
+        return getAuthApi();
+    }
+
+    /**
+     * Refreshes the validation state for all open documents
+     * This ensures all webviews show the correct validation status when validation requirements change
+     */
+    private refreshValidationStateForAllDocuments() {
+        // Keep track of processed documents to avoid duplicates
+        const processedDocuments = new Set<string>();
+        
+        // For each document URI in the webview panels map
+        this.webviewPanels.forEach((panel, docUri) => {
+            // Skip if already processed
+            if (processedDocuments.has(docUri)) return;
+            processedDocuments.add(docUri);
+            
+            // Try to find the document
+            // The document might be the current document
+            const doc = this.currentDocument?.uri.toString() === docUri 
+                ? this.currentDocument 
+                : undefined;
+                
+            if (doc) {
+                try {
+                    // Access the document's internal data
+                    // Since we might not have direct access to cells, use a simple approach:
+                    // Just refresh all cells by getting all cell IDs with validations
+                    const allCellIds = doc.getAllCellIds();
+                    
+                    // For each cell, broadcast its current validation state to all webviews for this document
+                    allCellIds.forEach((cellId: string) => {
+                        const validatedBy = doc.getCellValidatedBy(cellId);
+                        
+                        // Only send updates for cells that have validations
+                        if (validatedBy && validatedBy.length > 0) {
+                            // Post validation state update to all panels for this document
+                            this.webviewPanels.forEach((webviewPanel, panelUri) => {
+                                if (panelUri === docUri) {
+                                    // Use type assertion to allow sending the validation state message
+                                    this.postMessageToWebview(webviewPanel, {
+                                        type: "providerUpdatesValidationState" as any,
+                                        content: {
+                                            cellId,
+                                            validatedBy
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    });
+                } catch (error) {
+                    console.error("Error refreshing validation state:", error);
+                }
+            }
+        });
+    }
+>>>>>>> main
 }

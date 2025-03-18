@@ -1,8 +1,16 @@
 import { syncUtils } from "./../../../../src/activationHelpers/contextAware/syncUtils";
+<<<<<<< HEAD
 import { BiblePreviewData, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
+=======
+import { BiblePreview, PreviewContent } from "../../../../types";
+import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
+import * as vscode from "vscode";
+import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
+import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
+>>>>>>> main
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
@@ -82,7 +90,11 @@ export interface MultiPreviewItem {
     fileSize: number;
     isValid: boolean;
     isRejected?: boolean;
+<<<<<<< HEAD
     preview: PreviewContent | BiblePreviewData;
+=======
+    preview: PreviewContent | BiblePreview;
+>>>>>>> main
     sourceId?: string; // Optional sourceId for translation previews
 }
 
@@ -105,7 +117,11 @@ export interface WorkflowState {
     selectedFiles: string[];
     fileObjects: File[];
     selectedSourceId?: string;
+<<<<<<< HEAD
     preview?: PreviewContent | BiblePreviewData;
+=======
+    preview?: PreviewContent | BiblePreview;
+>>>>>>> main
     error?: string | null;
     progress?: {
         message: string;
@@ -207,7 +223,11 @@ export interface FrontierAPI {
             owner: string;
         }>
     >;
+<<<<<<< HEAD
     cloneRepository: (repositoryUrl: string) => Promise<boolean>;
+=======
+    cloneRepository: (repositoryUrl: string, cloneToPath?: string) => Promise<boolean>;
+>>>>>>> main
     publishWorkspace: (options?: {
         name: string;
         description?: string;
@@ -223,5 +243,9 @@ export interface FrontierAPI {
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
     }>;
+<<<<<<< HEAD
     completeMerge: (resolvedFiles: string[]) => Promise<void>;
+=======
+    completeMerge: (resolvedFiles: ResolvedFile[]) => Promise<void>;
+>>>>>>> main
 }

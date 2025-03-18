@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import * as vscode from "vscode";
 import { EditType } from "../../../types/enums";
@@ -8,15 +9,44 @@ import {
     AlertCodesServerResponse,
     GlobalMessage,
     GlobalContentType,
+=======
+import * as vscode from "vscode";
+import { CodexCellDocument } from "./codexDocument";
+// Use type-only import to break circular dependency
+import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
+import { GlobalMessage, EditorPostMessages } from "../../../types";
+import { EditType } from "../../../types/enums";
+import {
+    QuillCellContent,
+    SpellCheckResponse,
+    AlertCodesServerResponse,
+    GlobalContentType,
+    ValidationEntry
+>>>>>>> main
 } from "../../../types";
 import path from "path";
 import { getWorkSpaceUri } from "../../utils";
 import { SavedBacktranslation } from "../../smartEdits/smartBacktranslation";
+<<<<<<< HEAD
 import { CodexCellDocument } from "./codexDocument";
+=======
+>>>>>>> main
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
+<<<<<<< HEAD
+=======
+import fs from "fs";
+import { getAuthApi } from "@/extension";
+// Comment out problematic imports
+// import { getAddWordToSpellcheckApi } from "../../extension";
+// import { getSimilarCellIds } from "@/utils/semanticSearch";
+// import { getSpellCheckResponseForText } from "../../extension";
+// import { ChapterGenerationManager } from "./chapterGenerationManager";
+// import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
+// import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
+>>>>>>> main
 
 const DEBUG_ENABLED = false;
 function debug(...args: any[]): void {
@@ -27,7 +57,12 @@ function debug(...args: any[]): void {
 
 export async function performLLMCompletion(
     currentCellId: string,
+<<<<<<< HEAD
     currentDocument: CodexCellDocument
+=======
+    currentDocument: CodexCellDocument,
+    shouldUpdateValue = false
+>>>>>>> main
 ) {
     // Prevent LLM completion on source files
     if (currentDocument?.uri.fsPath.endsWith(".source")) {
@@ -41,6 +76,7 @@ export async function performLLMCompletion(
         return;
     }
 
+<<<<<<< HEAD
     try {
         // Fetch completion configuration
         const completionConfig = await fetchCompletionConfig();
@@ -64,6 +100,49 @@ export async function performLLMCompletion(
         vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
         throw error;
     }
+=======
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Generating Translation",
+            cancellable: false,
+        },
+        async (progress) => {
+            try {
+                progress.report({ message: "Fetching completion configuration..." });
+                // Fetch completion configuration
+                const completionConfig = await fetchCompletionConfig();
+                const notebookReader = new CodexNotebookReader(currentDocument.uri);
+                console.log("Document URI: ", notebookReader);
+
+                progress.report({ message: "Generating translation with LLM..." });
+                // Perform LLM completion
+                const result = await llmCompletion(
+                    notebookReader,
+                    currentCellId,
+                    completionConfig,
+                    new vscode.CancellationTokenSource().token
+                );
+
+                progress.report({ message: "Updating document..." });
+                // Update content and metadata atomically
+                currentDocument.updateCellContent(
+                    currentCellId,
+                    result,
+                    EditType.LLM_GENERATION,
+                    shouldUpdateValue
+                );
+
+                console.log("LLM completion result", { result });
+                return result;
+            } catch (error: any) {
+                console.error("Error in performLLMCompletion:", error);
+                vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
+                throw error;
+            }
+        }
+    );
+>>>>>>> main
 }
 
 // export function createMessageHandlers(provider: CodexCellEditorProvider) {
@@ -460,6 +539,7 @@ export const handleMessages = async (
             );
             return;
         }
+<<<<<<< HEAD
         case "exportVttFile": {
             try {
                 // Get the notebook filename to use as base for the VTT filename
@@ -471,6 +551,20 @@ export const handleMessages = async (
                     defaultUri: vscode.Uri.file(vttFileName),
                     filters: {
                         "WebVTT files": ["vtt"],
+=======
+        case "exportFile": {
+            try {
+                // Get the notebook filename to use as base for the exported filename
+                const notebookName = path.parse(document.uri.fsPath).name;
+                const fileExtension = event.content.format;
+                const fileName = `${notebookName}.${fileExtension}`;
+
+                // Show save file dialog with appropriate filters
+                const saveUri = await vscode.window.showSaveDialog({
+                    defaultUri: vscode.Uri.file(fileName),
+                    filters: {
+                        "Subtitle files": ["vtt", "srt"],
+>>>>>>> main
                     },
                 });
 
@@ -480,11 +574,23 @@ export const handleMessages = async (
                         Buffer.from(event.content.subtitleData, "utf-8")
                     );
 
+<<<<<<< HEAD
                     vscode.window.showInformationMessage(`VTT file exported successfully`);
                 }
             } catch (error) {
                 console.error("Error exporting VTT file:", error);
                 vscode.window.showErrorMessage("Failed to export VTT file");
+=======
+                    vscode.window.showInformationMessage(
+                        `File exported successfully as ${fileExtension.toUpperCase()}`
+                    );
+                }
+            } catch (error) {
+                console.error("Error exporting file:", error);
+                vscode.window.showErrorMessage(
+                    `Failed to export ${event.content.format.toUpperCase()} file`
+                );
+>>>>>>> main
             }
             return;
         }
@@ -618,5 +724,91 @@ export const handleMessages = async (
             await provider.updateCachedChapter(document.uri.toString(), event.content);
             return;
         }
+<<<<<<< HEAD
+=======
+        case "updateCellDisplayMode": {
+            try {
+                const updatedMetadata = {
+                    cellDisplayMode: event.mode,
+                };
+                await document.updateNotebookMetadata(updatedMetadata);
+                await document.save(new vscode.CancellationTokenSource().token);
+                console.log("Cell display mode updated successfully.");
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerUpdatesNotebookMetadataForWebview",
+                    content: await document.getNotebookMetadata(),
+                });
+            } catch (error) {
+                console.error("Error updating cell display mode:", error);
+                vscode.window.showErrorMessage("Failed to update cell display mode.");
+            }
+            return;
+        }
+        case "validateCell":
+            if (event.content && event.content.cellId) {
+                await document.validateCellContent(
+                    event.content.cellId,
+                    event.content.validate
+                );
+                
+                // Make sure to save the document to trigger file system watchers
+                await document.save(new vscode.CancellationTokenSource().token);
+                
+                // Update the current webview
+                updateWebview();
+                
+                // Get validated entries from the document, this will filter out any string entries
+                const validatedEntries = document.getCellValidatedBy(event.content.cellId);
+                
+                // Log validation count for debugging
+                const validationCount = document.getValidationCount(event.content.cellId);
+                debug(`Cell ${event.content.cellId} validation count: ${validationCount}, active entries: ${validatedEntries.filter(e => !e.isDeleted).length}`);
+                
+                // Post the validation update to all other webview panels for this document
+                (provider as any).webviewPanels.forEach((panel: vscode.WebviewPanel, docUri: string) => {
+                    if (docUri === document.uri.toString() && panel !== webviewPanel) {
+                        panel.webview.postMessage({
+                            type: "providerUpdatesValidationState",
+                            content: {
+                                cellId: event.content.cellId,
+                                validatedBy: validatedEntries
+                            }
+                        });
+                    }
+                });
+            }
+            break;
+        case "getValidationCount": {
+            try {
+                // Get the configured number of validations required from settings
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const validationCount = config.get("validationCount", 1);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "validationCount",
+                    content: validationCount
+                });
+            } catch (error) {
+                console.error("Error getting validation count:", error);
+                vscode.window.showErrorMessage("Failed to get validation count.");
+            }
+            return;
+        }
+        case "getCurrentUsername": {
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                const username = userInfo?.username || "anonymous";
+                
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "currentUsername",
+                    content: { username }
+                });
+            } catch (error) {
+                console.error("Error getting current username:", error);
+                vscode.window.showErrorMessage("Failed to get current username.");
+            }
+            return;
+        }
+>>>>>>> main
     }
 };

@@ -5,37 +5,29 @@ import {
     VSCodePanelTab,
     VSCodePanelView,
 } from "@vscode/webview-ui-toolkit/react";
-import { TranslationPreview as ITranslationPreview } from "../../../../../types";
+import { TranslationPairsPreview as ITranslationPairsPreview } from "../../../../../types";
 
 interface TranslationPreviewProps {
-    preview: ITranslationPreview;
+    preview: ITranslationPairsPreview;
     onConfirm?: () => void;
     onCancel?: () => void;
     hideActions?: boolean;
 }
 
-<<<<<<< HEAD
-=======
 const DEBUG = false;
 const debug = function (...args: any[]) {
     if (DEBUG) {
-        console.log("[TranslationPreview]", ...args);
+        console.log("[TranslationPairPreview]", ...args);
     }
 };
 
->>>>>>> main
-export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
+export const TranslationPairPreview: React.FC<TranslationPreviewProps> = ({
     preview,
     onConfirm,
     onCancel,
-<<<<<<< HEAD
-    hideActions
-}) => {
-=======
     hideActions,
 }) => {
-    debug({ preview });
->>>>>>> main
+    debug({ preview, hideActions });
     return (
         <div
             style={{
@@ -81,23 +73,7 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
 
                 <VSCodePanelView id="view-2">
                     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
-<<<<<<< HEAD
-                        <div className="statistics" style={{ 
-                            padding: "1rem",
-                            background: "var(--vscode-editor-background)",
-                            borderRadius: "4px"
-                        }}>
-                            <h4 style={{ marginBottom: "0.5rem" }}>Alignment Statistics</h4>
-                            <ul style={{ 
-                                listStyle: "none",
-                                padding: 0,
-                                margin: 0,
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "0.5rem"
-                            }}>
-=======
-                        <div
+                        {/* <div
                             className="statistics"
                             style={{
                                 padding: "1rem",
@@ -116,51 +92,29 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
                                     gap: "0.5rem",
                                 }}
                             >
->>>>>>> main
                                 <li>
                                     <span style={{ color: "var(--vscode-charts-green)" }}>
                                         <i className="codicon codicon-check" /> Matched Cells:
                                     </span>{" "}
-<<<<<<< HEAD
-                                    {preview.transformed.matchedCells}
-=======
-                                    {preview.transformed?.matchedCells}
->>>>>>> main
+                                    {preview.original.validationResults.length}
                                 </li>
                                 <li>
                                     <span style={{ color: "var(--vscode-charts-yellow)" }}>
                                         <i className="codicon codicon-warning" /> Unmatched Content:
                                     </span>{" "}
-<<<<<<< HEAD
-                                    {preview.transformed.unmatchedContent}
-=======
-                                    {preview.transformed?.unmatchedContent}
->>>>>>> main
+                                    {preview.original.validationResults.length}
                                 </li>
                                 <li>
                                     <span style={{ color: "var(--vscode-charts-blue)" }}>
                                         <i className="codicon codicon-info" /> Paratext Items:
                                     </span>{" "}
-<<<<<<< HEAD
-                                    {preview.transformed.paratextItems}
-=======
-                                    {preview.transformed?.paratextItems}
->>>>>>> main
+                                    {preview.original.validationResults.length}
                                 </li>
                             </ul>
-                        </div>
+                        </div> */}
 
+                        <h4 style={{ marginBottom: "1rem" }}>Content Preview</h4>
                         <div className="alignment-preview">
-                            <h4 style={{ marginBottom: "1rem" }}>Content Preview</h4>
-<<<<<<< HEAD
-                            <div style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "0.5rem",
-                                maxHeight: "200px",
-                                overflow: "auto",
-                            }}>
-=======
                             <div
                                 style={{
                                     display: "flex",
@@ -170,8 +124,7 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
                                     overflow: "auto",
                                 }}
                             >
->>>>>>> main
-                                {preview.transformed.targetNotebook.cells
+                                {preview.preview.transformed.sourceNotebook.cells
                                     .slice(0, 5)
                                     .map((cell, index) => (
                                         <div
@@ -183,21 +136,6 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
                                                 fontSize: "0.9em",
                                             }}
                                         >
-<<<<<<< HEAD
-                                            <div style={{ color: "var(--vscode-descriptionForeground)" }}>
-                                                {cell.metadata.id} ({cell.metadata.type})
-                                            </div>
-                                            <pre style={{ margin: "0.5rem 0 0 0" }}>{cell.value}</pre>
-                                        </div>
-                                    ))}
-                                {preview.transformed.targetNotebook.cells.length > 5 && (
-                                    <div style={{ 
-                                        textAlign: "center",
-                                        padding: "0.5rem",
-                                        color: "var(--vscode-descriptionForeground)"
-                                    }}>
-                                        ... {preview.transformed.targetNotebook.cells.length - 5} more cells
-=======
                                             <div
                                                 style={{
                                                     color: "var(--vscode-descriptionForeground)",
@@ -210,7 +148,7 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
                                             </pre>
                                         </div>
                                     ))}
-                                {preview.transformed.targetNotebook.cells.length > 5 && (
+                                {preview.preview.transformed.sourceNotebook.cells.length > 5 && (
                                     <div
                                         style={{
                                             textAlign: "center",
@@ -218,36 +156,71 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
                                             color: "var(--vscode-descriptionForeground)",
                                         }}
                                     >
-                                        ... {preview.transformed.targetNotebook.cells.length - 5}{" "}
+                                        ...{" "}
+                                        {preview.preview.transformed.sourceNotebook.cells.length -
+                                            5}{" "}
                                         more cells
->>>>>>> main
+                                    </div>
+                                )}
+                            </div>
+                            <div
+                                style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "0.5rem",
+                                    maxHeight: "200px",
+                                    overflow: "auto",
+                                }}
+                            >
+                                {preview.preview.transformed.targetNotebook.cells
+                                    .slice(0, 5)
+                                    .map((cell, index) => (
+                                        <div
+                                            key={index}
+                                            style={{
+                                                padding: "0.5rem",
+                                                background: "var(--vscode-input-background)",
+                                                borderRadius: "2px",
+                                                fontSize: "0.9em",
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    color: "var(--vscode-descriptionForeground)",
+                                                }}
+                                            >
+                                                {cell.metadata.id} ({cell.metadata.type})
+                                            </div>
+                                            <pre style={{ margin: "0.5rem 0 0 0" }}>
+                                                {cell.value}
+                                            </pre>
+                                        </div>
+                                    ))}
+                                {preview.preview.transformed.targetNotebook.cells.length > 5 && (
+                                    <div
+                                        style={{
+                                            textAlign: "center",
+                                            padding: "0.5rem",
+                                            color: "var(--vscode-descriptionForeground)",
+                                        }}
+                                    >
+                                        ...{" "}
+                                        {preview.preview.transformed.targetNotebook.cells.length -
+                                            5}{" "}
+                                        more cells
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        {preview.transformed.validationResults?.map((result, index) => (
+                        {/* {preview.transformed.validationResults?.map((result, index) => (
                             <ValidationResult key={index} result={result} />
-                        ))}
+                        ))} */}
                     </div>
                 </VSCodePanelView>
             </VSCodePanels>
 
             {!hideActions && (
-<<<<<<< HEAD
-                <div className="action-buttons" style={{ 
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    gap: "0.5rem",
-                    marginTop: "1rem"
-                }}>
-                    <VSCodeButton appearance="secondary" onClick={onCancel}>
-                        Back
-                    </VSCodeButton>
-                    <VSCodeButton onClick={onConfirm}>
-                        Import Translation
-                    </VSCodeButton>
-=======
                 <div
                     className="action-buttons"
                     style={{
@@ -261,7 +234,6 @@ export const TranslationPreview: React.FC<TranslationPreviewProps> = ({
                         Back
                     </VSCodeButton>
                     <VSCodeButton onClick={onConfirm}>Import Translation</VSCodeButton>
->>>>>>> main
                 </div>
             )}
         </div>

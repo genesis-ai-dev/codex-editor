@@ -25,6 +25,13 @@ export interface ProjectDetails {
     targetLanguage?: LanguageMetadata;
 }
 
+<<<<<<< HEAD
+=======
+interface CustomQuickPickItem extends vscode.QuickPickItem {
+    customValue?: string;
+}
+
+>>>>>>> main
 export async function promptForTargetLanguage(): Promise<ProjectDetails | undefined> {
     const languages = LanguageCodes;
 
@@ -32,6 +39,7 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
         return `${lang.refName} (${lang.tag})`;
     }
 
+<<<<<<< HEAD
     const quickPickItems = [...languages.map(getLanguageDisplayName), "$(add) Custom Language"];
 
     const targetLanguagePick = await vscode.window.showQuickPick(quickPickItems, {
@@ -82,6 +90,87 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
     return {
         targetLanguage,
     };
+=======
+    // Create a QuickPick instance instead of using showQuickPick
+    const quickPick = vscode.window.createQuickPick<CustomQuickPickItem>();
+    quickPick.placeholder = "Search for a language...";
+    quickPick.items = languages.map(lang => ({ label: getLanguageDisplayName(lang) }));
+
+    // Track the original items for filtering
+    const originalItems = quickPick.items;
+
+    quickPick.onDidChangeValue(value => {
+        if (!value) {
+            quickPick.items = originalItems;
+            return;
+        }
+
+        const searchValue = value.toLowerCase();
+        const filteredItems = originalItems.filter(item => 
+            item.label.toLowerCase().includes(searchValue)
+        );
+
+        // Always add custom language option when user has typed something
+        quickPick.items = [
+            ...filteredItems,
+            {
+                label: "$(plus) Custom Language",
+                detail: `Create custom language "${value}"`,
+                customValue: value,
+                alwaysShow: true
+            }
+        ];
+    });
+
+    return new Promise<ProjectDetails | undefined>((resolve) => {
+        quickPick.onDidAccept(() => {
+            const selection = quickPick.selectedItems[0];
+            if (!selection) {
+                resolve(undefined);
+                return;
+            }
+
+            let targetLanguage: LanguageMetadata;
+
+            // If it's a custom language
+            if (selection.customValue) {
+                targetLanguage = {
+                    name: {
+                        en: selection.customValue
+                    },
+                    tag: "custom",
+                    refName: selection.customValue,
+                    projectStatus: LanguageProjectStatus.TARGET,
+                };
+            } else {
+                // Find the selected language from the original list
+                const selectedLanguage = languages.find(
+                    lang => getLanguageDisplayName(lang) === selection.label
+                );
+
+                if (!selectedLanguage) {
+                    resolve(undefined);
+                    return;
+                }
+
+                targetLanguage = {
+                    ...selectedLanguage,
+                    projectStatus: LanguageProjectStatus.TARGET,
+                };
+            }
+
+            quickPick.hide();
+            resolve({ targetLanguage });
+        });
+
+        quickPick.onDidHide(() => {
+            quickPick.dispose();
+            resolve(undefined);
+        });
+
+        quickPick.show();
+    });
+>>>>>>> main
 }
 
 export async function promptForSourceLanguage(): Promise<ProjectDetails | undefined> {
@@ -91,6 +180,7 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
         return `${lang.refName} (${lang.tag})`;
     }
 
+<<<<<<< HEAD
     const quickPickItems = [...languages.map(getLanguageDisplayName), "$(add) Custom Language"];
 
     const sourceLanguagePick = await vscode.window.showQuickPick(quickPickItems, {
@@ -141,6 +231,87 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
     return {
         sourceLanguage,
     };
+=======
+    // Create a QuickPick instance instead of using showQuickPick
+    const quickPick = vscode.window.createQuickPick<CustomQuickPickItem>();
+    quickPick.placeholder = "Search for a language...";
+    quickPick.items = languages.map(lang => ({ label: getLanguageDisplayName(lang) }));
+
+    // Track the original items for filtering
+    const originalItems = quickPick.items;
+
+    quickPick.onDidChangeValue(value => {
+        if (!value) {
+            quickPick.items = originalItems;
+            return;
+        }
+
+        const searchValue = value.toLowerCase();
+        const filteredItems = originalItems.filter(item => 
+            item.label.toLowerCase().includes(searchValue)
+        );
+
+        // Always add custom language option when user has typed something
+        quickPick.items = [
+            ...filteredItems,
+            {
+                label: "$(plus) Custom Language",
+                detail: `Create custom language "${value}"`,
+                customValue: value,
+                alwaysShow: true
+            }
+        ];
+    });
+
+    return new Promise<ProjectDetails | undefined>((resolve) => {
+        quickPick.onDidAccept(() => {
+            const selection = quickPick.selectedItems[0];
+            if (!selection) {
+                resolve(undefined);
+                return;
+            }
+
+            let sourceLanguage: LanguageMetadata;
+
+            // If it's a custom language
+            if (selection.customValue) {
+                sourceLanguage = {
+                    name: {
+                        en: selection.customValue
+                    },
+                    tag: "custom",
+                    refName: selection.customValue,
+                    projectStatus: LanguageProjectStatus.SOURCE,
+                };
+            } else {
+                // Find the selected language from the original list
+                const selectedLanguage = languages.find(
+                    lang => getLanguageDisplayName(lang) === selection.label
+                );
+
+                if (!selectedLanguage) {
+                    resolve(undefined);
+                    return;
+                }
+
+                sourceLanguage = {
+                    ...selectedLanguage,
+                    projectStatus: LanguageProjectStatus.SOURCE,
+                };
+            }
+
+            quickPick.hide();
+            resolve({ sourceLanguage });
+        });
+
+        quickPick.onDidHide(() => {
+            quickPick.dispose();
+            resolve(undefined);
+        });
+
+        quickPick.show();
+    });
+>>>>>>> main
 }
 
 export function generateProjectScope(
@@ -398,7 +569,11 @@ export async function updateMetadataFile() {
 
     project.projectName = projectSettings.get("projectName", "");
     project.meta = project.meta || {}; // Ensure meta object exists
+<<<<<<< HEAD
     project.meta.category = projectSettings.get("projectCategory", "");
+=======
+    project.meta.validationCount = projectSettings.get("validationCount", 1);
+>>>>>>> main
     project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
     project.meta.generator.userName = projectSettings.get("userName", "");
     project.meta.generator.userEmail = projectSettings.get("userEmail", "");
@@ -488,12 +663,20 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
             projectId: metadata.projectId || "Unknown Project ID",
             projectStatus: metadata.projectStatus || "Unknown Status",
             category: metadata.meta?.category || "Uncategorized",
+<<<<<<< HEAD
+=======
+            validationCount: metadata.meta?.validationCount || 1,
+>>>>>>> main
             userName: userInfo?.username || "Anonymous",
             userEmail: userInfo?.email || "",
             meta: {
                 version: metadata.meta?.version || "0.0.1",
                 // FIXME: the codex-types library is out of date. Thus we have mismatched and/or duplicate values being defined
                 category: metadata.meta?.category || "Uncategorized",
+<<<<<<< HEAD
+=======
+                validationCount: metadata.meta?.validationCount || 1,
+>>>>>>> main
                 generator: {
                     softwareName: metadata.meta?.generator?.softwareName || "Unknown Software",
                     softwareVersion: metadata.meta?.generator?.softwareVersion || "0.0.1",

@@ -36,6 +36,10 @@ export const fileTypeMap: FileTypeMap = {
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",
+<<<<<<< HEAD
+=======
+    codex: "codex",
+>>>>>>> main
 };
 
 interface AlignedCell {
@@ -72,7 +76,11 @@ export async function importTranslations(
         debug("File content (first 100 characters):", fileContentString.substring(0, 100));
         debug("File content length:", fileContentString.length);
 
+<<<<<<< HEAD
         const fileType = fileTypeMap[fileExtension] || "plaintext";
+=======
+        const fileType = fileExtension as FileType || "plaintext";
+>>>>>>> main
 
         debug("File type", fileType);
 
@@ -97,6 +105,13 @@ export async function importTranslations(
                 importedContent = await parseUSFM(fileUri);
                 cellAligner = alignUSFMCells;
                 break;
+<<<<<<< HEAD
+=======
+            case "codex":
+                importedContent = await parseCodex(fileUri);
+                cellAligner = alignCodexCells;
+                break;
+>>>>>>> main
             default:
                 debug("Unsupported file type", fileType);
                 vscode.window.showErrorMessage("Unsupported file type.");
@@ -463,6 +478,47 @@ async function alignPlaintextCells(
     return alignedCells;
 }
 
+<<<<<<< HEAD
+=======
+async function alignCodexCells(
+    notebookCells: vscode.NotebookCell[],
+    importedContent: ImportedContent[]
+): Promise<AlignedCell[]> {
+    debug("Aligning Codex cells by matching cell IDs", {
+        notebookCellsCount: notebookCells.length,
+        importedContentCount: importedContent.length,
+    });
+
+    const alignedCells: AlignedCell[] = [];
+    let totalMatches = 0;
+
+    importedContent.forEach((importedItem) => {
+        if (!importedItem.content.trim()) {
+            // Skip empty lines
+            return;
+        }
+
+        const notebookCell = notebookCells.find((cell) => cell.metadata.id === importedItem.id);
+        if (notebookCell) {
+            alignedCells.push({
+                notebookCell,
+                importedContent: importedItem,
+            });
+            totalMatches++;
+        }
+    });
+
+    if (totalMatches === 0 && importedContent.length > 0) {
+        vscode.window.showErrorMessage(
+            "No matching cell IDs found in Codex. Please check the file format."
+        );
+        throw new Error("No matching cell IDs found in Codex.");
+    }
+
+    return alignedCells;
+}
+
+>>>>>>> main
 async function alignUSFMCells(
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
@@ -554,6 +610,44 @@ async function parsePlaintext(fileUri: vscode.Uri): Promise<ImportedContent[]> {
     return importedContent;
 }
 
+<<<<<<< HEAD
+=======
+async function parseCodex(fileUri: vscode.Uri): Promise<ImportedContent[]> {
+    debug("Parsing Codex file", fileUri.toString());
+    const importedContent: ImportedContent[] = [];
+
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Process each cell in the notebook
+        notebookData.cells.forEach((cell) => {
+            if (cell.metadata?.id && cell.value) {
+                importedContent.push({
+                    id: cell.metadata.id,
+                    content: cell.value.trim(),
+                    edits: cell.metadata.edits,
+                    // Include any additional metadata if needed
+                    startTime: cell.metadata.data?.startTime,
+                    endTime: cell.metadata.data?.endTime,
+                });
+            }
+        });
+
+        debug("Parsed Codex content", importedContent);
+    } catch (error: any) {
+        debug("Error parsing Codex file:", error);
+        vscode.window.showErrorMessage(`Error parsing Codex file: ${error.message}`);
+    }
+
+    return importedContent;
+}
+
+>>>>>>> main
 async function parseUSFM(fileUri: vscode.Uri): Promise<ImportedContent[]> {
     debug("Parsing USFM file", fileUri.toString());
 

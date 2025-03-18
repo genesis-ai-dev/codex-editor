@@ -8,6 +8,10 @@ export enum ConflictResolutionStrategy {
     SPECIAL = "special", // Merge based on timestamps/rules
     CODEX_CUSTOM_MERGE = "codex", // Special merge process for cell arrays
     JSONL = "jsonl", // Combine and deduplicate JSONL files
+<<<<<<< HEAD
+=======
+    // FIXME: Add a new strategy for merging .vscode/settings.json
+>>>>>>> main
 }
 
 export interface SmartEdit {
@@ -22,4 +26,9 @@ export interface ConflictFile {
     ours: string; // The actual content, not a path
     theirs: string; // The actual content, not a path
     base: string; // The actual content, not a path
+<<<<<<< HEAD
+=======
+    isDeleted: boolean;
+    isNew: boolean;
+>>>>>>> main
 }

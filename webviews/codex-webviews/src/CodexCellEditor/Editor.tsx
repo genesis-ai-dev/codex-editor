@@ -2,11 +2,20 @@ import { useRef, useEffect, useMemo, useState, useContext } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
+<<<<<<< HEAD
 import { EditorPostMessages, SpellCheckResponse } from "../../../../types";
+=======
+import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
+>>>>>>> main
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import React from "react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
+<<<<<<< HEAD
+=======
+import ReactPlayer from "react-player";
+import { diffWords } from "diff";
+>>>>>>> main
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -22,6 +31,14 @@ icons[
     "openLibrary"
 ] = `<i class="codicon codicon-book quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
 
+<<<<<<< HEAD
+=======
+// Add icon for edit history button
+icons[
+    "showEditHistory"
+] = `<i class="codicon codicon-history quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
+
+>>>>>>> main
 export interface EditorContentChanged {
     html: string;
 }
@@ -37,6 +54,10 @@ const HEADER_CYCLE = [
 export interface EditorProps {
     currentLineId: string;
     initialValue?: string;
+<<<<<<< HEAD
+=======
+    editHistory: EditHistory[];
+>>>>>>> main
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
@@ -85,6 +106,14 @@ export default function Editor(props: EditorProps) {
         (window as any).initialData?.userInfo?.username || "anonymous"
     );
 
+<<<<<<< HEAD
+=======
+    const [showHistoryModal, setShowHistoryModal] = useState(false);
+    const [editHistoryForCell, setEditHistoryForCell] = useState<EditHistory[]>(props.editHistory);
+
+    console.log({ editHistory, editHistoryForCell });
+
+>>>>>>> main
     // Initialize Quill editor
     useEffect(() => {
         if (editorRef.current && !quillRef.current) {
@@ -115,6 +144,15 @@ export default function Editor(props: EditorProps) {
                                 setWordsToAdd(words);
                                 setShowModal(true);
                             },
+<<<<<<< HEAD
+=======
+                            showEditHistory: () => {
+                                if (quillRef.current) {
+                                    setEditHistoryForCell(props.editHistory);
+                                    setShowHistoryModal(true);
+                                }
+                            },
+>>>>>>> main
                         },
                     },
                     spellChecker: {},
@@ -176,6 +214,7 @@ export default function Editor(props: EditorProps) {
                     if (props.onChange) {
                         const cleanedContents = getCleanedHtml(content);
 
+<<<<<<< HEAD
                         // New function to remove excessive empty paragraphs and line breaks and &nbsp; (of both kinds) which appear inconsistently
                         const removeExcessiveEmptyTags = (html: string) => {
                             return html
@@ -189,6 +228,9 @@ export default function Editor(props: EditorProps) {
                         const trimmedContent = removeExcessiveEmptyTags(cleanedContents);
 
                         const arrayOfParagraphs = trimmedContent
+=======
+                        const arrayOfParagraphs = cleanedContents
+>>>>>>> main
                             .trim()
                             .split("</p>")
                             .map((p) => p.trim())
@@ -355,11 +397,200 @@ export default function Editor(props: EditorProps) {
         }
     }, [headerLabel]);
 
+<<<<<<< HEAD
+=======
+    // Add function to strip HTML tags and decode entities
+    const stripHtmlAndDecode = (html: string): string => {
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        return temp.textContent || temp.innerText || '';
+    };
+
+    // Add function to generate diff HTML
+    const generateDiffHtml = (oldText: string, newText: string): string => {
+        // Strip HTML from both texts before comparing
+        const cleanOldText = stripHtmlAndDecode(oldText);
+        const cleanNewText = stripHtmlAndDecode(newText);
+        
+        const diff = diffWords(cleanOldText, cleanNewText);
+        return diff
+            .map((part) => {
+                if (part.added) {
+                    return `<span style="background-color: var(--vscode-diffEditor-insertedTextBackground); text-decoration: none;">${part.value}</span>`;
+                }
+                if (part.removed) {
+                    return `<span style="background-color: var(--vscode-diffEditor-removedTextBackground); text-decoration: line-through;">${part.value}</span>`;
+                }
+                return part.value;
+            })
+            .join("");
+    };
+
+>>>>>>> main
     return (
         <>
             <div className="editor-container">
                 <div ref={editorRef}></div>
             </div>
+<<<<<<< HEAD
+=======
+            {showHistoryModal && (
+                <div
+                    style={{
+                        position: "fixed",
+                        top: "50%",
+                        left: "50%",
+                        transform: "translate(-50%, -50%)",
+                        backgroundColor: "var(--vscode-editor-background)",
+                        padding: "20px",
+                        border: "1px solid var(--vscode-editor-foreground)",
+                        borderRadius: "4px",
+                        zIndex: 1000,
+                        maxHeight: "80vh",
+                        overflowY: "auto",
+                        minWidth: "300px",
+                    }}
+                >
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "16px",
+                        }}
+                    >
+                        <h3>Edit History</h3>
+                        <button
+                            onClick={() => setShowHistoryModal(false)}
+                            style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "var(--vscode-editor-foreground)",
+                                width: "fit-content",
+                                flexShrink: 0,
+                            }}
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        {editHistoryForCell && editHistoryForCell.length > 0 ? (
+                            [...editHistoryForCell]
+                                .reverse()
+                                // Filter out llm-generation entries that have the same content as the next user-edit
+                                .filter((entry, index, array) => {
+                                    const nextEntry = array[index - 1]; // Since array is reversed, previous entry is next chronologically
+                                    return !(
+                                        entry.type === "llm-generation" &&
+                                        nextEntry?.type === "user-edit" &&
+                                        entry.cellValue === nextEntry.cellValue
+                                    );
+                                })
+                                .map((entry, index, array) => {
+                                    const previousEntry = array[index + 1];
+                                    const diffHtml = previousEntry
+                                        ? generateDiffHtml(previousEntry.cellValue, entry.cellValue)
+                                        : stripHtmlAndDecode(entry.cellValue);
+
+                                    // Check if this is the most recent entry that matches the initial value
+                                    const isCurrentVersion = entry.cellValue === props.initialValue && 
+                                        !array.slice(0, index).some(e => e.cellValue === props.initialValue);
+
+                                    return (
+                                        <div
+                                            key={index}
+                                            style={{
+                                                padding: "8px",
+                                                border: "1px solid var(--vscode-editor-foreground)",
+                                                borderRadius: "4px",
+                                                backgroundColor: isCurrentVersion ? 
+                                                    'var(--vscode-editor-selectionBackground)' : 'transparent'
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    marginBottom: "4px",
+                                                    fontSize: "0.9em",
+                                                    color: "var(--vscode-descriptionForeground)",
+                                                    display: "flex",
+                                                    justifyContent: "space-between",
+                                                    alignItems: "center"
+                                                }}
+                                            >
+                                                <div>
+                                                    {new Date(entry.timestamp).toLocaleString()} by {entry.author}
+                                                </div>
+                                                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                                    {isCurrentVersion ? (
+                                                        <span style={{ 
+                                                            fontSize: "0.8em",
+                                                            padding: "2px 6px",
+                                                            backgroundColor: "var(--vscode-badge-background)",
+                                                            color: "var(--vscode-badge-foreground)",
+                                                            borderRadius: "4px"
+                                                        }}>
+                                                            Current Version
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => {
+                                                                if (quillRef.current) {
+                                                                    // When selecting a version, use the original HTML
+                                                                    quillRef.current.root.innerHTML = entry.cellValue;
+                                                                    setShowHistoryModal(false);
+                                                                    // Trigger the text-change event to update state
+                                                                    quillRef.current.update();
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                background: "none",
+                                                                border: "none",
+                                                                cursor: "pointer",
+                                                                color: "var(--vscode-button-foreground)",
+                                                                backgroundColor: "var(--vscode-button-background)",
+                                                                padding: "4px 8px",
+                                                                borderRadius: "4px",
+                                                                fontSize: "0.9em",
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                gap: "4px"
+                                                            }}
+                                                        >
+                                                            <i className="codicon codicon-edit"></i>
+                                                            Edit
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div style={{ marginBottom: "8px" }}>
+                                                <div
+                                                    style={{
+                                                        whiteSpace: "pre-wrap",
+                                                        backgroundColor: "var(--vscode-editor-findMatchHighlightBackground)",
+                                                        padding: "4px",
+                                                        borderRadius: "2px",
+                                                    }}
+                                                    dangerouslySetInnerHTML={{ __html: diffHtml }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                        ) : (
+                            <div
+                                style={{
+                                    textAlign: "center",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            >
+                                No edit history available
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+>>>>>>> main
             {showModal && (
                 <div
                     style={{
@@ -401,8 +632,13 @@ export default function Editor(props: EditorProps) {
 
 // Existing constants and interfaces
 const TOOLBAR_OPTIONS = [
+<<<<<<< HEAD
     ["openLibrary", "autocomplete"],
     ["headerStyleLeft", "headerStyleLabel", "headerStyleRight"], // Three separate buttons for the control
+=======
+    ["openLibrary", "autocomplete", "showEditHistory"],
+    ["headerStyleLeft", "headerStyleLabel", "headerStyleRight"],
+>>>>>>> main
     ["bold", "italic", "underline", "strike", "blockquote", "link"],
     [{ list: "ordered" }, { list: "bullet" }],
     [{ indent: "-1" }, { indent: "+1" }],

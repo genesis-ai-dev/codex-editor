@@ -10,9 +10,39 @@ import {
     CustomNotebookCellData,
     Timestamps,
     CustomNotebookMetadata,
+<<<<<<< HEAD
 } from "../../../types";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
+=======
+    ValidationEntry
+} from "../../../types";
+import { CodexCellTypes, EditType } from "../../../types/enums";
+import { getAuthApi } from "@/extension";
+import { randomUUID } from "crypto";
+
+// Define debug function locally
+const DEBUG_MODE = false;
+function debug(...args: any[]) {
+    if (DEBUG_MODE) {
+        console.log("[CodexCellDocument]", ...args);
+    }
+}
+
+/**
+ * Type guard to check if a value is a ValidationEntry
+ */
+function isValidationEntry(value: any): value is ValidationEntry {
+    return (
+        value !== null &&
+        typeof value === 'object' &&
+        typeof value.username === 'string' &&
+        typeof value.creationTimestamp === 'number' &&
+        typeof value.updatedTimestamp === 'number' &&
+        typeof value.isDeleted === 'boolean'
+    );
+}
+>>>>>>> main
 
 export class CodexCellDocument implements vscode.CustomDocument {
     uri: vscode.Uri;
@@ -37,8 +67,42 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public readonly onDidChangeForWebview = this._onDidChangeForWebview.event;
 
     constructor(uri: vscode.Uri, initialContent: string) {
+<<<<<<< HEAD
         this.uri = uri;
         this._documentData = initialContent.trim().length === 0 ? {} : JSON.parse(initialContent);
+=======
+        debug("Constructing CodexCellDocument", uri.toString());
+        this.uri = uri;
+        try {
+            this._documentData = JSON.parse(initialContent);
+            this._edits = [];
+            debug(
+                "Constructed CodexCellDocument from json document, cells count: ",
+                this._documentData.cells.length
+            );
+            
+            // Initialize validatedBy arrays to ensure proper format
+            this.initializeValidatedByArrays();
+            
+        } catch (error) {
+            console.error("Error parsing document content:", error);
+            this._documentData = {
+                cells: [],
+                metadata: {
+                    id: "",
+                    originalName: "",
+                    sourceFsPath: undefined,
+                    codexFsPath: undefined,
+                    navigation: [],
+                    sourceCreatedAt: new Date().toISOString(),
+                    gitStatus: "uninitialized",
+                    corpusMarker: "",
+                },
+            };
+            this._edits = [];
+        }
+        
+>>>>>>> main
         if (!this._documentData.metadata) {
             const metadata = getNotebookMetadataManager();
             metadata.initialize();
@@ -54,7 +118,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             });
         }
+<<<<<<< HEAD
         this._edits = [];
+=======
+        
+>>>>>>> main
         initializeStateStore().then(async ({ getStoreState }) => {
             const sourceCellMap = await getStoreState("sourceCellMap");
             console.log("sourceCellMap", sourceCellMap);
@@ -62,6 +130,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 this._sourceCellMap = sourceCellMap;
             }
         });
+<<<<<<< HEAD
+=======
+        
+        // No forced type conversion - rely on proper initialization
+>>>>>>> main
     }
 
     dispose(): void {
@@ -97,7 +170,16 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     // Methods to manipulate the document data
+<<<<<<< HEAD
     public async updateCellContent(cellId: string, newContent: string, editType: EditType) {
+=======
+    public async updateCellContent(
+        cellId: string,
+        newContent: string,
+        editType: EditType,
+        shouldUpdateValue = true
+    ) {
+>>>>>>> main
         // Prevent updates to source files
         if (this.uri.fsPath.endsWith(".source")) {
             console.warn(
@@ -116,6 +198,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
 
+<<<<<<< HEAD
         // Normalize content by removing HTML entities and tags for comparison
         const normalizeContent = (content: string) => {
             return content
@@ -132,11 +215,21 @@ export class CodexCellDocument implements vscode.CustomDocument {
             editType === EditType.USER_EDIT &&
             normalizeContent(cellToUpdate.value) === normalizeContent(newContent)
         ) {
+=======
+        // For user edits, only add the edit if content has actually changed
+        if (editType === EditType.USER_EDIT && cellToUpdate.value === newContent) {
+>>>>>>> main
             return; // Skip adding edit if normalized content hasn't changed
         }
 
         // Update cell content and metadata in memory
+<<<<<<< HEAD
         cellToUpdate.value = newContent;
+=======
+        if (shouldUpdateValue) {
+            cellToUpdate.value = newContent;
+        }
+>>>>>>> main
         if (!cellToUpdate.metadata.edits) {
             cellToUpdate.metadata.edits = [];
         }
@@ -144,12 +237,35 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const authApi = await getAuthApi();
         const userInfo = await authApi?.getUserInfo();
         const author = userInfo?.username || "anonymous";
+<<<<<<< HEAD
 
         cellToUpdate.metadata.edits.push({
             cellValue: newContent,
             timestamp: Date.now(),
             type: editType,
             author,
+=======
+        const currentTimestamp = Date.now();
+
+        // Initialize validatedBy array based on edit type with proper ValidationEntry objects
+        // For user edits, the author is automatically added to validatedBy
+        // For LLM generations, validatedBy starts empty and must be explicitly validated
+        const validatedBy: ValidationEntry[] = editType === EditType.USER_EDIT 
+            ? [{ 
+                username: author, 
+                creationTimestamp: currentTimestamp, 
+                updatedTimestamp: currentTimestamp, 
+                isDeleted: false 
+              }] 
+            : [];
+
+        cellToUpdate.metadata.edits.push({
+            cellValue: newContent,
+            timestamp: currentTimestamp,
+            type: editType,
+            author,
+            validatedBy,
+>>>>>>> main
         });
 
         // Record the edit
@@ -418,4 +534,364 @@ export class CodexCellDocument implements vscode.CustomDocument {
             configurable: true,
         });
     }
+<<<<<<< HEAD
+=======
+
+    // Method to validate a cell's content by a user
+    public async validateCellContent(cellId: string, validate: boolean = true) {
+        // First check if any validation needs fixing
+        this.checkAndFixValidationArray(cellId);
+        
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error("Could not find cell to validate");
+        }
+
+        const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
+        
+        if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
+            console.warn("No edits found for cell to validate");
+            return;
+        }
+
+        // Get the latest edit
+        let latestEdit = cellToUpdate.metadata.edits[cellToUpdate.metadata.edits.length - 1];
+        
+        // Initialize validatedBy array if it doesn't exist
+        if (!latestEdit.validatedBy) {
+            latestEdit.validatedBy = [];
+        }
+
+        const authApi = await getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const username = userInfo?.username || "anonymous";
+        const currentTimestamp = Date.now();
+
+        // Find existing validation entry for this user
+        const existingEntryIndex = latestEdit.validatedBy.findIndex(
+            (entry: ValidationEntry) => this.isValidValidationEntry(entry) && entry.username === username
+        );
+
+        if (validate) {
+            if (existingEntryIndex === -1) {
+                // User is not in the array, add a new entry
+                const newValidationEntry: ValidationEntry = {
+                    username,
+                    creationTimestamp: currentTimestamp, 
+                    updatedTimestamp: currentTimestamp,
+                    isDeleted: false
+                };
+                latestEdit.validatedBy.push(newValidationEntry);
+            } else {
+                // User already has an entry, update it
+                latestEdit.validatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                latestEdit.validatedBy[existingEntryIndex].isDeleted = false;
+            }
+        } else {
+            if (existingEntryIndex !== -1) {
+                // User is in the array, mark as deleted
+                latestEdit.validatedBy[existingEntryIndex].updatedTimestamp = currentTimestamp;
+                latestEdit.validatedBy[existingEntryIndex].isDeleted = true;
+            }
+            // If user is not in the array, do nothing when unvalidating
+        }
+
+        // Final check: ensure the validatedBy array only contains valid ValidationEntry objects
+        latestEdit.validatedBy = latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry));
+
+        // Mark document as dirty
+        this._isDirty = true;
+        
+        // Notify listeners that the document has changed
+        this._onDidChangeForVsCodeAndWebview.fire({
+            content: JSON.stringify({
+                cellId,
+                type: "validation",
+                validatedBy: latestEdit.validatedBy
+            }),
+            edits: [{
+                cellId,
+                type: "validation",
+                validatedBy: latestEdit.validatedBy
+            }]
+        });
+    }
+
+    /**
+     * Initializes validatedBy arrays in the document to ensure they use the new ValidationEntry format
+     * This converts any string entries to ValidationEntry objects and removes any invalid entries
+     */
+    private initializeValidatedByArrays(): void {
+        debug("Initializing validatedBy arrays to use ValidationEntry format");
+        
+        if (!this._documentData?.cells) {
+            return;
+        }
+        
+        let changesDetected = false;
+        
+        for (const cell of this._documentData.cells) {
+            if (!cell.metadata?.edits) {
+                continue;
+            }
+            
+                for (const edit of cell.metadata.edits) {
+                    if (!edit.validatedBy) {
+                    // Initialize an empty array if it doesn't exist
+                        edit.validatedBy = [];
+                    changesDetected = true;
+                    continue;
+                }
+                
+                // Check if validatedBy array contains entries that need to be converted
+                const newValidatedBy: ValidationEntry[] = [];
+                let foundInvalidEntries = false;
+                
+                // First pass: collect all valid ValidationEntry objects and convert strings
+                for (const entry of edit.validatedBy) {
+                    if (typeof entry === 'string') {
+                        debug(`Converting string validation entry "${entry}" to proper ValidationEntry object`);
+                        foundInvalidEntries = true;
+                        const currentTimestamp = Date.now();
+                        newValidatedBy.push({
+                            username: entry,
+                            creationTimestamp: currentTimestamp,
+                            updatedTimestamp: currentTimestamp,
+                            isDeleted: false
+                        });
+                    } else if (this.isValidValidationEntry(entry)) {
+                        // Keep valid ValidationEntry objects
+                        newValidatedBy.push(entry);
+                    } else {
+                        // Skip invalid entries
+                        debug(`Skipping invalid validation entry: ${JSON.stringify(entry)}`);
+                        foundInvalidEntries = true;
+                    }
+                }
+                
+                // Second pass: deduplicate by username (keep the one with most recent updatedTimestamp)
+                const usernameMap = new Map<string, ValidationEntry>();
+                
+                for (const entry of newValidatedBy) {
+                    const existingEntry = usernameMap.get(entry.username);
+                    
+                    if (!existingEntry || entry.updatedTimestamp > existingEntry.updatedTimestamp) {
+                        usernameMap.set(entry.username, entry);
+                    }
+                }
+                
+                // Replace the array with our clean version if changes were made
+                const finalValidatedBy = Array.from(usernameMap.values());
+                
+                if (foundInvalidEntries || finalValidatedBy.length !== edit.validatedBy.length) {
+                    debug(`Updated validatedBy array for edit in cell ${cell.metadata.id}, found ${edit.validatedBy.length} entries, cleaned to ${finalValidatedBy.length}`);
+                    edit.validatedBy = finalValidatedBy;
+                    changesDetected = true;
+                }
+            }
+        }
+        
+        // Make sure the document gets saved after we've made changes
+        if (changesDetected) {
+            debug("Changes detected in validatedBy arrays, marking document as dirty");
+            
+            // Set validation migration complete flag
+            if (!this._documentData.metadata) {
+                // Create a minimal valid metadata object if none exists
+                this._documentData.metadata = {
+                    id: randomUUID(),
+                    originalName: "Unknown",
+                    sourceFsPath: "",
+                    codexFsPath: "",
+                    navigation: [],
+                    sourceCreatedAt: new Date().toISOString(),
+                    gitStatus: "uninitialized",
+                    corpusMarker: "",
+                    validationMigrationComplete: true
+                };
+            } else {
+                // Just set the flag on existing metadata
+                this._documentData.metadata.validationMigrationComplete = true;
+            }
+            
+            // Mark document as dirty and schedule a save
+            this._isDirty = true;
+            
+            // Schedule save for next event loop to ensure all changes are applied
+            setTimeout(() => {
+                debug("Saving document after validation arrays cleanup");
+                this.save(new vscode.CancellationTokenSource().token).catch(error => {
+                    console.error("Error saving document after validation migration:", error);
+                });
+            }, 100); // Slightly longer timeout to ensure all changes are processed
+        } else {
+            debug("No changes needed in validatedBy arrays");
+        }
+    }
+
+    /**
+     * Checks if a cell's validation array needs fixing and fix it if needed
+     * @param cellId The ID of the cell to check
+     * @returns True if fixes were applied, false otherwise
+     */
+    private checkAndFixValidationArray(cellId: string): boolean {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        
+        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
+            return false;
+        }
+
+        // Get the latest edit
+        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
+        
+        if (!latestEdit.validatedBy) {
+            return false;
+        }
+        
+        // Check if there are any string entries in the validatedBy array
+        const hasStringEntries = latestEdit.validatedBy.some(entry => typeof entry === 'string');
+        
+        if (hasStringEntries) {
+            debug(`Found string entries in validatedBy array for cell ${cellId}, running initialization`);
+            this.initializeValidatedByArrays();
+            return true;
+        }
+        
+        return false;
+    }
+
+    /**
+     * Returns the count of active validations (where isDeleted is false)
+     * for the most recent edit of a specific cell
+     */
+    public getValidationCount(cellId: string): number {
+        // First check if any validation needs fixing
+        this.checkAndFixValidationArray(cellId);
+        
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        
+        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
+            return 0;
+        }
+
+        // Get the latest edit
+        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
+        
+        if (!latestEdit.validatedBy) {
+            return 0;
+        }
+        
+        // Only count ValidationEntry objects with isDeleted: false
+        return latestEdit.validatedBy.filter(
+            entry => this.isValidValidationEntry(entry) && !entry.isDeleted
+        ).length;
+    }
+
+    /**
+     * Checks if a cell has been validated by a specific user
+     * @param cellId The ID of the cell to check
+     * @param username The username to check
+     * @returns True if the user has validated the cell, false otherwise
+     */
+    public isValidatedByUser(cellId: string, username: string): boolean {
+        // First check if any validation needs fixing
+        this.checkAndFixValidationArray(cellId);
+        
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        
+        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
+            return false;
+        }
+
+        // Get the latest edit
+        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
+        
+        if (!latestEdit.validatedBy) {
+            return false;
+        }
+        
+        // Check for a ValidationEntry object with the username and isDeleted: false
+        return latestEdit.validatedBy.some(
+            entry => this.isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+        );
+    }
+
+    /**
+     * Returns the validatedBy array for the most recent edit of a specific cell
+     * Filters out any string entries or invalid entries
+     * @param cellId The ID of the cell to check
+     * @returns The validatedBy array with only valid ValidationEntry objects, or an empty array if no edit or validations exist
+     */
+    public getCellValidatedBy(cellId: string): ValidationEntry[] {
+        // First check if any validation needs fixing
+        this.checkAndFixValidationArray(cellId);
+        
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+        
+        if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
+            return [];
+        }
+
+        // Get the latest edit
+        const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
+        
+        if (!latestEdit.validatedBy) {
+            return [];
+        }
+        
+        // Filter to only include proper ValidationEntry objects
+        return latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry));
+    }
+
+    /**
+     * Returns all cell IDs in the document
+     * @returns An array of cell IDs
+     */
+    public getAllCellIds(): string[] {
+        return this._documentData.cells
+            .filter(cell => cell.metadata?.id)
+            .map(cell => cell.metadata?.id);
+    }
+
+    /**
+     * Helper function to ensure an entry is a valid ValidationEntry
+     * Extracted to reduce duplication in validation methods
+     */
+    private isValidValidationEntry(entry: any): entry is ValidationEntry {
+        return (
+            entry !== null && 
+            typeof entry === 'object' && 
+            typeof entry.username === 'string' && 
+            typeof entry.creationTimestamp === 'number' && 
+            typeof entry.updatedTimestamp === 'number' && 
+            typeof entry.isDeleted === 'boolean'
+        );
+    }
+
+    /**
+     * Gets the count of active validators for a cell
+     * This method ensures no string entries are counted
+     * @param cellId The ID of the cell to check
+     * @returns The count of active validators (ValidationEntry objects with isDeleted:false)
+     */
+    public getActiveValidatorsCount(cellId: string): number {
+        // First check if any validation migration is needed
+        const entries = this.getCellValidatedBy(cellId);
+        
+        // After getting the validated entries (which filters out strings),
+        // count only the ones where isDeleted is false
+        return entries.filter(entry => !entry.isDeleted).length;
+    }
+>>>>>>> main
 }

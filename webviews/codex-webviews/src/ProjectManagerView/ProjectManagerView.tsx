@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import {
     VSCodeButton,
+<<<<<<< HEAD
+=======
+    VSCodeDropdown,
+    VSCodeOption,
+>>>>>>> main
     VSCodePanelTab,
     VSCodePanelView,
     VSCodePanels,
@@ -10,6 +15,10 @@ import {
     ProjectManagerMessageToWebview,
     ProjectManagerState,
 } from "../../../../types";
+<<<<<<< HEAD
+=======
+import { LanguageProjectStatus } from "codex-types";
+>>>>>>> main
 import "./App.css";
 
 declare const vscode: {
@@ -79,6 +88,7 @@ function ProjectManagerView() {
     const [state, setState] = useState<ProjectManagerState>({
         projects: [],
         projectOverview: null,
+<<<<<<< HEAD
         isScanning: true,
         watchedFolders: [],
         canInitializeProject: false,
@@ -113,6 +123,19 @@ function ProjectManagerView() {
                 vscode.postMessage({ command: "refreshState" } as ProjectManagerMessageFromWebview);
             }, 100);
         }
+=======
+        isScanning: false,
+        watchedFolders: [],
+        canInitializeProject: false,
+        workspaceIsOpen: true,
+        webviewReady: true,
+        repoHasRemote: false,
+        isInitializing: false,
+    });
+
+    const handleAction = (message: ProjectManagerMessageFromWebview) => {
+        vscode.postMessage(message as ProjectManagerMessageFromWebview);
+>>>>>>> main
     };
 
     useEffect(() => {
@@ -123,12 +146,21 @@ function ProjectManagerView() {
         const handler = (message: MessageEvent<ProjectManagerMessageToWebview>) => {
             if (message.data.command === "stateUpdate") {
                 setState(message.data.data);
+<<<<<<< HEAD
                 setInitialized(true);
+=======
+            } else if (message.data.command === "publishStatus") {
+                setState((prev) => ({
+                    ...prev,
+                    repoHasRemote: message.data.data.repoHasRemote,
+                }));
+>>>>>>> main
             }
         };
 
         window.addEventListener("message", handler);
 
+<<<<<<< HEAD
         // Initial state request with retry logic
         const requestInitialState = () => {
             vscode.postMessage({ command: "webviewReady" } as ProjectManagerMessageFromWebview);
@@ -199,6 +231,17 @@ function ProjectManagerView() {
     }
 
     // Show scanning indicator only after initial load
+=======
+        // Initial state request
+        vscode.postMessage({ command: "webviewReady" } as ProjectManagerMessageFromWebview);
+
+        return () => {
+            window.removeEventListener("message", handler);
+        };
+    }, []);
+
+    // Show scanning indicator
+>>>>>>> main
     if (state.isScanning) {
         return (
             <div
@@ -228,7 +271,11 @@ function ProjectManagerView() {
                 <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
 
                 <VSCodePanelView id="current-project-view">
+<<<<<<< HEAD
                     {state.canInitializeProject ? (
+=======
+                    {state.isInitializing ? (
+>>>>>>> main
                         // Initialize project button section
                         <div
                             style={{
@@ -238,11 +285,19 @@ function ProjectManagerView() {
                                 height: "100%",
                             }}
                         >
+<<<<<<< HEAD
                             <VSCodeButton
                                 onClick={() => handleAction({ command: "initializeProject" })}
                             >
                                 <i className="codicon codicon-plus"></i>
                                 <div style={{ marginInline: "0.25rem" }}>Initialize Project</div>
+=======
+                            <VSCodeButton>
+                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                                <div style={{ marginInline: "0.25rem" }}>
+                                    Initializing Project...
+                                </div>
+>>>>>>> main
                             </VSCodeButton>
                         </div>
                     ) : state.projectOverview ? (
@@ -297,6 +352,7 @@ function ProjectManagerView() {
                             />
                             <ProjectField
                                 label="Source Language"
+<<<<<<< HEAD
                                 value={getLanguageDisplay(state.projectOverview.sourceLanguage)}
                                 icon="source-control"
                                 onAction={() => handleAction({ command: "changeSourceLanguage" })}
@@ -310,11 +366,47 @@ function ProjectManagerView() {
                                 hasWarning={!state.projectOverview.targetLanguage}
                             />
                             <ProjectField
+=======
+                                value={getLanguageDisplay(state.projectOverview?.sourceLanguage)}
+                                icon="source-control"
+                                onAction={() =>
+                                    handleAction({
+                                        command: "changeSourceLanguage",
+                                        language: state.projectOverview?.sourceLanguage || {
+                                            name: { en: "Unknown" },
+                                            tag: "unknown",
+                                            refName: "Unknown",
+                                            projectStatus: LanguageProjectStatus.SOURCE,
+                                        },
+                                    })
+                                }
+                                hasWarning={!state.projectOverview?.sourceLanguage}
+                            />
+                            <ProjectField
+                                label="Target Language"
+                                value={getLanguageDisplay(state.projectOverview?.targetLanguage)}
+                                icon="globe"
+                                onAction={() =>
+                                    handleAction({
+                                        command: "changeTargetLanguage",
+                                        language: state.projectOverview?.targetLanguage || {
+                                            name: { en: "Unknown" },
+                                            tag: "unknown",
+                                            refName: "Unknown",
+                                            projectStatus: LanguageProjectStatus.TARGET,
+                                        },
+                                    })
+                                }
+                                hasWarning={!state.projectOverview?.targetLanguage}
+                            />
+                            {/* <ProjectField
+>>>>>>> main
                                 label="Abbreviation"
                                 value={state.projectOverview.abbreviation?.toString() ?? "Missing"}
                                 icon="pencil"
                                 onAction={() => handleAction({ command: "editAbbreviation" })}
                                 hasWarning={!state.projectOverview.abbreviation}
+<<<<<<< HEAD
                             />
                             <ProjectField
                                 label="Category"
@@ -325,13 +417,29 @@ function ProjectManagerView() {
                             />
                             <ProjectField
                                 label="Source Texts"
+=======
+                            /> */}
+                            <ProjectField
+                                label="Required Validations"
+                                value={String(state.projectOverview.validationCount || 1)}
+                                icon="check"
+                                onAction={() => handleAction({ command: "setValidationCount" })}
+                                hasWarning={!state.projectOverview.validationCount}
+                            />
+                            <ProjectField
+                                label="Project Documents"
+>>>>>>> main
                                 value={
                                     state.projectOverview.sourceTexts &&
                                     state.projectOverview.sourceTexts.length > 0
                                         ? `${state.projectOverview.sourceTexts.length} texts`
                                         : "Missing"
                                 }
+<<<<<<< HEAD
                                 icon="preview"
+=======
+                                icon="new-file"
+>>>>>>> main
                                 onAction={() => handleAction({ command: "openSourceUpload" })}
                                 hasWarning={!state.projectOverview.sourceTexts?.length}
                             />
@@ -385,9 +493,13 @@ function ProjectManagerView() {
                                 </VSCodeButton>
 
                                 <VSCodeButton
+<<<<<<< HEAD
                                     onClick={() =>
                                         handleAction({ command: "exportProjectAsPlaintext" })
                                     }
+=======
+                                    onClick={() => handleAction({ command: "openExportView" })}
+>>>>>>> main
                                 >
                                     <div
                                         style={{
@@ -399,6 +511,10 @@ function ProjectManagerView() {
                                         <i className="codicon codicon-export"></i> Export Project
                                     </div>
                                 </VSCodeButton>
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
                                 {!state.repoHasRemote && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "publishProject" })}

@@ -1,11 +1,25 @@
+<<<<<<< HEAD
 import { BiblePreviewData, PreviewContent } from "../../../../types";
+=======
+import { PreviewContent } from "../../../../types";
+>>>>>>> main
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
 
 // Update WorkflowStep to include the new initial step
+<<<<<<< HEAD
 export type WorkflowStep = "type-select" | "select" | "preview-download" | "preview" | "processing" | "complete";
+=======
+export type WorkflowStep =
+    | "type-select"
+    | "select"
+    | "preview-download"
+    | "preview"
+    | "processing"
+    | "complete";
+>>>>>>> main
 
 export type ProcessingStatus = "pending" | "active" | "complete" | "error";
 
@@ -47,7 +61,11 @@ export interface MultiPreviewItem {
     fileSize: number;
     isValid: boolean;
     isRejected?: boolean;
+<<<<<<< HEAD
     preview: PreviewContent | BiblePreviewData;
+=======
+    preview: PreviewContent;
+>>>>>>> main
     sourceId?: string; // Optional sourceId for translation previews
 }
 
@@ -68,12 +86,20 @@ export interface WorkflowState {
     selectedFiles: string[];
     fileObjects: File[];
     fileHeaders?: string[]; // Add this for CSV/TSV headers
+<<<<<<< HEAD
+=======
+    fileContent?: string;
+>>>>>>> main
     translationAssociations: Array<{ file: File; codexId: string }>;
     previews: Array<{
         id: string;
         fileName: string;
         fileSize: number;
+<<<<<<< HEAD
         preview: any;
+=======
+        preview: PreviewContent;
+>>>>>>> main
         isRejected?: boolean;
     }>;
     processingStages: ProcessingStages;
@@ -82,7 +108,11 @@ export interface WorkflowState {
         message: string;
         increment: number;
     };
+<<<<<<< HEAD
     preview?: any;
+=======
+    preview?: PreviewContent;
+>>>>>>> main
     currentTransaction?: any;
     bibleDownload?: BibleDownloadState;
     availableCodexFiles?: Array<{ id: string; name: string; path: string }>;

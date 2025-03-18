@@ -90,6 +90,7 @@ export async function activate(context: vscode.ExtensionContext) {
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
 
+<<<<<<< HEAD
         // Register save event handlers
         stepStart = trackTiming("Register Save Handlers", stepStart);
         const handleSaveEvent = (commitMessage: string) => {
@@ -139,6 +140,14 @@ export async function activate(context: vscode.ExtensionContext) {
                 handleSaveEvent(message);
             })
         );
+=======
+        // Register project manager first to ensure it's available
+        stepStart = trackTiming("Register Project Manager", stepStart);
+        registerProjectManager(context);
+        
+        // Show project manager view immediately
+        await vscode.commands.executeCommand("workbench.view.extension.project-manager");
+>>>>>>> main
 
         // Register startup flow commands
         stepStart = trackTiming("Register Startup Flow", stepStart);
@@ -162,6 +171,7 @@ export async function activate(context: vscode.ExtensionContext) {
             registerLookupWordCommand(global.db, context);
             ingestJsonlDictionaryEntries(global.db);
         }
+<<<<<<< HEAD
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
@@ -169,6 +179,18 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Register Project Manager", stepStart);
         registerProjectManager(context);
 
+=======
+        
+        context.subscriptions.push(
+            vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
+                stageAndCommitAllAndSync(message);
+            })
+        );  
+
+
+        vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
+
+>>>>>>> main
         // Initialize extension based on workspace state
         stepStart = trackTiming("Initialize Workspace", stepStart);
         const workspaceFolders = vscode.workspace.workspaceFolders;

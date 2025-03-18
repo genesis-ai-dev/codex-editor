@@ -26,7 +26,10 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+<<<<<<< HEAD
 import { TranslationPairsImportTransaction } from "../../transactions/TranslationPairsImportTransaction";
+=======
+>>>>>>> main
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -36,6 +39,10 @@ export const fileTypeMap: FileTypeMap = {
     sfm: "usfm",
     SFM: "usfm",
     USFM: "usfm",
+<<<<<<< HEAD
+=======
+    codex: "codex",
+>>>>>>> main
 };
 
 // Add new types for workflow status tracking
@@ -127,9 +134,15 @@ function getNonce(): string {
     return text;
 }
 
+<<<<<<< HEAD
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
+=======
+const DEBUG_MODE = true; // Set to true to enable debug logging
+
+function debug(...args: any[]): void {
+>>>>>>> main
     if (DEBUG_MODE) {
         console.log("[SourceUploadProvider]", ...args);
     }
@@ -145,12 +158,20 @@ export class SourceUploadProvider
     private currentSourceTransaction: SourceImportTransaction | null = null;
     private currentTranslationTransaction: TranslationImportTransaction | null = null;
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
+<<<<<<< HEAD
     private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
+=======
+    // private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
+>>>>>>> main
     public availableCodexFiles: vscode.Uri[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
         registerScmCommands(context);
+<<<<<<< HEAD
         this.currentTranslationPairsTransaction = null;
+=======
+        // this.currentTranslationPairsTransaction = null;
+>>>>>>> main
     }
 
     public async resolveCustomDocument(
@@ -195,6 +216,7 @@ export class SourceUploadProvider
                         try {
                             if (Array.isArray(message.files)) {
                                 // For translation pairs, we need to handle the file differently
+<<<<<<< HEAD
                                 if (message.files[0].name.match(/\.(csv|tsv|tab)$/i)) {
                                     const tempUri = await this.saveUploadedFile(
                                         message.files[0].content,
@@ -224,6 +246,14 @@ export class SourceUploadProvider
                                         _token
                                     );
                                 }
+=======
+
+                                await this.handleMultipleSourceImports(
+                                    webviewPanel,
+                                    message.files,
+                                    _token
+                                );
+>>>>>>> main
                             }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
@@ -237,6 +267,7 @@ export class SourceUploadProvider
                         }
                         break;
                     }
+<<<<<<< HEAD
                     case "setColumnMapping": {
                         try {
                             if (!this.currentTranslationPairsTransaction) {
@@ -289,6 +320,8 @@ export class SourceUploadProvider
                         }
                         break;
                     }
+=======
+>>>>>>> main
                     case "uploadTranslation":
                         await this.handleMultipleTranslationImports(
                             webviewPanel,
@@ -600,6 +633,129 @@ export class SourceUploadProvider
                         );
                         break;
                     }
+<<<<<<< HEAD
+=======
+                    case "confirmTranslationPairsImport": {
+                        debug("confirmTranslationPairsImport", { message });
+
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Importing translation pairs",
+                                cancellable: true,
+                            },
+                            async (progress, token) => {
+                                try {
+                                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                                    if (!workspaceFolder)
+                                        throw new Error("No workspace folder found");
+
+                                    // progressCallback("Processing translation pairs...", 20);
+
+                                    const { headers, data } = message;
+                                    const baseName = data.fileName.split(".")[0] || "untitled";
+                                    const sourceUri = vscode.Uri.joinPath(
+                                        workspaceFolder.uri,
+                                        ".project",
+                                        "sourceTexts",
+                                        `${baseName}.source`
+                                    );
+                                    const codexUri = vscode.Uri.joinPath(
+                                        workspaceFolder.uri,
+                                        "files",
+                                        "target",
+                                        `${baseName}.codex`
+                                    );
+
+                                    // Write files
+                                    await Promise.all([
+                                        vscode.workspace.fs.writeFile(
+                                            sourceUri,
+                                            Buffer.from(
+                                                JSON.stringify(
+                                                    {
+                                                        cells: data.preview.transformed
+                                                            .sourceNotebook.cells,
+                                                        metadata: {
+                                                            textDirection: "ltr",
+                                                            navigation: [],
+                                                            videoUrl: "",
+                                                            id: data.fileName,
+                                                            originalName: data.fileName,
+                                                            importDate: new Date().toISOString(),
+                                                            linked: true,
+                                                            corpusMarker: "Translation Pairs",
+                                                            sourceCreatedAt:
+                                                                new Date().toISOString(),
+                                                        },
+                                                    },
+                                                    null,
+                                                    2
+                                                )
+                                            )
+                                        ),
+                                        vscode.workspace.fs.writeFile(
+                                            codexUri,
+                                            Buffer.from(
+                                                JSON.stringify(
+                                                    {
+                                                        cells: data.preview.transformed
+                                                            .targetNotebook.cells,
+                                                        metadata: {
+                                                            textDirection: "ltr",
+                                                            navigation: [],
+                                                            videoUrl: "",
+                                                            id: data.fileName,
+                                                            originalName: data.fileName,
+                                                            importDate: new Date().toISOString(),
+                                                            sourceFsPath: sourceUri.fsPath,
+                                                            linked: true,
+                                                            corpusMarker: "Translation Pairs",
+                                                            sourceCreatedAt:
+                                                                new Date().toISOString(),
+                                                        },
+                                                    },
+                                                    null,
+                                                    2
+                                                )
+                                            )
+                                        ),
+                                    ]);
+
+                                    // Add metadata
+                                    const metadataManager = getNotebookMetadataManager();
+                                    await metadataManager.addOrUpdateMetadata({
+                                        id: baseName,
+                                        originalName: data.fileName,
+                                        sourceFsPath: sourceUri.fsPath,
+                                        codexFsPath: codexUri.fsPath,
+                                        // columnMapping: data.,
+                                        // totalPairs: data.preview.transformed.matchedCells,
+                                        // importDate: new Date().toISOString(),
+                                        gitStatus: "uninitialized",
+                                        navigation: [],
+                                        videoUrl: "",
+                                        sourceCreatedAt: new Date().toISOString(),
+                                        codexLastModified: new Date().toISOString(),
+                                        corpusMarker: "Translation Pairs",
+                                    });
+
+                                    webviewPanel.webview.postMessage({
+                                        command: "importComplete",
+                                    });
+
+                                    await vscode.commands.executeCommand(
+                                        "translators-copilot.forceReindex"
+                                    );
+                                } catch (error) {
+                                    // Error handling
+                                }
+                            }
+                        );
+                        break;
+                    }
+
+>>>>>>> main
                     case "cancelSourceImport": {
                         if (this.currentSourceTransaction) {
                             await this.currentSourceTransaction.rollback();
@@ -986,6 +1142,12 @@ export class SourceUploadProvider
                 command: "biblePreview",
                 preview: {
                     type: "bible",
+<<<<<<< HEAD
+=======
+                    fileName: metadata.translationId,
+                    fileSize: 0,
+                    fileType: "usfm", // is this correct?
+>>>>>>> main
                     original: {
                         preview: (preview as CodexNotebookAsJSONData).cells
                             .slice(0, 10)

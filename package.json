@@ -9,7 +9,11 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
+<<<<<<< HEAD
     "version": "0.1.26",
+=======
+    "version": "0.2.0",
+>>>>>>> main
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -20,7 +24,10 @@
     "activationEvents": [
         "onCustomEditor:sourceUploadProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
+<<<<<<< HEAD
         "onNotebook:codex-type",
+=======
+>>>>>>> main
         "onStartupFinished"
     ],
     "main": "./out/extension.js",
@@ -385,6 +392,7 @@
                         "when": "workbenchState !== empty"
                     },
                     {
+<<<<<<< HEAD
                         "id": "selectCategory",
                         "title": "Select Project Category",
                         "description": "Now, let's choose a category for your Codex project.\n[Select Category](command:codex-project-manager.selectCategory)",
@@ -394,6 +402,17 @@
                         },
                         "completionEvents": [
                             "onCommand:codex-project-manager.selectCategory"
+=======
+                        "id": "setValidationCount",
+                        "title": "Set Validation Count",
+                        "description": "Now, let's set the number of validations required for each translation.\n[Set Validation Count](command:codex-project-manager.setValidationCount)",
+                        "media": {
+                            "image": "./src/media/select-category.png",
+                            "altText": "Set Validation Count"
+                        },
+                        "completionEvents": [
+                            "onCommand:codex-project-manager.setValidationCount"
+>>>>>>> main
                         ],
                         "when": "workbenchState !== empty"
                     },
@@ -621,8 +640,13 @@
                 "category": "Codex Project Management"
             },
             {
+<<<<<<< HEAD
                 "command": "codex-project-manager.selectCategory",
                 "title": "Select Category",
+=======
+                "command": "codex-project-manager.setValidationCount",
+                "title": "Set Validation Count",
+>>>>>>> main
                 "category": "Codex Project Management"
             },
             {
@@ -716,6 +740,7 @@
                         "default": "",
                         "description": "Name of the project"
                     },
+<<<<<<< HEAD
                     "codex-project-manager.projectCategory": {
                         "type": "string",
                         "default": "",
@@ -732,6 +757,14 @@
                             "Subtitle translation projects.",
                             "Other projects."
                         ]
+=======
+                    "codex-project-manager.validationCount": {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Number of required validations for each translation",
+                        "minimum": 1,
+                        "maximum": 15
+>>>>>>> main
                     },
                     "codex-project-manager.userName": {
                         "type": "string",

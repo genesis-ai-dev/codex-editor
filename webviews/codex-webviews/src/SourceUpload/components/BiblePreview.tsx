@@ -6,6 +6,7 @@ import {
     VSCodePanelTab,
     VSCodePanelView,
 } from "@vscode/webview-ui-toolkit/react";
+<<<<<<< HEAD
 import { BiblePreviewData } from "../../../../../types";
 import ValidationResult from "./ValidationResult";
 import { formatFileSize } from "../../../../../src/utils/formatters";
@@ -29,6 +30,14 @@ interface BiblePreviewProps {
             validationResults: any[];
         };
     };
+=======
+import ValidationResult from "./ValidationResult";
+import { formatFileSize } from "../../../../../src/utils/formatters";
+import { BiblePreview as IBiblePreview } from "../../../../../types";
+
+interface BiblePreviewProps {
+    preview: IBiblePreview;
+>>>>>>> main
     onConfirm: () => void;
     onCancel: () => void;
 }
@@ -77,8 +86,13 @@ export const BiblePreview: React.FC<BiblePreviewProps> = ({ preview, onConfirm, 
                             <li>Total Books: {preview.transformed.sourceNotebooks.length}</li>
                             <li>Total Verses: {notebook.cells.length}</li>
                             <li>Content Size: {formatFileSize(preview.original.preview.length)}</li>
+<<<<<<< HEAD
                             {metadata.format && <li>Format: {metadata.format}</li>}
                             {metadata.license && <li>License: {metadata.license}</li>}
+=======
+                            {/* {metadata.format && <li>Format: {metadata.format}</li>}
+                            {metadata.license && <li>License: {metadata.license}</li>} */}
+>>>>>>> main
                         </ul>
 
                         <h4>Sample Content</h4>

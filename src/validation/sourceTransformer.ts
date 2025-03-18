@@ -40,6 +40,7 @@ export class SourceTransformer {
         const sourceNotebook = this.createNotebookPreview("source", unprocessedBaseName);
         const codexNotebook = this.createNotebookPreview("codex", unprocessedBaseName);
 
+<<<<<<< HEAD
         // Add a chapter heading cell first
         const chapterHeadingCell = {
             value: "<h1>Chapter 1</h1>",
@@ -63,6 +64,8 @@ export class SourceTransformer {
             },
         ];
 
+=======
+>>>>>>> main
         for (const cue of parsed.cues) {
             // Generate a unique identifier for the cue that matches the expected format
             const cueId = `${baseNameAsId} 1:cue-${cue.startTime}-${cue.endTime}`;
@@ -103,7 +106,11 @@ export class SourceTransformer {
             originalName: unprocessedBaseName,
             sourceFsPath: undefined,
             codexFsPath: undefined,
+<<<<<<< HEAD
             navigation: navigationCells,
+=======
+            navigation: [],
+>>>>>>> main
             sourceCreatedAt: new Date().toISOString(),
             codexLastModified: new Date().toISOString(),
             gitStatus: "untracked" as const,
