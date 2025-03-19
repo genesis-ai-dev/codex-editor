@@ -29,7 +29,8 @@
             "types": ["../../types/index.d.ts"],
             "types/*": ["../../types/*"],
             "webviews/*": ["./src/*"],
-            "@sharedUtils/*": ["../../sharedUtils/*"]
+            "@sharedUtils/*": ["../../sharedUtils/*"],
+            "@sharedUtils": ["../../sharedUtils"]
         }
     },
     "include": ["src/**/*", "../../types/index.d.ts", "../../sharedUtils/**/*"],

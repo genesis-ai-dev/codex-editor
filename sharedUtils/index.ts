@@ -13,7 +13,7 @@ export const removeHtmlTags = (content: string) => {
 export const getCellValueData = (cell: QuillCellContent) => {
     // Ensure editHistory exists and is an array
     const editHistory = cell.editHistory || [];
-    
+
     // Find the latest edit that matches the current cell content
     const latestEditThatMatchesCellValue = editHistory
         .slice()

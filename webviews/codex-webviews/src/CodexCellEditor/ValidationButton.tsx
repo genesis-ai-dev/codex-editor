@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { QuillCellContent, ValidationEntry } from "../../../../types";
-import { getCellValueData } from "@sharedUtils/shareUtils";
+import { getCellValueData } from "@sharedUtils";
 
 // Helper function to check if an entry is a valid ValidationEntry object
 export function isValidValidationEntry(entry: any): entry is ValidationEntry {

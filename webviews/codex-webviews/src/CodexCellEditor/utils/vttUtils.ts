@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { QuillCellContent } from "../../../../../types";
-import { removeHtmlTags } from "./shareUtils";
+import { removeHtmlTags } from "@sharedUtils";
 
 export const useSubtitleData = (translationUnits: QuillCellContent[]) => {
     const subtitleData = useMemo(() => {

@@ -26,7 +26,7 @@ import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
 import { initializeStateStore } from "../../../../src/stateStore";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { CodexCellTypes } from "types/enums";
-import { getCellValueData } from "@sharedUtils/shareUtils";
+import { getCellValueData } from "@sharedUtils";
 import { isValidValidationEntry } from "./ValidationButton";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
