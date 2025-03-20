@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import ReactDOM from "react-dom";
 import {
     VSCodeBadge,
     VSCodeButton,
@@ -38,6 +39,37 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
     // Start with the base total (cells without content or without any validators)
     const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalCellsToAutocomplete);
+
+    // Create a reference to the modal container
+    const [modalContainer, setModalContainer] = useState<HTMLElement | null>(null);
+    const modalRef = React.useRef<HTMLDivElement>(null);
+    
+    // Initialize the modal container on component mount
+    useEffect(() => {
+        if (typeof document !== 'undefined') {
+            setModalContainer(document.body);
+        }
+    }, []);
+
+    // Focus trap and ESC key handling
+    useEffect(() => {
+        if (isOpen && modalRef.current) {
+            // Auto-focus the modal when opened
+            modalRef.current.focus();
+            
+            // Handle ESC key press
+            const handleKeyDown = (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener('keydown', handleKeyDown);
+            return () => {
+                document.removeEventListener('keydown', handleKeyDown);
+            };
+        }
+    }, [isOpen, onClose]);
 
     // Log initial values to debug
     useEffect(() => {
@@ -117,11 +149,24 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         }, 0);
     };
 
-    if (!isOpen) return null;
+    if (!isOpen || !modalContainer) return null;
 
-    return (
-        <div className="modal-overlay">
-            <div className="modal-content">
+    // Use a portal to render the modal at the document body level
+    return ReactDOM.createPortal(
+        <div 
+            className="modal-overlay" 
+            onClick={(e) => {
+                // Close when clicking the overlay (outside the modal)
+                if (e.target === e.currentTarget) {
+                    onClose();
+                }
+            }}
+        >
+            <div 
+                className="modal-content" 
+                ref={modalRef}
+                tabIndex={-1}
+            >
                 <h2 style={{ marginBottom: "1rem" }}>Autocomplete Cells</h2>
                 <VSCodeTag style={{ marginBottom: "1rem" }}>
                     Autocomplete {numberOfCellsToAutocomplete || 0} Cells
@@ -272,7 +317,8 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                     </VSCodeButton>
                 </div>
             </div>
-        </div>
+        </div>,
+        modalContainer
     );
 };
 

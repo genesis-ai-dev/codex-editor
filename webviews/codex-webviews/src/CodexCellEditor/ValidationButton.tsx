@@ -412,7 +412,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     e.stopPropagation();
                     handleButtonClick(e);
                 }}
-                disabled={isSourceText || userCreatedLatestEdit}
+                // We only disable for source text. The previous restriction that prevented users from validating 
+                // their own edits has been removed, since users should be able to validate their own content.
+                disabled={isSourceText}
             >
                 {/* Validation status icons:
                    - Empty circle: No validations
