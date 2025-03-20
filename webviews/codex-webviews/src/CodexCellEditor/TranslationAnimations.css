@@ -1,0 +1,34 @@
+/* Translation process animations */
+@keyframes pulseBorder {
+  0% {
+    border-color: rgba(255, 193, 77, 0.5);
+  }
+  50% {
+    border-color: #ffc14d;
+  }
+  100% {
+    border-color: rgba(255, 193, 77, 0.5);
+  }
+}
+
+/* Animation for cells using background color */
+@keyframes pulseBackground {
+  0% {
+    background-color: rgba(255, 193, 77, 0.05);
+  }
+  50% {
+    background-color: rgba(255, 193, 77, 0.2);
+  }
+  100% {
+    background-color: rgba(255, 193, 77, 0.05);
+  }
+}
+
+/* These classes will be applied via JS */
+.cell-translation-animation-processing {
+  animation: pulseBorder 1.5s infinite ease-in-out;
+}
+
+.cell-translation-animation-processing-background {
+  animation: pulseBackground 1.5s infinite ease-in-out;
+} 

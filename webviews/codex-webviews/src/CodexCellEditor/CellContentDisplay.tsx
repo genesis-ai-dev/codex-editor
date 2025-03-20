@@ -13,6 +13,9 @@ import { WebviewApi } from "vscode-webview";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import ValidationButton from "./ValidationButton";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell display modes
+import "./TranslationAnimations.css"; // Import the animation CSS
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -215,48 +218,34 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             return { borderColor: "red" };
         }
         
-        if (!translationState || fadingOut) {
+        // Return empty object if no translation state
+        if (!translationState) {
             return {};
         }
         
-        let borderColor = "transparent";
-        let borderStyle = "solid";
-        let opacity = 1;
+        // Determine if we're in inline mode based on the parent element
+        const isInlineMode = cellRef.current?.closest('.cell-display-inline') !== null;
         
-        if (translationState === 'waiting') {
-            borderColor = "#ff6b6b"; // Red
-        } else if (translationState === 'processing') {
-            borderColor = "#ffc14d"; // Yellow
-        } else if (translationState === 'completed') {
-            borderColor = "#4caf50"; // Green
-        }
-        
-        // Let CSS handle most of the styling through classes
-        // Just return minimal inline styles needed
-        return { 
-            borderColor, 
-            borderStyle, 
-            borderWidth: "2px",
-            transition: "border-color 0.3s ease, opacity 0.8s ease",
-            opacity: fadingOut ? 0 : 1
-        };
+        // Get the translation style from our new utility
+        return getTranslationStyle(
+            fadingOut ? 'fading' as CellTranslationState : translationState,
+            isInlineMode
+        );
     };
 
-    // Get the CSS class based on translation state
-    const getTranslationStateClass = () => {
-        if (!translationState) return '';
+    // We don't need the CSS class anymore since we're using inline styles
+    // But we do need to handle any className returned from getTranslationStyle for animations
+    const getAnimationClassName = () => {
+        // Determine if we're in inline mode
+        const isInlineMode = cellRef.current?.closest('.cell-display-inline') !== null;
         
-        if (fadingOut) return 'cell-translation-fading';
+        // Get the translation style which may include a className
+        const style = getTranslationStyle(
+            fadingOut ? 'fading' as CellTranslationState : translationState,
+            isInlineMode
+        );
         
-        if (translationState === 'waiting') {
-            return 'cell-translation-waiting';
-        } else if (translationState === 'processing') {
-            return 'cell-translation-processing';
-        } else if (translationState === 'completed') {
-            return 'cell-translation-completed';
-        }
-        
-        return '';
+        return style.className || '';
     };
 
     return (
@@ -264,7 +253,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             ref={cellRef}
             className={`cell-content-display ${
                 highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
-            } ${getTranslationStateClass()}`}
+            } ${getAnimationClassName()}`}
             style={{
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,
@@ -278,12 +267,22 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         display: "flex", 
                         gap: "8px", 
                         minWidth: "50px",
-                        marginLeft: "20px"
+                        marginLeft: "38px",
+                        justifyContent: "center"
                     }}>
-                        {!isSourceText && isInTranslationProcess && (
+                        {!isSourceText && SHOW_VALIDATION_BUTTON && !isInTranslationProcess && (
+                            <div style={{ flexShrink: 0 }}>
+                                <ValidationButton
+                                    cellId={cellIds[0]}
+                                    cell={cell}
+                                    vscode={vscode}
+                                    isSourceText={isSourceText}
+                                />
+                            </div>
+                        )}
+                        {!isSourceText && (
                             <VSCodeButton
                                 appearance="icon"
-                                onClick={handleStopTranslation}
                                 style={{ 
                                     height: "16px",
                                     width: "16px",
@@ -291,40 +290,15 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",
-                                    flexShrink: 0
+                                    position: "relative"
                                 }}
+                                onClick={isInTranslationProcess ? handleStopTranslation : handleSparkleButtonClick}
                             >
-                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                                <i
+                                    className={`codicon ${isInTranslationProcess ? "codicon-loading codicon-modifier-spin" : "codicon-sparkle"}`}
+                                    style={{ fontSize: "12px" }}
+                                ></i>
                             </VSCodeButton>
-                        )}
-                        {!isSourceText && !isInTranslationProcess && (
-                            <>
-                                {SHOW_VALIDATION_BUTTON && (
-                                    <div style={{ flexShrink: 0 }}>
-                                        <ValidationButton
-                                            cellId={cellIds[0]}
-                                            cell={cell}
-                                            vscode={vscode}
-                                            isSourceText={isSourceText}
-                                        />
-                                    </div>
-                                )}
-                                <VSCodeButton
-                                    appearance="icon"
-                                    onClick={handleSparkleButtonClick}
-                                    style={{ 
-                                        height: "16px",
-                                        width: "16px",
-                                        padding: 0,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        flexShrink: 0
-                                    }}
-                                >
-                                    <i className="codicon codicon-sparkle" style={{ fontSize: "12px" }}></i>
-                                </VSCodeButton>
-                            </>
                         )}
                     </div>
                     {getAlertDot()}

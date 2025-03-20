@@ -28,6 +28,8 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { CodexCellTypes } from "types/enums";
 import { getCellValueData } from "@sharedUtils";
 import { isValidValidationEntry } from "./ValidationButton";
+import "./TranslationAnimations.css";
+import { CellTranslationState } from "./CellTranslationStyles";
 const vscode = acquireVsCodeApi();
 (window as any).vscodeApi = vscode;
 

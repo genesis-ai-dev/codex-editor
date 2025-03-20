@@ -35,6 +35,12 @@ function debug(...args: any[]): void {
     }
 }
 
+// Get a reference to the provider
+function getProvider(): CodexCellEditorProvider | undefined {
+    // Find the provider through the window object
+    return (vscode.window as any).createWebviewPanel?.owner;
+}
+
 export async function performLLMCompletion(
     currentCellId: string,
     currentDocument: CodexCellDocument,
@@ -52,130 +58,21 @@ export async function performLLMCompletion(
         return;
     }
 
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "Generating Translation",
-            cancellable: false,
-        },
-        async (progress) => {
-            try {
-                // Find the webview panel for this document
-                const panel = Array.from((vscode.window.tabGroups.all || []).flatMap(g => g.tabs))
-                    .find(tab => tab.input instanceof vscode.TabInputCustom && 
-                                tab.input.uri.toString() === currentDocument.uri.toString())
-                    ?.input;
-                
-                const webviewPanel = panel ? 
-                    (vscode.window as any).createWebviewPanel?.owner?.webviewPanels?.get(currentDocument.uri.toString()) : 
-                    undefined;
-                
-                // Notify the webview that we're starting a single cell translation
-                if (webviewPanel) {
-                    webviewPanel.webview.postMessage({
-                        type: "singleCellTranslationStarted",
-                        cellId: currentCellId,
-                    });
-                }
-                
-                progress.report({ message: "Fetching completion configuration...", increment: 20 });
-                
-                // Notify progress to webview
-                if (webviewPanel) {
-                    webviewPanel.webview.postMessage({
-                        type: "singleCellTranslationProgress",
-                        progress: 0.2,
-                        cellId: currentCellId,
-                    });
-                }
-                
-                // Fetch completion configuration
-                const completionConfig = await fetchCompletionConfig();
-                const notebookReader = new CodexNotebookReader(currentDocument.uri);
-                console.log("Document URI: ", notebookReader);
+    // Get the provider to access the unified queue
+    const provider = getProvider();
+    if (!provider) {
+        console.warn("Could not find provider when trying to perform LLM completion");
+        return;
+    }
 
-                progress.report({ message: "Generating translation with LLM...", increment: 30 });
-                
-                // Notify progress to webview
-                if (webviewPanel) {
-                    webviewPanel.webview.postMessage({
-                        type: "singleCellTranslationProgress",
-                        progress: 0.5,
-                        cellId: currentCellId,
-                    });
-                }
-                
-                // Perform LLM completion
-                const result = await llmCompletion(
-                    notebookReader,
-                    currentCellId,
-                    completionConfig,
-                    new vscode.CancellationTokenSource().token
-                );
-
-                progress.report({ message: "Updating document...", increment: 40 });
-                
-                // Notify progress to webview
-                if (webviewPanel) {
-                    webviewPanel.webview.postMessage({
-                        type: "singleCellTranslationProgress",
-                        progress: 0.9,
-                        cellId: currentCellId,
-                    });
-                }
-                
-                // Update content and metadata atomically
-                currentDocument.updateCellContent(
-                    currentCellId,
-                    result,
-                    EditType.LLM_GENERATION,
-                    shouldUpdateValue
-                );
-
-                // Notify completion to webview
-                if (webviewPanel) {
-                    webviewPanel.webview.postMessage({
-                        type: "singleCellTranslationCompleted",
-                        cellId: currentCellId,
-                    });
-                }
-                
-                // Mark the cell as complete in the provider's state tracking
-                // Find the provider that owns this webviewPanel
-                const provider = (vscode.window as any).createWebviewPanel?.owner;
-                if (provider && typeof provider.markCellComplete === 'function') {
-                    provider.markCellComplete(currentCellId);
-                }
-
-                console.log("LLM completion result", { result });
-                return result;
-            } catch (error: any) {
-                console.error("Error in performLLMCompletion:", error);
-                vscode.window.showErrorMessage(`LLM completion failed: ${error.message}`);
-                
-                // Find the webview panel for this document
-                const panel = Array.from((vscode.window.tabGroups.all || []).flatMap(g => g.tabs))
-                    .find(tab => tab.input instanceof vscode.TabInputCustom && 
-                                tab.input.uri.toString() === currentDocument.uri.toString())
-                    ?.input;
-                
-                const webviewPanel = panel ? 
-                    (vscode.window as any).createWebviewPanel?.owner?.webviewPanels?.get(currentDocument.uri.toString()) : 
-                    undefined;
-                
-                // Notify failure to webview
-                if (webviewPanel) {
-                    webviewPanel.webview.postMessage({
-                        type: "singleCellTranslationFailed",
-                        cellId: currentCellId,
-                        error: error.message
-                    });
-                }
-                
-                throw error;
-            }
-        }
-    );
+    // Use the provider's enqueueTranslation method to add to the unified queue
+    try {
+        return await provider.enqueueTranslation(currentCellId, currentDocument, shouldUpdateValue);
+    } catch (error) {
+        console.error("Error in performLLMCompletion:", error);
+        vscode.window.showErrorMessage(`LLM completion failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw error;
+    }
 }
 
 // export function createMessageHandlers(provider: CodexCellEditorProvider) {
@@ -382,19 +279,14 @@ export const handleMessages = async (
                 const cellId = event.content.currentLineId;
                 const addContentToValue = event.content.addContentToValue;
                 
-                // Use the provider's state management instead of direct messages
-                provider.startSingleCellTranslation(cellId);
-
-                const completionResult = await performLLMCompletion(
+                // Directly add to the unified translation queue
+                const completionResult = await provider.enqueueTranslation(
                     cellId,
                     document,
                     addContentToValue
                 );
                 
-                // Update state in provider to completed
-                provider.completeSingleCellTranslation();
-                
-                // Still send the completion result for backwards compatibility
+                // Send the result back to the webview when complete
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsLLMCompletionResponse",
                     content: {
@@ -406,7 +298,8 @@ export const handleMessages = async (
                 vscode.window.showErrorMessage("LLM completion failed.");
                 
                 // Use provider state management for failure
-                provider.failSingleCellTranslation(error instanceof Error ? error.message : "Unknown error");
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                provider.failSingleCellTranslation(errorMessage);
             }
             return;
         }
@@ -432,21 +325,31 @@ export const handleMessages = async (
         case "stopSingleCellTranslation" as any: {
             console.log("stopSingleCellTranslation message received");
             try {
-                // Call the method to stop single cell translations
-                vscode.window.showInformationMessage("Translation queue cleared.");
+                // Only attempt to clear if we have a provider
+                if (provider) {
+                    // Single cell translations will have a specific flag set
+                    if (provider.singleCellTranslationState.isProcessing) {
+                        // Clear the queue and reset state
+                        provider.clearTranslationQueue();
+                        provider.completeSingleCellTranslation();
+                        
+                        vscode.window.showInformationMessage("Translation cancelled.");
+                    }
+                }
             } catch (error) {
                 console.error("Error stopping single cell translations:", error);
-                vscode.window.showErrorMessage("Failed to stop single cell translations.");
+                vscode.window.showErrorMessage("Failed to stop translation.");
             }
             return;
         }
         case "cellError" as any: {
             console.log("cellError message received", { event });
             try {
-                // If there's a cell ID, mark it as complete in the provider
-                if ((event as any).content?.cellId) {
+                // Extract cell ID from the event content safely
+                const cellId = (event as any).content?.cellId;
+                if (cellId && typeof cellId === 'string') {
                     // Mark the cell as complete in the provider's state tracking
-                    provider.markCellComplete((event as any).content.cellId);
+                    provider.markCellComplete(cellId);
                 }
             } catch (error) {
                 console.error("Error handling cell error:", error);

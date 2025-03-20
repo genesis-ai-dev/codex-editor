@@ -47,6 +47,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const [isPersistentPopover, setIsPersistentPopover] = useState(false);
     const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
     const [validationUsers, setValidationUsers] = useState<ValidationEntry[]>([]);
+    const [isDetailedView, setIsDetailedView] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
     const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
@@ -175,6 +176,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             if (buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
                 setShowPopover(false);
                 setIsPersistentPopover(false);
+                setIsDetailedView(false);
                 if (popoverTracker.getActivePopover() === uniqueId.current) {
                     popoverTracker.setActivePopover(null);
                 }
@@ -192,6 +194,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         if (showPopover && popoverTracker.getActivePopover() !== uniqueId.current) {
             setShowPopover(false);
             setIsPersistentPopover(false);
+            setIsDetailedView(false);
         }
     }, [showPopover]);
 
@@ -203,47 +206,56 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
 
-            // Determine vertical position (above or below)
-            // If button is in the top portion of the screen, place popover below
-            // If button is in the bottom portion, place popover above
-            let top;
+            // Calculate available space in each direction
             const spaceAbove = buttonRect.top;
             const spaceBelow = viewportHeight - (buttonRect.top + buttonRect.height);
+            const spaceRight = viewportWidth - (buttonRect.left + buttonRect.width);
+            const spaceLeft = buttonRect.left;
 
-            if (spaceAbove < popoverRect.height + 10 || spaceAbove < spaceBelow) {
-                // Not enough space above or more space below - position below the button
-                top = buttonRect.height + 5;
-            } else {
-                // More space above - position above the button
-                top = -popoverRect.height - 5;
-            }
-
-            // Always position to the right of the button
+            // Default position to the right
             let left = buttonRect.width + 5;
+            let top = 0;
 
-            // If positioning to the right would put it off the screen, try to position it so it's still visible
-            if (buttonRect.left + left + popoverRect.width > viewportWidth - 5) {
-                // Calculate how far off screen it would go
-                const overflowAmount =
-                    buttonRect.left + left + popoverRect.width - (viewportWidth - 5);
-
-                // Try to shift it left just enough to keep it on screen
-                if (left - overflowAmount > 0) {
-                    // We can shift it left and still keep it to the right of the button
-                    left -= overflowAmount;
-                } else {
-                    // As a last resort, position it to the left of the button, but ensure it's fully visible
-                    left = -popoverRect.width - 5;
-
-                    // Make sure it doesn't go off the left edge of the screen
-                    if (buttonRect.left + left < 5) {
-                        left = -buttonRect.left + 5;
-                    }
-                }
+            // If not enough space on the right, try left
+            if (spaceRight < popoverRect.width + 10) {
+                left = -popoverRect.width - 5;
             }
 
-            popoverRef.current.style.top = `${top}px`;
-            popoverRef.current.style.left = `${left}px`;
+            // If not enough space on either side, center horizontally
+            if (spaceRight < popoverRect.width + 10 && spaceLeft < popoverRect.width + 10) {
+                left = -(popoverRect.width / 2) + (buttonRect.width / 2);
+            }
+
+            // Vertical positioning
+            if (spaceBelow >= popoverRect.height + 10) {
+                // Position below
+                top = buttonRect.height + 5;
+            } else if (spaceAbove >= popoverRect.height + 10) {
+                // Position above
+                top = -popoverRect.height - 5;
+            } else {
+                // Center vertically if no good space above or below
+                top = -(popoverRect.height / 2) + (buttonRect.height / 2);
+            }
+
+            // Ensure popover stays within viewport bounds
+            const finalLeft = Math.min(
+                Math.max(left, -buttonRect.left + 10),
+                viewportWidth - buttonRect.left - popoverRect.width - 10
+            );
+
+            const finalTop = Math.min(
+                Math.max(top, -buttonRect.top + 10),
+                viewportHeight - buttonRect.top - popoverRect.height - 10
+            );
+
+            // Apply the calculated position with fixed positioning
+            popoverRef.current.style.position = 'fixed';
+            popoverRef.current.style.top = `${buttonRect.top + finalTop}px`;
+            popoverRef.current.style.left = `${buttonRect.left + finalLeft}px`;
+            popoverRef.current.style.opacity = '1';
+            popoverRef.current.style.pointerEvents = 'auto';
+            popoverRef.current.style.zIndex = '100000';
         }
     }, [showPopover]);
 
@@ -262,68 +274,67 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         // Optimistically update the UI
         setIsValidated(!isValidated);
 
-        // Close popover after action
-        setShowPopover(false);
-        setIsPersistentPopover(false);
-        popoverTracker.setActivePopover(null);
+        // Don't close popover immediately to allow user to see the change
+        setTimeout(() => {
+            if (!isPersistentPopover) {
+                setShowPopover(false);
+                setIsPersistentPopover(false);
+                setIsDetailedView(false);
+                popoverTracker.setActivePopover(null);
+            }
+        }, 1000);
     };
 
     const handleButtonClick = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // If not validated yet, just validate without showing popover
+        // If not validated yet, validate the cell
         if (!isValidated) {
             handleValidate(e);
             return;
         }
 
-        // Only show popover if already validated and there are users to display
-        if (uniqueValidationUsers.length > 0) {
-            setShowPopover(true);
-            setIsPersistentPopover(true);
-            popoverTracker.setActivePopover(uniqueId.current);
-        }
+        // For validated cells, toggle the persistent popover with detailed view
+        setShowPopover(true);
+        setIsPersistentPopover(true);
+        setIsDetailedView(true);
+        popoverTracker.setActivePopover(uniqueId.current);
     };
 
     const showPopoverHandler = (e: React.MouseEvent) => {
         e.stopPropagation();
+        e.preventDefault();
+
+        // Don't show on hover if already showing in persistent mode
+        if (isPersistentPopover) return;
 
         // Only show popover if there are users to display
         if (!showPopover && uniqueValidationUsers.length > 0) {
-            const buttonRect = buttonRef.current?.getBoundingClientRect();
-            if (buttonRect) {
-                // Get viewport dimensions
-                const viewportWidth = window.innerWidth;
-
-                // Calculate available space on the right of the button
-                const spaceOnRight = viewportWidth - (buttonRect.left + buttonRect.width);
-
-                // Default position: to the right of the button
-                let left = buttonRect.width + 5; // 5px margin
-                const top = 0;
-
-                // Check if there's not enough space on the right
-                if (spaceOnRight < 250) {
-                    // 250px is max-width of popover
-                    // Place popover to the left of the button
-                    left = -250 - 5; // 5px margin
-                }
-
-                setPopoverPosition({ top, left });
-                setShowPopover(true);
-                popoverTracker.setActivePopover(uniqueId.current);
-            }
+            setShowPopover(true);
+            setIsDetailedView(false); // Simple view on hover
+            popoverTracker.setActivePopover(uniqueId.current);
         }
     };
 
     const hidePopoverHandler = (e?: React.MouseEvent) => {
-        if (e) e.stopPropagation();
+        if (e) {
+            e.stopPropagation();
+            e.preventDefault();
+        }
 
+        // Don't hide if in persistent mode
         if (!isPersistentPopover) {
-            setShowPopover(false);
-            if (popoverTracker.getActivePopover() === uniqueId.current) {
-                popoverTracker.setActivePopover(null);
-            }
+            // Add a small delay before hiding to prevent flickering
+            setTimeout(() => {
+                // Check if the mouse is still outside before hiding
+                if (!buttonRef.current?.matches(':hover')) {
+                    setShowPopover(false);
+                    setIsDetailedView(false);
+                    if (popoverTracker.getActivePopover() === uniqueId.current) {
+                        popoverTracker.setActivePopover(null);
+                    }
+                }
+            }, 100);
         }
     };
 
@@ -331,6 +342,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         e.stopPropagation();
         setShowPopover(false);
         setIsPersistentPopover(false);
+        setIsDetailedView(false);
         if (popoverTracker.getActivePopover() === uniqueId.current) {
             popoverTracker.setActivePopover(null);
         }
@@ -352,221 +364,283 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         justifyContent: "center",
     };
 
+    // Helper function to format timestamps
+    const formatTimestamp = (timestamp: number): string => {
+        if (!timestamp) return '';
+        
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffSecs = Math.floor(diffMs / 1000);
+        const diffMins = Math.floor(diffSecs / 60);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        
+        // For recent validations (less than a day)
+        if (diffDays < 1) {
+            if (diffHours < 1) {
+                if (diffMins < 1) {
+                    return 'just now';
+                }
+                return `${diffMins}m ago`;
+            }
+            return `${diffHours}h ago`;
+        }
+        
+        // For older validations
+        if (diffDays < 7) {
+            return `${diffDays}d ago`;
+        }
+        
+        // Format date if more than a week ago
+        return date.toLocaleDateString();
+    };
+
     return (
         <div
             ref={buttonRef}
             className="validation-button-container"
-            onMouseOver={showPopoverHandler}
-            onMouseOut={hidePopoverHandler}
+            onMouseEnter={showPopoverHandler}
+            onMouseLeave={hidePopoverHandler}
             onClick={handleButtonClick}
-            style={{ position: "relative", display: "inline-block" }}
+            style={{ position: "relative", display: "inline-block", zIndex: 999 }}
         >
             <VSCodeButton
                 appearance="icon"
                 style={buttonStyle}
-                onClick={handleValidate}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    handleButtonClick(e);
+                }}
                 disabled={isSourceText || userCreatedLatestEdit}
             >
-                <i
-                    className={`codicon ${
-                        isFullyValidated
-                            ? "codicon-check"
-                            : isValidated
-                            ? "codicon-pass"
-                            : "codicon-circle-outline"
-                    }`}
-                    style={{
-                        fontSize: "12px",
-                        color: isValidated
-                            ? isFullyValidated
-                                ? "var(--vscode-testing-iconPassed)"
-                                : "var(--vscode-charts-yellow)"
-                            : "var(--vscode-descriptionForeground)",
-                    }}
-                ></i>
+                {/* Validation status icons:
+                   - Empty circle: No validations
+                   - Grey filled circle: Has validations but not from current user
+                   - Green checkmark: Current user validated but not fully validated
+                   - Double grey checkmarks: Fully validated but current user hasn't validated
+                   - Double green checkmarks: Fully validated and current user has validated
+                */}
+                {currentValidations === 0 ? (
+                    // Empty circle - No validations
+                    <i className="codicon codicon-circle-outline"
+                       style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+                ) : isFullyValidated ? (
+                    isValidated ? (
+                        // Double green checkmarks - Fully validated and current user has validated
+                        <i className="codicon codicon-check-all"
+                           style={{ fontSize: "12px", color: "var(--vscode-testing-iconPassed)" }}></i>
+                    ) : (
+                        // Double grey checkmarks - Fully validated but current user hasn't validated
+                        <i className="codicon codicon-check-all"
+                           style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+                    )
+                ) : isValidated ? (
+                    // Green checkmark - Current user validated but not fully validated
+                    <i className="codicon codicon-check"
+                       style={{ fontSize: "12px", color: "var(--vscode-testing-iconPassed)" }}></i>
+                ) : (
+                    // Grey filled circle - Has validations but not from current user
+                    <i className="codicon codicon-circle-filled"
+                       style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+                )}
             </VSCodeButton>
 
             {/* Popover for validation users */}
             {showPopover && uniqueValidationUsers.length > 0 && (
                 <div
                     ref={popoverRef}
-                    className="validation-popover"
+                    className={`validation-popover ${isDetailedView ? 'detailed-view' : 'simple-view'}`}
                     style={{
-                        position: "absolute",
-                        top: popoverPosition.top,
-                        left: popoverPosition.left,
-                        width: "max-content",
-                        maxWidth: "250px",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        border: "1px solid var(--vscode-editorWidget-border)",
-                        borderRadius: "4px",
-                        padding: "8px",
-                        zIndex: 1000,
-                        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
-                        fontSize: "12px",
-                        color: "var(--vscode-foreground)",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "4px",
+                        position: "fixed",
+                        zIndex: 100000,
+                        opacity: showPopover ? '1' : '0',
+                        transition: 'opacity 0.2s ease-in-out',
+                        pointerEvents: showPopover ? 'auto' : 'none',
+                        backgroundColor: 'var(--vscode-editor-background)',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                        border: '1px solid var(--vscode-editorWidget-border)',
+                    }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (!isPersistentPopover) {
+                            setIsPersistentPopover(true);
+                            setIsDetailedView(true);
+                        }
+                    }}
+                    onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        if (!isPersistentPopover) {
+                            setShowPopover(true);
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        if (!isPersistentPopover) {
+                            hidePopoverHandler(e);
+                        }
                     }}
                 >
                     {isPersistentPopover && (
                         <div
                             style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                marginBottom: "6px",
-                                borderBottom: "1px solid var(--vscode-editorWidget-border)",
-                                paddingBottom: "6px",
+                                position: "absolute",
+                                right: "8px",
+                                top: "8px",
+                                cursor: "pointer",
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowPopover(false);
+                                setIsPersistentPopover(false);
+                                setIsDetailedView(false);
+                                popoverTracker.setActivePopover(null);
                             }}
                         >
-                            <span style={{ fontWeight: "bold" }}>Validators</span>
-                            <i
-                                className="codicon codicon-close"
-                                style={{
-                                    cursor: "pointer",
-                                    fontSize: "12px",
-                                    padding: "4px",
-                                    borderRadius: "3px",
-                                    transition: "background-color 0.2s ease",
-                                }}
-                                onClick={closePopover}
-                                title="Close"
-                            />
+                            <i className="codicon codicon-close" />
                         </div>
                     )}
-                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center" }}>
-                        {uniqueValidationUsers.map((user, index) => (
-                            <React.Fragment key={user.username}>
-                                <span
-                                    style={{
-                                        color: "var(--vscode-foreground)",
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        whiteSpace: "nowrap",
-                                        padding: "2px 4px",
-                                        backgroundColor:
-                                            user.username === username
-                                                ? "rgba(255, 255, 255, 0.05)"
-                                                : "transparent",
-                                        borderRadius: "3px",
-                                        position: "relative",
-                                        transition: "all 0.3s ease",
-                                        cursor: user.username === username ? "pointer" : "default",
-                                    }}
-                                    onMouseEnter={() => {
-                                        if (user.username === username) {
-                                            const trashIcon = document.getElementById(
-                                                `trash-icon-${user.username}`
-                                            );
-                                            if (trashIcon) {
-                                                trashIcon.style.display = "inline";
-                                                trashIcon.style.animation =
-                                                    "fadeIn 0.2s ease-in-out";
-                                            }
-
-                                            const usernameElement = document.getElementById(
-                                                `username-${user.username}`
-                                            );
-                                            if (usernameElement) {
-                                                usernameElement.style.opacity = "0.5";
-                                            }
-                                        }
-                                    }}
-                                    onMouseLeave={() => {
-                                        if (user.username === username) {
-                                            const trashIcon = document.getElementById(
-                                                `trash-icon-${user.username}`
-                                            );
-                                            if (trashIcon) {
-                                                trashIcon.style.display = "none";
-                                            }
-
-                                            const usernameElement = document.getElementById(
-                                                `username-${user.username}`
-                                            );
-                                            if (usernameElement) {
-                                                usernameElement.style.opacity = "1";
-                                            }
-                                        }
-                                    }}
-                                >
-                                    <span id={`username-${user.username}`}>{user.username}</span>
-                                    {user.username === username && (
-                                        <span
-                                            id={`trash-icon-${user.username}`}
-                                            style={{
-                                                display: "none",
-                                                position: "absolute",
-                                                left: "50%",
-                                                transform: "translateX(-50%)",
-                                                cursor: "pointer",
-                                                transition: "all 0.2s ease",
-                                                zIndex: 10,
-                                                backgroundColor: "rgba(255, 255, 255, 0.1)",
-                                                borderRadius: "50%",
-                                                padding: "3px",
-                                                boxShadow: "0 0 3px rgba(0, 0, 0, 0.2)",
-                                            }}
-                                            onClick={handleValidate}
-                                            title="Remove your validation"
-                                        >
-                                            <svg
-                                                width="14"
-                                                height="14"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                xmlns="http://www.w3.org/2000/svg"
-                                            >
-                                                <path
-                                                    d="M3 6H5H21"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                                <path
-                                                    d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                                <path
-                                                    d="M10 11V17"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                                <path
-                                                    d="M14 11V17"
-                                                    stroke="#ff5252"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                />
-                                            </svg>
-                                        </span>
-                                    )}
-                                </span>
-                                {index < uniqueValidationUsers.length - 1 && (
-                                    <span
+                    
+                    {isDetailedView ? (
+                        <>
+                            <div
+                                style={{
+                                    fontWeight: "bold",
+                                    marginBottom: "4px",
+                                    borderBottom: "1px solid var(--vscode-editorWidget-border)",
+                                    paddingBottom: "4px",
+                                }}
+                            >
+                                Validators
+                            </div>
+                            {uniqueValidationUsers.map((user) => {
+                                const isCurrentUser = user.username === username;
+                                const canDelete = isCurrentUser && isValidated;
+                                const formattedTime = formatTimestamp(user.updatedTimestamp);
+                                
+                                return (
+                                    <div
+                                        key={user.username}
                                         style={{
-                                            padding: "0 2px",
-                                            color: "var(--vscode-descriptionForeground)",
-                                            display: "inline-flex",
+                                            display: "flex",
                                             alignItems: "center",
-                                            cursor: "default",
+                                            justifyContent: "space-between",
+                                            padding: "2px 0",
+                                            position: "relative",
                                         }}
                                     >
-                                        •
+                                        <div style={{ 
+                                            display: "flex",
+                                            alignItems: "center",
+                                            position: "relative",
+                                            flex: "0 1 auto",
+                                            marginRight: "8px"
+                                        }}>
+                                            <span id={`username-${user.username}-${uniqueId.current}`}>
+                                                {user.username}
+                                                {user.username === username && (
+                                                    <span
+                                                        id={`trash-icon-${user.username}-${uniqueId.current}`}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleValidate(e);
+                                                        }}
+                                                        title="Remove your validation"
+                                                        className="validation-trash-icon"
+                                                    >
+                                                        <svg
+                                                            width="14"
+                                                            height="14"
+                                                            viewBox="0 0 24 24"
+                                                            fill="none"
+                                                            xmlns="http://www.w3.org/2000/svg"
+                                                        >
+                                                            <path
+                                                                d="M3 6H5H21"
+                                                                stroke="#ff5252"
+                                                                strokeWidth="2"
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                            />
+                                                            <path
+                                                                d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
+                                                                stroke="#ff5252"
+                                                                strokeWidth="2"
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                            />
+                                                            <path
+                                                                d="M10 11V17"
+                                                                stroke="#ff5252"
+                                                                strokeWidth="2"
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                            />
+                                                            <path
+                                                                d="M14 11V17"
+                                                                stroke="#ff5252"
+                                                                strokeWidth="2"
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                            />
+                                                        </svg>
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </div>
+                                        <div style={{ 
+                                            fontSize: "10px", 
+                                            color: "#888", 
+                                            flex: "0 0 auto",
+                                            minWidth: "45px",
+                                            textAlign: "right" 
+                                        }}>
+                                            {formatTimestamp(user.updatedTimestamp)}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </>
+                    ) : (
+                        // Simple view with just usernames separated by dots
+                        <div className="validators-simple-view">
+                            {uniqueValidationUsers.map((user, index) => (
+                                <React.Fragment key={user.username}>
+                                    <span className={user.username === username ? "current-user" : ""}>
+                                        {user.username}
                                     </span>
-                                )}
-                            </React.Fragment>
-                        ))}
-                    </div>
+                                    {index < uniqueValidationUsers.length - 1 && <span className="separator">•</span>}
+                                </React.Fragment>
+                            ))}
+                            <div className="more-info-hint">
+                                <i className="codicon codicon-info"></i>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Add this CSS to the component */}
+                    <style>
+                        {`
+                        div:hover > .delete-validation-button {
+                            opacity: 1 !important;
+                        }
+                        .validators-simple-view {
+                            padding: 4px 8px;
+                            display: flex;
+                            flex-wrap: wrap;
+                            gap: 4px;
+                            align-items: center;
+                            max-width: 200px;
+                        }
+                        .validators-simple-view .current-user {
+                            font-weight: 600;
+                        }
+                        .validators-simple-view .separator {
+                            color: var(--vscode-descriptionForeground);
+                            margin: 0 2px;
+                        }
+                        `}
+                    </style>
                 </div>
             )}
         </div>

@@ -1,50 +1,40 @@
-import React, { useContext } from "react";
-import { EditorCellContent, EditorPostMessages } from "../../../../types";
-import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import React from "react";
+import { WebviewApi } from "vscode-webview";
 
 interface EmptyCellDisplayProps {
     cellMarkers: string[];
-    cellLabel?: string;
-    setContentBeingUpdated: (content: EditorCellContent) => void;
+    cellLabel: string;
+    setContentBeingUpdated: (content: any) => void;
     textDirection: "ltr" | "rtl";
-    vscode: any;
+    vscode: WebviewApi<unknown>;
     openCellById: (cellId: string, text: string) => void;
 }
 
-const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
-    cellMarkers,
-    cellLabel,
-    setContentBeingUpdated,
-    textDirection,
-    vscode,
-    openCellById,
+const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({ 
+    cellMarkers, 
+    cellLabel, 
+    openCellById 
 }) => {
-    const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-
-    const handleClick = () => {
-        if (unsavedChanges) {
-            toggleFlashingBorder();
-            return;
-        }
-
-        openCellById(cellMarkers[0], "");
-
-        vscode.postMessage({
-            command: "setCurrentIdToGlobalState",
-            content: { currentLineId: cellMarkers[0] },
-        } as EditorPostMessages);
-    };
-
     return (
-        <div
+        <div 
             className="empty-cell-display"
-            onClick={handleClick}
-            style={{ 
-                direction: textDirection,
-                width: "100%"
+            onClick={() => openCellById(cellMarkers[0], "")}
+            style={{
+                whiteSpace: "normal", // Allow text to wrap
+                wordBreak: "break-word", // Break words to prevent overflow
+                overflow: "hidden", // Hide any overflow content
+                textOverflow: "ellipsis", // Show ellipsis for overflow text
+                display: "flex",
+                flexWrap: "wrap", // Wrap content to next line if needed
+                alignItems: "center",
+                padding: "4px 8px",
+                background: "transparent", // Ensure transparent background
+                border: "none" // Explicitly remove any border
             }}
         >
-            <span className="empty-cell-marker">{cellLabel || cellMarkers.join("-")}</span>
+            {cellLabel && (
+                <span className="empty-cell-marker">{cellLabel}</span>
+            )}
             <span className="empty-cell-prompt">Click to translate</span>
         </div>
     );

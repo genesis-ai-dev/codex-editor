@@ -32,7 +32,7 @@
 }
 
 .editor-container {
-    max-width: 40rem;
+    max-width: 48rem;
     width: 100%;
     margin: 0 auto;
     padding: 2rem 2rem 3rem;
@@ -164,7 +164,7 @@
     min-width: 40px !important; /* Increased from 15px to accommodate multiple buttons */
     height: auto !important; /* Changed from fixed height to auto */
     margin-right: 4px;
-    margin-left: 20px !important; /* Add margin-left for alignment */
+    margin-left: 38px !important; /* Updated from 35px to 37px for better alignment */
     gap: 8px !important;
 }
 
@@ -218,13 +218,18 @@
     align-items: center;
     padding: 0.25rem;
     flex: 1;
-    width: 100%; /* Make it full width */
-    /* margin-left: 2.65rem; This matches the width of cell header (2rem) plus the gap (0.5rem) and some fine-tuning */
+    width: calc(100% - 2rem); /* Adjust width to ensure it doesn't get cut off and leaves room for margins */
+    min-width: 200px; /* Ensure minimum width so content doesn't get cut off */
+    max-width: 95%; /* Ensure it doesn't overflow container */
     background-color: var(--vscode-editor-background);
-    border: 1px dashed var(--vscode-widget-border);
     border-radius: 4px;
     cursor: pointer;
     transition: background-color 0.3s ease;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-word; /* Ensure long words break properly */
+    hyphens: auto; /* Enable hyphenation where supported */
 }
 
 .empty-cell-display:hover {
@@ -477,7 +482,7 @@ li {
 /* Styles for the VideoPlayer */
 .player-wrapper {
     width: 100%;
-    max-width: 40rem;
+    max-width: 48rem; /* Match editor-container max-width */
     margin: 0 auto;
     position: sticky;
     top: 0;
@@ -685,6 +690,13 @@ li {
     cursor: pointer;
     border: 1px solid transparent;
     border-radius: 4px;
+    overflow: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
+    transition: border 0.3s ease;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-word;
 }
 
 /* Specific styles for inline display mode */
@@ -718,12 +730,14 @@ li {
     align-items: flex-start;
     gap: 0.5rem;
     padding: 0.25rem;
-    width: 100%; /* Make sure content displays take full width */
+    width: calc(100% - 1rem);
+    margin: 0 0.5rem;
+    box-sizing: border-box;
 }
 
 /* Specific style for empty cells in one-line-per-cell mode */
 .cell-display-one-line-per-cell .empty-cell-display {
-    width: 100%; /* Ensure empty cells take full width */
+    width: 100%;
 }
 
 .cell-display-one-line-per-cell .cell-header {
@@ -733,14 +747,14 @@ li {
     gap: 0.15rem;
     min-width: 2rem;
     flex-shrink: 0;
-    height: 21px; /* Fixed height for consistent alignment */
+    height: 21px;
 }
 
 .cell-display-one-line-per-cell .cell-actions {
     display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 20px; 
+    min-width: 20px;
     height: 100%;
 }
 
@@ -758,6 +772,12 @@ li {
     flex: 1;
     line-height: 1.5;
     padding-top: 0.1rem;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 /* Custom checkbox styling */
@@ -772,7 +792,7 @@ li {
     position: relative;
     cursor: pointer;
     vertical-align: middle;
-    outline: none; /* Remove focus outline */
+    outline: none;
 }
 
 .checkbox-container input[type="checkbox"]:checked {
@@ -790,7 +810,7 @@ li {
     border: solid #ffffff;
     border-width: 0 2px 2px 0;
     transform: rotate(45deg);
-    display: block; /* Ensure display is set */
+    display: block;
 }
 
 .checkbox-container {
@@ -799,72 +819,8 @@ li {
     user-select: none;
 }
 
-/* Style for cells in different translation states */
-.cell-translation-waiting {
-    border: 2px solid #ff6b6b !important; /* Red */
-    transition: border-color 0.3s ease, opacity 0.8s ease !important;
-    box-shadow: 0 0 5px rgba(255, 107, 107, 0.4) !important;
-    margin: 2px !important;
-}
-
-.cell-translation-processing {
-    border: 2px solid #ffc14d !important; /* Yellow */
-    transition: border-color 0.3s ease, opacity 0.8s ease !important;
-    box-shadow: 0 0 8px rgba(255, 193, 77, 0.5) !important;
-    margin: 2px !important;
-}
-
-.cell-translation-completed {
-    border: 2px solid #4caf50 !important; /* Green */
-    transition: border-color 0.3s ease, opacity 0.8s ease !important;
-    box-shadow: 0 0 5px rgba(76, 175, 80, 0.4) !important;
-    margin: 2px !important;
-}
-
-.cell-translation-fading {
-    border: 2px solid #4caf50 !important; /* Green */
-    opacity: 0 !important;
-    transition: opacity 0.8s ease !important;
-    margin: 2px !important;
-}
-
-/* Animation for translation processing */
-@keyframes pulseBorder {
-    0% {
-        border-color: #ffc14d88;
-        box-shadow: 0 0 3px rgba(255, 193, 77, 0.3);
-    }
-    50% {
-        border-color: #ffc14d;
-        box-shadow: 0 0 10px rgba(255, 193, 77, 0.6);
-    }
-    100% {
-        border-color: #ffc14d88;
-        box-shadow: 0 0 3px rgba(255, 193, 77, 0.3);
-    }
-}
-
-.cell-translation-processing {
-    animation: pulseBorder 1.5s infinite ease-in-out;
-}
-
-/* Add border-radius to all cells with translation state */
-.cell-translation-waiting,
-.cell-translation-processing,
-.cell-translation-completed,
-.cell-translation-fading {
-    border-radius: 4px !important;
-    padding: 2px !important;
-}
-
-/* Special styles for inline mode to handle borders */
-.cell-display-inline .cell-translation-waiting,
-.cell-display-inline .cell-translation-processing,
-.cell-display-inline .cell-translation-completed,
-.cell-display-inline .cell-translation-fading {
-    display: inline-block !important;
-    margin: 0 2px !important;
-}
+/* Note: Cell translation styles have been moved to React inline styles */
+/* See CellTranslationStyles.ts for the React implementation */
 
 /* Validation button container styling */
 .validation-button-container {
@@ -875,4 +831,164 @@ li {
     width: 16px !important;
     height: 16px !important;
     vertical-align: middle !important;
+    z-index: 999 !important;
+}
+
+/* Validation popover and trash icon styling */
+.validation-popover {
+    position: absolute;
+    z-index: 10000;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-editorWidget-border);
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    animation: fadeIn 0.2s ease;
+    min-width: 120px;
+    font-size: 12px;
+    color: var(--vscode-foreground);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+/* Fix for username and trash icon positioning */
+.validation-popover [id^="username"] {
+    display: inline-block;
+    position: relative;
+    padding-right: 4px;
+}
+
+.validation-popover [id^="trash-icon"] {
+    position: relative;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    margin-left: 2px;
+    cursor: pointer;
+    background-color: rgba(255, 82, 82, 0.1);
+    border-radius: 50%;
+    padding: 2px;
+    width: 16px;
+    height: 16px;
+    line-height: 0;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.validation-popover div:hover [id^="trash-icon"] {
+    opacity: 1;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Ensure the validation button container has proper z-indexing */
+.validation-button-container:hover .validation-popover {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    transform: scale(1) !important;
+}
+
+/* Add common styles for both translated and non-translated cells */
+.cell-content-display,
+.empty-cell-display {
+    transition: border 0.3s ease;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-word;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+/* Ensure consistent width during translation process */
+.cell-display-one-line-per-cell .cell-content-display,
+.cell-display-one-line-per-cell .empty-cell-display {
+    width: calc(100% - 1rem);
+    margin: 0 0.5rem;
+    box-sizing: border-box;
+}
+
+/* Trash icon specific styling */
+.validation-trash-icon {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+    cursor: pointer;
+    background-color: rgba(255, 82, 82, 0.1);
+    border-radius: 50%;
+    padding: 2px;
+    width: 16px;
+    height: 16px;
+    line-height: 0;
+    vertical-align: middle;
+    opacity: 1;
+}
+
+/* Validation popover - different view modes */
+.validation-popover.simple-view {
+    padding: 6px 10px;
+    border-radius: 6px;
+    min-width: 0;
+    width: auto;
+}
+
+.validation-popover .validators-simple-view {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+}
+
+.validation-popover .validators-simple-view span {
+    white-space: nowrap;
+}
+
+.validation-popover .validators-simple-view .current-user {
+    font-weight: 600;
+    color: var(--vscode-focusBorder);
+}
+
+.validation-popover .validators-simple-view .separator {
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+    margin: 0 -2px;
+}
+
+.validation-popover.detailed-view {
+    min-width: 160px;
+}
+
+/* Animation for simple to detailed view transition */
+.validation-popover {
+    transition: all 0.2s ease-out;
+}
+
+.validation-popover .validators-simple-view .more-info-hint {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    opacity: 0.7;
+    margin-left: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.validation-popover .validators-simple-view .more-info-hint i {
+    font-size: 10px;
+}
+
+.validation-popover:hover .more-info-hint {
+    opacity: 1;
+    color: var(--vscode-focusBorder);
 }
