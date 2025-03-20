@@ -380,6 +380,20 @@ const CodexCellEditor: React.FC = () => {
         }
     }, [username]);
 
+    // Cells with no content (untranslated cells)
+    const untranslatedCellsForSection = useMemo(() => {
+        console.log("Calculating cells with no content...");
+
+        const result = translationUnitsForSection.filter((unit) => {
+            // Check if the cell is empty
+            const hasNoContent = !unit.cellContent.trim();
+            return hasNoContent;
+        });
+
+        console.log("Cells with no content:", result.length);
+        return result;
+    }, [translationUnitsForSection]);
+
     // Cells with no content or where the latest edit has no validators
     const untranslatedOrUnvalidatedUnitsForSection = useMemo(() => {
         console.log("Calculating cells needing autocomplete (no content or no validators)...");
@@ -534,18 +548,29 @@ const CodexCellEditor: React.FC = () => {
 
     const handleAutocompleteChapter = (
         numberOfCells: number,
+        includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean
     ) => {
         console.log(
             "Requesting autocomplete chapter:",
             numberOfCells,
+            includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser
         );
 
-        // Choose which set of cells to use based on the include option
-        const cellsToAutocomplete = includeNotValidatedByCurrentUser
-            ? untranslatedOrNotValidatedByCurrentUserUnitsForSection.slice(0, numberOfCells)
-            : untranslatedOrUnvalidatedUnitsForSection.slice(0, numberOfCells);
+        // Choose which set of cells to use based on the include options
+        let cellsToAutocomplete;
+        
+        if (includeNotValidatedByCurrentUser) {
+            // Include cells not validated by current user (most inclusive option)
+            cellsToAutocomplete = untranslatedOrNotValidatedByCurrentUserUnitsForSection.slice(0, numberOfCells);
+        } else if (includeNotValidatedByAnyUser) {
+            // Include cells not validated by any user (middle option)
+            cellsToAutocomplete = untranslatedOrUnvalidatedUnitsForSection.slice(0, numberOfCells);
+        } else {
+            // Only include cells with no content (least inclusive option)
+            cellsToAutocomplete = untranslatedCellsForSection.slice(0, numberOfCells);
+        }
 
         // Send the request to the provider - it will handle all state updates
         vscode.postMessage({
@@ -997,13 +1022,22 @@ const CodexCellEditor: React.FC = () => {
                         chapterNumber={chapterNumber}
                         setChapterNumber={setChapterNumber}
                         totalChapters={totalChapters}
+                        totalUntranslatedCells={untranslatedCellsForSection.length}
+                        totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
+                        totalCellsWithCurrentUserOption={
+                            untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
+                        }
+                        setShouldShowVideoPlayer={setShouldShowVideoPlayer}
+                        shouldShowVideoPlayer={shouldShowVideoPlayer}
                         unsavedChanges={!!contentBeingUpdated.cellContent}
                         onAutocompleteChapter={(
                             numberOfCells,
+                            includeNotValidatedByAnyUser,
                             includeNotValidatedByCurrentUser
                         ) => {
                             console.log("Autocomplete requested with:", {
                                 numberOfCells,
+                                includeNotValidatedByAnyUser,
                                 includeNotValidatedByCurrentUser,
                                 countNoValidators: untranslatedOrUnvalidatedUnitsForSection.length,
                                 countWithCurrentUser:
@@ -1011,6 +1045,7 @@ const CodexCellEditor: React.FC = () => {
                             });
                             handleAutocompleteChapter(
                                 numberOfCells,
+                                includeNotValidatedByAnyUser,
                                 includeNotValidatedByCurrentUser
                             );
                         }}
@@ -1028,12 +1063,6 @@ const CodexCellEditor: React.FC = () => {
                         cellDisplayMode={cellDisplayMode}
                         isSourceText={isSourceText}
                         openSourceText={openSourceText}
-                        totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
-                        totalCellsWithCurrentUserOption={
-                            untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
-                        }
-                        setShouldShowVideoPlayer={setShouldShowVideoPlayer}
-                        shouldShowVideoPlayer={shouldShowVideoPlayer}
                         documentHasVideoAvailable={documentHasVideoAvailable}
                         metadata={metadata}
                         tempVideoUrl={tempVideoUrl}

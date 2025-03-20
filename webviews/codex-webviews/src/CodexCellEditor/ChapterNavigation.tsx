@@ -15,7 +15,12 @@ import { CustomNotebookMetadata, QuillCellContent } from "../../../../types";
 interface AutocompleteModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => void;
+    onConfirm: (
+        numberOfCells: number, 
+        includeNotValidatedByAnyUser: boolean,
+        includeNotValidatedByCurrentUser: boolean
+    ) => void;
+    totalUntranslatedCells: number;
     totalCellsToAutocomplete: number;
     totalCellsWithCurrentUserOption: number;
     defaultValue?: number;
@@ -25,20 +30,23 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     isOpen,
     onClose,
     onConfirm,
+    totalUntranslatedCells,
     totalCellsToAutocomplete,
     totalCellsWithCurrentUserOption,
-    defaultValue = Math.min(5, totalCellsToAutocomplete > 0 ? totalCellsToAutocomplete : 5),
+    defaultValue = Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5),
 }) => {
     // Initialize with the correct value for non-user-validated cells
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(
-        totalCellsToAutocomplete > 0 ? defaultValue : 0
+        totalUntranslatedCells > 0 ? defaultValue : 0
     );
     const [customValue, setCustomValue] = useState(
-        totalCellsToAutocomplete > 0 ? defaultValue : 0
+        totalUntranslatedCells > 0 ? defaultValue : 0
     );
+    // Both checkboxes start unchecked, so we only select empty cells by default
+    const [includeNotValidatedByAnyUser, setIncludeNotValidatedByAnyUser] = useState(false);
     const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
-    // Start with the base total (cells without content or without any validators)
-    const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalCellsToAutocomplete);
+    // Start with the base total - only cells with no content
+    const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalUntranslatedCells);
 
     // Create a reference to the modal container
     const [modalContainer, setModalContainer] = useState<HTMLElement | null>(null);
@@ -74,6 +82,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     // Log initial values to debug
     useEffect(() => {
         console.log('Modal initialized with:', {
+            totalUntranslatedCells,
             totalCellsToAutocomplete,
             totalCellsWithCurrentUserOption,
             defaultValue,
@@ -81,73 +90,108 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         });
     }, []);
 
-    // Update effective total cells when props change
+    // Update effective total cells when props or checkbox states change
     useEffect(() => {
-        console.log("Props changed:", {
+        console.log("Props or checkbox state changed:", {
+            totalUntranslatedCells,
             totalCellsToAutocomplete,
-            totalCellsWithCurrentUserOption
+            totalCellsWithCurrentUserOption,
+            includeNotValidatedByAnyUser,
+            includeNotValidatedByCurrentUser
         });
         
+        // Calculate the effective total based on checkboxes
+        let newEffectiveTotal = 0;
+        
         if (includeNotValidatedByCurrentUser) {
-            setEffectiveTotalCells(totalCellsWithCurrentUserOption);
+            // Include all cells not validated by current user
+            newEffectiveTotal = totalCellsWithCurrentUserOption;
+        } else if (includeNotValidatedByAnyUser) {
+            // Include cells not validated by any user
+            newEffectiveTotal = totalCellsToAutocomplete;
         } else {
-            setEffectiveTotalCells(totalCellsToAutocomplete);
+            // Only include cells with no content
+            newEffectiveTotal = totalUntranslatedCells;
         }
         
-        // Adjust default values if needed
-        const newEffectiveTotal = includeNotValidatedByCurrentUser ? 
-            totalCellsWithCurrentUserOption : totalCellsToAutocomplete;
-            
+        setEffectiveTotalCells(newEffectiveTotal);
+        
+        // Adjust number of cells if needed
         if (numberOfCellsToAutocomplete > newEffectiveTotal) {
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
         }
-    }, [totalCellsToAutocomplete, totalCellsWithCurrentUserOption, includeNotValidatedByCurrentUser]);
+    }, [
+        totalUntranslatedCells,
+        totalCellsToAutocomplete, 
+        totalCellsWithCurrentUserOption, 
+        includeNotValidatedByAnyUser,
+        includeNotValidatedByCurrentUser
+    ]);
 
-    // Update effective total cells when checkbox state changes
-    const handleCheckboxChange = () => {
-        const newValue = !includeNotValidatedByCurrentUser;
-        console.log("CHECKBOX CHANGED TO:", newValue, "- THIS SHOULD UPDATE THE DISPLAY");
+    // Handler for "Include cells not validated by any user" checkbox
+    const handleAnyUserCheckboxChange = () => {
+        const newValue = !includeNotValidatedByAnyUser;
+        console.log("ANY USER CHECKBOX CHANGED TO:", newValue);
         
-        // Update checkbox state
-        setIncludeNotValidatedByCurrentUser(newValue);
-        
-        // Update the effective total based on checkbox state
-        const newTotalCells = newValue ? totalCellsWithCurrentUserOption : totalCellsToAutocomplete;
-        console.log('CHECKBOX CHANGE EFFECT:', { 
-            newValue, 
-            totalCellsToAutocomplete, 
-            totalCellsWithCurrentUserOption, 
-            newTotalCells 
-        });
-        
-        // Force immediate update of effectiveTotalCells
-        setEffectiveTotalCells(newTotalCells);
-        
-        // Update the number of cells to autocomplete if needed
-        if (numberOfCellsToAutocomplete > newTotalCells) {
-            // Cap to new maximum
-            setNumberOfCellsToAutocomplete(newTotalCells);
-            setCustomValue(newTotalCells);
-        } else if (numberOfCellsToAutocomplete === 0 && newTotalCells > 0) {
-            // Set to default if currently 0
-            const newDefaultValue = Math.min(5, newTotalCells);
-            setNumberOfCellsToAutocomplete(newDefaultValue);
-            setCustomValue(newDefaultValue);
-        }
-        
-        // For debugging only - should show state changes
-        setTimeout(() => {
-            console.log("AFTER CHECKBOX CHANGE:", {
-                includeNotValidatedByCurrentUser: newValue,
-                effectiveTotalCells: newTotalCells,
-                numberOfCellsToAutocomplete: (numberOfCellsToAutocomplete > newTotalCells) 
-                    ? newTotalCells 
-                    : numberOfCellsToAutocomplete
-            });
-        }, 0);
+        setIncludeNotValidatedByAnyUser(newValue);
     };
+
+    // Handler for "Include cells not validated by current user" checkbox
+    const handleCurrentUserCheckboxChange = () => {
+        const newValue = !includeNotValidatedByCurrentUser;
+        console.log("CURRENT USER CHECKBOX CHANGED TO:", newValue);
+        
+        setIncludeNotValidatedByCurrentUser(newValue);
+    };
+
+    // Render a custom checkbox component
+    const CustomCheckbox = ({ checked, onChange, label }: { checked: boolean, onChange: () => void, label: string }) => (
+        <label 
+            className="checkbox-container" 
+            style={{ display: "flex", alignItems: "center", cursor: "pointer", marginBottom: "8px" }}
+        >
+            <div 
+                className="custom-checkbox" 
+                style={{
+                    width: "18px",
+                    height: "18px",
+                    border: "2px solid var(--vscode-checkbox-border, #6c757d)",
+                    borderRadius: "3px",
+                    backgroundColor: checked ? 
+                        "var(--vscode-focusBorder, #007fd4)" : 
+                        "var(--vscode-checkbox-background, #252526)",
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginRight: "8px",
+                    position: "relative",
+                    cursor: "pointer",
+                    boxShadow: checked ? 
+                        "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : 
+                        "none"
+                }}
+                onClick={onChange}
+            >
+                {checked && (
+                    <div 
+                        style={{
+                            width: "6px",
+                            height: "10px",
+                            borderRight: "2px solid white",
+                            borderBottom: "2px solid white",
+                            transform: "rotate(45deg) translate(-1px, -1px)",
+                            position: "absolute"
+                        }}
+                    />
+                )}
+            </div>
+            <span onClick={onChange}>
+                {label}
+            </span>
+        </label>
+    );
 
     if (!isOpen || !modalContainer) return null;
 
@@ -259,50 +303,17 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 </VSCodeRadioGroup>
                 
                 <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
-                    <label 
-                        className="checkbox-container" 
-                        style={{ display: "flex", alignItems: "center", cursor: "pointer" }}
-                    >
-                        <div 
-                            className="custom-checkbox" 
-                            style={{
-                                width: "18px",
-                                height: "18px",
-                                border: "2px solid var(--vscode-checkbox-border, #6c757d)",
-                                borderRadius: "3px",
-                                backgroundColor: includeNotValidatedByCurrentUser ? 
-                                    "var(--vscode-focusBorder, #007fd4)" : 
-                                    "var(--vscode-checkbox-background, #252526)",
-                                display: "flex",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                marginRight: "8px",
-                                position: "relative",
-                                cursor: "pointer",
-                                boxShadow: includeNotValidatedByCurrentUser ? 
-                                    "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : 
-                                    "none"
-                            }}
-                            onClick={handleCheckboxChange}
-                        >
-                            {includeNotValidatedByCurrentUser && (
-                                <div 
-                                    style={{
-                                        width: "6px",
-                                        height: "10px",
-                                        borderRight: "2px solid white",
-                                        borderBottom: "2px solid white",
-                                        transform: "rotate(45deg) translate(-1px, -1px)",
-                                        position: "absolute"
-                                    }}
-                                />
-                            )}
-                        </div>
-                        <span onClick={handleCheckboxChange}>
-                            Include cells not validated by the current user
-
-                        </span>
-                    </label>
+                    <CustomCheckbox 
+                        checked={includeNotValidatedByAnyUser}
+                        onChange={handleAnyUserCheckboxChange}
+                        label="Include cells not validated by any user"
+                    />
+                    
+                    <CustomCheckbox 
+                        checked={includeNotValidatedByCurrentUser}
+                        onChange={handleCurrentUserCheckboxChange}
+                        label="Include cells not validated by the current user"
+                    />
                 </div>
                 
                 <div className="modal-actions">
@@ -310,7 +321,11 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         Cancel
                     </VSCodeButton>
                     <VSCodeButton
-                        onClick={() => onConfirm(numberOfCellsToAutocomplete, includeNotValidatedByCurrentUser)}
+                        onClick={() => onConfirm(
+                            numberOfCellsToAutocomplete, 
+                            includeNotValidatedByAnyUser, 
+                            includeNotValidatedByCurrentUser
+                        )}
                         disabled={numberOfCellsToAutocomplete === 0}
                     >
                         Confirm
@@ -326,7 +341,11 @@ interface ChapterNavigationProps {
     chapterNumber: number;
     setChapterNumber: React.Dispatch<React.SetStateAction<number>>;
     unsavedChanges: boolean;
-    onAutocompleteChapter: (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => void;
+    onAutocompleteChapter: (
+        numberOfCells: number, 
+        includeNotValidatedByAnyUser: boolean,
+        includeNotValidatedByCurrentUser: boolean
+    ) => void;
     onStopAutocomplete: () => void;
     isAutocompletingChapter: boolean;
     onSetTextDirection: (direction: "ltr" | "rtl") => void;
@@ -335,6 +354,7 @@ interface ChapterNavigationProps {
     cellDisplayMode: CELL_DISPLAY_MODES;
     isSourceText: boolean;
     totalChapters: number;
+    totalUntranslatedCells: number;
     totalCellsToAutocomplete: number;
     totalCellsWithCurrentUserOption: number;
     openSourceText: (chapterNumber: number) => void;
@@ -367,6 +387,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     cellDisplayMode,
     isSourceText,
     totalChapters,
+    totalUntranslatedCells,
     totalCellsToAutocomplete,
     totalCellsWithCurrentUserOption,
     openSourceText,
@@ -397,14 +418,23 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         setShowConfirm(true);
     };
 
-    const handleConfirmAutocomplete = (numberOfCells: number, includeNotValidatedByCurrentUser: boolean) => {
+    const handleConfirmAutocomplete = (
+        numberOfCells: number, 
+        includeNotValidatedByAnyUser: boolean,
+        includeNotValidatedByCurrentUser: boolean
+    ) => {
         console.log('Confirm autocomplete:', {
             numberOfCells,
+            includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser,
             totalCellsToAutocomplete,
             totalCellsWithCurrentUserOption
         });
-        onAutocompleteChapter(numberOfCells, includeNotValidatedByCurrentUser);
+        onAutocompleteChapter(
+            numberOfCells, 
+            includeNotValidatedByAnyUser,
+            includeNotValidatedByCurrentUser
+        );
         setShowConfirm(false);
     };
 
@@ -551,8 +581,10 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             isOpen={showConfirm}
                             onClose={handleCancelAutocomplete}
                             onConfirm={handleConfirmAutocomplete}
+                            totalUntranslatedCells={totalUntranslatedCells}
                             totalCellsToAutocomplete={totalCellsToAutocomplete}
                             totalCellsWithCurrentUserOption={totalCellsWithCurrentUserOption}
+                            defaultValue={Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5)}
                         />
                     </>
                 )}
