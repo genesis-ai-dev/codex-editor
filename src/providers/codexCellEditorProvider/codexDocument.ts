@@ -44,6 +44,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public _sourceCellMap: { [k: string]: { content: string; versions: string[] } } = {};
     private _edits: Array<any>;
     private _isDirty: boolean = false;
+    private _cachedUserInfo: { username: string; email?: string } | null = null;
 
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
@@ -151,6 +152,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._isDirty;
     }
 
+    // Helper method to get user info with caching
+    private async getUserInfo(): Promise<string> {
+        if (!this._cachedUserInfo) {
+            try {
+                const authApi = await getAuthApi();
+                let username = "anonymous";
+                
+                if (authApi) {
+                    try {
+                        const userInfo = await authApi.getUserInfo();
+                        if (userInfo && userInfo.username) {
+                            username = userInfo.username;
+                        }
+                    } catch (e) {
+                        console.error("Error getting user info", e);
+                    }
+                }
+                
+                this._cachedUserInfo = { username };
+            } catch (error) {
+                console.error("Error fetching user info:", error);
+                this._cachedUserInfo = { username: "anonymous" };
+            }
+        }
+        return this._cachedUserInfo.username;
+    }
+
     // Methods to manipulate the document data
     public async updateCellContent(
         cellId: string,
@@ -189,9 +217,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits = [];
         }
 
-        const authApi = await getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const author = userInfo?.username || "anonymous";
+        // Use cached user info instead of fetching every time
+        const author = await this.getUserInfo();
         const currentTimestamp = Date.now();
 
         // Initialize validatedBy array based on edit type with proper ValidationEntry objects
