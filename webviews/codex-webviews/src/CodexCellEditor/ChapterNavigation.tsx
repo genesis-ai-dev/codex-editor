@@ -1,4 +1,4 @@
-import React, { useState, useEffect, CSSProperties } from "react";
+import React, { useState, useEffect, CSSProperties, useRef } from "react";
 import ReactDOM from "react-dom";
 import {
     VSCodeBadge,
@@ -65,6 +65,183 @@ const ValidationIconSet: React.FC<{
             {showNotCurrentUserCells && (
                 <i className="codicon codicon-circle-filled"
                    style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+            )}
+        </div>
+    );
+};
+
+// Helper component for showing validation icon legend tooltips
+const ValidationLegend: React.FC<{
+    position?: 'top' | 'bottom' | 'left' | 'right';
+    style?: CSSProperties;
+    showToSide?: boolean;
+    parentRef?: React.RefObject<HTMLDivElement>;
+}> = ({ position = 'bottom', style = {}, showToSide = false, parentRef }) => {
+    const [showTooltip, setShowTooltip] = useState(false);
+    const tooltipRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    
+    // Adjust position if needed to prevent cutoff
+    useEffect(() => {
+        if (showTooltip && tooltipRef.current && containerRef.current) {
+            const tooltipRect = tooltipRef.current.getBoundingClientRect();
+            const containerRect = containerRef.current.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            if (showToSide) {
+                // Position to the right of the icon
+                tooltipRef.current.style.left = `${containerRect.width + 5}px`;
+                tooltipRef.current.style.top = `${-10}px`;
+                tooltipRef.current.style.transform = 'none';
+                
+                // Check if tooltip would go off right of screen
+                if (containerRect.right + tooltipRect.width + 10 > viewportWidth) {
+                    // Switch to left side of icon
+                    tooltipRef.current.style.left = 'auto';
+                    tooltipRef.current.style.right = `${containerRect.width + 5}px`;
+                }
+            } else {
+                // Center the tooltip under the icon
+                const iconCenterX = containerRect.left + containerRect.width / 2;
+                const tooltipWidth = tooltipRect.width;
+                
+                // Calculate left position to center the tooltip under the icon
+                let leftPos = iconCenterX - tooltipWidth / 2;
+                
+                // Prevent tooltip from going off-screen to the left
+                if (leftPos < 10) {
+                    leftPos = 10;
+                }
+                
+                // Prevent tooltip from going off-screen to the right
+                if (leftPos + tooltipWidth > viewportWidth - 10) {
+                    leftPos = viewportWidth - tooltipWidth - 10;
+                }
+                
+                // Apply the horizontal position
+                tooltipRef.current.style.left = `${leftPos}px`;
+                tooltipRef.current.style.right = 'auto';
+                
+                // Check if tooltip would go off bottom of screen
+                if (tooltipRect.bottom > viewportHeight - 10) {
+                    tooltipRef.current.style.top = 'auto';
+                    tooltipRef.current.style.bottom = `${containerRect.height + 5}px`;
+                } else {
+                    tooltipRef.current.style.top = `${containerRect.height + 5}px`;
+                    tooltipRef.current.style.bottom = 'auto';
+                }
+            }
+        }
+    }, [showTooltip, showToSide]);
+    
+    return (
+        <div 
+            ref={containerRef}
+            style={{ 
+                display: 'inline-flex', 
+                position: 'relative',
+                marginLeft: '6px',
+                ...style 
+            }}
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+        >
+            <i 
+                className="codicon codicon-info"
+                style={{ 
+                    color: 'var(--vscode-descriptionForeground)',
+                    fontSize: '14px',
+                    cursor: 'help'
+                }}
+            />
+            {showTooltip && (
+                <div 
+                    ref={tooltipRef}
+                    style={{
+                        position: parentRef ? 'fixed' : 'absolute',
+                        top: showToSide ? '-10px' : '100%',
+                        left: showToSide ? '100%' : '50%',
+                        transform: (parentRef || showToSide) ? 'none' : 'translateX(-50%)',
+                        backgroundColor: 'var(--vscode-editor-background)',
+                        border: '1px solid var(--vscode-widget-border)',
+                        borderRadius: '4px',
+                        padding: '8px',
+                        zIndex: 1000,
+                        width: 'auto',
+                        maxWidth: '300px',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                        fontWeight: 'normal',
+                        fontSize: '12px',
+                        color: 'var(--vscode-foreground)',
+                        marginTop: showToSide ? '0' : (parentRef ? '0' : '4px'),
+                        lineHeight: '1.5',
+                        whiteSpace: 'nowrap'
+                    }}
+                >
+                    <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>Validation Status Icons:</div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ 
+                            fontWeight: 'bold',
+                            width: '16px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginRight: '6px'
+                        }}>—</span>
+                        <span>Empty/Untranslated</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                        <i className="codicon codicon-circle-outline" style={{ fontSize: '12px', marginRight: '6px' }}></i>
+                        <span>Without any validator</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                        <i className="codicon codicon-circle-filled" style={{ fontSize: '12px', marginRight: '6px' }}></i>
+                        <span>Validated by others</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            marginRight: '6px',
+                            width: '16px',
+                            justifyContent: 'center'
+                        }}>
+                            <i className="codicon codicon-check" style={{ 
+                                fontSize: '12px', 
+                                color: 'var(--vscode-terminal-ansiGreen)' 
+                            }}></i>
+                        </div>
+                        <span>Validated by you</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            marginRight: '6px',
+                            width: '16px',
+                            justifyContent: 'center'
+                        }}>
+                            <i className="codicon codicon-check-all" style={{ 
+                                fontSize: '12px', 
+                                color: 'var(--vscode-descriptionForeground)' 
+                            }}></i>
+                        </div>
+                        <span>Fully validated by other users</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            marginRight: '6px',
+                            width: '16px',
+                            justifyContent: 'center'
+                        }}>
+                            <i className="codicon codicon-check-all" style={{ 
+                                fontSize: '12px', 
+                                color: 'var(--vscode-terminal-ansiGreen)' 
+                            }}></i>
+                        </div>
+                        <span>Fully validated by you</span>
+                    </div>
+                </div>
             )}
         </div>
     );
@@ -342,7 +519,10 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 ref={modalRef}
                 tabIndex={-1}
             >
-                <h2 style={{ marginBottom: "1rem" }}>Autocomplete Cells</h2>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
+                    <h2 style={{ margin: 0 }}>Autocomplete Cells</h2>
+                    <ValidationLegend position="right" showToSide={true} />
+                </div>
                 <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
                     <VSCodeTag>
                         Autocomplete {numberOfCellsToAutocomplete || 0} Cells
