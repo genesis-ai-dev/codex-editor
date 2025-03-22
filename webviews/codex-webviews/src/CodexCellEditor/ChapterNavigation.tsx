@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, CSSProperties } from "react";
 import ReactDOM from "react-dom";
 import {
     VSCodeBadge,
@@ -25,6 +25,50 @@ interface AutocompleteModalProps {
     totalCellsWithCurrentUserOption: number;
     defaultValue?: number;
 }
+
+// Helper component to display validation icons
+const ValidationIconSet: React.FC<{
+    showEmptyCells?: boolean;
+    showNoValidatorCells?: boolean;
+    showNotCurrentUserCells?: boolean;
+    style?: CSSProperties;
+}> = ({ 
+    showEmptyCells = true, 
+    showNoValidatorCells = false, 
+    showNotCurrentUserCells = false,
+    style = {}
+}) => {
+    return (
+        <div style={{ 
+            display: "inline-flex", 
+            alignItems: "center", 
+            gap: "4px",
+            marginLeft: "8px",
+            ...style
+        }}>
+            {showEmptyCells && (
+                <span style={{ 
+                    fontSize: "12px", 
+                    color: "var(--vscode-descriptionForeground)",
+                    fontWeight: "bold",
+                    width: "16px",
+                    height: "16px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                }}>—</span>
+            )}
+            {showNoValidatorCells && (
+                <i className="codicon codicon-circle-outline"
+                   style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+            )}
+            {showNotCurrentUserCells && (
+                <i className="codicon codicon-circle-filled"
+                   style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+            )}
+        </div>
+    );
+};
 
 const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     isOpen,
@@ -116,38 +160,100 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         
         setEffectiveTotalCells(newEffectiveTotal);
         
-        // Adjust number of cells if needed
-        if (numberOfCellsToAutocomplete > newEffectiveTotal) {
-            const newDefaultValue = Math.min(5, newEffectiveTotal);
-            setNumberOfCellsToAutocomplete(newDefaultValue);
-            setCustomValue(newDefaultValue);
+        // If number of cells is less than 5, automatically set to min(5, effectiveTotalCells)
+        if (numberOfCellsToAutocomplete < 5 && newEffectiveTotal > numberOfCellsToAutocomplete) {
+            const newValue = Math.min(5, newEffectiveTotal);
+            setNumberOfCellsToAutocomplete(newValue);
+            setCustomValue(newValue);
+        }
+        // If number of cells exceeds the new total, cap it
+        else if (numberOfCellsToAutocomplete > newEffectiveTotal) {
+            const newValue = Math.min(5, newEffectiveTotal > 0 ? newEffectiveTotal : 0);
+            setNumberOfCellsToAutocomplete(newValue);
+            setCustomValue(newValue);
         }
     }, [
         totalUntranslatedCells,
         totalCellsToAutocomplete, 
         totalCellsWithCurrentUserOption, 
         includeNotValidatedByAnyUser,
-        includeNotValidatedByCurrentUser
+        includeNotValidatedByCurrentUser,
+        numberOfCellsToAutocomplete // Add this to the dependency array to properly track changes
     ]);
 
     // Handler for "Include cells not validated by any user" checkbox
-    const handleAnyUserCheckboxChange = () => {
-        const newValue = !includeNotValidatedByAnyUser;
+    const handleAnyUserCheckboxChange = (newValue: boolean) => {
         console.log("ANY USER CHECKBOX CHANGED TO:", newValue);
+        
+        // Calculate what the new effective total will be
+        let newEffectiveTotal;
+        if (newValue) {
+            if (includeNotValidatedByCurrentUser) {
+                // If "current user" is already checked, value won't change
+                newEffectiveTotal = totalCellsWithCurrentUserOption;
+            } else {
+                // Moving from empty cells to cells not validated by any user
+                newEffectiveTotal = totalCellsToAutocomplete;
+            }
+        } else {
+            if (includeNotValidatedByCurrentUser) {
+                // If "current user" is still checked, value won't change
+                newEffectiveTotal = totalCellsWithCurrentUserOption;
+            } else {
+                // Moving back to only empty cells
+                newEffectiveTotal = totalUntranslatedCells;
+            }
+        }
+        
+        // If currently less than 5, set to min(5, newEffectiveTotal)
+        if (numberOfCellsToAutocomplete < 5 && newEffectiveTotal > numberOfCellsToAutocomplete) {
+            const newDefaultValue = Math.min(5, newEffectiveTotal);
+            setNumberOfCellsToAutocomplete(newDefaultValue);
+            setCustomValue(newDefaultValue);
+        }
         
         setIncludeNotValidatedByAnyUser(newValue);
     };
 
     // Handler for "Include cells not validated by current user" checkbox
-    const handleCurrentUserCheckboxChange = () => {
-        const newValue = !includeNotValidatedByCurrentUser;
+    const handleCurrentUserCheckboxChange = (newValue: boolean) => {
         console.log("CURRENT USER CHECKBOX CHANGED TO:", newValue);
+        
+        // Calculate what the new effective total will be
+        let newEffectiveTotal;
+        if (newValue) {
+            // Moving to cells not validated by current user (most inclusive)
+            newEffectiveTotal = totalCellsWithCurrentUserOption;
+        } else {
+            if (includeNotValidatedByAnyUser) {
+                // Moving back to cells not validated by any user
+                newEffectiveTotal = totalCellsToAutocomplete;
+            } else {
+                // Moving back to only empty cells
+                newEffectiveTotal = totalUntranslatedCells;
+            }
+        }
+        
+        // If currently at 0, set to min(5, newEffectiveTotal)
+        if (numberOfCellsToAutocomplete === 0 && newEffectiveTotal > 0) {
+            const newDefaultValue = Math.min(5, newEffectiveTotal);
+            setNumberOfCellsToAutocomplete(newDefaultValue);
+            setCustomValue(newDefaultValue);
+        }
         
         setIncludeNotValidatedByCurrentUser(newValue);
     };
 
     // Render a custom checkbox component
-    const CustomCheckbox = ({ checked, onChange, label }: { checked: boolean, onChange: () => void, label: string }) => (
+    const CustomCheckbox: React.FC<{
+        checked: boolean;
+        onChange: (checked: boolean) => void;
+        label: React.ReactNode;
+    }> = ({
+        checked,
+        onChange,
+        label,
+    }) => (
         <label 
             className="checkbox-container" 
             style={{ display: "flex", alignItems: "center", cursor: "pointer", marginBottom: "8px" }}
@@ -172,7 +278,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : 
                         "none"
                 }}
-                onClick={onChange}
+                onClick={() => onChange(!checked)}
             >
                 {checked && (
                     <div 
@@ -187,11 +293,36 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                     />
                 )}
             </div>
-            <span onClick={onChange}>
+            <span onClick={() => onChange(!checked)}>
                 {label}
             </span>
         </label>
     );
+
+    // Determine which icons to show based on checkbox states
+    const getIconsToShow = () => {
+        if (includeNotValidatedByCurrentUser) {
+            return {
+                showEmptyCells: true,
+                showNoValidatorCells: true,
+                showNotCurrentUserCells: true
+            };
+        } else if (includeNotValidatedByAnyUser) {
+            return {
+                showEmptyCells: true,
+                showNoValidatorCells: true,
+                showNotCurrentUserCells: false
+            };
+        } else {
+            return {
+                showEmptyCells: true,
+                showNoValidatorCells: false,
+                showNotCurrentUserCells: false
+            };
+        }
+    };
+    
+    const { showEmptyCells, showNoValidatorCells, showNotCurrentUserCells } = getIconsToShow();
 
     if (!isOpen || !modalContainer) return null;
 
@@ -212,9 +343,16 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 tabIndex={-1}
             >
                 <h2 style={{ marginBottom: "1rem" }}>Autocomplete Cells</h2>
-                <VSCodeTag style={{ marginBottom: "1rem" }}>
-                    Autocomplete {numberOfCellsToAutocomplete || 0} Cells
-                </VSCodeTag>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
+                    <VSCodeTag>
+                        Autocomplete {numberOfCellsToAutocomplete || 0} Cells
+                    </VSCodeTag>
+                    <ValidationIconSet 
+                        showEmptyCells={showEmptyCells}
+                        showNoValidatorCells={showNoValidatorCells}
+                        showNotCurrentUserCells={showNotCurrentUserCells}
+                    />
+                </div>
                 <VSCodeRadioGroup
                     value={
                         numberOfCellsToAutocomplete === effectiveTotalCells
@@ -306,13 +444,33 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                     <CustomCheckbox 
                         checked={includeNotValidatedByAnyUser}
                         onChange={handleAnyUserCheckboxChange}
-                        label="Include cells not validated by any user"
+                        label={
+                            <div style={{ display: "flex", alignItems: "center" }}>
+                                Include cells not validated by any user
+                                <ValidationIconSet 
+                                    showEmptyCells={true}
+                                    showNoValidatorCells={true}
+                                    showNotCurrentUserCells={false}
+                                    style={{ marginLeft: "4px" }}
+                                />
+                            </div>
+                        }
                     />
                     
                     <CustomCheckbox 
                         checked={includeNotValidatedByCurrentUser}
                         onChange={handleCurrentUserCheckboxChange}
-                        label="Include cells not validated by the current user"
+                        label={
+                            <div style={{ display: "flex", alignItems: "center" }}>
+                                Include cells not validated by the current user
+                                <ValidationIconSet 
+                                    showEmptyCells={true}
+                                    showNoValidatorCells={true}
+                                    showNotCurrentUserCells={true}
+                                    style={{ marginLeft: "4px" }}
+                                />
+                            </div>
+                        }
                     />
                 </div>
                 
