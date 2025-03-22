@@ -759,19 +759,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             debug("Cancelling chapter autocompletion");
             this.autocompleteCancellation.cancel();
             
-            // Completely clear ALL translation requests from the queue
+            // Immediately clear all batch translation requests from the queue
             if (this.translationQueue.length > 0 && this.autocompletionState.isProcessing) {
-                // Reject all requests in the queue, including the currently processing one
-                for (let i = 0; i < this.translationQueue.length; i++) {
-                    const request = this.translationQueue[i];
-                    request.reject(new Error("Translation cancelled by user"));
-                }
+                // Get current cell IDs in the batch
+                const batchCellIds = this.autocompletionState.cellsToProcess;
                 
-                // Empty the queue completely
-                this.translationQueue = [];
+                // Keep the current processing cell if any
+                const currentRequest = this.isProcessingQueue ? this.translationQueue[0] : null;
                 
-                // If there's active processing, make sure we reset the flag
-                this.isProcessingQueue = false;
+                // Filter out all batch requests except the current one
+                const remainingRequests = this.translationQueue.filter((req, index) => {
+                    // Keep the current request (first in queue) if it's actively processing
+                    if (index === 0 && this.isProcessingQueue) {
+                        return true;
+                    }
+                    
+                    // Reject all other batch requests
+                    if (batchCellIds.includes(req.cellId)) {
+                        req.reject(new Error("Translation cancelled"));
+                        return false;
+                    }
+                    
+                    // Keep all non-batch requests
+                    return true;
+                });
+                
+                // Update the queue
+                this.translationQueue = remainingRequests;
             }
             
             // Reset autocompletion state
@@ -1220,48 +1234,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             throw new Error("No document available for LLM completion");
         }
 
-        // Create a cancellation token source for this operation
-        // Use the shared autocompleteCancellation if we're in autocompletion mode
-        const cancellationTokenSource = this.autocompletionState.isProcessing 
-            ? this.autocompleteCancellation || new vscode.CancellationTokenSource()
-            : new vscode.CancellationTokenSource();
-        
-        // Store the cancellation token source so it can be cancelled if needed
-        if (this.autocompletionState.isProcessing) {
-            this.autocompleteCancellation = cancellationTokenSource;
-        }
-
         return vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: "Generating Translation",
-                cancellable: true,
+                cancellable: false,
             },
-            async (progress, token) => {
-                // Link the progress cancellation token to our source
-                token.onCancellationRequested(() => {
-                    cancellationTokenSource.cancel();
-                    throw new Error("Translation cancelled by user");
-                });
-                
+            async (progress) => {
                 try {
                     // Find the webview panel for this document
                     const webviewPanel = this.webviewPanels.get(currentDocument.uri.toString());
-                    
-                    // Check if cancelled
-                    if (cancellationTokenSource.token.isCancellationRequested) {
-                        throw new Error("Translation cancelled by user");
-                    }
                     
                     progress.report({ message: "Fetching completion configuration...", increment: 20 });
                     
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.2);
-                    
-                    // Check if cancelled
-                    if (cancellationTokenSource.token.isCancellationRequested) {
-                        throw new Error("Translation cancelled by user");
-                    }
                     
                     // Fetch completion configuration
                     const completionConfig = await fetchCompletionConfig();
@@ -1272,24 +1259,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.5);
                     
-                    // Check if cancelled
-                    if (cancellationTokenSource.token.isCancellationRequested) {
-                        throw new Error("Translation cancelled by user");
-                    }
-                    
-                    // Perform LLM completion with our cancellation token
+                    // Perform LLM completion
                     const result = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        cancellationTokenSource.token
+                        new vscode.CancellationTokenSource().token
                     );
 
-                    // Check if cancelled
-                    if (cancellationTokenSource.token.isCancellationRequested) {
-                        throw new Error("Translation cancelled by user");
-                    }
-                    
                     progress.report({ message: "Updating document...", increment: 40 });
                     
                     // Update progress in state
@@ -1310,18 +1287,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     return result;
                 } catch (error: any) {
                     console.error("Error in performLLMCompletionInternal:", error);
-                    
-                    // If error is due to cancellation, handle it gracefully
-                    if (cancellationTokenSource.token.isCancellationRequested) {
-                        debug("LLM operation was cancelled");
-                    }
-                    
                     throw error;
-                } finally {
-                    // Dispose of the token source if it's not the shared one
-                    if (!this.autocompletionState.isProcessing) {
-                        cancellationTokenSource.dispose();
-                    }
                 }
             }
         );

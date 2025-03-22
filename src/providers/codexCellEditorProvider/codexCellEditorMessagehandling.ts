@@ -309,16 +309,13 @@ export const handleMessages = async (
                 // Call the method to cancel the ongoing operation
                 const cancelled = provider.cancelAutocompleteChapter();
                 
-                // Also reset the single cell translation state to ensure complete cleanup
-                provider.completeSingleCellTranslation();
-                
                 if (cancelled) {
                     vscode.window.showInformationMessage("Autocomplete operation stopped.");
                 } else {
                     console.log("No active autocomplete operation to stop");
                 }
                 
-                // Provider's cancelAutocompleteChapter already handles updating the state
+                // Provider's cancelAutocompleteChapter already handles updating the state and broadcasting
             } catch (error) {
                 console.error("Error stopping autocomplete chapter:", error);
                 vscode.window.showErrorMessage("Failed to stop autocomplete operation.");

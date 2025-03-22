@@ -27,15 +27,19 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
                 display: "flex",
                 flexWrap: "wrap", // Wrap content to next line if needed
                 alignItems: "center",
-                padding: "4px 8px",
+                padding: "0px 0px", // Reduced padding to match content cells
                 background: "transparent", // Ensure transparent background
-                border: "none" // Explicitly remove any border
+                border: "none", // Explicitly remove any border
+                height: "21px", // Match height of content cells
+                lineHeight: "21px", // Ensure vertical centering
+                width: "100%", // Take full width
+                boxSizing: "border-box"
             }}
         >
             {cellLabel && (
                 <span className="empty-cell-marker">{cellLabel}</span>
             )}
-            <span className="empty-cell-prompt">Click to translate</span>
+            <span className="empty-cell-prompt" style={{ paddingLeft: "0px" }}>Click to translate</span>
         </div>
     );
 };
