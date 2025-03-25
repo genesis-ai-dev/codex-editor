@@ -8,6 +8,7 @@ import { WebviewApi } from "vscode-webview";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
+import AnimatedReveal from "../components/AnimatedReveal";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -525,62 +526,71 @@ const CellList: React.FC<CellListProps> = ({
                                         marginRight: "4px",
                                         marginLeft: "-4px"
                                     }}>
-                                        <div className="action-button-container" style={{ 
-                                            display: "flex", 
-                                            gap: "8px", 
-                                            minWidth: "50px",
-                                            marginLeft: "4px",
-                                            justifyContent: "flex-start",
-                                            position: "relative"
-                                        }}>
-                                            {!isSourceText && (
-                                                <div style={{ flexShrink: 0 }}>
-                                                    <VSCodeButton
-                                                        appearance="icon"
-                                                        style={{
-                                                            height: "16px",
-                                                            width: "16px",
-                                                            padding: 0,
-                                                            display: "flex",
-                                                            alignItems: "center",
-                                                            justifyContent: "center"
-                                                        }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            e.preventDefault();
-                                                            // Do nothing - button is just a visual indicator
-                                                        }}
-                                                    >
-                                                        <span style={{ 
-                                                            fontSize: "12px", 
-                                                            color: "var(--vscode-descriptionForeground)",
-                                                            fontWeight: "bold" 
-                                                        }}>—</span>
-                                                    </VSCodeButton>
-                                                </div>
-                                            )}
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                aria-label="Translate"
-                                                onClick={() => handleCellTranslation(cellMarkers[0])}
-                                                style={{
-                                                    height: "16px",
-                                                    width: "16px",
-                                                    padding: 0,
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    justifyContent: "center",
+                                        <AnimatedReveal                                            
+                                            button=
+                                            {
+                                                <div className="action-button-container" style={{ 
+                                                    display: "flex", 
+                                                    gap: "8px", 
+                                                    minWidth: "50px",
+                                                    marginLeft: "4px",
+                                                    justifyContent: "flex-start",
                                                     position: "relative"
-                                                }}
-                                                disabled={isInProcess}
-                                                title={isInProcess ? "Translation in progress" : "Translate this cell using AI"}
-                                            >
-                                                <i
-                                                    className={`codicon ${isInProcess ? "codicon-loading codicon-modifier-spin" : "codicon-sparkle"}`}
-                                                    style={{ fontSize: "12px" }}
-                                                ></i>
-                                            </VSCodeButton>
-                                        </div>
+                                                }}>
+                                                    {!isSourceText && (
+                                                        <div style={{ flexShrink: 0 }}>
+                                                            <VSCodeButton
+                                                                appearance="icon"
+                                                                style={{
+                                                                    height: "16px",
+                                                                    width: "16px",
+                                                                    padding: 0,
+                                                                    display: "flex",
+                                                                    alignItems: "center",
+                                                                    justifyContent: "center"
+                                                                }}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    e.preventDefault();
+                                                                    // Do nothing - button is just a visual indicator
+                                                                }}
+                                                            >
+                                                                <span style={{ 
+                                                                    fontSize: "12px", 
+                                                                    color: "var(--vscode-descriptionForeground)",
+                                                                    fontWeight: "bold" 
+                                                                }}>—</span>
+                                                            </VSCodeButton>
+                                                        </div>
+                                                    )}
+                                                    
+                                                </div>
+                                                }
+                                                content=
+                                                {
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    aria-label="Translate"
+                                                    onClick={() => handleCellTranslation(cellMarkers[0])}
+                                                    style={{
+                                                        height: "16px",
+                                                        width: "16px",
+                                                        padding: 0,
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                        position: "relative"
+                                                    }}
+                                                    disabled={isInProcess}
+                                                    title={isInProcess ? "Translation in progress" : "Translate this cell using AI"}
+                                                >
+                                                    <i
+                                                        className={`codicon ${isInProcess ? "codicon-loading codicon-modifier-spin" : "codicon-sparkle"}`}
+                                                        style={{ fontSize: "12px" }}
+                                                    ></i>
+                                                </VSCodeButton>
+                                                }
+                                        />
                                     </div>
                                     <div className="cell-label" style={{ marginLeft: "4px", minWidth: "15px" }}>
                                         {(cellLabel || generatedCellLabel) && (
