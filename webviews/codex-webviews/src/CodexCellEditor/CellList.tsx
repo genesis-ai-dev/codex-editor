@@ -59,11 +59,11 @@ const CellList: React.FC<CellListProps> = ({
     cellsInAutocompleteQueue = [],
 }) => {
     const numberOfEmptyCellsToRender = 1;
-    
+
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
-    
+
     // Move useRef hook to component level - this fixes React hooks rule violation
     const prevQueueRef = useRef<string[]>([]);
 
@@ -78,10 +78,16 @@ const CellList: React.FC<CellListProps> = ({
                 processing: currentProcessingCellId,
                 autocompleteQueue: cellsInAutocompleteQueue,
                 completed: Array.from(completedTranslations),
-                allComplete: allTranslationsComplete
+                allComplete: allTranslationsComplete,
             });
         }
-    }, [translationQueue, currentProcessingCellId, cellsInAutocompleteQueue, completedTranslations, allTranslationsComplete]);
+    }, [
+        translationQueue,
+        currentProcessingCellId,
+        cellsInAutocompleteQueue,
+        completedTranslations,
+        allTranslationsComplete,
+    ]);
 
     const duplicateCellIds = useMemo(() => {
         const idCounts = new Map<string, number>();
@@ -97,41 +103,49 @@ const CellList: React.FC<CellListProps> = ({
 
         return duplicates;
     }, [translationUnits]);
-    
+
     // Convert arrays to Sets for faster lookups
     const translationQueueSet = useMemo(() => new Set(translationQueue), [translationQueue]);
-    const autocompleteQueueSet = useMemo(() => new Set(cellsInAutocompleteQueue), [cellsInAutocompleteQueue]);
-    
+    const autocompleteQueueSet = useMemo(
+        () => new Set(cellsInAutocompleteQueue),
+        [cellsInAutocompleteQueue]
+    );
+
     // Optimized helper function to check if a cell is in the translation queue or currently processing
-    const isCellInTranslationProcess = useCallback((cellId: string) => {
-        return translationQueueSet.has(cellId) || 
-               cellId === currentProcessingCellId || 
-               autocompleteQueueSet.has(cellId);
-    }, [translationQueueSet, currentProcessingCellId, autocompleteQueueSet]);
-    
+    const isCellInTranslationProcess = useCallback(
+        (cellId: string) => {
+            return (
+                translationQueueSet.has(cellId) ||
+                cellId === currentProcessingCellId ||
+                autocompleteQueueSet.has(cellId)
+            );
+        },
+        [translationQueueSet, currentProcessingCellId, autocompleteQueueSet]
+    );
+
     // Track cells that move from processing to completed
     useEffect(() => {
         if (!currentProcessingCellId) return;
-        
+
         if (DEBUG_ENABLED) {
             debug("Current processing cell updated:", currentProcessingCellId);
         }
-        
+
         // When a cell is no longer the current processing cell, mark it as completed
         const checkForCompletion = () => {
             if (currentProcessingCellId) {
                 if (DEBUG_ENABLED) {
                     debug("Cell completed:", currentProcessingCellId);
                 }
-                
-                setCompletedTranslations(prev => {
+
+                setCompletedTranslations((prev) => {
                     const newSet = new Set(prev);
                     newSet.add(currentProcessingCellId);
                     return newSet;
                 });
             }
         };
-        
+
         // Set up cleanup function to run when currentProcessingCellId changes
         return () => {
             checkForCompletion();
@@ -144,80 +158,92 @@ const CellList: React.FC<CellListProps> = ({
     }, [cellsInAutocompleteQueue]);
 
     // Helper function to determine the translation state of a cell
-    const getCellTranslationState = useCallback((cellId: string): 'waiting' | 'processing' | 'completed' | null => {
-        // First check if this cell is completed - highest priority
-        if (completedTranslations.has(cellId)) {
-            return 'completed';
-        }
-        
-        // If cell is not in any translation process and not completed, return null
-        if (!isCellInTranslationProcess(cellId)) {
+    const getCellTranslationState = useCallback(
+        (cellId: string): "waiting" | "processing" | "completed" | null => {
+            // First check if this cell is completed - highest priority
+            if (completedTranslations.has(cellId)) {
+                return "completed";
+            }
+
+            // If cell is not in any translation process and not completed, return null
+            if (!isCellInTranslationProcess(cellId)) {
+                return null;
+            }
+
+            // Check if this is the current processing cell (either single cell or autocomplete)
+            if (cellId === currentProcessingCellId) {
+                return "processing";
+            }
+
+            // For cells in translation queue or autocomplete queue (waiting to be processed)
+            // Using the faster Set-based lookups
+            if (translationQueueSet.has(cellId) || autocompleteQueueSet.has(cellId)) {
+                return "waiting";
+            }
+
+            // Default fallback (shouldn't get here based on other checks)
             return null;
-        }
-        
-        // Check if this is the current processing cell (either single cell or autocomplete)
-        if (cellId === currentProcessingCellId) {
-            return 'processing';
-        }
-        
-        // For cells in translation queue or autocomplete queue (waiting to be processed)
-        // Using the faster Set-based lookups
-        if (translationQueueSet.has(cellId) || autocompleteQueueSet.has(cellId)) {
-            return 'waiting';
-        }
-        
-        // Default fallback (shouldn't get here based on other checks)
-        return null;
-    }, [isCellInTranslationProcess, currentProcessingCellId, completedTranslations, 
-        translationQueueSet, autocompleteQueueSet]);
+        },
+        [
+            isCellInTranslationProcess,
+            currentProcessingCellId,
+            completedTranslations,
+            translationQueueSet,
+            autocompleteQueueSet,
+        ]
+    );
 
     // Handle sparkle button click with throttling
-    const handleCellTranslation = useCallback((cellId: string) => {
-        // Skip if this cell is already being translated
-        if (isCellInTranslationProcess(cellId)) {
-            return;
-        }
-        
-        // Simple throttling - prevent multiple requests within 500ms
-        const now = Date.now();
-        if (now - lastRequestTime < 500) {
-            if (DEBUG_ENABLED) {
-                debug("Translation request throttled - too soon after previous request");
+    const handleCellTranslation = useCallback(
+        (cellId: string) => {
+            // Skip if this cell is already being translated
+            if (isCellInTranslationProcess(cellId)) {
+                return;
             }
-            return;
-        }
-        
-        // Update last request time
-        setLastRequestTime(now);
-        
-        // Call the global handler function
-        if (typeof (window as any).handleSparkleButtonClick === 'function') {
-            (window as any).handleSparkleButtonClick(cellId);
-        } else {
-            vscode.postMessage({
-                command: "llmCompletion",
-                content: {
-                    currentLineId: cellId,
-                    addContentToValue: true,
-                },
-            });
-        }
-    }, [isCellInTranslationProcess, vscode, lastRequestTime]);
+
+            // Simple throttling - prevent multiple requests within 500ms
+            const now = Date.now();
+            if (now - lastRequestTime < 500) {
+                if (DEBUG_ENABLED) {
+                    debug("Translation request throttled - too soon after previous request");
+                }
+                return;
+            }
+
+            // Update last request time
+            setLastRequestTime(now);
+
+            // Call the global handler function
+            if (typeof (window as any).handleSparkleButtonClick === "function") {
+                (window as any).handleSparkleButtonClick(cellId);
+            } else {
+                vscode.postMessage({
+                    command: "llmCompletion",
+                    content: {
+                        currentLineId: cellId,
+                        addContentToValue: true,
+                    },
+                });
+            }
+        },
+        [isCellInTranslationProcess, vscode, lastRequestTime]
+    );
 
     // When cells are added/removed from translation queue or completed
     useEffect(() => {
         try {
             // If all queues are empty and we have completed translations
-            const noActiveTranslations = translationQueue.length === 0 && 
-                                        currentProcessingCellId === undefined &&
-                                        cellsInAutocompleteQueue.length === 0;
-                                        
+            const noActiveTranslations =
+                translationQueue.length === 0 &&
+                currentProcessingCellId === undefined &&
+                cellsInAutocompleteQueue.length === 0;
+
             if (noActiveTranslations && completedTranslations.size > 0) {
                 // Only set to true if it wasn't already true
                 if (!allTranslationsComplete) {
                     debug("All translations complete - starting fade timer");
                     setAllTranslationsComplete(true);
-                    
+
                     // Reset completed translations after fade-out period
                     setTimeout(() => {
                         setCompletedTranslations(new Set());
@@ -231,7 +257,12 @@ const CellList: React.FC<CellListProps> = ({
         } catch (error) {
             console.error("Error in translation queue/completion monitoring:", error);
         }
-    }, [translationQueue, currentProcessingCellId, cellsInAutocompleteQueue, completedTranslations]);
+    }, [
+        translationQueue,
+        currentProcessingCellId,
+        cellsInAutocompleteQueue,
+        completedTranslations,
+    ]);
 
     // Also track changes in cellsInAutocompleteQueue to detect completed cells
     useEffect(() => {
@@ -240,25 +271,25 @@ const CellList: React.FC<CellListProps> = ({
             if (cellsInAutocompleteQueue.length === 0 && prevQueueRef.current.length === 0) {
                 return;
             }
-            
+
             // Check which cells were in the previous queue but not in the current one
-            const removedCells = prevQueueRef.current.filter(cellId => 
-                !cellsInAutocompleteQueue.includes(cellId)
+            const removedCells = prevQueueRef.current.filter(
+                (cellId) => !cellsInAutocompleteQueue.includes(cellId)
             );
-            
+
             // Mark removed cells as completed
             if (removedCells.length > 0) {
                 if (DEBUG_ENABLED) {
                     debug("Cells completed from autocomplete queue:", removedCells);
                 }
-                
-                setCompletedTranslations(prev => {
+
+                setCompletedTranslations((prev) => {
                     const newSet = new Set(prev);
-                    removedCells.forEach(cellId => newSet.add(cellId));
+                    removedCells.forEach((cellId) => newSet.add(cellId));
                     return newSet;
                 });
             }
-            
+
             // Update the previous queue reference for next comparison
             prevQueueRef.current = [...cellsInAutocompleteQueue];
         } catch (error) {
@@ -393,7 +424,7 @@ const CellList: React.FC<CellListProps> = ({
             isCellInTranslationProcess,
             getCellTranslationState,
             allTranslationsComplete,
-            handleCellTranslation
+            handleCellTranslation,
         ]
     );
 
@@ -514,100 +545,103 @@ const CellList: React.FC<CellListProps> = ({
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
                                         allTranslationsComplete
-                                    )
+                                    ),
                                 }}
                             >
-                                <div className="cell-header" style={{ display: "flex", minWidth: "80px" }}>
-                                    <div className="cell-actions" style={{ 
-                                        display: "flex", 
-                                        alignItems: "center", 
-                                        minWidth: "60px", 
-                                        justifyContent: "flex-start",
-                                        marginRight: "4px",
-                                        marginLeft: "-4px"
-                                    }}>
-                                        <AnimatedReveal                                            
-                                            button=
-                                            {
-                                                <div className="action-button-container" style={{ 
-                                                    display: "flex", 
-                                                    gap: "8px", 
-                                                    minWidth: "50px",
-                                                    marginLeft: "4px",
-                                                    justifyContent: "flex-start",
-                                                    position: "relative"
-                                                }}>
-                                                    {!isSourceText && (
-                                                        <div style={{ flexShrink: 0 }}>
-                                                            <VSCodeButton
-                                                                appearance="icon"
-                                                                style={{
-                                                                    height: "16px",
-                                                                    width: "16px",
-                                                                    padding: 0,
-                                                                    display: "flex",
-                                                                    alignItems: "center",
-                                                                    justifyContent: "center"
-                                                                }}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    e.preventDefault();
-                                                                    // Do nothing - button is just a visual indicator
-                                                                }}
-                                                            >
-                                                                <span style={{ 
-                                                                    fontSize: "12px", 
-                                                                    color: "var(--vscode-descriptionForeground)",
-                                                                    fontWeight: "bold" 
-                                                                }}>—</span>
-                                                            </VSCodeButton>
-                                                        </div>
-                                                    )}
-                                                    
+                                <div
+                                    className="cell-header"
+                                    style={{ display: "flex", minWidth: "80px" }}
+                                >
+                                    <AnimatedReveal
+                                        button={
+                                            !isSourceText && (
+                                                <div style={{ flexShrink: 0 }}>
+                                                    <VSCodeButton
+                                                        appearance="icon"
+                                                        style={{
+                                                            height: "16px",
+                                                            width: "16px",
+                                                            padding: 0,
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                        }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            e.preventDefault();
+                                                            // Do nothing - button is just a visual indicator
+                                                        }}
+                                                    >
+                                                        <span
+                                                            style={{
+                                                                fontSize: "12px",
+                                                                color: "var(--vscode-descriptionForeground)",
+                                                                fontWeight: "bold",
+                                                            }}
+                                                        >
+                                                            —
+                                                        </span>
+                                                    </VSCodeButton>
                                                 </div>
+                                            )
+                                        }
+                                        content={
+                                            <VSCodeButton
+                                                appearance="icon"
+                                                aria-label="Translate"
+                                                onClick={() =>
+                                                    handleCellTranslation(cellMarkers[0])
                                                 }
-                                                content=
-                                                {
-                                                <VSCodeButton
-                                                    appearance="icon"
-                                                    aria-label="Translate"
-                                                    onClick={() => handleCellTranslation(cellMarkers[0])}
-                                                    style={{
-                                                        height: "16px",
-                                                        width: "16px",
-                                                        padding: 0,
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "center",
-                                                        position: "relative"
-                                                    }}
-                                                    disabled={isInProcess}
-                                                    title={isInProcess ? "Translation in progress" : "Translate this cell using AI"}
-                                                >
-                                                    <i
-                                                        className={`codicon ${isInProcess ? "codicon-loading codicon-modifier-spin" : "codicon-sparkle"}`}
-                                                        style={{ fontSize: "12px" }}
-                                                    ></i>
-                                                </VSCodeButton>
+                                                style={{
+                                                    height: "16px",
+                                                    width: "16px",
+                                                    padding: 0,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    position: "relative",
+                                                }}
+                                                disabled={isInProcess}
+                                                title={
+                                                    isInProcess
+                                                        ? "Translation in progress"
+                                                        : "Translate this cell using AI"
                                                 }
-                                        />
-                                    </div>
-                                    <div className="cell-label" style={{ marginLeft: "4px", minWidth: "15px" }}>
+                                            >
+                                                <i
+                                                    className={`codicon ${
+                                                        isInProcess
+                                                            ? "codicon-loading codicon-modifier-spin"
+                                                            : "codicon-sparkle"
+                                                    }`}
+                                                    style={{ fontSize: "12px" }}
+                                                ></i>
+                                            </VSCodeButton>
+                                        }
+                                    />
+                                    <div
+                                        className="cell-label"
+                                        style={{ marginLeft: "4px", minWidth: "15px" }}
+                                    >
                                         {(cellLabel || generatedCellLabel) && (
-                                            <span className="cell-label-text">{cellLabel || generatedCellLabel}</span>
+                                            <span className="cell-label-text">
+                                                {cellLabel || generatedCellLabel}
+                                            </span>
                                         )}
                                     </div>
                                 </div>
-                                <div style={{ 
-                                    flex: "1", 
-                                    width: "calc(100% - 80px)", 
-                                    display: "flex",
-                                    flexDirection: "column"
-                                }}>
+                                <div
+                                    style={{
+                                        flex: "1",
+                                        width: "calc(100% - 80px)",
+                                        display: "flex",
+                                        flexDirection: "column",
+                                    }}
+                                >
                                     <EmptyCellDisplay
                                         key={cellMarkers.join(" ")}
                                         cellMarkers={cellMarkers}
-                                        cellLabel={""}  // Pass empty label since we're already showing it
+                                        cellLabel={""} // Pass empty label since we're already showing it
                                         setContentBeingUpdated={setContentBeingUpdated}
                                         textDirection={textDirection}
                                         vscode={vscode}
@@ -618,13 +652,13 @@ const CellList: React.FC<CellListProps> = ({
                         ) : (
                             <VSCodeButton
                                 appearance="secondary"
-                                style={{ 
+                                style={{
                                     height: "15px",
                                     padding: "2px",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
                                         allTranslationsComplete
-                                    )
+                                    ),
                                 }}
                                 onClick={() => openCellById(cellMarkers[0], "")}
                             >
@@ -666,7 +700,7 @@ const CellList: React.FC<CellListProps> = ({
         handleCellTranslation,
         isCellInTranslationProcess,
         getCellTranslationState,
-        allTranslationsComplete
+        allTranslationsComplete,
     ]);
 
     // Debug log to see the structure of translationUnits
@@ -687,7 +721,7 @@ const CellList: React.FC<CellListProps> = ({
                 backgroundColor: "transparent",
                 maxWidth: "100%",
                 padding: "0 1rem",
-                boxSizing: "border-box"
+                boxSizing: "border-box",
             }}
         >
             {renderCells()}
