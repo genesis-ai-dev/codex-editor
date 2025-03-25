@@ -19,8 +19,8 @@ const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content }) => {
         }}>
             <div style={{
                 opacity: isHovered ? 1 : 0,
-                transform: `translateX(${isHovered ? '0' : '-20px'})`,
-                transition: 'all 0.2s ease-in-out',
+                transform: `translateX(${isHovered ? '0' : '20px'}) scale(${isHovered ? 1 : 0})`,
+                transition: 'all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)',
                 visibility: isHovered ? 'visible' : 'hidden',
                 display: 'flex',
                 alignItems: 'center'
