@@ -10,7 +10,7 @@ import {
     CustomNotebookCellData,
     Timestamps,
     CustomNotebookMetadata,
-    ValidationEntry
+    ValidationEntry,
 } from "../../../types";
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
@@ -30,11 +30,11 @@ function debug(...args: any[]) {
 function isValidationEntry(value: any): value is ValidationEntry {
     return (
         value !== null &&
-        typeof value === 'object' &&
-        typeof value.username === 'string' &&
-        typeof value.creationTimestamp === 'number' &&
-        typeof value.updatedTimestamp === 'number' &&
-        typeof value.isDeleted === 'boolean'
+        typeof value === "object" &&
+        typeof value.username === "string" &&
+        typeof value.creationTimestamp === "number" &&
+        typeof value.updatedTimestamp === "number" &&
+        typeof value.isDeleted === "boolean"
     );
 }
 
@@ -44,7 +44,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public _sourceCellMap: { [k: string]: { content: string; versions: string[] } } = {};
     private _edits: Array<any>;
     private _isDirty: boolean = false;
-    private _cachedUserInfo: { username: string; email?: string } | null = null;
 
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
@@ -71,10 +70,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 "Constructed CodexCellDocument from json document, cells count: ",
                 this._documentData.cells.length
             );
-            
+
             // Initialize validatedBy arrays to ensure proper format
             this.initializeValidatedByArrays();
-            
         } catch (error) {
             console.error("Error parsing document content:", error);
             this._documentData = {
@@ -92,7 +90,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             };
             this._edits = [];
         }
-        
+
         if (!this._documentData.metadata) {
             const metadata = getNotebookMetadataManager();
             metadata.initialize();
@@ -108,7 +106,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 }
             });
         }
-        
+
         initializeStateStore().then(async ({ getStoreState }) => {
             const sourceCellMap = await getStoreState("sourceCellMap");
             console.log("sourceCellMap", sourceCellMap);
@@ -116,7 +114,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 this._sourceCellMap = sourceCellMap;
             }
         });
-        
+
         // No forced type conversion - rely on proper initialization
     }
 
@@ -150,33 +148,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
     public get isDirty(): boolean {
         return this._isDirty;
-    }
-
-    // Helper method to get user info with caching
-    private async getUserInfo(): Promise<string> {
-        if (!this._cachedUserInfo) {
-            try {
-                const authApi = await getAuthApi();
-                let username = "anonymous";
-                
-                if (authApi) {
-                    try {
-                        const userInfo = await authApi.getUserInfo();
-                        if (userInfo && userInfo.username) {
-                            username = userInfo.username;
-                        }
-                    } catch (e) {
-                        console.error("Error getting user info", e);
-                    }
-                }
-                
-                this._cachedUserInfo = { username };
-            } catch (error) {
-                console.error("Error fetching user info:", error);
-                this._cachedUserInfo = { username: "anonymous" };
-            }
-        }
-        return this._cachedUserInfo.username;
     }
 
     // Methods to manipulate the document data
@@ -217,21 +188,25 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits = [];
         }
 
-        // Use cached user info instead of fetching every time
-        const author = await this.getUserInfo();
+        const authApi = await getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const author = userInfo?.username || "anonymous";
         const currentTimestamp = Date.now();
 
         // Initialize validatedBy array based on edit type with proper ValidationEntry objects
         // For user edits, the author is automatically added to validatedBy
         // For LLM generations, validatedBy starts empty and must be explicitly validated
-        const validatedBy: ValidationEntry[] = editType === EditType.USER_EDIT 
-            ? [{ 
-                username: author, 
-                creationTimestamp: currentTimestamp, 
-                updatedTimestamp: currentTimestamp, 
-                isDeleted: false 
-              }] 
-            : [];
+        const validatedBy: ValidationEntry[] =
+            editType === EditType.USER_EDIT
+                ? [
+                      {
+                          username: author,
+                          creationTimestamp: currentTimestamp,
+                          updatedTimestamp: currentTimestamp,
+                          isDeleted: false,
+                      },
+                  ]
+                : [];
 
         cellToUpdate.metadata.edits.push({
             cellValue: newContent,
@@ -512,7 +487,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async validateCellContent(cellId: string, validate: boolean = true) {
         // First check if any validation needs fixing
         this.checkAndFixValidationArray(cellId);
-        
+
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );
@@ -522,15 +497,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         const cellToUpdate = this._documentData.cells[indexOfCellToUpdate];
-        
+
         if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
             console.warn("No edits found for cell to validate");
             return;
         }
 
         // Get the latest edit
-        let latestEdit = cellToUpdate.metadata.edits[cellToUpdate.metadata.edits.length - 1];
-        
+        const latestEdit = cellToUpdate.metadata.edits[cellToUpdate.metadata.edits.length - 1];
+
         // Initialize validatedBy array if it doesn't exist
         if (!latestEdit.validatedBy) {
             latestEdit.validatedBy = [];
@@ -543,7 +518,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         // Find existing validation entry for this user
         const existingEntryIndex = latestEdit.validatedBy.findIndex(
-            (entry: ValidationEntry) => this.isValidValidationEntry(entry) && entry.username === username
+            (entry: ValidationEntry) =>
+                this.isValidValidationEntry(entry) && entry.username === username
         );
 
         if (validate) {
@@ -551,9 +527,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 // User is not in the array, add a new entry
                 const newValidationEntry: ValidationEntry = {
                     username,
-                    creationTimestamp: currentTimestamp, 
+                    creationTimestamp: currentTimestamp,
                     updatedTimestamp: currentTimestamp,
-                    isDeleted: false
+                    isDeleted: false,
                 };
                 latestEdit.validatedBy.push(newValidationEntry);
             } else {
@@ -571,23 +547,27 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         // Final check: ensure the validatedBy array only contains valid ValidationEntry objects
-        latestEdit.validatedBy = latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry));
+        latestEdit.validatedBy = latestEdit.validatedBy.filter((entry) =>
+            this.isValidValidationEntry(entry)
+        );
 
         // Mark document as dirty
         this._isDirty = true;
-        
+
         // Notify listeners that the document has changed
         this._onDidChangeForVsCodeAndWebview.fire({
             content: JSON.stringify({
                 cellId,
                 type: "validation",
-                validatedBy: latestEdit.validatedBy
+                validatedBy: latestEdit.validatedBy,
             }),
-            edits: [{
-                cellId,
-                type: "validation",
-                validatedBy: latestEdit.validatedBy
-            }]
+            edits: [
+                {
+                    cellId,
+                    type: "validation",
+                    validatedBy: latestEdit.validatedBy,
+                },
+            ],
         });
     }
 
@@ -597,41 +577,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     private initializeValidatedByArrays(): void {
         debug("Initializing validatedBy arrays to use ValidationEntry format");
-        
+
         if (!this._documentData?.cells) {
             return;
         }
-        
+
         let changesDetected = false;
-        
+
         for (const cell of this._documentData.cells) {
             if (!cell.metadata?.edits) {
                 continue;
             }
-            
-                for (const edit of cell.metadata.edits) {
-                    if (!edit.validatedBy) {
+
+            for (const edit of cell.metadata.edits) {
+                if (!edit.validatedBy) {
                     // Initialize an empty array if it doesn't exist
-                        edit.validatedBy = [];
+                    edit.validatedBy = [];
                     changesDetected = true;
                     continue;
                 }
-                
+
                 // Check if validatedBy array contains entries that need to be converted
                 const newValidatedBy: ValidationEntry[] = [];
                 let foundInvalidEntries = false;
-                
+
                 // First pass: collect all valid ValidationEntry objects and convert strings
                 for (const entry of edit.validatedBy) {
-                    if (typeof entry === 'string') {
-                        debug(`Converting string validation entry "${entry}" to proper ValidationEntry object`);
+                    if (typeof entry === "string") {
+                        debug(
+                            `Converting string validation entry "${entry}" to proper ValidationEntry object`
+                        );
                         foundInvalidEntries = true;
                         const currentTimestamp = Date.now();
                         newValidatedBy.push({
                             username: entry,
                             creationTimestamp: currentTimestamp,
                             updatedTimestamp: currentTimestamp,
-                            isDeleted: false
+                            isDeleted: false,
                         });
                     } else if (this.isValidValidationEntry(entry)) {
                         // Keep valid ValidationEntry objects
@@ -642,33 +624,35 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         foundInvalidEntries = true;
                     }
                 }
-                
+
                 // Second pass: deduplicate by username (keep the one with most recent updatedTimestamp)
                 const usernameMap = new Map<string, ValidationEntry>();
-                
+
                 for (const entry of newValidatedBy) {
                     const existingEntry = usernameMap.get(entry.username);
-                    
+
                     if (!existingEntry || entry.updatedTimestamp > existingEntry.updatedTimestamp) {
                         usernameMap.set(entry.username, entry);
                     }
                 }
-                
+
                 // Replace the array with our clean version if changes were made
                 const finalValidatedBy = Array.from(usernameMap.values());
-                
+
                 if (foundInvalidEntries || finalValidatedBy.length !== edit.validatedBy.length) {
-                    debug(`Updated validatedBy array for edit in cell ${cell.metadata.id}, found ${edit.validatedBy.length} entries, cleaned to ${finalValidatedBy.length}`);
+                    debug(
+                        `Updated validatedBy array for edit in cell ${cell.metadata.id}, found ${edit.validatedBy.length} entries, cleaned to ${finalValidatedBy.length}`
+                    );
                     edit.validatedBy = finalValidatedBy;
                     changesDetected = true;
                 }
             }
         }
-        
+
         // Make sure the document gets saved after we've made changes
         if (changesDetected) {
             debug("Changes detected in validatedBy arrays, marking document as dirty");
-            
+
             // Set validation migration complete flag
             if (!this._documentData.metadata) {
                 // Create a minimal valid metadata object if none exists
@@ -681,20 +665,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     sourceCreatedAt: new Date().toISOString(),
                     gitStatus: "uninitialized",
                     corpusMarker: "",
-                    validationMigrationComplete: true
+                    validationMigrationComplete: true,
                 };
             } else {
                 // Just set the flag on existing metadata
                 this._documentData.metadata.validationMigrationComplete = true;
             }
-            
+
             // Mark document as dirty and schedule a save
             this._isDirty = true;
-            
+
             // Schedule save for next event loop to ensure all changes are applied
             setTimeout(() => {
                 debug("Saving document after validation arrays cleanup");
-                this.save(new vscode.CancellationTokenSource().token).catch(error => {
+                this.save(new vscode.CancellationTokenSource().token).catch((error) => {
                     console.error("Error saving document after validation migration:", error);
                 });
             }, 100); // Slightly longer timeout to ensure all changes are processed
@@ -709,30 +693,30 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @returns True if fixes were applied, false otherwise
      */
     private checkAndFixValidationArray(cellId: string): boolean {
-        const cell = this._documentData.cells.find(
-            (cell) => cell.metadata?.id === cellId
-        );
-        
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+
         if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
             return false;
         }
 
         // Get the latest edit
         const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-        
+
         if (!latestEdit.validatedBy) {
             return false;
         }
-        
+
         // Check if there are any string entries in the validatedBy array
-        const hasStringEntries = latestEdit.validatedBy.some(entry => typeof entry === 'string');
-        
+        const hasStringEntries = latestEdit.validatedBy.some((entry) => typeof entry === "string");
+
         if (hasStringEntries) {
-            debug(`Found string entries in validatedBy array for cell ${cellId}, running initialization`);
+            debug(
+                `Found string entries in validatedBy array for cell ${cellId}, running initialization`
+            );
             this.initializeValidatedByArrays();
             return true;
         }
-        
+
         return false;
     }
 
@@ -743,25 +727,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public getValidationCount(cellId: string): number {
         // First check if any validation needs fixing
         this.checkAndFixValidationArray(cellId);
-        
-        const cell = this._documentData.cells.find(
-            (cell) => cell.metadata?.id === cellId
-        );
-        
+
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+
         if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
             return 0;
         }
 
         // Get the latest edit
         const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-        
+
         if (!latestEdit.validatedBy) {
             return 0;
         }
-        
+
         // Only count ValidationEntry objects with isDeleted: false
         return latestEdit.validatedBy.filter(
-            entry => this.isValidValidationEntry(entry) && !entry.isDeleted
+            (entry) => this.isValidValidationEntry(entry) && !entry.isDeleted
         ).length;
     }
 
@@ -774,25 +756,26 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public isValidatedByUser(cellId: string, username: string): boolean {
         // First check if any validation needs fixing
         this.checkAndFixValidationArray(cellId);
-        
-        const cell = this._documentData.cells.find(
-            (cell) => cell.metadata?.id === cellId
-        );
-        
+
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+
         if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
             return false;
         }
 
         // Get the latest edit
         const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-        
+
         if (!latestEdit.validatedBy) {
             return false;
         }
-        
+
         // Check for a ValidationEntry object with the username and isDeleted: false
         return latestEdit.validatedBy.some(
-            entry => this.isValidValidationEntry(entry) && entry.username === username && !entry.isDeleted
+            (entry) =>
+                this.isValidValidationEntry(entry) &&
+                entry.username === username &&
+                !entry.isDeleted
         );
     }
 
@@ -805,24 +788,22 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public getCellValidatedBy(cellId: string): ValidationEntry[] {
         // First check if any validation needs fixing
         this.checkAndFixValidationArray(cellId);
-        
-        const cell = this._documentData.cells.find(
-            (cell) => cell.metadata?.id === cellId
-        );
-        
+
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+
         if (!cell || !cell.metadata?.edits || cell.metadata.edits.length === 0) {
             return [];
         }
 
         // Get the latest edit
         const latestEdit = cell.metadata.edits[cell.metadata.edits.length - 1];
-        
+
         if (!latestEdit.validatedBy) {
             return [];
         }
-        
+
         // Filter to only include proper ValidationEntry objects
-        return latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry));
+        return latestEdit.validatedBy.filter((entry) => this.isValidValidationEntry(entry));
     }
 
     /**
@@ -831,8 +812,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     public getAllCellIds(): string[] {
         return this._documentData.cells
-            .filter(cell => cell.metadata?.id)
-            .map(cell => cell.metadata?.id);
+            .filter((cell) => cell.metadata?.id)
+            .map((cell) => cell.metadata?.id);
     }
 
     /**
@@ -841,12 +822,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
      */
     private isValidValidationEntry(entry: any): entry is ValidationEntry {
         return (
-            entry !== null && 
-            typeof entry === 'object' && 
-            typeof entry.username === 'string' && 
-            typeof entry.creationTimestamp === 'number' && 
-            typeof entry.updatedTimestamp === 'number' && 
-            typeof entry.isDeleted === 'boolean'
+            entry !== null &&
+            typeof entry === "object" &&
+            typeof entry.username === "string" &&
+            typeof entry.creationTimestamp === "number" &&
+            typeof entry.updatedTimestamp === "number" &&
+            typeof entry.isDeleted === "boolean"
         );
     }
 
@@ -859,9 +840,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public getActiveValidatorsCount(cellId: string): number {
         // First check if any validation migration is needed
         const entries = this.getCellValidatedBy(cellId);
-        
+
         // After getting the validated entries (which filters out strings),
         // count only the ones where isDeleted is false
-        return entries.filter(entry => !entry.isDeleted).length;
+        return entries.filter((entry) => !entry.isDeleted).length;
     }
 }
