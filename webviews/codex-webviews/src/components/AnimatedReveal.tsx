@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { useHover } from "@uidotdev/usehooks";
 
 interface AnimatedRevealProps {
     button: React.ReactNode;
@@ -7,7 +8,7 @@ interface AnimatedRevealProps {
 }
 
 const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content }) => {
-    const [isVisible, setIsVisible] = useState(false);
+    const [hoverRef, isHovered] = useHover();
 
     return (
         <div style={{ 
@@ -17,18 +18,17 @@ const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content }) => {
             position: 'relative'
         }}>
             <div style={{
-                opacity: isVisible ? 1 : 0,
-                transform: `translateX(${isVisible ? '0' : '-20px'})`,
-                transition: 'all 0.3s ease-in-out',
-                visibility: isVisible ? 'visible' : 'hidden',
+                opacity: isHovered ? 1 : 0,
+                transform: `translateX(${isHovered ? '0' : '-20px'})`,
+                transition: 'all 0.2s ease-in-out',
+                visibility: isHovered ? 'visible' : 'hidden',
                 display: 'flex',
                 alignItems: 'center'
             }}>
                 {content}
             </div>
             <div 
-                onMouseEnter={() => setIsVisible(true)}
-                onMouseLeave={() => setIsVisible(false)}
+                ref={hoverRef}
                 style={{ display: 'flex' }}
             >
                 {button}
