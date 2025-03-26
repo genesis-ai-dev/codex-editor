@@ -251,6 +251,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         }}
                     >
                         <AnimatedReveal
+                            mode="reveal"
                             button={
                                 !isSourceText &&
                                 SHOW_VALIDATION_BUTTON &&
