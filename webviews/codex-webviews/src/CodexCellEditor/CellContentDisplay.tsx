@@ -240,8 +240,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                     className="cell-actions"
                     style={{
                         display: "flex",
-                        alignItems: "center",
-                        minWidth: "60px",
                         justifyContent: "space-between",
                     }}
                 >
@@ -250,9 +248,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         style={{
                             display: "flex",
                             gap: "8px",
-                            minWidth: "50px",
-                            marginLeft: "38px",
-                            justifyContent: "center",
                         }}
                     >
                         <AnimatedReveal

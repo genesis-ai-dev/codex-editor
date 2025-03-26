@@ -560,7 +560,6 @@ const CellList: React.FC<CellListProps> = ({
                                     padding: "4px 4px 4px 12px",
                                     width: "calc(100% - 20px)",
                                     height: "21px",
-                                    marginLeft: "10px",
                                     boxSizing: "border-box",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
@@ -568,88 +567,75 @@ const CellList: React.FC<CellListProps> = ({
                                     ),
                                 }}
                             >
-                                <div
-                                    className="cell-header"
-                                    style={{ display: "flex", minWidth: "80px" }}
-                                >
-                                    <AnimatedReveal
-                                        button={
-                                            !isSourceText && (
-                                                <div style={{ flexShrink: 0 }}>
-                                                    <VSCodeButton
-                                                        appearance="icon"
+                                <AnimatedReveal
+                                    button={
+                                        !isSourceText && (
+                                            <div style={{ flexShrink: 0 }}>
+                                                <VSCodeButton
+                                                    appearance="icon"
+                                                    style={{
+                                                        height: "16px",
+                                                        width: "16px",
+                                                        padding: 0,
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                    }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        e.preventDefault();
+                                                        // Do nothing - button is just a visual indicator
+                                                    }}
+                                                >
+                                                    <i
+                                                        className="codicon codicon-dash"
                                                         style={{
-                                                            height: "16px",
-                                                            width: "16px",
-                                                            padding: 0,
-                                                            display: "flex",
-                                                            alignItems: "center",
-                                                            justifyContent: "center",
+                                                            fontSize: "12px",
+                                                            color: "var(--vscode-descriptionForeground)",
+                                                            fontWeight: "bold",
                                                         }}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            e.preventDefault();
-                                                            // Do nothing - button is just a visual indicator
-                                                        }}
-                                                    >
-                                                        <span
-                                                            style={{
-                                                                fontSize: "12px",
-                                                                color: "var(--vscode-descriptionForeground)",
-                                                                fontWeight: "bold",
-                                                            }}
-                                                        >
-                                                            —
-                                                        </span>
-                                                    </VSCodeButton>
-                                                </div>
-                                            )
-                                        }
-                                        content={
-                                            <VSCodeButton
-                                                appearance="icon"
-                                                aria-label="Translate"
-                                                onClick={() =>
-                                                    handleCellTranslation(cellMarkers[0])
-                                                }
-                                                style={{
-                                                    height: "16px",
-                                                    width: "16px",
-                                                    padding: 0,
-                                                    display: "flex",
-                                                    alignItems: "center",
-                                                    justifyContent: "center",
-                                                    position: "relative",
-                                                }}
-                                                disabled={isInProcess}
-                                                title={
+                                                    ></i>
+                                                </VSCodeButton>
+                                            </div>
+                                        )
+                                    }
+                                    content={
+                                        <VSCodeButton
+                                            appearance="icon"
+                                            aria-label="Translate"
+                                            onClick={() => handleCellTranslation(cellMarkers[0])}
+                                            style={{
+                                                height: "16px",
+                                                width: "16px",
+                                                padding: 0,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                position: "relative",
+                                            }}
+                                            disabled={isInProcess}
+                                            title={
+                                                isInProcess
+                                                    ? "Translation in progress"
+                                                    : "Translate this cell using AI"
+                                            }
+                                        >
+                                            <i
+                                                className={`codicon ${
                                                     isInProcess
-                                                        ? "Translation in progress"
-                                                        : "Translate this cell using AI"
-                                                }
-                                            >
-                                                <i
-                                                    className={`codicon ${
-                                                        isInProcess
-                                                            ? "codicon-loading codicon-modifier-spin"
-                                                            : "codicon-sparkle"
-                                                    }`}
-                                                    style={{ fontSize: "12px" }}
-                                                ></i>
-                                            </VSCodeButton>
-                                        }
-                                    />
-                                    <div
-                                        className="cell-label"
-                                        style={{ marginLeft: "4px", minWidth: "15px" }}
-                                    >
-                                        {(cellLabel || generatedCellLabel) && (
-                                            <span className="cell-label-text">
-                                                {cellLabel || generatedCellLabel}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
+                                                        ? "codicon-loading codicon-modifier-spin"
+                                                        : "codicon-sparkle"
+                                                }`}
+                                                style={{ fontSize: "12px" }}
+                                            ></i>
+                                        </VSCodeButton>
+                                    }
+                                />
+                                    {(cellLabel || generatedCellLabel) && (
+                                        <span className="cell-label-text" style={{ marginLeft: "10px" }}> {/* This is to account for the span that's for the {getAlertDot()} in the translated cells */}
+                                            {cellLabel || generatedCellLabel}
+                                        </span>
+                                    )}
                                 <div
                                     style={{
                                         flex: "1",
