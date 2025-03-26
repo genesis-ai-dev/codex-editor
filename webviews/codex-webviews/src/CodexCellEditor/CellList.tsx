@@ -567,8 +567,9 @@ const CellList: React.FC<CellListProps> = ({
                                     ),
                                 }}
                             >
-                                <AnimatedReveal
-                                    mode="swap"
+                                <div style={{ display: "flex", width: "16px" }}/>
+                                    <AnimatedReveal
+                                        mode="swap"
                                     button={
                                         !isSourceText && (
                                             <div style={{ flexShrink: 0 }}>
