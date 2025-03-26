@@ -410,6 +410,7 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={allTranslationsComplete}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
+                                cellDisplayMode={cellDisplayMode}
                             />
                         </span>
                     );
