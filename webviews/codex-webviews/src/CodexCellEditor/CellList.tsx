@@ -410,6 +410,7 @@ const CellList: React.FC<CellListProps> = ({
                                 allTranslationsComplete={allTranslationsComplete}
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
+                                cellDisplayMode={cellDisplayMode}
                             />
                         </span>
                     );
@@ -567,7 +568,9 @@ const CellList: React.FC<CellListProps> = ({
                                     ),
                                 }}
                             >
-                                <AnimatedReveal
+                                <div style={{ display: "flex", width: "16px" }}/>
+                                    <AnimatedReveal
+                                        mode="swap"
                                     button={
                                         !isSourceText && (
                                             <div style={{ flexShrink: 0 }}>
