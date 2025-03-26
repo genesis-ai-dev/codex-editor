@@ -16,7 +16,7 @@ interface AutocompleteModalProps {
     isOpen: boolean;
     onClose: () => void;
     onConfirm: (
-        numberOfCells: number, 
+        numberOfCells: number,
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean
     ) => void;
@@ -32,55 +32,85 @@ const ValidationIconSet: React.FC<{
     showNoValidatorCells?: boolean;
     showNotCurrentUserCells?: boolean;
     style?: CSSProperties;
-}> = ({ 
-    showEmptyCells = true, 
-    showNoValidatorCells = false, 
+}> = ({
+    showEmptyCells = true,
+    showNoValidatorCells = false,
     showNotCurrentUserCells = false,
-    style = {}
+    style = {},
 }) => {
+    const commonIconStyle: CSSProperties = {
+        fontSize: "12px",
+        transition: "color 0.2s ease-in-out, opacity 0.2s ease-in-out",
+    };
+
     return (
-        <div style={{ 
-            display: "inline-flex", 
-            alignItems: "center", 
-            gap: "4px",
-            marginLeft: "8px",
-            ...style
-        }}>
-            {showEmptyCells && (
-                <span style={{ 
-                    fontSize: "12px", 
-                    color: "var(--vscode-descriptionForeground)",
+        <div
+            style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                marginLeft: "8px",
+                padding: "4px 8px",
+                backgroundColor: "var(--vscode-editor-background)",
+                border: "1px solid var(--vscode-widget-border)",
+                borderRadius: "4px",
+                boxShadow: "0 0 2px var(--vscode-widget-shadow)",
+                transition: "background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
+                ...style,
+            }}
+        >
+            <span
+                style={{
+                    ...commonIconStyle,
+                    color: showEmptyCells
+                        ? "var(--vscode-descriptionForeground)"
+                        : "var(--vscode-disabledForeground)",
                     fontWeight: "bold",
                     width: "16px",
                     height: "16px",
                     display: "inline-flex",
                     alignItems: "center",
-                    justifyContent: "center"
-                }}>—</span>
-            )}
-            {showNoValidatorCells && (
-                <i className="codicon codicon-circle-outline"
-                   style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
-            )}
-            {showNotCurrentUserCells && (
-                <i className="codicon codicon-circle-filled"
-                   style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
-            )}
+                    justifyContent: "center",
+                    opacity: showEmptyCells ? 1 : 0.5,
+                }}
+            >
+                —
+            </span>
+            <i
+                className="codicon codicon-circle-outline"
+                style={{
+                    ...commonIconStyle,
+                    color: showNoValidatorCells
+                        ? "var(--vscode-descriptionForeground)"
+                        : "var(--vscode-disabledForeground)",
+                    opacity: showNoValidatorCells ? 1 : 0.5,
+                }}
+            ></i>
+            <i
+                className="codicon codicon-circle-filled"
+                style={{
+                    ...commonIconStyle,
+                    color: showNotCurrentUserCells
+                        ? "var(--vscode-descriptionForeground)"
+                        : "var(--vscode-disabledForeground)",
+                    opacity: showNotCurrentUserCells ? 1 : 0.5,
+                }}
+            ></i>
         </div>
     );
 };
 
 // Helper component for showing validation icon legend tooltips
 const ValidationLegend: React.FC<{
-    position?: 'top' | 'bottom' | 'left' | 'right';
+    position?: "top" | "bottom" | "left" | "right";
     style?: CSSProperties;
     showToSide?: boolean;
     parentRef?: React.RefObject<HTMLDivElement>;
-}> = ({ position = 'bottom', style = {}, showToSide = false, parentRef }) => {
+}> = ({ position = "bottom", style = {}, showToSide = false, parentRef }) => {
     const [showTooltip, setShowTooltip] = useState(false);
     const tooltipRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    
+
     // Adjust position if needed to prevent cutoff
     useEffect(() => {
         if (showTooltip && tooltipRef.current && containerRef.current) {
@@ -88,156 +118,182 @@ const ValidationLegend: React.FC<{
             const containerRect = containerRef.current.getBoundingClientRect();
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
-            
+
             if (showToSide) {
                 // Position to the right of the icon
                 tooltipRef.current.style.left = `${containerRect.width + 5}px`;
                 tooltipRef.current.style.top = `${-10}px`;
-                tooltipRef.current.style.transform = 'none';
-                
+                tooltipRef.current.style.transform = "none";
+
                 // Check if tooltip would go off right of screen
                 if (containerRect.right + tooltipRect.width + 10 > viewportWidth) {
                     // Switch to left side of icon
-                    tooltipRef.current.style.left = 'auto';
+                    tooltipRef.current.style.left = "auto";
                     tooltipRef.current.style.right = `${containerRect.width + 5}px`;
                 }
             } else {
                 // Center the tooltip under the icon
                 const iconCenterX = containerRect.left + containerRect.width / 2;
                 const tooltipWidth = tooltipRect.width;
-                
+
                 // Calculate left position to center the tooltip under the icon
                 let leftPos = iconCenterX - tooltipWidth / 2;
-                
+
                 // Prevent tooltip from going off-screen to the left
                 if (leftPos < 10) {
                     leftPos = 10;
                 }
-                
+
                 // Prevent tooltip from going off-screen to the right
                 if (leftPos + tooltipWidth > viewportWidth - 10) {
                     leftPos = viewportWidth - tooltipWidth - 10;
                 }
-                
+
                 // Apply the horizontal position
                 tooltipRef.current.style.left = `${leftPos}px`;
-                tooltipRef.current.style.right = 'auto';
-                
+                tooltipRef.current.style.right = "auto";
+
                 // Check if tooltip would go off bottom of screen
                 if (tooltipRect.bottom > viewportHeight - 10) {
-                    tooltipRef.current.style.top = 'auto';
+                    tooltipRef.current.style.top = "auto";
                     tooltipRef.current.style.bottom = `${containerRect.height + 5}px`;
                 } else {
                     tooltipRef.current.style.top = `${containerRect.height + 5}px`;
-                    tooltipRef.current.style.bottom = 'auto';
+                    tooltipRef.current.style.bottom = "auto";
                 }
             }
         }
     }, [showTooltip, showToSide]);
-    
+
     return (
-        <div 
+        <div
             ref={containerRef}
-            style={{ 
-                display: 'inline-flex', 
-                position: 'relative',
-                marginLeft: '6px',
-                ...style 
+            style={{
+                display: "inline-flex",
+                position: "relative",
+                marginLeft: "6px",
+                ...style,
             }}
             onMouseEnter={() => setShowTooltip(true)}
             onMouseLeave={() => setShowTooltip(false)}
         >
-            <i 
+            <i
                 className="codicon codicon-info"
-                style={{ 
-                    color: 'var(--vscode-descriptionForeground)',
-                    fontSize: '14px',
-                    cursor: 'help'
+                style={{
+                    color: "var(--vscode-descriptionForeground)",
+                    fontSize: "14px",
+                    cursor: "help",
                 }}
             />
             {showTooltip && (
-                <div 
+                <div
                     ref={tooltipRef}
                     style={{
-                        position: parentRef ? 'fixed' : 'absolute',
-                        top: showToSide ? '-10px' : '100%',
-                        left: showToSide ? '100%' : '50%',
-                        transform: (parentRef || showToSide) ? 'none' : 'translateX(-50%)',
-                        backgroundColor: 'var(--vscode-editor-background)',
-                        border: '1px solid var(--vscode-widget-border)',
-                        borderRadius: '4px',
-                        padding: '8px',
+                        position: parentRef ? "fixed" : "absolute",
+                        top: showToSide ? "-10px" : "100%",
+                        left: showToSide ? "100%" : "50%",
+                        transform: parentRef || showToSide ? "none" : "translateX(-50%)",
+                        backgroundColor: "var(--vscode-editor-background)",
+                        border: "1px solid var(--vscode-widget-border)",
+                        borderRadius: "4px",
+                        padding: "8px",
                         zIndex: 1000,
-                        width: 'auto',
-                        maxWidth: '300px',
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                        fontWeight: 'normal',
-                        fontSize: '12px',
-                        color: 'var(--vscode-foreground)',
-                        marginTop: showToSide ? '0' : (parentRef ? '0' : '4px'),
-                        lineHeight: '1.5',
-                        whiteSpace: 'nowrap'
+                        width: "auto",
+                        maxWidth: "300px",
+                        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                        fontWeight: "normal",
+                        fontSize: "12px",
+                        color: "var(--vscode-foreground)",
+                        marginTop: showToSide ? "0" : parentRef ? "0" : "4px",
+                        lineHeight: "1.5",
+                        whiteSpace: "nowrap",
                     }}
                 >
-                    <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>Validation Status Icons:</div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <i className="codicon codicon-dash" style={{ 
-                            fontWeight: 'bold',
-                            width: '16px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginRight: '6px'
-                        }}></i>
+                    <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
+                        Validation Status Icons:
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <i
+                            className="codicon codicon-dash"
+                            style={{
+                                fontWeight: "bold",
+                                width: "16px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                marginRight: "6px",
+                            }}
+                        ></i>
                         <span>Empty/Untranslated</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <i className="codicon codicon-circle-outline" style={{ fontSize: '12px', marginRight: '6px' }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <i
+                            className="codicon codicon-circle-outline"
+                            style={{ fontSize: "12px", marginRight: "6px" }}
+                        ></i>
                         <span>Without any validator</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <i className="codicon codicon-circle-filled" style={{ fontSize: '12px', marginRight: '6px' }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <i
+                            className="codicon codicon-circle-filled"
+                            style={{ fontSize: "12px", marginRight: "6px" }}
+                        ></i>
                         <span>Validated by others</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            marginRight: '6px',
-                            width: '16px',
-                            justifyContent: 'center'
-                        }}>
-                            <i className="codicon codicon-check" style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--vscode-terminal-ansiGreen)' 
-                            }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                marginRight: "6px",
+                                width: "16px",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <i
+                                className="codicon codicon-check"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-terminal-ansiGreen)",
+                                }}
+                            ></i>
                         </div>
                         <span>Validated by you</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            marginRight: '6px',
-                            width: '16px',
-                            justifyContent: 'center'
-                        }}>
-                            <i className="codicon codicon-check-all" style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--vscode-descriptionForeground)' 
-                            }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                marginRight: "6px",
+                                width: "16px",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <i
+                                className="codicon codicon-check-all"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            ></i>
                         </div>
                         <span>Fully validated by other users</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            marginRight: '6px',
-                            width: '16px',
-                            justifyContent: 'center'
-                        }}>
-                            <i className="codicon codicon-check-all" style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--vscode-terminal-ansiGreen)' 
-                            }}></i>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                marginRight: "6px",
+                                width: "16px",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <i
+                                className="codicon codicon-check-all"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-terminal-ansiGreen)",
+                                }}
+                            ></i>
                         </div>
                         <span>Fully validated by you</span>
                     </div>
@@ -260,9 +316,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(
         totalUntranslatedCells > 0 ? defaultValue : 0
     );
-    const [customValue, setCustomValue] = useState(
-        totalUntranslatedCells > 0 ? defaultValue : 0
-    );
+    const [customValue, setCustomValue] = useState(totalUntranslatedCells > 0 ? defaultValue : 0);
     // Both checkboxes start unchecked, so we only select empty cells by default
     const [includeNotValidatedByAnyUser, setIncludeNotValidatedByAnyUser] = useState(false);
     const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
@@ -272,10 +326,10 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     // Create a reference to the modal container
     const [modalContainer, setModalContainer] = useState<HTMLElement | null>(null);
     const modalRef = React.useRef<HTMLDivElement>(null);
-    
+
     // Initialize the modal container on component mount
     useEffect(() => {
-        if (typeof document !== 'undefined') {
+        if (typeof document !== "undefined") {
             setModalContainer(document.body);
         }
     }, []);
@@ -285,29 +339,29 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         if (isOpen && modalRef.current) {
             // Auto-focus the modal when opened
             modalRef.current.focus();
-            
+
             // Handle ESC key press
             const handleKeyDown = (e: KeyboardEvent) => {
-                if (e.key === 'Escape') {
+                if (e.key === "Escape") {
                     onClose();
                 }
             };
-            
-            document.addEventListener('keydown', handleKeyDown);
+
+            document.addEventListener("keydown", handleKeyDown);
             return () => {
-                document.removeEventListener('keydown', handleKeyDown);
+                document.removeEventListener("keydown", handleKeyDown);
             };
         }
     }, [isOpen, onClose]);
 
     // Log initial values to debug
     useEffect(() => {
-        console.log('Modal initialized with:', {
+        console.log("Modal initialized with:", {
             totalUntranslatedCells,
             totalCellsToAutocomplete,
             totalCellsWithCurrentUserOption,
             defaultValue,
-            effectiveTotalCells
+            effectiveTotalCells,
         });
     }, []);
 
@@ -318,12 +372,12 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             totalCellsToAutocomplete,
             totalCellsWithCurrentUserOption,
             includeNotValidatedByAnyUser,
-            includeNotValidatedByCurrentUser
+            includeNotValidatedByCurrentUser,
         });
-        
+
         // Calculate the effective total based on checkboxes
         let newEffectiveTotal = 0;
-        
+
         if (includeNotValidatedByCurrentUser) {
             // Include all cells not validated by current user
             newEffectiveTotal = totalCellsWithCurrentUserOption;
@@ -334,9 +388,9 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             // Only include cells with no content
             newEffectiveTotal = totalUntranslatedCells;
         }
-        
+
         setEffectiveTotalCells(newEffectiveTotal);
-        
+
         // If number of cells is less than 5, automatically set to min(5, effectiveTotalCells)
         if (numberOfCellsToAutocomplete < 5 && newEffectiveTotal > numberOfCellsToAutocomplete) {
             const newValue = Math.min(5, newEffectiveTotal);
@@ -351,17 +405,17 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         }
     }, [
         totalUntranslatedCells,
-        totalCellsToAutocomplete, 
-        totalCellsWithCurrentUserOption, 
+        totalCellsToAutocomplete,
+        totalCellsWithCurrentUserOption,
         includeNotValidatedByAnyUser,
         includeNotValidatedByCurrentUser,
-        numberOfCellsToAutocomplete // Add this to the dependency array to properly track changes
+        numberOfCellsToAutocomplete, // Add this to the dependency array to properly track changes
     ]);
 
     // Handler for "Include cells not validated by any user" checkbox
     const handleAnyUserCheckboxChange = (newValue: boolean) => {
         console.log("ANY USER CHECKBOX CHANGED TO:", newValue);
-        
+
         // Calculate what the new effective total will be
         let newEffectiveTotal;
         if (newValue) {
@@ -381,21 +435,21 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 newEffectiveTotal = totalUntranslatedCells;
             }
         }
-        
+
         // If currently less than 5, set to min(5, newEffectiveTotal)
         if (numberOfCellsToAutocomplete < 5 && newEffectiveTotal > numberOfCellsToAutocomplete) {
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
         }
-        
+
         setIncludeNotValidatedByAnyUser(newValue);
     };
 
     // Handler for "Include cells not validated by current user" checkbox
     const handleCurrentUserCheckboxChange = (newValue: boolean) => {
         console.log("CURRENT USER CHECKBOX CHANGED TO:", newValue);
-        
+
         // Calculate what the new effective total will be
         let newEffectiveTotal;
         if (newValue) {
@@ -410,14 +464,14 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 newEffectiveTotal = totalUntranslatedCells;
             }
         }
-        
+
         // If currently at 0, set to min(5, newEffectiveTotal)
         if (numberOfCellsToAutocomplete === 0 && newEffectiveTotal > 0) {
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
         }
-        
+
         setIncludeNotValidatedByCurrentUser(newValue);
     };
 
@@ -426,53 +480,50 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         checked: boolean;
         onChange: (checked: boolean) => void;
         label: React.ReactNode;
-    }> = ({
-        checked,
-        onChange,
-        label,
-    }) => (
-        <label 
-            className="checkbox-container" 
-            style={{ display: "flex", alignItems: "center", cursor: "pointer", marginBottom: "8px" }}
+    }> = ({ checked, onChange, label }) => (
+        <label
+            className="checkbox-container"
+            style={{
+                display: "flex",
+                alignItems: "center",
+                cursor: "pointer",
+                marginBottom: "8px",
+            }}
         >
-            <div 
-                className="custom-checkbox" 
+            <div
+                className="custom-checkbox"
                 style={{
                     width: "18px",
                     height: "18px",
                     border: "2px solid var(--vscode-checkbox-border, #6c757d)",
                     borderRadius: "3px",
-                    backgroundColor: checked ? 
-                        "var(--vscode-focusBorder, #007fd4)" : 
-                        "var(--vscode-checkbox-background, #252526)",
+                    backgroundColor: checked
+                        ? "var(--vscode-focusBorder, #007fd4)"
+                        : "var(--vscode-checkbox-background, #252526)",
                     display: "flex",
                     justifyContent: "center",
                     alignItems: "center",
                     marginRight: "8px",
                     position: "relative",
                     cursor: "pointer",
-                    boxShadow: checked ? 
-                        "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : 
-                        "none"
+                    boxShadow: checked ? "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : "none",
                 }}
                 onClick={() => onChange(!checked)}
             >
                 {checked && (
-                    <div 
+                    <div
                         style={{
                             width: "6px",
                             height: "10px",
                             borderRight: "2px solid white",
                             borderBottom: "2px solid white",
                             transform: "rotate(45deg) translate(-1px, -1px)",
-                            position: "absolute"
+                            position: "absolute",
                         }}
                     />
                 )}
             </div>
-            <span onClick={() => onChange(!checked)}>
-                {label}
-            </span>
+            <span onClick={() => onChange(!checked)}>{label}</span>
         </label>
     );
 
@@ -482,31 +533,31 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             return {
                 showEmptyCells: true,
                 showNoValidatorCells: true,
-                showNotCurrentUserCells: true
+                showNotCurrentUserCells: true,
             };
         } else if (includeNotValidatedByAnyUser) {
             return {
                 showEmptyCells: true,
                 showNoValidatorCells: true,
-                showNotCurrentUserCells: false
+                showNotCurrentUserCells: false,
             };
         } else {
             return {
                 showEmptyCells: true,
                 showNoValidatorCells: false,
-                showNotCurrentUserCells: false
+                showNotCurrentUserCells: false,
             };
         }
     };
-    
+
     const { showEmptyCells, showNoValidatorCells, showNotCurrentUserCells } = getIconsToShow();
 
     if (!isOpen || !modalContainer) return null;
 
     // Use a portal to render the modal at the document body level
     return ReactDOM.createPortal(
-        <div 
-            className="modal-overlay" 
+        <div
+            className="modal-overlay"
             onClick={(e) => {
                 // Close when clicking the overlay (outside the modal)
                 if (e.target === e.currentTarget) {
@@ -514,20 +565,14 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 }
             }}
         >
-            <div 
-                className="modal-content" 
-                ref={modalRef}
-                tabIndex={-1}
-            >
+            <div className="modal-content" ref={modalRef} tabIndex={-1}>
                 <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
                     <h2 style={{ margin: 0 }}>Autocomplete Cells</h2>
                     <ValidationLegend position="right" showToSide={true} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
-                    <VSCodeTag>
-                        Autocomplete {numberOfCellsToAutocomplete || 0} Cells
-                    </VSCodeTag>
-                    <ValidationIconSet 
+                    <VSCodeTag>Autocomplete {numberOfCellsToAutocomplete || 0} Cells</VSCodeTag>
+                    <ValidationIconSet
                         showEmptyCells={showEmptyCells}
                         showNoValidatorCells={showNoValidatorCells}
                         showNotCurrentUserCells={showNotCurrentUserCells}
@@ -565,9 +610,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             max={effectiveTotalCells}
                             defaultValue={Math.min(5, effectiveTotalCells)}
                             value={
-                                customValue === 0
-                                    ? "0"
-                                    : Math.min(customValue, effectiveTotalCells)
+                                customValue === 0 ? "0" : Math.min(customValue, effectiveTotalCells)
                             }
                             onFocus={(e) => {
                                 const defaultValue = Math.min(5, effectiveTotalCells);
@@ -603,14 +646,14 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                     setNumberOfCellsToAutocomplete(cappedValue);
                                 }
                             }}
-                            style={{ 
-                                width: "60px", 
+                            style={{
+                                width: "60px",
                                 marginLeft: "8px",
                                 border: "2px solid var(--vscode-focusBorder)",
                                 borderRadius: "4px",
                                 padding: "4px",
                                 outline: "none",
-                                boxShadow: "0 0 0 1px var(--vscode-focusBorder)"
+                                boxShadow: "0 0 0 1px var(--vscode-focusBorder)",
                             }}
                             className="autocomplete-number-input"
                         />
@@ -619,15 +662,15 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         All ({effectiveTotalCells})
                     </VSCodeRadio>
                 </VSCodeRadioGroup>
-                
+
                 <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
-                    <CustomCheckbox 
+                    <CustomCheckbox
                         checked={includeNotValidatedByAnyUser}
                         onChange={handleAnyUserCheckboxChange}
                         label={
                             <div style={{ display: "flex", alignItems: "center" }}>
                                 Include cells not validated by any user
-                                <ValidationIconSet 
+                                <ValidationIconSet
                                     showEmptyCells={true}
                                     showNoValidatorCells={true}
                                     showNotCurrentUserCells={false}
@@ -636,14 +679,14 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             </div>
                         }
                     />
-                    
-                    <CustomCheckbox 
+
+                    <CustomCheckbox
                         checked={includeNotValidatedByCurrentUser}
                         onChange={handleCurrentUserCheckboxChange}
                         label={
                             <div style={{ display: "flex", alignItems: "center" }}>
                                 Include cells not validated by the current user
-                                <ValidationIconSet 
+                                <ValidationIconSet
                                     showEmptyCells={true}
                                     showNoValidatorCells={true}
                                     showNotCurrentUserCells={true}
@@ -653,17 +696,19 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         }
                     />
                 </div>
-                
+
                 <div className="modal-actions">
                     <VSCodeButton onClick={onClose} appearance="secondary">
                         Cancel
                     </VSCodeButton>
                     <VSCodeButton
-                        onClick={() => onConfirm(
-                            numberOfCellsToAutocomplete, 
-                            includeNotValidatedByAnyUser, 
-                            includeNotValidatedByCurrentUser
-                        )}
+                        onClick={() =>
+                            onConfirm(
+                                numberOfCellsToAutocomplete,
+                                includeNotValidatedByAnyUser,
+                                includeNotValidatedByCurrentUser
+                            )
+                        }
                         disabled={numberOfCellsToAutocomplete === 0}
                     >
                         Confirm
@@ -680,7 +725,7 @@ interface ChapterNavigationProps {
     setChapterNumber: React.Dispatch<React.SetStateAction<number>>;
     unsavedChanges: boolean;
     onAutocompleteChapter: (
-        numberOfCells: number, 
+        numberOfCells: number,
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean
     ) => void;
@@ -751,25 +796,25 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     const handleAutocompleteClick = () => {
         console.log("Autocomplete clicked, showing modal with:", {
             totalCellsToAutocomplete,
-            totalCellsWithCurrentUserOption
+            totalCellsWithCurrentUserOption,
         });
         setShowConfirm(true);
     };
 
     const handleConfirmAutocomplete = (
-        numberOfCells: number, 
+        numberOfCells: number,
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean
     ) => {
-        console.log('Confirm autocomplete:', {
+        console.log("Confirm autocomplete:", {
             numberOfCells,
             includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser,
             totalCellsToAutocomplete,
-            totalCellsWithCurrentUserOption
+            totalCellsWithCurrentUserOption,
         });
         onAutocompleteChapter(
-            numberOfCells, 
+            numberOfCells,
             includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser
         );
@@ -802,7 +847,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
 
     // Helper to determine if any translation is in progress (either autocomplete or single cell)
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
-    
+
     // Common handler for stopping any kind of translation
     const handleStopTranslation = () => {
         if (isAutocompletingChapter) {
@@ -897,10 +942,15 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             <VSCodeButton
                                 appearance="icon"
                                 onClick={handleStopTranslation}
-                                title={isAutocompletingChapter ? "Stop Autocomplete" : "Stop Translation"}
+                                title={
+                                    isAutocompletingChapter
+                                        ? "Stop Autocomplete"
+                                        : "Stop Translation"
+                                }
                                 style={{
-                                    backgroundColor: 'var(--vscode-editor-findMatchHighlightBackground)',
-                                    borderRadius: '4px'
+                                    backgroundColor:
+                                        "var(--vscode-editor-findMatchHighlightBackground)",
+                                    borderRadius: "4px",
                                 }}
                             >
                                 <i className="codicon codicon-circle-slash"></i>
@@ -922,7 +972,10 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             totalUntranslatedCells={totalUntranslatedCells}
                             totalCellsToAutocomplete={totalCellsToAutocomplete}
                             totalCellsWithCurrentUserOption={totalCellsWithCurrentUserOption}
-                            defaultValue={Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5)}
+                            defaultValue={Math.min(
+                                5,
+                                totalUntranslatedCells > 0 ? totalUntranslatedCells : 5
+                            )}
                         />
                     </>
                 )}
