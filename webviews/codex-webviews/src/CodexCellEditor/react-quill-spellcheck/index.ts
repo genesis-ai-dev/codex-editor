@@ -49,6 +49,36 @@ export class QuillSpellChecker {
         }, 100);
     }
 
+    // Add dispose method for cleanup
+    public dispose() {
+        debug("Disposing QuillSpellChecker");
+        // Clean up window event listener
+        window.removeEventListener("message", this.handleVSCodeMessage);
+
+        // Clean up Quill event listeners
+        this.quill.root.removeEventListener("copy", this.handleCopy);
+        this.quill.off("text-change", this.handleTextChange);
+        this.quill.off("editor-change", this.handleEditorChange);
+
+        // Clear any pending timers
+        if (this.typingTimer) {
+            clearTimeout(this.typingTimer);
+        }
+        if (this.typingCooldown) {
+            clearTimeout(this.typingCooldown);
+        }
+        if (this.loopPreventionCooldown) {
+            clearTimeout(this.loopPreventionCooldown);
+        }
+
+        // Clean up boxes and popups
+        this.boxes.removeSuggestionBoxes();
+        this.matches = [];
+
+        // Clean up popup manager
+        this.popups.dispose();
+    }
+
     private setupEventListeners() {
         this.quill.root.addEventListener("copy", this.handleCopy);
         this.quill.on("text-change", this.handleTextChange);
