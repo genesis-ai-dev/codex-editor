@@ -21,7 +21,6 @@ import AnimatedReveal from "../components/AnimatedReveal";
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
     cell: QuillCellContent;
-    setContentBeingUpdated: (content: EditorCellContent) => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
@@ -34,6 +33,7 @@ interface CellContentDisplayProps {
     translationState?: "waiting" | "processing" | "completed" | null;
     allTranslationsComplete?: boolean;
     handleCellTranslation?: (cellId: string) => void;
+    handleCellClick: (cellId: string) => void;
 }
 
 const DEBUG_ENABLED = false;
@@ -45,7 +45,7 @@ function debug(message: string, ...args: any[]): void {
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cell,
-    setContentBeingUpdated,
+    // setContentBeingUpdated,
     vscode,
     textDirection,
     isSourceText,
@@ -58,6 +58,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     translationState = null,
     allTranslationsComplete = false,
     handleCellTranslation,
+    handleCellClick,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -95,34 +96,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [highlightedCellId]);
-
-    const handleVerseClick = () => {
-        if (unsavedChanges || isSourceText) {
-            toggleFlashingBorder();
-            return;
-        }
-
-        const documentUri =
-            (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
-
-        // First update the content
-        setContentBeingUpdated({
-            cellMarkers: cellIds,
-            cellContent,
-            cellChanged: unsavedChanges,
-            cellLabel: cellLabelOrGeneratedLabel,
-            timestamps,
-            uri: documentUri,
-        } as EditorCellContent);
-
-        // Then notify the extension about the current cell and document
-        vscode.postMessage({
-            command: "setCurrentIdToGlobalState",
-            content: {
-                currentLineId: cellIds[0],
-            },
-        } as EditorPostMessages);
-    };
 
     // Handler for stopping translation when clicked on the spinner
     const handleStopTranslation = (e: React.MouseEvent) => {
@@ -260,7 +233,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 direction: textDirection,
                 ...getBorderStyle(),
             }}
-            onClick={handleVerseClick}
+            onClick={() => handleCellClick(cellIds[0])}
         >
             <div className="cell-header">
                 <div

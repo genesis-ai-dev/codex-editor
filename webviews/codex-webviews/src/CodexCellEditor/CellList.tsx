@@ -1,5 +1,10 @@
-import { EditorCellContent, QuillCellContent, SpellCheckResponse } from "../../../../types";
-import React, { useMemo, useCallback, useState, useEffect, useRef } from "react";
+import {
+    EditorCellContent,
+    EditorPostMessages,
+    QuillCellContent,
+    SpellCheckResponse,
+} from "../../../../types";
+import React, { useMemo, useCallback, useState, useEffect, useRef, useContext } from "react";
 import CellEditor from "./TextCellEditor";
 import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
@@ -9,6 +14,7 @@ import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import AnimatedReveal from "../components/AnimatedReveal";
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -59,7 +65,7 @@ const CellList: React.FC<CellListProps> = ({
     cellsInAutocompleteQueue = [],
 }) => {
     const numberOfEmptyCellsToRender = 1;
-
+    const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
@@ -392,7 +398,6 @@ const CellList: React.FC<CellListProps> = ({
                                 cell={cell}
                                 cellLabelOrGeneratedLabel={cell.cellLabel || generatedCellLabel} // Fixme: We should have a separate label for line numbers line numbers should be different the the label for the cell content
                                 key={`cell-${cellMarkers[0]}`}
-                                setContentBeingUpdated={setContentBeingUpdated}
                                 vscode={vscode}
                                 textDirection={textDirection}
                                 isSourceText={isSourceText}
@@ -404,6 +409,7 @@ const CellList: React.FC<CellListProps> = ({
                                 translationState={translationState}
                                 allTranslationsComplete={allTranslationsComplete}
                                 handleCellTranslation={handleCellTranslation}
+                                handleCellClick={openCellById}
                             />
                         </span>
                     );
@@ -429,17 +435,31 @@ const CellList: React.FC<CellListProps> = ({
     );
 
     const openCellById = useCallback(
-        (cellId: string, text: string) => {
+        (cellId: string) => {
             const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
+            if (unsavedChanges || isSourceText) {
+                toggleFlashingBorder();
+                return;
+            }
+            const documentUri =
+                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
 
             if (cellToOpen) {
-                debug("openCellById", { cellToOpen, text });
+                debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
                 setContentBeingUpdated({
                     cellMarkers: cellToOpen.cellMarkers,
-                    cellContent: text,
+                    cellContent: cellToOpen.cellContent,
                     cellChanged: true,
                     cellLabel: cellToOpen.cellLabel,
-                });
+                    timestamps: cellToOpen.timestamps,
+                    uri: documentUri,
+                } as EditorCellContent);
+                vscode.postMessage({
+                    command: "setCurrentIdToGlobalState",
+                    content: {
+                        currentLineId: cellToOpen.cellMarkers[0],
+                    },
+                } as EditorPostMessages);
             } else {
                 vscode.postMessage({
                     command: "showErrorMessage",
@@ -660,7 +680,7 @@ const CellList: React.FC<CellListProps> = ({
                                         allTranslationsComplete
                                     ),
                                 }}
-                                onClick={() => openCellById(cellMarkers[0], "")}
+                                onClick={() => openCellById(cellMarkers[0])}
                             >
                                 <i
                                     className="codicon codicon-plus"

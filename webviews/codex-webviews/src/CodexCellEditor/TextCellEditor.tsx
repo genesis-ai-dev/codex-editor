@@ -41,7 +41,7 @@ interface CellEditorProps {
     cellLabel?: string;
     cellTimestamps: Timestamps | undefined;
     cellIsChild: boolean;
-    openCellById: (cellId: string, text: string) => void;
+    openCellById: (cellId: string) => void;
     editHistory: EditHistory[];
 }
 
@@ -371,7 +371,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 handleSaveHtml();
             }
             // Then, open the new cell and set its content
-            openCellById(cellId, text);
+            openCellById(cellId);
 
             // Update the local state with the new content
             setContentBeingUpdated({
@@ -396,8 +396,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         };
 
         window.addEventListener("message", handleMessage);
-
-        // We're not returning a cleanup function here
+        return () => window.removeEventListener("message", handleMessage);
     }, []); // Empty dependency array means this effect runs once on mount
 
     return (

@@ -136,6 +136,37 @@ const CodexCellEditor: React.FC = () => {
     );
     const [currentEditingCellId, setCurrentEditingCellId] = useState<string | null>(null);
 
+    // Initialize state store after webview is ready
+    useEffect(() => {
+        const handleWebviewReady = (event: MessageEvent) => {
+            if (event.data.type === "webviewReady") {
+                setIsWebviewReady(true);
+            }
+        };
+        window.addEventListener("message", handleWebviewReady);
+        return () => window.removeEventListener("message", handleWebviewReady);
+    }, []);
+
+    // Listen for highlight messages from the extension
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "highlightCell" && message.cellId) {
+                setHighlightedCellId(message.cellId);
+            }
+        };
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
+
+    useEffect(() => {
+        if (highlightedCellId && scrollSyncEnabled) {
+            const cellId = highlightedCellId;
+            const chapter = cellId?.split(" ")[1]?.split(":")[0];
+            setChapterNumber(parseInt(chapter) || 1);
+        }
+    }, [highlightedCellId]);
+
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
     // video URL back to the extension so the user can save or cancel the change.
@@ -289,6 +320,7 @@ const CodexCellEditor: React.FC = () => {
                 } as EditorPostMessages);
             }
         });
+        return () => window.removeEventListener("focus", () => {});
     }, []);
 
     useEffect(() => {
@@ -560,10 +592,13 @@ const CodexCellEditor: React.FC = () => {
 
         // Choose which set of cells to use based on the include options
         let cellsToAutocomplete;
-        
+
         if (includeNotValidatedByCurrentUser) {
             // Include cells not validated by current user (most inclusive option)
-            cellsToAutocomplete = untranslatedOrNotValidatedByCurrentUserUnitsForSection.slice(0, numberOfCells);
+            cellsToAutocomplete = untranslatedOrNotValidatedByCurrentUserUnitsForSection.slice(
+                0,
+                numberOfCells
+            );
         } else if (includeNotValidatedByAnyUser) {
             // Include cells not validated by any user (middle option)
             cellsToAutocomplete = untranslatedOrUnvalidatedUnitsForSection.slice(0, numberOfCells);
