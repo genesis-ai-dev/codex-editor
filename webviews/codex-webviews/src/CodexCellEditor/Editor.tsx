@@ -391,7 +391,7 @@ export default function Editor(props: EditorProps) {
 
     return (
         <>
-            <div className="editor-container">
+            <div className="text-editor-container">
                 <div ref={editorRef}></div>
             </div>
             {showHistoryModal && (
