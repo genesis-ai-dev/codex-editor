@@ -284,25 +284,45 @@ export class CustomWebviewProvider {
                         const commentId = message.args.commentId;
                         const commentThreadId = message.args.commentThreadId;
                         const existingCommentsThreads = await getCommentsFromFile(commentsFileName);
-                        const indexOfCommentToMarkAsDeleted = existingCommentsThreads.findIndex(
+                        const threadIndex = existingCommentsThreads.findIndex(
                             (commentThread) => commentThread.id === commentThreadId
                         );
-                        const commentThreadToMarkAsDeleted =
-                            existingCommentsThreads[indexOfCommentToMarkAsDeleted];
-                        const commentToMarkAsDeleted = existingCommentsThreads[
-                            indexOfCommentToMarkAsDeleted
-                        ].comments.find((comment) => comment.id === commentId);
-                        if (commentToMarkAsDeleted) {
+
+                        if (threadIndex !== -1) {
+                            const thread = existingCommentsThreads[threadIndex];
+                            const updatedComments = thread.comments.map((comment) =>
+                                comment.id === commentId ? { ...comment, deleted: true } : comment
+                            );
+
                             await serializeCommentsToDisk(existingCommentsThreads, {
-                                ...commentThreadToMarkAsDeleted,
-                                comments: [
-                                    {
-                                        ...commentToMarkAsDeleted,
-                                        deleted: true,
-                                    },
-                                ],
+                                ...thread,
+                                comments: updatedComments,
                             });
                         }
+
+                        this.sendCommentsToWebview(webviewView);
+                        break;
+                    }
+                    case "undoCommentDeletion": {
+                        const commentId = message.args.commentId;
+                        const commentThreadId = message.args.commentThreadId;
+                        const existingCommentsThreads = await getCommentsFromFile(commentsFileName);
+                        const threadIndex = existingCommentsThreads.findIndex(
+                            (commentThread) => commentThread.id === commentThreadId
+                        );
+
+                        if (threadIndex !== -1) {
+                            const thread = existingCommentsThreads[threadIndex];
+                            const updatedComments = thread.comments.map((comment) =>
+                                comment.id === commentId ? { ...comment, deleted: false } : comment
+                            );
+
+                            await serializeCommentsToDisk(existingCommentsThreads, {
+                                ...thread,
+                                comments: updatedComments,
+                            });
+                        }
+
                         this.sendCommentsToWebview(webviewView);
                         break;
                     }

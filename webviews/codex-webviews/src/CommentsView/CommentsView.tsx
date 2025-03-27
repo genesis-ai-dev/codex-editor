@@ -217,6 +217,13 @@ function App() {
         } as CommentPostMessages);
     };
 
+    const handleUndoCommentDeletion = (commentId: number, commentThreadId: string) => {
+        vscode.postMessage({
+            command: "undoCommentDeletion",
+            args: { commentId, commentThreadId },
+        } as CommentPostMessages);
+    };
+
     const handleNewThread = () => {
         if (!newThreadTitle.trim() || !cellId.cellId || !currentUser.isAuthenticated) return;
 
@@ -341,7 +348,7 @@ function App() {
                     </VSCodeButton>
                 </div>
 
-                {cellId.cellId && (
+                {/* {cellId.cellId && (
                     <div
                         style={{
                             display: "flex",
@@ -394,7 +401,7 @@ function App() {
                             </VSCodeBadge>
                         </div>
                     </div>
-                )}
+                )} */}
 
                 {showNewThreadForm && (
                     <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
@@ -620,110 +627,136 @@ function App() {
                                                 gap: "12px",
                                             }}
                                         >
-                                            {thread.comments
-                                                .filter((comment) => !comment.deleted)
-                                                .map((comment, index) => (
+                                            {thread.comments.map((comment, index) => (
+                                                <div
+                                                    key={comment.id}
+                                                    style={{
+                                                        display: "flex",
+                                                        flexDirection: "column",
+                                                        gap: "8px",
+                                                        position: "relative",
+                                                        paddingLeft: "16px",
+                                                        opacity: comment.deleted ? 0.6 : 1,
+                                                    }}
+                                                >
+                                                    {/* Thread line indicator */}
+                                                    {index < thread.comments.length - 1 && (
+                                                        <div
+                                                            style={{
+                                                                position: "absolute",
+                                                                left: "12px",
+                                                                top: "32px",
+                                                                bottom: "-20px",
+                                                                width: "2px",
+                                                                backgroundColor:
+                                                                    "var(--vscode-widget-border)",
+                                                            }}
+                                                        />
+                                                    )}
+
                                                     <div
-                                                        key={comment.id}
                                                         style={{
                                                             display: "flex",
-                                                            flexDirection: "column",
+                                                            justifyContent: "space-between",
+                                                            alignItems: "flex-start",
                                                             gap: "8px",
-                                                            position: "relative",
-                                                            paddingLeft: "16px",
                                                         }}
                                                     >
-                                                        {/* Thread line indicator */}
-                                                        {index < thread.comments.length - 1 && (
-                                                            <div
-                                                                style={{
-                                                                    position: "absolute",
-                                                                    left: "12px",
-                                                                    top: "32px",
-                                                                    bottom: "-20px",
-                                                                    width: "2px",
-                                                                    backgroundColor:
-                                                                        "var(--vscode-widget-border)",
-                                                                }}
-                                                            />
-                                                        )}
-
+                                                        <UserAvatar
+                                                            username={comment.author.name}
+                                                            size="small"
+                                                            timestamp="Just now" // TODO: Add actual timestamps
+                                                        />
                                                         <div
-                                                            style={{
-                                                                display: "flex",
-                                                                justifyContent: "space-between",
-                                                                alignItems: "flex-start",
-                                                                gap: "8px",
-                                                            }}
+                                                            style={{ display: "flex", gap: "4px" }}
                                                         >
-                                                            <UserAvatar
-                                                                username={comment.author.name}
-                                                                size="small"
-                                                                timestamp="Just now" // TODO: Add actual timestamps
-                                                            />
-                                                            <div
-                                                                style={{
-                                                                    display: "flex",
-                                                                    gap: "4px",
-                                                                }}
-                                                            >
-                                                                <VSCodeButton
-                                                                    appearance="icon"
-                                                                    onClick={() => {
-                                                                        setReplyingTo({
-                                                                            threadId: thread.id,
-                                                                            username:
-                                                                                comment.author.name,
-                                                                        });
-                                                                    }}
-                                                                >
-                                                                    <i className="codicon codicon-reply" />
-                                                                </VSCodeButton>
-                                                                <VSCodeButton
-                                                                    appearance="icon"
-                                                                    onClick={() =>
-                                                                        handleCommentDeletion(
-                                                                            comment.id,
-                                                                            thread.id
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    <i className="codicon codicon-trash" />
-                                                                </VSCodeButton>
-                                                            </div>
-                                                        </div>
-                                                        <div
-                                                            style={{
-                                                                paddingLeft: "32px",
-                                                                wordBreak: "break-word",
-                                                                fontSize: "13px",
-                                                                lineHeight: "1.4",
-                                                            }}
-                                                        >
-                                                            {replyingTo?.username &&
-                                                            comment.body.startsWith(
-                                                                `@${replyingTo.username}`
-                                                            ) ? (
+                                                            {comment.deleted ? (
+                                                                // Show undo button only for the comment author
+                                                                comment.author.name ===
+                                                                    currentUser.username && (
+                                                                    <VSCodeButton
+                                                                        appearance="icon"
+                                                                        onClick={() =>
+                                                                            handleUndoCommentDeletion(
+                                                                                comment.id,
+                                                                                thread.id
+                                                                            )
+                                                                        }
+                                                                        title="Undo deletion"
+                                                                    >
+                                                                        <i className="codicon codicon-discard" />
+                                                                    </VSCodeButton>
+                                                                )
+                                                            ) : (
                                                                 <>
-                                                                    <span
-                                                                        style={{
-                                                                            color: "var(--vscode-textLink-foreground)",
-                                                                            marginRight: "4px",
+                                                                    <VSCodeButton
+                                                                        appearance="icon"
+                                                                        onClick={() => {
+                                                                            setReplyingTo({
+                                                                                threadId: thread.id,
+                                                                                username:
+                                                                                    comment.author
+                                                                                        .name,
+                                                                            });
                                                                         }}
                                                                     >
-                                                                        @{replyingTo.username}
-                                                                    </span>
-                                                                    {comment.body.slice(
-                                                                        replyingTo.username.length +
-                                                                            1
+                                                                        <i className="codicon codicon-reply" />
+                                                                    </VSCodeButton>
+                                                                    {comment.author.name ===
+                                                                        currentUser.username && (
+                                                                        <VSCodeButton
+                                                                            appearance="icon"
+                                                                            onClick={() =>
+                                                                                handleCommentDeletion(
+                                                                                    comment.id,
+                                                                                    thread.id
+                                                                                )
+                                                                            }
+                                                                            title="Delete comment"
+                                                                        >
+                                                                            <i className="codicon codicon-trash" />
+                                                                        </VSCodeButton>
                                                                     )}
                                                                 </>
-                                                            ) : (
-                                                                comment.body
                                                             )}
                                                         </div>
                                                     </div>
-                                                ))}
+                                                    <div
+                                                        style={{
+                                                            paddingLeft: "32px",
+                                                            wordBreak: "break-word",
+                                                            fontSize: "13px",
+                                                            lineHeight: "1.4",
+                                                            color: comment.deleted
+                                                                ? "var(--vscode-descriptionForeground)"
+                                                                : "inherit",
+                                                        }}
+                                                    >
+                                                        {comment.deleted ? (
+                                                            <i>This comment has been deleted</i>
+                                                        ) : replyingTo?.username &&
+                                                          comment.body.startsWith(
+                                                              `@${replyingTo.username}`
+                                                          ) ? (
+                                                            <>
+                                                                <span
+                                                                    style={{
+                                                                        color: "var(--vscode-textLink-foreground)",
+                                                                        marginRight: "4px",
+                                                                    }}
+                                                                >
+                                                                    @{replyingTo.username}
+                                                                </span>
+                                                                {comment.body.slice(
+                                                                    replyingTo.username.length + 1
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            comment.body
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
 
                                             {/* Reply section */}
                                             {currentUser.isAuthenticated && (

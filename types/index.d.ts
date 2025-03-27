@@ -159,16 +159,14 @@ type VerseRefGlobalState = {
 };
 type CommentPostMessages =
     | { command: "commentsFromWorkspace"; content: string }
-    | { command: "reload"; data: { cellId: string; uri: string } }
+    | { command: "reload"; data?: { cellId: string; uri?: string } }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
     | { command: "deleteCommentThread"; commentThreadId: string }
-    | {
-          command: "deleteComment";
-          args: { commentId: number; commentThreadId: string };
-      }
-    | { command: "getCurrentCellId"; data: CellIdGlobalState }
+    | { command: "deleteComment"; args: { commentId: number; commentThreadId: string } }
+    | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string } }
+    | { command: "getCurrentCellId" }
     | { command: "fetchComments" }
-    | { command: "updateUserInfo"; userInfo: { username: string; email: string } };
+    | { command: "updateUserInfo"; userInfo?: { username: string; email: string } };
 
 interface SelectedTextDataWithContext {
     selection: string;
