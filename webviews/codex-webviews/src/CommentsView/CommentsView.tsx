@@ -80,6 +80,7 @@ function App() {
     const [showNewThreadForm, setShowNewThreadForm] = useState(false);
     const [newThreadTitle, setNewThreadTitle] = useState("");
     const [pendingResolveThreads, setPendingResolveThreads] = useState<Set<string>>(new Set());
+    const [isLocked, setIsLocked] = useState(true);
     const [currentUser, setCurrentUser] = useState<{
         username: string;
         email: string;
@@ -94,50 +95,56 @@ function App() {
         null
     );
 
-    const handleMessage = useCallback((event: MessageEvent) => {
-        const message: CommentPostMessages = event.data;
-        switch (message.command) {
-            case "commentsFromWorkspace": {
-                if (message.content) {
-                    console.log("Received comments:", message.content);
-                    try {
-                        const comments = JSON.parse(message.content);
-                        setCommentThread(comments);
-                        setPendingResolveThreads(new Set());
-                    } catch (error) {
-                        console.error("Error parsing comments:", error);
+    const handleMessage = useCallback(
+        (event: MessageEvent) => {
+            const message: CommentPostMessages = event.data;
+            switch (message.command) {
+                case "commentsFromWorkspace": {
+                    if (message.content) {
+                        console.log("Received comments:", message.content);
+                        try {
+                            const comments = JSON.parse(message.content);
+                            setCommentThread(comments);
+                            setPendingResolveThreads(new Set());
+                        } catch (error) {
+                            console.error("Error parsing comments:", error);
+                        }
                     }
+                    break;
                 }
-                break;
+                case "reload": {
+                    console.log("Reload message received:", message.data);
+                    if (message.data?.cellId) {
+                        setCellId({ cellId: message.data.cellId, uri: message.data.uri });
+                        if (isLocked) {
+                            setSearchQuery(message.data.cellId);
+                        }
+                    }
+                    if (message.data?.uri) {
+                        setUri(message.data.uri);
+                    }
+                    break;
+                }
+                case "updateUserInfo": {
+                    if (message.userInfo) {
+                        setCurrentUser({
+                            username: message.userInfo.username,
+                            email: message.userInfo.email,
+                            isAuthenticated: true,
+                        });
+                    } else {
+                        setCurrentUser({
+                            username: "vscode",
+                            email: "",
+                            isAuthenticated: false,
+                        });
+                    }
+                    break;
+                }
             }
-            case "reload": {
-                console.log("Reload message received:", message.data);
-                if (message.data?.cellId) {
-                    setCellId({ cellId: message.data.cellId, uri: message.data.uri });
-                }
-                if (message.data?.uri) {
-                    setUri(message.data.uri);
-                }
-                break;
-            }
-            case "updateUserInfo": {
-                if (message.userInfo) {
-                    setCurrentUser({
-                        username: message.userInfo.username,
-                        email: message.userInfo.email,
-                        isAuthenticated: true,
-                    });
-                } else {
-                    setCurrentUser({
-                        username: "vscode",
-                        email: "",
-                        isAuthenticated: false,
-                    });
-                }
-                break;
-            }
-        }
-    }, []);
+        },
+        [isLocked]
+    );
 
     useEffect(() => {
         window.addEventListener("message", handleMessage);
@@ -269,28 +276,16 @@ function App() {
         return commentThreadArray.filter((commentThread) => {
             if (commentThread.deleted) return false;
 
-            const matchesSearch =
+            return (
                 searchQuery.toLowerCase() === "" ||
                 commentThread.threadTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 commentThread.comments.some((comment) =>
                     comment.body.toLowerCase().includes(searchQuery.toLowerCase())
                 ) ||
-                commentThread.cellId.cellId.toLowerCase().includes(searchQuery.toLowerCase());
-
-            if (cellId.cellId) {
-                const [threadDocument, threadSection] =
-                    commentThread.cellId.cellId?.split(":") || [];
-                const [currentDocument, currentSection] = cellId.cellId?.split(":") || [];
-                return (
-                    threadDocument === currentDocument &&
-                    threadSection === currentSection &&
-                    matchesSearch
-                );
-            }
-
-            return matchesSearch;
+                commentThread.cellId.cellId.toLowerCase().includes(searchQuery.toLowerCase())
+            );
         });
-    }, [commentThreadArray, cellId.cellId, searchQuery]);
+    }, [commentThreadArray, searchQuery]);
 
     return (
         <div
@@ -337,24 +332,69 @@ function App() {
                     >
                         <span slot="start" className="codicon codicon-search"></span>
                     </VSCodeTextField>
-                    {cellId.cellId && (
-                        <VSCodeBadge
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setIsLocked(!isLocked)}
+                        title={isLocked ? "Unlock from current cell" : "Lock to current cell"}
+                    >
+                        <i className={`codicon codicon-${isLocked ? "lock" : "unlock"}`} />
+                    </VSCodeButton>
+                </div>
+
+                {cellId.cellId && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "4px",
+                            padding: "8px",
+                            backgroundColor: "var(--vscode-list-hoverBackground)",
+                            borderRadius: "4px",
+                            fontSize: "12px",
+                        }}
+                    >
+                        <div
                             style={{
-                                padding: "4px 8px",
-                                backgroundColor: "var(--vscode-badge-background)",
-                                color: "var(--vscode-badge-foreground)",
-                                borderRadius: "4px",
-                                fontSize: "12px",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                maxWidth: "150px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                color: "var(--vscode-descriptionForeground)",
                             }}
                         >
-                            {getCellId(cellId.cellId)}
-                        </VSCodeBadge>
-                    )}
-                </div>
+                            <i className="codicon codicon-location"></i>
+                            <span>Current Cell</span>
+                        </div>
+                        <div
+                            style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                fontFamily: "var(--vscode-editor-font-family)",
+                            }}
+                        >
+                            <span
+                                style={{
+                                    color: "var(--vscode-textLink-foreground)",
+                                    wordBreak: "break-all",
+                                }}
+                            >
+                                {cellId.cellId}
+                            </span>
+                            <VSCodeBadge
+                                style={{
+                                    padding: "2px 6px",
+                                    backgroundColor: "var(--vscode-badge-background)",
+                                    color: "var(--vscode-badge-foreground)",
+                                    borderRadius: "4px",
+                                    fontSize: "11px",
+                                    flexShrink: 0,
+                                }}
+                            >
+                                {getCellId(cellId.cellId)}
+                            </VSCodeBadge>
+                        </div>
+                    </div>
+                )}
 
                 {showNewThreadForm && (
                     <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
@@ -462,7 +502,7 @@ function App() {
                                             style={{
                                                 display: "flex",
                                                 flexDirection: "column",
-                                                gap: "2px",
+                                                gap: "4px",
                                                 flex: 1,
                                                 minWidth: 0,
                                             }}
@@ -496,17 +536,40 @@ function App() {
                                                         : "comments"}
                                                 </span>
                                             </div>
-                                            <span
+                                            <div
                                                 style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "8px",
                                                     fontSize: "12px",
-                                                    color: "var(--vscode-descriptionForeground)",
-                                                    overflow: "hidden",
-                                                    textOverflow: "ellipsis",
-                                                    whiteSpace: "nowrap",
                                                 }}
                                             >
-                                                {getCellId(thread.cellId.cellId)}
-                                            </span>
+                                                <span
+                                                    style={{
+                                                        color: "var(--vscode-textLink-foreground)",
+                                                        fontFamily:
+                                                            "var(--vscode-editor-font-family)",
+                                                        overflow: "hidden",
+                                                        textOverflow: "ellipsis",
+                                                        whiteSpace: "nowrap",
+                                                    }}
+                                                >
+                                                    {thread.cellId.cellId}
+                                                </span>
+                                                <VSCodeBadge
+                                                    style={{
+                                                        padding: "2px 6px",
+                                                        backgroundColor:
+                                                            "var(--vscode-badge-background)",
+                                                        color: "var(--vscode-badge-foreground)",
+                                                        borderRadius: "4px",
+                                                        fontSize: "11px",
+                                                        flexShrink: 0,
+                                                    }}
+                                                >
+                                                    {getCellId(thread.cellId.cellId)}
+                                                </VSCodeBadge>
+                                            </div>
                                         </div>
                                         {thread.resolved && <VSCodeBadge>Resolved</VSCodeBadge>}
                                     </div>
