@@ -171,14 +171,14 @@ const ValidationLegend: React.FC<{
                 >
                     <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>Validation Status Icons:</div>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <span style={{ 
+                        <i className="codicon codicon-dash" style={{ 
                             fontWeight: 'bold',
                             width: '16px',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             marginRight: '6px'
-                        }}>—</span>
+                        }}></i>
                         <span>Empty/Untranslated</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>

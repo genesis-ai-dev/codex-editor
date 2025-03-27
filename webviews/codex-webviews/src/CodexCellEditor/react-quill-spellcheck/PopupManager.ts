@@ -13,6 +13,7 @@ export default class PopupManager {
     private openPopup?: HTMLElement;
     private currentSuggestionElement?: HTMLElement;
     private eventListenerAdded = false;
+    private activeButtons: HTMLElement[] = []; // Track active buttons for cleanup
 
     constructor(private readonly parent: QuillSpellChecker) {
         this.closePopup = this.closePopup.bind(this);
@@ -23,6 +24,25 @@ export default class PopupManager {
             this.addEventHandler();
             this.eventListenerAdded = true;
         }
+    }
+
+    public dispose() {
+        // Clean up global event listeners
+        if (this.eventListenerAdded && this.parent.quill?.root) {
+            const root = this.findRoot(this.parent.quill.root);
+            root.removeEventListener("click", this.handleClick);
+            window.removeEventListener("resize", this.handleResize);
+            this.eventListenerAdded = false;
+        }
+
+        // Clean up any open popup
+        this.closePopup();
+
+        // Clean up any remaining button listeners
+        this.activeButtons.forEach((button) => {
+            button.replaceWith(button.cloneNode(true));
+        });
+        this.activeButtons = [];
     }
 
     private addEventHandler() {
@@ -48,10 +68,17 @@ export default class PopupManager {
 
     private closePopup() {
         if (this.openPopup) {
+            // Clean up button event listeners before removing popup
+            const buttons = this.openPopup.querySelectorAll("button");
+            buttons.forEach((button) => {
+                button.replaceWith(button.cloneNode(true));
+            });
+
             this.openPopup.remove();
             this.openPopup = undefined;
         }
         this.currentSuggestionElement = undefined;
+        this.activeButtons = []; // Clear the active buttons array
     }
 
     private handleSuggestionClick(suggestion: HTMLElement) {
@@ -85,6 +112,7 @@ export default class PopupManager {
                 this.applySuggestion(match, replacement.value, index)
             );
             actionsDiv.appendChild(button);
+            this.activeButtons.push(button);
         });
 
         // Add "Add to dictionary" button only if the match is not a special phrase
@@ -93,6 +121,7 @@ export default class PopupManager {
                 this.addWordToDictionary(match.text)
             );
             actionsDiv.appendChild(addToDictionaryButton);
+            this.activeButtons.push(addToDictionaryButton);
         }
 
         // Add reject button for smart edits (purple) and ice edits (blue)
@@ -106,6 +135,7 @@ export default class PopupManager {
                 this.closePopup();
             });
             actionsDiv.appendChild(rejectButton);
+            this.activeButtons.push(rejectButton);
         }
 
         popupContent.appendChild(actionsDiv);

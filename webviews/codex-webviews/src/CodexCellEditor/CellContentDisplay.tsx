@@ -21,7 +21,6 @@ import AnimatedReveal from "../components/AnimatedReveal";
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
     cell: QuillCellContent;
-    setContentBeingUpdated: (content: EditorCellContent) => void;
     vscode: WebviewApi<unknown>;
     textDirection: "ltr" | "rtl";
     isSourceText: boolean;
@@ -34,6 +33,8 @@ interface CellContentDisplayProps {
     translationState?: "waiting" | "processing" | "completed" | null;
     allTranslationsComplete?: boolean;
     handleCellTranslation?: (cellId: string) => void;
+    handleCellClick: (cellId: string) => void;
+    cellDisplayMode: CELL_DISPLAY_MODES;
 }
 
 const DEBUG_ENABLED = false;
@@ -45,7 +46,7 @@ function debug(message: string, ...args: any[]): void {
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cell,
-    setContentBeingUpdated,
+    // setContentBeingUpdated,
     vscode,
     textDirection,
     isSourceText,
@@ -58,6 +59,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     translationState = null,
     allTranslationsComplete = false,
     handleCellTranslation,
+    handleCellClick,
+    cellDisplayMode,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -95,34 +98,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
         }
     }, [highlightedCellId]);
-
-    const handleVerseClick = () => {
-        if (unsavedChanges || isSourceText) {
-            toggleFlashingBorder();
-            return;
-        }
-
-        const documentUri =
-            (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
-
-        // First update the content
-        setContentBeingUpdated({
-            cellMarkers: cellIds,
-            cellContent,
-            cellChanged: unsavedChanges,
-            cellLabel: cellLabelOrGeneratedLabel,
-            timestamps,
-            uri: documentUri,
-        } as EditorCellContent);
-
-        // Then notify the extension about the current cell and document
-        vscode.postMessage({
-            command: "setCurrentIdToGlobalState",
-            content: {
-                currentLineId: cellIds[0],
-            },
-        } as EditorPostMessages);
-    };
 
     // Handler for stopping translation when clicked on the spinner
     const handleStopTranslation = (e: React.MouseEvent) => {
@@ -224,8 +199,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             return {};
         }
 
-        // Determine if we're in inline mode based on the parent element
-        const isInlineMode = cellRef.current?.closest(".cell-display-inline") !== null;
+        // Determine if we're in inline mode based on the cellDisplayMode prop
+        const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
 
         // Get the translation style from our new utility
         return getTranslationStyle(
@@ -237,8 +212,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     // We don't need the CSS class anymore since we're using inline styles
     // But we do need to handle any className returned from getTranslationStyle for animations
     const getAnimationClassName = () => {
-        // Determine if we're in inline mode
-        const isInlineMode = cellRef.current?.closest(".cell-display-inline") !== null;
+        // Determine if we're in inline mode based on the cellDisplayMode prop
+        const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
 
         // Get the translation style which may include a className
         const style = getTranslationStyle(
@@ -247,6 +222,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         );
 
         return style.className || "";
+    };
+
+    // Function to check if we should show cell header elements
+    const shouldShowHeaderElements = () => {
+        return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
     };
 
     return (
@@ -260,77 +240,75 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 direction: textDirection,
                 ...getBorderStyle(),
             }}
-            onClick={handleVerseClick}
+            onClick={() => handleCellClick(cellIds[0])}
         >
             <div className="cell-header">
-                <div
-                    className="cell-actions"
-                    style={{
-                        display: "flex",
-                        alignItems: "center",
-                        minWidth: "60px",
-                        justifyContent: "space-between",
-                    }}
-                >
+                {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
                     <div
-                        className="action-button-container"
+                        className="cell-actions"
                         style={{
                             display: "flex",
-                            gap: "8px",
-                            minWidth: "50px",
-                            marginLeft: "38px",
-                            justifyContent: "center",
+                            justifyContent: "space-between",
                         }}
                     >
-                        <AnimatedReveal
-                            button={
-                                !isSourceText &&
-                                SHOW_VALIDATION_BUTTON &&
-                                !isInTranslationProcess && (
-                                    <div style={{ flexShrink: 0 }}>
-                                        <ValidationButton
-                                            cellId={cellIds[0]}
-                                            cell={cell}
-                                            vscode={vscode}
-                                            isSourceText={isSourceText}
-                                        />
-                                    </div>
-                                )
-                            }
-                            content={
-                                !isSourceText && (
-                                    <VSCodeButton
-                                        appearance="icon"
-                                        style={{
-                                            height: "16px",
-                                            width: "16px",
-                                            padding: 0,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            position: "relative",
-                                        }}
-                                        onClick={
-                                            isInTranslationProcess
-                                                ? handleStopTranslation
-                                                : handleSparkleButtonClick
-                                        }
-                                    >
-                                        <i
-                                            className={`codicon ${
+                        <div
+                            className="action-button-container"
+                            style={{
+                                display: "flex",
+                                gap: "8px",
+                            }}
+                        >
+                            <AnimatedReveal
+                                mode="reveal"
+                                button={
+                                    !isSourceText &&
+                                    SHOW_VALIDATION_BUTTON &&
+                                    !isInTranslationProcess && (
+                                        <div style={{ flexShrink: 0 }}>
+                                            <ValidationButton
+                                                cellId={cellIds[0]}
+                                                cell={cell}
+                                                vscode={vscode}
+                                                isSourceText={isSourceText}
+                                            />
+                                        </div>
+                                    )
+                                }
+                                content={
+                                    !isSourceText && (
+                                        <VSCodeButton
+                                            appearance="icon"
+                                            style={{
+                                                height: "16px",
+                                                width: "16px",
+                                                padding: 0,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                position: "relative",
+                                            }}
+                                            onClick={
                                                 isInTranslationProcess
-                                                    ? "codicon-loading codicon-modifier-spin"
-                                                    : "codicon-sparkle"
-                                            }`}
-                                            style={{ fontSize: "12px" }}
-                                        ></i>
-                                    </VSCodeButton>
-                                )
-                            }
-                        />
+                                                    ? handleStopTranslation
+                                                    : handleSparkleButtonClick
+                                            }
+                                        >
+                                            <i
+                                                className={`codicon ${
+                                                    isInTranslationProcess
+                                                        ? "codicon-loading codicon-modifier-spin"
+                                                        : "codicon-sparkle"
+                                                }`}
+                                                style={{ fontSize: "12px" }}
+                                            ></i>
+                                        </VSCodeButton>
+                                    )
+                                }
+                            />
+                        </div>
+                        {getAlertDot()}
                     </div>
-                    {getAlertDot()}
-                </div>
+                )}
                 <div className="cell-label">
                     {cellLabelOrGeneratedLabel && (
                         <span className="cell-label-text">{cellLabelOrGeneratedLabel}</span>

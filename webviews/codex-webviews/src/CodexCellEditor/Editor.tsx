@@ -1,7 +1,10 @@
 import { useRef, useEffect, useMemo, useState, useContext } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
-import registerQuillSpellChecker, { getCleanedHtml } from "./react-quill-spellcheck";
+import registerQuillSpellChecker, {
+    getCleanedHtml,
+    QuillSpellChecker,
+} from "./react-quill-spellcheck";
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
@@ -226,7 +229,7 @@ export default function Editor(props: EditorProps) {
                 }
             });
 
-            // Save edit history on unmount
+            // Save edit history on unmount and cleanup
             return () => {
                 if (quillRef.current) {
                     const finalContent = quillRef.current.root.innerHTML;
@@ -241,6 +244,17 @@ export default function Editor(props: EditorProps) {
                             return [...prev, newEntry];
                         });
                     }
+
+                    // Clean up spell checker
+                    const spellChecker = quillRef.current.getModule(
+                        "spellChecker"
+                    ) as QuillSpellChecker;
+                    if (spellChecker) {
+                        spellChecker.dispose();
+                    }
+
+                    // Clear the reference
+                    quillRef.current = null;
                 }
             };
         }
@@ -364,9 +378,9 @@ export default function Editor(props: EditorProps) {
 
     // Add function to strip HTML tags and decode entities
     const stripHtmlAndDecode = (html: string): string => {
-        const temp = document.createElement('div');
+        const temp = document.createElement("div");
         temp.innerHTML = html;
-        return temp.textContent || temp.innerText || '';
+        return temp.textContent || temp.innerText || "";
     };
 
     // Add function to generate diff HTML
@@ -374,7 +388,7 @@ export default function Editor(props: EditorProps) {
         // Strip HTML from both texts before comparing
         const cleanOldText = stripHtmlAndDecode(oldText);
         const cleanNewText = stripHtmlAndDecode(newText);
-        
+
         const diff = diffWords(cleanOldText, cleanNewText);
         return diff
             .map((part) => {
@@ -391,7 +405,7 @@ export default function Editor(props: EditorProps) {
 
     return (
         <>
-            <div className="editor-container">
+            <div className="text-editor-container">
                 <div ref={editorRef}></div>
             </div>
             {showHistoryModal && (
@@ -454,8 +468,11 @@ export default function Editor(props: EditorProps) {
                                         : stripHtmlAndDecode(entry.cellValue);
 
                                     // Check if this is the most recent entry that matches the initial value
-                                    const isCurrentVersion = entry.cellValue === props.initialValue && 
-                                        !array.slice(0, index).some(e => e.cellValue === props.initialValue);
+                                    const isCurrentVersion =
+                                        entry.cellValue === props.initialValue &&
+                                        !array
+                                            .slice(0, index)
+                                            .some((e) => e.cellValue === props.initialValue);
 
                                     return (
                                         <div
@@ -464,8 +481,9 @@ export default function Editor(props: EditorProps) {
                                                 padding: "8px",
                                                 border: "1px solid var(--vscode-editor-foreground)",
                                                 borderRadius: "4px",
-                                                backgroundColor: isCurrentVersion ? 
-                                                    'var(--vscode-editor-selectionBackground)' : 'transparent'
+                                                backgroundColor: isCurrentVersion
+                                                    ? "var(--vscode-editor-selectionBackground)"
+                                                    : "transparent",
                                             }}
                                         >
                                             <div
@@ -475,21 +493,31 @@ export default function Editor(props: EditorProps) {
                                                     color: "var(--vscode-descriptionForeground)",
                                                     display: "flex",
                                                     justifyContent: "space-between",
-                                                    alignItems: "center"
+                                                    alignItems: "center",
                                                 }}
                                             >
                                                 <div>
-                                                    {new Date(entry.timestamp).toLocaleString()} by {entry.author}
+                                                    {new Date(entry.timestamp).toLocaleString()} by{" "}
+                                                    {entry.author}
                                                 </div>
-                                                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                                <div
+                                                    style={{
+                                                        display: "flex",
+                                                        gap: "8px",
+                                                        alignItems: "center",
+                                                    }}
+                                                >
                                                     {isCurrentVersion ? (
-                                                        <span style={{ 
-                                                            fontSize: "0.8em",
-                                                            padding: "2px 6px",
-                                                            backgroundColor: "var(--vscode-badge-background)",
-                                                            color: "var(--vscode-badge-foreground)",
-                                                            borderRadius: "4px"
-                                                        }}>
+                                                        <span
+                                                            style={{
+                                                                fontSize: "0.8em",
+                                                                padding: "2px 6px",
+                                                                backgroundColor:
+                                                                    "var(--vscode-badge-background)",
+                                                                color: "var(--vscode-badge-foreground)",
+                                                                borderRadius: "4px",
+                                                            }}
+                                                        >
                                                             Current Version
                                                         </span>
                                                     ) : (
@@ -497,7 +525,8 @@ export default function Editor(props: EditorProps) {
                                                             onClick={() => {
                                                                 if (quillRef.current) {
                                                                     // When selecting a version, use the original HTML
-                                                                    quillRef.current.root.innerHTML = entry.cellValue;
+                                                                    quillRef.current.root.innerHTML =
+                                                                        entry.cellValue;
                                                                     setShowHistoryModal(false);
                                                                     // Trigger the text-change event to update state
                                                                     quillRef.current.update();
@@ -508,13 +537,14 @@ export default function Editor(props: EditorProps) {
                                                                 border: "none",
                                                                 cursor: "pointer",
                                                                 color: "var(--vscode-button-foreground)",
-                                                                backgroundColor: "var(--vscode-button-background)",
+                                                                backgroundColor:
+                                                                    "var(--vscode-button-background)",
                                                                 padding: "4px 8px",
                                                                 borderRadius: "4px",
                                                                 fontSize: "0.9em",
                                                                 display: "flex",
                                                                 alignItems: "center",
-                                                                gap: "4px"
+                                                                gap: "4px",
                                                             }}
                                                         >
                                                             <i className="codicon codicon-edit"></i>
@@ -527,7 +557,8 @@ export default function Editor(props: EditorProps) {
                                                 <div
                                                     style={{
                                                         whiteSpace: "pre-wrap",
-                                                        backgroundColor: "var(--vscode-editor-findMatchHighlightBackground)",
+                                                        backgroundColor:
+                                                            "var(--vscode-editor-findMatchHighlightBackground)",
                                                         padding: "4px",
                                                         borderRadius: "2px",
                                                     }}

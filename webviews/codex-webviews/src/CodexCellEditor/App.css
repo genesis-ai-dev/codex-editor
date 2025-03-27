@@ -31,13 +31,20 @@
     text-align: center;
 }
 
-.editor-container {
+.editor-container, .text-editor-container {
     max-width: 48rem;
     width: 100%;
     margin: 0 auto;
-    padding: 2rem 2rem 3rem;
     border-radius: 1rem;
     box-shadow: 0 2px 4px var(--vscode-widget-border);
+}
+
+.editor-container {
+    padding: 2rem 2rem 3rem 0rem;
+}
+
+.text-editor-container {
+    padding: 2rem 2rem 3rem 2rem;
 }
 
 .chapter-navigation {
@@ -144,49 +151,9 @@
 .cell-header {
     display: flex;
     align-items: center;
-    gap: 0.15rem;
+    gap: 0.5rem;
     min-width: 2rem;
     flex-shrink: 0;
-}
-
-.cell-actions {
-    display: flex;
-    align-items: center;
-    min-width: 50px; /* Increased from 20px to accommodate multiple buttons */
-    justify-content: space-between;
-}
-
-.action-button-container {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    position: relative !important;
-    min-width: 40px !important; /* Increased from 15px to accommodate multiple buttons */
-    height: auto !important; /* Changed from fixed height to auto */
-    margin-right: 4px;
-    margin-left: 38px !important; /* Updated from 35px to 37px for better alignment */
-    gap: 8px !important;
-}
-
-/* Styles for the spinner button */
-.action-button-container .codicon-loading {
-    font-size: 12px !important;
-    width: 12px;
-    height: 12px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.action-button-container vscode-button {
-    position: relative;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 
 .cell-header h3 {
@@ -385,7 +352,6 @@ li {
         --vscode-editor-inactiveSelectionBackground
     ); /* Background accent from VSCode theme */
     border-inline-start: 4px solid var(--vscode-editorInfo-foreground); /* Strong accent from VSCode theme */
-    padding: 0.5rem;
     border-radius: 4px;
     display: block;
 }
@@ -399,7 +365,6 @@ li {
 
 .cell-display-one-line-per-cell .paratext-cell {
     background-color: var(--vscode-editor-inactiveSelectionBackground);
-    padding: 0.5rem;
     border-radius: 4px;
     margin-block-end: 0.5rem;
 }
@@ -719,10 +684,6 @@ li {
     display: inline;
 }
 
-.cell-display-inline .cell-actions {
-    display: none;
-}
-
 .cell-display-inline .cell-label {
     display: inline;
     margin-right: 0.25rem;
@@ -738,33 +699,12 @@ li {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
-    padding: 0.25rem;
-    width: calc(100% - 1rem);
-    margin: 0 0.5rem;
     box-sizing: border-box;
 }
 
 /* Specific style for empty cells in one-line-per-cell mode */
 .cell-display-one-line-per-cell .empty-cell-display {
     width: 100%;
-}
-
-.cell-display-one-line-per-cell .cell-header {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 0.15rem;
-    min-width: 2rem;
-    flex-shrink: 0;
-    height: 21px;
-}
-
-.cell-display-one-line-per-cell .cell-actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 20px;
-    height: 100%;
 }
 
 .cell-display-one-line-per-cell .cell-label {
@@ -921,8 +861,6 @@ li {
 /* Ensure consistent width during translation process */
 .cell-display-one-line-per-cell .cell-content-display,
 .cell-display-one-line-per-cell .empty-cell-display {
-    width: calc(100% - 1rem);
-    margin: 0 0.5rem;
     box-sizing: border-box;
 }
 

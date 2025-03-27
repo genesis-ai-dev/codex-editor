@@ -59,7 +59,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
-    
+
     // Translation queue system
     private translationQueue: {
         cellId: string;
@@ -69,7 +69,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         reject: (error: any) => void;
     }[] = [];
     private isProcessingQueue: boolean = false;
-    
+
     // New state for autocompletion process
     public autocompletionState: {
         isProcessing: boolean;
@@ -84,9 +84,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         completedCells: 0,
         currentCellId: undefined,
         cellsToProcess: [],
-        progress: 0
+        progress: 0,
     };
-    
+
     // Single cell translation state
     public singleCellTranslationState: {
         isProcessing: boolean;
@@ -95,9 +95,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     } = {
         isProcessing: false,
         cellId: undefined,
-        progress: 0
+        progress: 0,
     };
-    
+
     // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
     private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
 
@@ -146,13 +146,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.refreshValidationStateForAllDocuments();
             }
         });
-        
+
         // Register a command to update validation indicators
         this.context.subscriptions.push(
-            vscode.commands.registerCommand("codex-editor-extension.updateValidationIndicators", () => {
-                // Send validation count to all webviews
-                this.updateValidationIndicatorsForAllDocuments();
-            })
+            vscode.commands.registerCommand(
+                "codex-editor-extension.updateValidationIndicators",
+                () => {
+                    // Send validation count to all webviews
+                    this.updateValidationIndicatorsForAllDocuments();
+                }
+            )
         );
     }
 
@@ -636,21 +639,23 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         currentChapterTranslationUnits: QuillCellContent[]
     ) {
         debug("Starting chapter autocompletion");
-        
+
         // Create a new cancellation token source for this autocomplete operation
         if (this.autocompleteCancellation) {
             this.autocompleteCancellation.dispose();
         }
         this.autocompleteCancellation = new vscode.CancellationTokenSource();
-        
+
         try {
             // Calculate cells to process (filter out paratext and range cells)
             const cellsToProcess = currentChapterTranslationUnits.filter(
-                cell => cell.cellType !== CodexCellTypes.PARATEXT && cell.cellContent?.trim() !== "<range>"
+                (cell) =>
+                    cell.cellType !== CodexCellTypes.PARATEXT &&
+                    cell.cellContent?.trim() !== "<range>"
             );
             const totalCells = cellsToProcess.length;
-            const cellIds = cellsToProcess.map(cell => cell.cellMarkers[0]);
-            
+            const cellIds = cellsToProcess.map((cell) => cell.cellMarkers[0]);
+
             // Update state in the provider first
             this.autocompletionState = {
                 isProcessing: true,
@@ -658,12 +663,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 completedCells: 0,
                 currentCellId: undefined,
                 cellsToProcess: cellIds,
-                progress: 0.01 // Start with a tiny bit of progress
+                progress: 0.01, // Start with a tiny bit of progress
             };
-            
+
             // Send state to webview
             this.broadcastAutocompletionState();
-            
+
             // Enqueue all cells for processing - they will be processed one by one
             for (const cell of cellsToProcess) {
                 const cellId = cell.cellMarkers[0];
@@ -671,40 +676,44 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     console.error("Cell ID is undefined, skipping cell");
                     continue;
                 }
-                
+
                 // Add to the unified queue - no need to wait for completion here
                 this.enqueueTranslation(cellId, document, true)
                     .then(() => {
                         // Cell has been processed successfully
                         // The queue processing will update progress automatically
                     })
-                    .catch(error => {
+                    .catch((error) => {
                         // Just log errors - the queue processing will update progress
                         console.error(`Error autocompleting cell ${cellId}:`, error);
                     });
             }
-            
+
             // Instead of waiting for all promises to complete, monitor the queue status
             const checkQueueStatus = () => {
-                const remainingCells = this.translationQueue.filter(
-                    req => cellIds.includes(req.cellId)
+                const remainingCells = this.translationQueue.filter((req) =>
+                    cellIds.includes(req.cellId)
                 ).length;
-                
+
                 // Update state directly based on remaining cells
                 this.autocompletionState.completedCells = totalCells - remainingCells;
-                this.autocompletionState.progress = 
-                    Math.min(0.99, this.autocompletionState.completedCells / totalCells);
+                this.autocompletionState.progress = Math.min(
+                    0.99,
+                    this.autocompletionState.completedCells / totalCells
+                );
                 this.broadcastAutocompletionState();
-                
+
                 // Continue checking until complete or cancelled
-                if (remainingCells > 0 && 
-                    !this.autocompleteCancellation?.token.isCancellationRequested) {
+                if (
+                    remainingCells > 0 &&
+                    !this.autocompleteCancellation?.token.isCancellationRequested
+                ) {
                     setTimeout(checkQueueStatus, 500);
                 } else {
                     // All cells processed or operation cancelled
                     this.autocompletionState.progress = 1.0;
                     this.broadcastAutocompletionState();
-                    
+
                     // After a short delay, reset state
                     setTimeout(() => {
                         this.autocompletionState = {
@@ -713,16 +722,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             completedCells: 0,
                             currentCellId: undefined,
                             cellsToProcess: [],
-                            progress: 0
+                            progress: 0,
                         };
                         this.broadcastAutocompletionState();
                     }, 1500);
                 }
             };
-            
+
             // Start monitoring
             checkQueueStatus();
-            
         } finally {
             // Clean up cancellation token when method exits
             // Note: This doesn't mean processing is complete
@@ -734,11 +742,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }, 2000);
         }
     }
-    
+
     // New method to broadcast the current autocompletion state to all webviews
     private broadcastAutocompletionState(): void {
-        const { isProcessing, totalCells, completedCells, currentCellId, cellsToProcess, progress } = this.autocompletionState;
-        
+        const {
+            isProcessing,
+            totalCells,
+            completedCells,
+            currentCellId,
+            cellsToProcess,
+            progress,
+        } = this.autocompletionState;
+
         this.webviewPanels.forEach((panel) => {
             panel.webview.postMessage({
                 type: "providerAutocompletionState",
@@ -748,46 +763,46 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     completedCells,
                     currentCellId,
                     cellsToProcess,
-                    progress
-                }
+                    progress,
+                },
             });
         });
     }
-    
+
     public cancelAutocompleteChapter(): boolean {
         if (this.autocompleteCancellation) {
             debug("Cancelling chapter autocompletion");
             this.autocompleteCancellation.cancel();
-            
+
             // Immediately clear all batch translation requests from the queue
             if (this.translationQueue.length > 0 && this.autocompletionState.isProcessing) {
                 // Get current cell IDs in the batch
                 const batchCellIds = this.autocompletionState.cellsToProcess;
-                
+
                 // Keep the current processing cell if any
                 const currentRequest = this.isProcessingQueue ? this.translationQueue[0] : null;
-                
+
                 // Filter out all batch requests except the current one
                 const remainingRequests = this.translationQueue.filter((req, index) => {
                     // Keep the current request (first in queue) if it's actively processing
                     if (index === 0 && this.isProcessingQueue) {
                         return true;
                     }
-                    
+
                     // Reject all other batch requests
                     if (batchCellIds.includes(req.cellId)) {
                         req.reject(new Error("Translation cancelled"));
                         return false;
                     }
-                    
+
                     // Keep all non-batch requests
                     return true;
                 });
-                
+
                 // Update the queue
                 this.translationQueue = remainingRequests;
             }
-            
+
             // Reset autocompletion state
             this.autocompletionState = {
                 isProcessing: false,
@@ -795,66 +810,69 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 completedCells: 0,
                 currentCellId: undefined,
                 cellsToProcess: [],
-                progress: 0
+                progress: 0,
             };
             this.broadcastAutocompletionState();
-            
+
             return true;
         }
         return false;
     }
-    
+
     // New method to set single cell translation state
     public startSingleCellTranslation(cellId: string): void {
         this.singleCellTranslationState = {
             isProcessing: true,
             cellId,
-            progress: 0
+            progress: 0,
         };
         this.broadcastSingleCellTranslationState();
     }
-    
+
     // New method to update single cell translation progress
     public updateSingleCellTranslationProgress(progress: number): void {
-        if (this.singleCellTranslationState.isProcessing && this.singleCellTranslationState.cellId) {
+        if (
+            this.singleCellTranslationState.isProcessing &&
+            this.singleCellTranslationState.cellId
+        ) {
             this.singleCellTranslationState.progress = progress;
             this.broadcastSingleCellTranslationState();
         }
     }
-    
+
     // New method to complete single cell translation
     public completeSingleCellTranslation(): void {
         if (this.singleCellTranslationState.isProcessing) {
             this.singleCellTranslationState = {
                 isProcessing: false,
                 cellId: undefined,
-                progress: 0
+                progress: 0,
             };
             this.broadcastSingleCellTranslationState();
         }
     }
-    
+
     // New method to handle single cell translation error
     public failSingleCellTranslation(errorMessage: string): void {
         const cellId = this.singleCellTranslationState.cellId;
         this.singleCellTranslationState = {
             isProcessing: false,
             cellId: undefined,
-            progress: 0
+            progress: 0,
         };
-        
+
         if (cellId) {
             // Notify webviews that the translation failed
             this.webviewPanels.forEach((panel) => {
                 panel.webview.postMessage({
                     type: "singleCellTranslationFailed",
                     cellId,
-                    error: errorMessage
+                    error: errorMessage,
                 });
             });
         }
     }
-    
+
     // New method to broadcast single cell translation state
     private broadcastSingleCellTranslationState(): void {
         if (!this.singleCellTranslationState.cellId) {
@@ -862,34 +880,34 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         const { isProcessing, cellId, progress } = this.singleCellTranslationState;
-        
+
         this.webviewPanels.forEach((panel) => {
             if (isProcessing) {
                 if (progress === 0) {
                     // Starting
                     panel.webview.postMessage({
                         type: "singleCellTranslationStarted",
-                        cellId
+                        cellId,
                     });
                 } else if (progress < 1) {
                     // In progress
                     panel.webview.postMessage({
                         type: "singleCellTranslationProgress",
                         cellId,
-                        progress
+                        progress,
                     });
                 } else {
                     // Completed
                     panel.webview.postMessage({
                         type: "singleCellTranslationCompleted",
-                        cellId
+                        cellId,
                     });
                 }
             } else {
                 // Not processing (completed/stopped)
                 panel.webview.postMessage({
                     type: "singleCellTranslationCompleted",
-                    cellId
+                    cellId,
                 });
             }
         });
@@ -1035,7 +1053,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private refreshValidationStateForAllDocuments() {
         // Keep track of processed documents to avoid duplicates
         const processedDocuments = new Set<string>();
-        
+
         // Get the current validation count
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
@@ -1045,7 +1063,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Skip if already processed
             if (processedDocuments.has(docUri)) return;
             processedDocuments.add(docUri);
-            
+
             // Send the current validation count to each panel
             this.postMessageToWebview(panel, {
                 type: "validationCount",
@@ -1100,9 +1118,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Get the current configuration
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const validationCount = config.get("validationCount", 1);
-        
-        debug(`Updating validation indicators for all documents with validation count: ${validationCount}`);
-        
+
+        debug(
+            `Updating validation indicators for all documents with validation count: ${validationCount}`
+        );
+
         // Send to all webviews
         this.webviewPanels.forEach((panel) => {
             this.postMessageToWebview(panel, {
@@ -1110,7 +1130,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 content: validationCount,
             });
         });
-        
+
         // Also refresh the validation state to ensure displays are consistent
         this.refreshValidationStateForAllDocuments();
     }
@@ -1118,13 +1138,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Marks a cell as complete in our internal state tracking
     public markCellComplete(cellId: string) {
         debug(`Marking cell ${cellId} as complete`);
-        
+
         // Only update state for single cell translations
         // (Batch progress is now handled by the queue monitor)
-        if (this.singleCellTranslationState.isProcessing && 
-            this.singleCellTranslationState.cellId === cellId) {
+        if (
+            this.singleCellTranslationState.isProcessing &&
+            this.singleCellTranslationState.cellId === cellId
+        ) {
             this.updateSingleCellTranslationProgress(1.0);
-            
+
             // Use a short timeout to reset the state after completion
             setTimeout(() => this.completeSingleCellTranslation(), 1500);
         }
@@ -1146,7 +1168,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 document,
                 shouldUpdateValue,
                 resolve,
-                reject
+                reject,
             });
 
             // Start processing the queue if it's not already in progress
@@ -1169,7 +1191,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Process the queue one at a time
             while (this.translationQueue.length > 0) {
                 const request = this.translationQueue[0];
-                
+
                 // Update the current cell being processed in the provider state
                 if (this.autocompletionState.isProcessing) {
                     this.autocompletionState.currentCellId = request.cellId;
@@ -1180,7 +1202,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 try {
                     debug(`Processing translation for cell ${request.cellId}`);
-                    
+
                     // Start the actual translation process
                     const result = await this.performLLMCompletionInternal(
                         request.cellId,
@@ -1190,27 +1212,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Remove the processed request from the queue before resolving
                     this.translationQueue.shift();
-                    
+
                     // Update state and resolve the promise
                     this.markCellComplete(request.cellId);
-                    
+
                     request.resolve(result);
-                    
+
                     // Process next item immediately without delay - both for individual and batch translations
                 } catch (error) {
                     debug(`Error processing translation for cell ${request.cellId}:`, error);
-                    
+
                     // Remove the failed request from the queue before rejecting
                     this.translationQueue.shift();
-                    
+
                     // Update state and reject the promise
                     this.markCellComplete(request.cellId);
                     if (!this.autocompletionState.isProcessing) {
-                        this.failSingleCellTranslation(error instanceof Error ? error.message : String(error));
+                        this.failSingleCellTranslation(
+                            error instanceof Error ? error.message : String(error)
+                        );
                     }
-                    
+
                     request.reject(error);
-                    
+
                     // Process next item immediately without delay - both for individual and batch translations
                 }
             }
@@ -1244,21 +1268,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 try {
                     // Find the webview panel for this document
                     const webviewPanel = this.webviewPanels.get(currentDocument.uri.toString());
-                    
-                    progress.report({ message: "Fetching completion configuration...", increment: 20 });
-                    
+
+                    progress.report({
+                        message: "Fetching completion configuration...",
+                        increment: 20,
+                    });
+
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.2);
-                    
+
                     // Fetch completion configuration
                     const completionConfig = await fetchCompletionConfig();
                     const notebookReader = new CodexNotebookReader(currentDocument.uri);
 
-                    progress.report({ message: "Generating translation with LLM...", increment: 30 });
-                    
+                    progress.report({
+                        message: "Generating translation with LLM...",
+                        increment: 30,
+                    });
+
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.5);
-                    
+
                     // Perform LLM completion
                     const result = await llmCompletion(
                         notebookReader,
@@ -1268,10 +1298,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     );
 
                     progress.report({ message: "Updating document...", increment: 40 });
-                    
+
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.9);
-                    
+
                     // Update content and metadata atomically
                     currentDocument.updateCellContent(
                         currentCellId,
@@ -1279,7 +1309,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         EditType.LLM_GENERATION,
                         shouldUpdateValue
                     );
-                    
+
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(1.0);
 
@@ -1296,17 +1326,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add a method to clear the translation queue
     public clearTranslationQueue(): void {
         debug("Clearing translation queue");
-        
+
         // If there's a request currently being processed, let it finish
         if (this.translationQueue.length > 0) {
             const currentRequest = this.translationQueue[0]; // Keep the first request
-            
+
             // Reject all queued requests except the current one
             for (let i = 1; i < this.translationQueue.length; i++) {
                 const request = this.translationQueue[i];
                 request.reject(new Error("Translation cancelled by user"));
             }
-            
+
             // Reset the queue with just the current request
             this.translationQueue = currentRequest ? [currentRequest] : [];
         }

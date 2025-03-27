@@ -5,9 +5,10 @@ import { useHover } from "@uidotdev/usehooks";
 interface AnimatedRevealProps {
     button: React.ReactNode;
     content: React.ReactNode;
+    mode?: "reveal" | "swap";
 }
 
-const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content }) => {
+const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content, mode = "reveal" }) => {
     const [wrapperRef, isWrapperHovered] = useHover();
 
     return (
@@ -20,22 +21,30 @@ const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content }) => {
                 position: "relative",
             }}
         >
-            <div
-                style={{
-                    opacity: isWrapperHovered ? 1 : 0,
-                    transform: `translateX(${isWrapperHovered ? "0" : "20px"}) scale(${
-                        isWrapperHovered ? 1 : 0
-                    })`,
-                    transition:
-                        "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
-                    visibility: isWrapperHovered ? "visible" : "hidden",
-                    display: "flex",
-                    alignItems: "center",
-                }}
-            >
-                {content}
-            </div>
-            <div style={{ display: "flex" }}>{button}</div>
+            {mode === "reveal" ? (
+                <>
+                    <div
+                        style={{
+                            opacity: isWrapperHovered ? 1 : 0,
+                            transform: `translateX(${isWrapperHovered ? "0" : "20px"}) scale(${
+                                isWrapperHovered ? 1 : 0
+                            })`,
+                            transition:
+                                "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
+                            visibility: isWrapperHovered ? "visible" : "hidden",
+                            display: "flex",
+                            alignItems: "center",
+                        }}
+                    >
+                        {content}
+                    </div>
+                    <div style={{ display: "flex" }}>{button}</div>
+                </>
+            ) : (
+                <div>
+                    {isWrapperHovered ? content : button}
+                </div>
+            )}
         </div>
     );
 };

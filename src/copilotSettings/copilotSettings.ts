@@ -29,6 +29,24 @@ export async function openSystemMessageEditor() {
 
     panel.webview.html = getWebviewContent(workspaceMessage, sourceLanguage, targetLanguage);
 
+    // Create message handler function that we can remove later
+    const handleMessage = async (event: MessageEvent) => {
+        const message = event.data;
+        if (message.command === "updateInput") {
+            const input = document.getElementById("input") as HTMLTextAreaElement;
+            if (!input) {
+                location.reload();
+            } else {
+                input.value = message.text;
+            }
+        }
+    };
+
+    // Add cleanup when panel is disposed
+    panel.onDidDispose(() => {
+        window.removeEventListener("message", handleMessage);
+    });
+
     panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.command) {
             case "generate":
@@ -261,7 +279,8 @@ function getWebviewContent(
                     vscode.postMessage({ command: 'generate' });
                 }
 
-                window.addEventListener('message', event => {
+                // Create message handler function that we can remove later
+                const handleMessage = (event) => {
                     const message = event.data;
                     if (message.command === 'updateInput') {
                         if (!input) {
@@ -270,7 +289,10 @@ function getWebviewContent(
                             input.value = message.text;
                         }
                     }
-                });
+                };
+
+                // Add event listener
+                window.addEventListener('message', handleMessage);
             </script>
         </body>
     </html>`;
