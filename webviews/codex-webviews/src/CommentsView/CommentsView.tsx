@@ -115,7 +115,7 @@ function App() {
                 case "reload": {
                     console.log("Reload message received:", message.data);
                     if (message.data?.cellId) {
-                        setCellId({ cellId: message.data.cellId, uri: message.data.uri });
+                        setCellId({ cellId: message.data.cellId, uri: message.data.uri || "" });
                         if (isLocked) {
                             setSearchQuery(message.data.cellId);
                         }
@@ -274,6 +274,14 @@ function App() {
         }));
     };
 
+    const toggleAllThreads = (collapse: boolean) => {
+        const newState: Record<string, boolean> = {};
+        filteredCommentThreads.forEach((thread) => {
+            newState[thread.id] = collapse;
+        });
+        setCollapsedThreads(newState);
+    };
+
     const getCellId = (cellId: string) => {
         const parts = cellId.split(":");
         return parts[parts.length - 1] || cellId;
@@ -348,60 +356,58 @@ function App() {
                     </VSCodeButton>
                 </div>
 
-                {/* {cellId.cellId && (
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "8px",
+                    }}
+                >
                     <div
                         style={{
                             display: "flex",
-                            flexDirection: "column",
-                            gap: "4px",
-                            padding: "8px",
+                            alignItems: "center",
+                            gap: "8px",
+                            padding: "4px 8px",
                             backgroundColor: "var(--vscode-list-hoverBackground)",
                             borderRadius: "4px",
                             fontSize: "12px",
+                            color: "var(--vscode-descriptionForeground)",
                         }}
                     >
-                        <div
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                color: "var(--vscode-descriptionForeground)",
-                            }}
-                        >
-                            <i className="codicon codicon-location"></i>
-                            <span>Current Cell</span>
-                        </div>
-                        <div
-                            style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "8px",
-                                fontFamily: "var(--vscode-editor-font-family)",
-                            }}
-                        >
-                            <span
-                                style={{
-                                    color: "var(--vscode-textLink-foreground)",
-                                    wordBreak: "break-all",
-                                }}
-                            >
-                                {cellId.cellId}
-                            </span>
-                            <VSCodeBadge
-                                style={{
-                                    padding: "2px 6px",
-                                    backgroundColor: "var(--vscode-badge-background)",
-                                    color: "var(--vscode-badge-foreground)",
-                                    borderRadius: "4px",
-                                    fontSize: "11px",
-                                    flexShrink: 0,
-                                }}
-                            >
-                                {getCellId(cellId.cellId)}
-                            </VSCodeBadge>
-                        </div>
+                        <i className="codicon codicon-comment-discussion"></i>
+                        <span>
+                            {filteredCommentThreads.length} comment thread
+                            {filteredCommentThreads.length !== 1 ? "s" : ""}
+                        </span>
                     </div>
-                )} */}
+                    {filteredCommentThreads.length > 0 && (
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={() => {
+                                // If any thread is expanded, collapse all. Otherwise, expand all
+                                const hasExpandedThreads = Object.values(collapsedThreads).some(
+                                    (state) => !state
+                                );
+                                toggleAllThreads(hasExpandedThreads);
+                            }}
+                            title={
+                                Object.values(collapsedThreads).some((state) => !state)
+                                    ? "Collapse all threads"
+                                    : "Expand all threads"
+                            }
+                        >
+                            <i
+                                className={`codicon codicon-${
+                                    Object.values(collapsedThreads).some((state) => !state)
+                                        ? "collapse-all"
+                                        : "expand-all"
+                                }`}
+                            />
+                        </VSCodeButton>
+                    )}
+                </div>
 
                 {showNewThreadForm && (
                     <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
