@@ -3,6 +3,8 @@ import { CommentPostMessages, NotebookCommentThread, CellIdGlobalState } from ".
 import { FileHandler, getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { initializeStateStore } from "../../stateStore";
 import { workspace, Uri, window } from "vscode";
+import { getAuthApi } from "../../extension";
+import { getProjectOverview } from "../../projectManager/utils/projectUtils";
 
 const abortController: AbortController | null = null;
 
@@ -84,10 +86,23 @@ export class CustomWebviewProvider {
     selectionChangeListener: any;
     commentsFilePath: Uri | undefined;
     private lastSentComments: string = "";
+    private authApi = getAuthApi();
+    private isAuthenticated = false;
 
     constructor(context: vscode.ExtensionContext) {
         this._context = context;
         this.initializeCommentsFile();
+        this.initializeAuthState();
+    }
+
+    private async initializeAuthState() {
+        if (this.authApi) {
+            try {
+                this.isAuthenticated = await this.authApi.getAuthStatus().isAuthenticated;
+            } catch (error) {
+                console.error("Error checking authentication:", error);
+            }
+        }
     }
 
     private async initializeCommentsFile() {
@@ -108,7 +123,43 @@ export class CustomWebviewProvider {
         }
     }
 
+    private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
+        try {
+            const projectOverview = await getProjectOverview();
+            if (!projectOverview || !projectOverview.isAuthenticated) {
+                throw new Error("Not authenticated or no project overview available");
+            }
+            webviewView.webview.postMessage({
+                command: "updateUserInfo",
+                userInfo: {
+                    username: projectOverview.userName,
+                    email: projectOverview.userEmail,
+                },
+            } as CommentPostMessages);
+        } catch (error) {
+            console.error("Error getting user info:", error);
+            // Fallback to a default user if we can't get the info
+            webviewView.webview.postMessage({
+                command: "updateUserInfo",
+                userInfo: {
+                    username: "vscode",
+                    email: "",
+                },
+            } as CommentPostMessages);
+        }
+    }
+
     resolveWebviewView(webviewView: vscode.WebviewView) {
+        // Set up auth status change listener
+        if (this.authApi) {
+            this.authApi.onAuthStatusChanged(async (status) => {
+                this.isAuthenticated = status.isAuthenticated;
+                if (webviewView.visible) {
+                    await this.sendCurrentUserInfo(webviewView);
+                }
+            });
+        }
+
         initializeStateStore().then(({ storeListener }) => {
             const disposeFunction = storeListener(
                 "cellId",
@@ -129,10 +180,11 @@ export class CustomWebviewProvider {
         loadWebviewHtml(webviewView, this._context.extensionUri);
 
         // Send initial data when the webview becomes visible
-        webviewView.onDidChangeVisibility(() => {
+        webviewView.onDidChangeVisibility(async () => {
             if (webviewView.visible) {
-                this.sendCommentsToWebview(webviewView);
-                this.sendCurrentCellId(webviewView);
+                await this.sendCommentsToWebview(webviewView);
+                await this.sendCurrentCellId(webviewView);
+                await this.sendCurrentUserInfo(webviewView);
             }
         });
 
@@ -140,6 +192,7 @@ export class CustomWebviewProvider {
         if (webviewView.visible) {
             this.sendCommentsToWebview(webviewView);
             this.sendCurrentCellId(webviewView);
+            this.sendCurrentUserInfo(webviewView);
         }
 
         // vscode.window.onDidChangeActiveTextEditor(() => {
@@ -165,22 +218,17 @@ export class CustomWebviewProvider {
                 (thread) => thread.id === newCommentThread.id
             );
             if (threadIndex !== -1) {
-                newCommentThread.comments.forEach((newComment) => {
-                    const existingCommentIndex = existingCommentsThreads[
-                        threadIndex
-                    ].comments.findIndex((existingComment) => existingComment.id === newComment.id);
-                    if (existingCommentIndex !== -1) {
-                        existingCommentsThreads[threadIndex].comments[existingCommentIndex] =
-                            newComment;
-                    } else {
-                        existingCommentsThreads[threadIndex].comments.push(newComment);
-                    }
-                });
-                existingCommentsThreads[threadIndex].threadTitle = newCommentThread.threadTitle;
-                existingCommentsThreads[threadIndex].deleted = newCommentThread.deleted;
+                // Update existing thread
+                existingCommentsThreads[threadIndex] = {
+                    ...existingCommentsThreads[threadIndex],
+                    ...newCommentThread,
+                    comments:
+                        newCommentThread.comments || existingCommentsThreads[threadIndex].comments,
+                };
             } else {
                 existingCommentsThreads.push(newCommentThread);
             }
+
             await writeSerializedData(
                 JSON.stringify(existingCommentsThreads, null, 4),
                 commentsFileName

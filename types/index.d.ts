@@ -51,6 +51,7 @@ interface NotebookCommentThread {
     canReply: boolean;
     threadTitle?: string;
     deleted: boolean;
+    resolved?: boolean;
 }
 
 interface NotebookComment {
@@ -166,7 +167,8 @@ type CommentPostMessages =
           args: { commentId: number; commentThreadId: string };
       }
     | { command: "getCurrentCellId"; data: CellIdGlobalState }
-    | { command: "fetchComments" };
+    | { command: "fetchComments" }
+    | { command: "updateUserInfo"; userInfo: { username: string; email: string } };
 
 interface SelectedTextDataWithContext {
     selection: string;
@@ -673,21 +675,21 @@ type EditorReceiveMessages =
       }
     | {
           type: "providerUpdatesCell";
-          content: { 
-              cellId: string; 
+          content: {
+              cellId: string;
               progress: number;
-              completedCells?: number; 
+              completedCells?: number;
               totalCells?: number;
               text?: string;
           };
       }
-    | { 
+    | {
           type: "providerCompletesChapterAutocompletion";
           content?: {
               progress?: number;
               completedCells?: number;
               totalCells?: number;
-          }
+          };
       }
     | {
           type: "autocompleteChapterStart";
