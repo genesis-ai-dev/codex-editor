@@ -311,7 +311,23 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 )}
                 <div className="cell-label">
                     {cellLabelOrGeneratedLabel && (
-                        <span className="cell-label-text">{cellLabelOrGeneratedLabel}</span>
+                        <span 
+                            className="cell-label-text" 
+                            style={
+                                cellDisplayMode === CELL_DISPLAY_MODES.INLINE 
+                                ? {
+                                    fontSize: '0.7em',
+                                    verticalAlign: 'super',
+                                    lineHeight: 1,
+                                    opacity: 0.85,
+                                    marginRight: '2px',
+                                    fontWeight: 'normal'
+                                  }
+                                : {}
+                            }
+                        >
+                            {cellLabelOrGeneratedLabel}
+                        </span>
                     )}
                 </div>
             </div>
