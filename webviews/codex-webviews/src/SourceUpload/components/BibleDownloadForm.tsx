@@ -100,10 +100,10 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                 // Only match full words
                 const words = name.split(/[\s-_]+/);
                 const searchWords = searchTerm.split(/[\s-_]+/);
-                
+
                 // All search words must match the start of some word in the name
-                const allWordsMatch = searchWords.every(searchWord => 
-                    words.some(word => word.startsWith(searchWord))
+                const allWordsMatch = searchWords.every((searchWord) =>
+                    words.some((word) => word.startsWith(searchWord))
                 );
 
                 if (allWordsMatch) score += 60;
