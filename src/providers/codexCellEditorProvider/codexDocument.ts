@@ -520,7 +520,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
         if (!cellToUpdate.metadata.edits || cellToUpdate.metadata.edits.length === 0) {
             console.warn("No edits found for cell to validate");
-            return;
+            // repair the edit history by adding an llm generation wit hauthor unknown, and then a user edit with validation
+            cellToUpdate.metadata.edits = [
+                {
+                    author: "unknown",
+                    validatedBy: [],
+                    timestamp: Date.now(),
+                    type: EditType.LLM_GENERATION,
+                    cellValue: cellToUpdate.value,
+                },
+                {
+                    author: this._author,
+                    validatedBy: [],
+                    timestamp: Date.now(),
+                    type: EditType.USER_EDIT,
+                    cellValue: cellToUpdate.value,
+                },
+            ];
         }
 
         // Get the latest edit
