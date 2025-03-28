@@ -44,6 +44,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public _sourceCellMap: { [k: string]: { content: string; versions: string[] } } = {};
     private _edits: Array<any>;
     private _isDirty: boolean = false;
+    private _cachedUserInfo: { username: string; email?: string } | null = null;
+    private _author: string = "anonymous";
 
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
@@ -63,6 +65,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
     constructor(uri: vscode.Uri, initialContent: string) {
         debug("Constructing CodexCellDocument", uri.toString());
         this.uri = uri;
+
+        // Initialize user info immediately
+        this.initializeUserInfo();
+
         try {
             this._documentData = JSON.parse(initialContent);
             this._edits = [];
@@ -149,6 +155,26 @@ export class CodexCellDocument implements vscode.CustomDocument {
         return this._isDirty;
     }
 
+    // New private method to initialize user info
+    private async initializeUserInfo(): Promise<void> {
+        try {
+            const authApi = await getAuthApi();
+            if (authApi) {
+                try {
+                    const userInfo = await authApi.getUserInfo();
+                    if (userInfo && userInfo.username) {
+                        this._author = userInfo.username;
+                        this._cachedUserInfo = { username: userInfo.username };
+                    }
+                } catch (e) {
+                    console.error("Error getting user info", e);
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching user info:", error);
+        }
+    }
+
     // Methods to manipulate the document data
     public async updateCellContent(
         cellId: string,
@@ -187,19 +213,14 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellToUpdate.metadata.edits = [];
         }
 
-        const authApi = await getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const author = userInfo?.username || "anonymous";
         const currentTimestamp = Date.now();
 
-        // Initialize validatedBy array based on edit type with proper ValidationEntry objects
-        // For user edits, the author is automatically added to validatedBy
-        // For LLM generations, validatedBy starts empty and must be explicitly validated
+        // Use stored author instead of fetching it
         const validatedBy: ValidationEntry[] =
             editType === EditType.USER_EDIT
                 ? [
                       {
-                          username: author,
+                          username: this._author,
                           creationTimestamp: currentTimestamp,
                           updatedTimestamp: currentTimestamp,
                           isDeleted: false,
@@ -211,7 +232,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cellValue: newContent,
             timestamp: currentTimestamp,
             type: editType,
-            author,
+            author: this._author,
             validatedBy,
         });
 
