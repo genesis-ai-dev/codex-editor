@@ -50,15 +50,6 @@
             }
         ],
         "views": {
-            "codex-files-view": [
-                {
-                    "type": "webview",
-                    "id": "codex-editor.navigation",
-                    "name": "Navigation",
-                    "icon": "$(files)",
-                    "contextualTitle": "Navigation"
-                }
-            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
