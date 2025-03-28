@@ -15,6 +15,7 @@ import {
 import { LanguageProjectStatus } from "codex-types";
 import "./App.css";
 import React, { CSSProperties } from "react";
+import SyncSettings from "./components/SyncSettings";
 
 declare const vscode: {
     postMessage: (message: any) => void;
@@ -32,15 +33,15 @@ const getLanguageDisplay = (languageObj: any): string => {
 
 // Helper component for showing validation icon legend tooltips
 const ValidationLegend: React.FC<{
-    position?: 'top' | 'bottom' | 'left' | 'right';
+    position?: "top" | "bottom" | "left" | "right";
     style?: CSSProperties;
     showToSide?: boolean;
     parentRef?: React.RefObject<HTMLDivElement>;
-}> = ({ position = 'bottom', style = {}, showToSide = false, parentRef }) => {
+}> = ({ position = "bottom", style = {}, showToSide = false, parentRef }) => {
     const [showTooltip, setShowTooltip] = useState(false);
     const tooltipRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    
+
     // Adjust position if needed to prevent cutoff
     useEffect(() => {
         if (showTooltip && tooltipRef.current && containerRef.current) {
@@ -48,17 +49,17 @@ const ValidationLegend: React.FC<{
             const containerRect = containerRef.current.getBoundingClientRect();
             const viewportWidth = window.innerWidth;
             const viewportHeight = window.innerHeight;
-            
+
             if (showToSide) {
                 // Position to the right of the icon
                 tooltipRef.current.style.left = `${containerRect.width + 5}px`;
                 tooltipRef.current.style.top = `${-10}px`;
-                tooltipRef.current.style.transform = 'none';
-                
+                tooltipRef.current.style.transform = "none";
+
                 // Check if tooltip would go off right of screen
                 if (containerRect.right + tooltipRect.width + 10 > viewportWidth) {
                     // Switch to left side of icon
-                    tooltipRef.current.style.left = 'auto';
+                    tooltipRef.current.style.left = "auto";
                     tooltipRef.current.style.right = `${containerRect.width + 5}px`;
                 }
             } else if (parentRef?.current) {
@@ -66,168 +67,194 @@ const ValidationLegend: React.FC<{
                 const parentRect = parentRef.current.getBoundingClientRect();
                 const parentCenterX = parentRect.left + parentRect.width / 2;
                 const tooltipWidth = tooltipRect.width;
-                
+
                 // Calculate absolute position to center the tooltip under the parent
                 let leftPos = parentCenterX - tooltipWidth / 2;
-                
+
                 // Prevent tooltip from going off-screen to the left
                 if (leftPos < 10) {
                     leftPos = 10;
                 }
-                
+
                 // Prevent tooltip from going off-screen to the right
                 if (leftPos + tooltipWidth > viewportWidth - 10) {
                     leftPos = viewportWidth - tooltipWidth - 10;
                 }
-                
+
                 // Apply the absolute horizontal position
-                tooltipRef.current.style.position = 'fixed';
+                tooltipRef.current.style.position = "fixed";
                 tooltipRef.current.style.left = `${leftPos}px`;
-                tooltipRef.current.style.right = 'auto';
-                
+                tooltipRef.current.style.right = "auto";
+
                 // Position vertically below the icon
                 tooltipRef.current.style.top = `${containerRect.bottom + 4}px`;
-                tooltipRef.current.style.bottom = 'auto';
-                
+                tooltipRef.current.style.bottom = "auto";
+
                 // Remove the transform since we're positioning absolutely
-                tooltipRef.current.style.transform = 'none';
+                tooltipRef.current.style.transform = "none";
             } else {
                 // Center the tooltip under the icon (original behavior)
                 const iconCenterX = containerRect.left + containerRect.width / 2;
                 const tooltipWidth = tooltipRect.width;
-                
+
                 // Calculate left position to center the tooltip under the icon
                 let leftPos = iconCenterX - tooltipWidth / 2;
-                
+
                 // Prevent tooltip from going off-screen to the left
                 if (leftPos < 10) {
                     leftPos = 10;
                 }
-                
+
                 // Prevent tooltip from going off-screen to the right
                 if (leftPos + tooltipWidth > viewportWidth - 10) {
                     leftPos = viewportWidth - tooltipWidth - 10;
                 }
-                
+
                 // Apply the horizontal position
                 tooltipRef.current.style.left = `${leftPos}px`;
-                tooltipRef.current.style.right = 'auto';
-                
+                tooltipRef.current.style.right = "auto";
+
                 // Check if tooltip would go off bottom of screen
                 if (tooltipRect.bottom > viewportHeight - 10) {
-                    tooltipRef.current.style.top = 'auto';
+                    tooltipRef.current.style.top = "auto";
                     tooltipRef.current.style.bottom = `${containerRect.height + 5}px`;
                 } else {
                     tooltipRef.current.style.top = `${containerRect.height + 5}px`;
-                    tooltipRef.current.style.bottom = 'auto';
+                    tooltipRef.current.style.bottom = "auto";
                 }
             }
         }
     }, [showTooltip, showToSide, parentRef]);
-    
+
     return (
-        <div 
+        <div
             ref={containerRef}
-            style={{ 
-                display: 'inline-flex', 
-                position: 'relative',
-                marginLeft: '6px',
-                ...style 
+            style={{
+                display: "inline-flex",
+                position: "relative",
+                marginLeft: "6px",
+                ...style,
             }}
             onMouseEnter={() => setShowTooltip(true)}
             onMouseLeave={() => setShowTooltip(false)}
         >
-            <i 
+            <i
                 className="codicon codicon-info"
-                style={{ 
-                    color: 'var(--vscode-descriptionForeground)',
-                    fontSize: '14px',
-                    cursor: 'help'
+                style={{
+                    color: "var(--vscode-descriptionForeground)",
+                    fontSize: "14px",
+                    cursor: "help",
                 }}
             />
             {showTooltip && (
-                <div 
+                <div
                     ref={tooltipRef}
                     style={{
-                        position: parentRef ? 'fixed' : 'absolute',
-                        top: showToSide ? '-10px' : '100%',
-                        left: showToSide ? '100%' : '50%',
-                        transform: (parentRef || showToSide) ? 'none' : 'translateX(-50%)',
-                        backgroundColor: 'var(--vscode-editor-background)',
-                        border: '1px solid var(--vscode-widget-border)',
-                        borderRadius: '4px',
-                        padding: '8px',
+                        position: parentRef ? "fixed" : "absolute",
+                        top: showToSide ? "-10px" : "100%",
+                        left: showToSide ? "100%" : "50%",
+                        transform: parentRef || showToSide ? "none" : "translateX(-50%)",
+                        backgroundColor: "var(--vscode-editor-background)",
+                        border: "1px solid var(--vscode-widget-border)",
+                        borderRadius: "4px",
+                        padding: "8px",
                         zIndex: 1000,
-                        width: 'auto',
-                        maxWidth: '300px',
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                        fontWeight: 'normal',
-                        fontSize: '12px',
-                        color: 'var(--vscode-foreground)',
-                        marginTop: showToSide ? '0' : (parentRef ? '0' : '4px'),
-                        lineHeight: '1.5',
-                        whiteSpace: 'nowrap'
+                        width: "auto",
+                        maxWidth: "300px",
+                        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                        fontWeight: "normal",
+                        fontSize: "12px",
+                        color: "var(--vscode-foreground)",
+                        marginTop: showToSide ? "0" : parentRef ? "0" : "4px",
+                        lineHeight: "1.5",
+                        whiteSpace: "nowrap",
                     }}
                 >
-                    <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>Validation Status Icons:</div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <i className="codicon codicon-dash" style={{ 
-                            fontWeight: 'bold',
-                            width: '16px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            marginRight: '6px'
-                        }}></i>
+                    <div style={{ fontWeight: "bold", marginBottom: "6px" }}>
+                        Validation Status Icons:
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <i
+                            className="codicon codicon-dash"
+                            style={{
+                                fontWeight: "bold",
+                                width: "16px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                marginRight: "6px",
+                            }}
+                        ></i>
                         <span>Empty/Untranslated</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <i className="codicon codicon-circle-outline" style={{ fontSize: '12px', marginRight: '6px' }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <i
+                            className="codicon codicon-circle-outline"
+                            style={{ fontSize: "12px", marginRight: "6px" }}
+                        ></i>
                         <span>Without any validator</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <i className="codicon codicon-circle-filled" style={{ fontSize: '12px', marginRight: '6px' }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <i
+                            className="codicon codicon-circle-filled"
+                            style={{ fontSize: "12px", marginRight: "6px" }}
+                        ></i>
                         <span>Validated by others</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            marginRight: '6px',
-                            width: '16px',
-                            justifyContent: 'center'
-                        }}>
-                            <i className="codicon codicon-check" style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--vscode-terminal-ansiGreen)' 
-                            }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                marginRight: "6px",
+                                width: "16px",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <i
+                                className="codicon codicon-check"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-terminal-ansiGreen)",
+                                }}
+                            ></i>
                         </div>
                         <span>Validated by you</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            marginRight: '6px',
-                            width: '16px',
-                            justifyContent: 'center'
-                        }}>
-                            <i className="codicon codicon-check-all" style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--vscode-descriptionForeground)' 
-                            }}></i>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: "4px" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                marginRight: "6px",
+                                width: "16px",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <i
+                                className="codicon codicon-check-all"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            ></i>
                         </div>
                         <span>Fully validated by other users</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            marginRight: '6px',
-                            width: '16px',
-                            justifyContent: 'center'
-                        }}>
-                            <i className="codicon codicon-check-all" style={{ 
-                                fontSize: '12px', 
-                                color: 'var(--vscode-terminal-ansiGreen)' 
-                            }}></i>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                        <div
+                            style={{
+                                display: "flex",
+                                marginRight: "6px",
+                                width: "16px",
+                                justifyContent: "center",
+                            }}
+                        >
+                            <i
+                                className="codicon codicon-check-all"
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-terminal-ansiGreen)",
+                                }}
+                            ></i>
                         </div>
                         <span>Fully validated by you</span>
                     </div>
@@ -247,14 +274,22 @@ interface ProjectFieldProps {
     infoTooltip?: React.ReactNode;
 }
 
-const ProjectField = ({ label, value, icon, onAction, hasWarning, infoTooltip }: ProjectFieldProps) => {
+const ProjectField = ({
+    label,
+    value,
+    icon,
+    onAction,
+    hasWarning,
+    infoTooltip,
+}: ProjectFieldProps) => {
     const fieldRef = useRef<HTMLDivElement>(null);
-    
+
     // Add parentRef to ValidationLegend if it's provided
-    const tooltipWithRef = infoTooltip && React.isValidElement(infoTooltip) 
-        ? React.cloneElement(infoTooltip as React.ReactElement<any>, { parentRef: fieldRef })
-        : infoTooltip;
-        
+    const tooltipWithRef =
+        infoTooltip && React.isValidElement(infoTooltip)
+            ? React.cloneElement(infoTooltip as React.ReactElement<any>, { parentRef: fieldRef })
+            : infoTooltip;
+
     return (
         <div
             ref={fieldRef}
@@ -265,7 +300,7 @@ const ProjectField = ({ label, value, icon, onAction, hasWarning, infoTooltip }:
                 padding: "0.75rem",
                 backgroundColor: "var(--vscode-list-hoverBackground)",
                 borderRadius: "4px",
-                position: "relative"
+                position: "relative",
             }}
         >
             <div
@@ -314,12 +349,20 @@ function ProjectManagerView() {
         isInitializing: false,
     });
 
+    // Add state for sync settings
+    const [syncSettings, setSyncSettings] = useState({
+        autoSyncEnabled: true,
+        syncDelayMinutes: 5,
+    });
+
     const handleAction = (message: ProjectManagerMessageFromWebview) => {
         vscode.postMessage(message as ProjectManagerMessageFromWebview);
     };
 
     useEffect(() => {
         vscode.postMessage({ command: "checkPublishStatus" } as ProjectManagerMessageFromWebview);
+        // Request sync settings when component mounts
+        vscode.postMessage({ command: "getSyncSettings" } as ProjectManagerMessageFromWebview);
     }, []);
 
     useEffect(() => {
@@ -331,6 +374,9 @@ function ProjectManagerView() {
                     ...prev,
                     repoHasRemote: message.data.data.repoHasRemote,
                 }));
+            } else if (message.data.command === "syncSettingsUpdate") {
+                // Handle sync settings update
+                setSyncSettings(message.data.data);
             }
         };
 
@@ -343,6 +389,29 @@ function ProjectManagerView() {
             window.removeEventListener("message", handler);
         };
     }, []);
+
+    // Add handlers for sync settings changes
+    const handleToggleAutoSync = (enabled: boolean) => {
+        const updatedSettings = { ...syncSettings, autoSyncEnabled: enabled };
+        setSyncSettings(updatedSettings);
+        vscode.postMessage({
+            command: "updateSyncSettings",
+            data: updatedSettings,
+        } as ProjectManagerMessageFromWebview);
+    };
+
+    const handleChangeSyncDelay = (minutes: number) => {
+        const updatedSettings = { ...syncSettings, syncDelayMinutes: minutes };
+        setSyncSettings(updatedSettings);
+        vscode.postMessage({
+            command: "updateSyncSettings",
+            data: updatedSettings,
+        } as ProjectManagerMessageFromWebview);
+    };
+
+    const handleTriggerSync = () => {
+        vscode.postMessage({ command: "triggerSync" } as ProjectManagerMessageFromWebview);
+    };
 
     // Show scanning indicator
     if (state.isScanning) {
@@ -488,7 +557,9 @@ function ProjectManagerView() {
                                 icon="check"
                                 onAction={() => handleAction({ command: "setValidationCount" })}
                                 hasWarning={!state.projectOverview.validationCount}
-                                infoTooltip={<ValidationLegend position="bottom" showToSide={false} />}
+                                infoTooltip={
+                                    <ValidationLegend position="bottom" showToSide={false} />
+                                }
                             />
                             <ProjectField
                                 label="Project Documents"
@@ -513,6 +584,15 @@ function ProjectManagerView() {
                                 onAction={() => handleAction({ command: "toggleSpellcheck" })}
                                 // hasWarning={}
                             />
+                            {state.repoHasRemote && (
+                                <SyncSettings
+                                    autoSyncEnabled={syncSettings.autoSyncEnabled}
+                                    syncDelayMinutes={syncSettings.syncDelayMinutes}
+                                    onToggleAutoSync={handleToggleAutoSync}
+                                    onChangeSyncDelay={handleChangeSyncDelay}
+                                    onTriggerSync={handleTriggerSync}
+                                />
+                            )}
                             <div
                                 style={{
                                     display: "flex",
@@ -581,7 +661,7 @@ function ProjectManagerView() {
                                         </div>
                                     </VSCodeButton>
                                 )}
-                                {state.repoHasRemote && (
+                                {state.repoHasRemote && !syncSettings.autoSyncEnabled && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "syncProject" })}
                                     >

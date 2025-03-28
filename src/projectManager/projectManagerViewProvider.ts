@@ -631,6 +631,50 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await syncManager.executeSync("Syncing project");
                 break;
             }
+            case "getSyncSettings": {
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+                const syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+                if (this._view) {
+                    this._view.webview.postMessage({
+                        command: "syncSettingsUpdate",
+                        data: {
+                            autoSyncEnabled,
+                            syncDelayMinutes,
+                        },
+                    } as ProjectManagerMessageToWebview);
+                }
+                break;
+            }
+            case "updateSyncSettings": {
+                const { autoSyncEnabled, syncDelayMinutes } = message.data;
+                const config = vscode.workspace.getConfiguration("codex-project-manager");
+
+                // Update configuration
+                await config.update(
+                    "autoSyncEnabled",
+                    autoSyncEnabled,
+                    vscode.ConfigurationTarget.Workspace
+                );
+
+                await config.update(
+                    "syncDelayMinutes",
+                    syncDelayMinutes,
+                    vscode.ConfigurationTarget.Workspace
+                );
+
+                // Notify SyncManager about the changes
+                const syncManager = SyncManager.getInstance();
+                syncManager.updateFromConfiguration();
+
+                break;
+            }
+            case "triggerSync": {
+                const syncManager = SyncManager.getInstance();
+                await syncManager.executeSync("Manual sync triggered from project view");
+                break;
+            }
             default:
                 console.error(`Unknown command: ${message.command}`, { message });
         }

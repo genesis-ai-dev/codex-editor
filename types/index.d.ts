@@ -1124,7 +1124,13 @@ type ProjectManagerMessageFromWebview =
     | { command: "publishProject" }
     | { command: "syncProject" }
     | { command: "openEditAnalysis" }
-    | { command: "toggleSpellcheck" };
+    | { command: "toggleSpellcheck" }
+    | { command: "getSyncSettings" }
+    | {
+          command: "updateSyncSettings";
+          data: { autoSyncEnabled: boolean; syncDelayMinutes: number };
+      }
+    | { command: "triggerSync" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1146,6 +1152,13 @@ type ProjectManagerMessageToWebview =
           command: "publishStatus";
           data: {
               repoHasRemote: boolean;
+          };
+      }
+    | {
+          command: "syncSettingsUpdate";
+          data: {
+              autoSyncEnabled: boolean;
+              syncDelayMinutes: number;
           };
       };
 
