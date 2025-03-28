@@ -367,16 +367,21 @@ function ProjectManagerView() {
 
     useEffect(() => {
         const handler = (message: MessageEvent<ProjectManagerMessageToWebview>) => {
-            if (message.data.command === "stateUpdate") {
-                setState(message.data.data);
-            } else if (message.data.command === "publishStatus") {
-                setState((prev) => ({
-                    ...prev,
-                    repoHasRemote: message.data.data.repoHasRemote,
-                }));
-            } else if (message.data.command === "syncSettingsUpdate") {
-                // Handle sync settings update
-                setSyncSettings(message.data.data);
+            switch (message.data.command) {
+                case "stateUpdate":
+                    setState(message.data.data);
+                    break;
+                case "publishStatus":
+                    setState((prev) => ({
+                        ...prev,
+                        repoHasRemote: (message.data.data as { repoHasRemote: boolean })
+                            .repoHasRemote,
+                    }));
+                    break;
+                case "syncSettingsUpdate":
+                    // Handle sync settings update
+                    setSyncSettings(message.data.data);
+                    break;
             }
         };
 
