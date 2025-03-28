@@ -240,7 +240,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 direction: textDirection,
                 ...getBorderStyle(),
             }}
-            onClick={() => handleCellClick(cellIds[0])}
         >
             <div className="cell-header">
                 {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
@@ -311,19 +310,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 )}
                 <div className="cell-label">
                     {cellLabelOrGeneratedLabel && (
-                        <span 
-                            className="cell-label-text" 
+                        <span
+                            className="cell-label-text"
                             style={
-                                cellDisplayMode === CELL_DISPLAY_MODES.INLINE 
-                                ? {
-                                    fontSize: '0.7em',
-                                    verticalAlign: 'super',
-                                    lineHeight: 1,
-                                    opacity: 0.85,
-                                    marginRight: '2px',
-                                    fontWeight: 'normal'
-                                  }
-                                : {}
+                                cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                    ? {
+                                          fontSize: "0.7em",
+                                          verticalAlign: "super",
+                                          lineHeight: 1,
+                                          opacity: 0.85,
+                                          marginRight: "2px",
+                                          fontWeight: "normal",
+                                      }
+                                    : {}
                             }
                         >
                             {cellLabelOrGeneratedLabel}
@@ -336,6 +335,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 dangerouslySetInnerHTML={{
                     __html: HACKY_removeContiguousSpans(cellContent),
                 }}
+                onClick={() => handleCellClick(cellIds[0])}
             ></div>
         </div>
     );
