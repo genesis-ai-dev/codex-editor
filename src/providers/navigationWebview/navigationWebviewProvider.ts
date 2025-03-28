@@ -24,8 +24,8 @@ export interface CodexItem {
     progress?: number;
 }
 
-export class CodexFilesWebviewProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = "codex-editor.codexFiles";
+export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
+    public static readonly viewType = "codex-editor.navigation";
     private _view?: vscode.WebviewView;
     private codexItems: CodexItem[] = [];
     private dictionaryItems: CodexItem[] = [];
@@ -103,7 +103,7 @@ export class CodexFilesWebviewProvider implements vscode.WebviewViewProvider {
                 "webviews",
                 "codex-webviews",
                 "dist",
-                "CodexFilesView",
+                "NavigationView",
                 "index.js"
             )
         );

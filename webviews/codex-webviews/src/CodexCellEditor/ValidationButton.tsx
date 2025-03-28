@@ -128,7 +128,6 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             if (message.type === "currentUsername") {
                 setUsername(message.content.username);
             } else if (message.type === "validationCount") {
-                console.log(`Received updated validation count: ${message.content}`);
                 setRequiredValidations(message.content);
 
                 // The component will re-render with the new requiredValidations value

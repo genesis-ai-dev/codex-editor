@@ -40,9 +40,21 @@ export enum CELL_DISPLAY_MODES {
 }
 
 const DEBUG_ENABLED = false;
-function debug(message: string, ...args: any[]): void {
+
+// Enhanced debug function with categories
+function debug(category: string, message: string | object, ...args: any[]): void {
     if (DEBUG_ENABLED) {
-        console.log(`[CodexCellEditor] ${message}`, ...args);
+        const timestamp = new Date().toISOString().split("T")[1].slice(0, -1); // Get time part only
+        const prefix = `[${timestamp}][CodexCellEditor:${category}]`;
+        if (typeof message === "string") {
+            if (args.length > 0) {
+                console.log(`${prefix} ${message}`, ...args);
+            } else {
+                console.log(`${prefix} ${message}`);
+            }
+        } else {
+            console.log(`${prefix}`, message, ...args);
+        }
     }
 }
 
@@ -140,6 +152,7 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         const handleWebviewReady = (event: MessageEvent) => {
             if (event.data.type === "webviewReady") {
+                debug("init", "Webview is ready");
                 setIsWebviewReady(true);
             }
         };
@@ -176,6 +189,7 @@ const CodexCellEditor: React.FC = () => {
     const processingStartTimeRef = useRef<number | null>(null);
 
     const handleSetContentBeingUpdated = (content: EditorCellContent) => {
+        debug("content", "Setting content being updated:", { cellId: content.cellMarkers?.[0] });
         setContentBeingUpdated(content);
         setCurrentEditingCellId(content.cellMarkers?.[0] || null);
     };
@@ -194,6 +208,7 @@ const CodexCellEditor: React.FC = () => {
             cellId: unit.cellMarkers[0],
         }));
 
+        debug("alerts", "Checking alert codes for cells:", { count: cellContentAndId.length });
         vscode.postMessage({
             command: "getAlertCodes",
             content: cellContentAndId,
@@ -225,7 +240,8 @@ const CodexCellEditor: React.FC = () => {
                 data.cellId !== "completion" &&
                 data.newContent
             ) {
-                console.log(
+                debug(
+                    "queue",
                     `Cell update received for: ${data.cellId}, current processing: ${singleCellQueueProcessingId}`
                 );
 
@@ -244,7 +260,8 @@ const CodexCellEditor: React.FC = () => {
 
                 // Check if this is the cell we're currently processing
                 if (data.cellId === singleCellQueueProcessingId) {
-                    console.log(
+                    debug(
+                        "queue",
                         `Cell translation completed: ${data.cellId}. Resetting processing state.`
                     );
 
@@ -258,17 +275,17 @@ const CodexCellEditor: React.FC = () => {
 
         // Add this for compatibility
         autocompleteChapterComplete: () => {
-            console.log("Autocomplete chapter complete (legacy handler)");
+            debug("autocomplete", "Autocomplete chapter complete (legacy handler)");
         },
 
         // New handlers for provider-centric state management
         updateAutocompletionState: (state) => {
-            console.log("Received autocompletion state from provider:", state);
+            debug("autocomplete", "Received autocompletion state from provider:", state);
             setAutocompletionState(state);
         },
 
         updateSingleCellTranslationState: (state) => {
-            console.log("Received single cell translation state from provider:", state);
+            debug("autocomplete", "Received single cell translation state from provider:", state);
             setSingleCellTranslationState(state);
         },
 
@@ -287,13 +304,15 @@ const CodexCellEditor: React.FC = () => {
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
-            console.log(
+            debug(
+                "queue",
                 `Error with cell: ${data.cellId}, index: ${data.index}, total: ${data.totalCells}`
             );
 
             // If we're currently processing a cell that matches, assume it failed
             if (isProcessingCell && singleCellQueueProcessingId === data.cellId) {
-                console.log(
+                debug(
+                    "queue",
                     `Handling error for currently processing cell: ${singleCellQueueProcessingId}`
                 );
                 handleTranslationError(singleCellQueueProcessingId);
@@ -351,13 +370,14 @@ const CodexCellEditor: React.FC = () => {
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
     const handleCloseEditor = () => {
+        debug("editor", "Closing editor");
         setContentBeingUpdated({} as EditorCellContent);
         setUnsavedChanges(false);
     };
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-        debug("content", content);
+        debug("editor", "Saving HTML content:", { cellId: content.cellMarkers?.[0] });
         vscode.postMessage({
             command: "saveHtml",
             content: content,
@@ -371,25 +391,24 @@ const CodexCellEditor: React.FC = () => {
 
     // Fetch username from extension and add extensive debugging
     useEffect(() => {
-        console.log("Setting up username listener and requesting username");
+        debug("auth", "Setting up username listener and requesting username");
 
         const handleMessage = (event: MessageEvent) => {
-            console.log("Message received:", event.data);
+            debug("auth", "Message received:", event.data);
             const message = event.data;
 
             if (message.type === "setUsername" || message.command === "setUsername") {
                 const newUsername = message.username || message.value;
-                console.log("Username set to:", newUsername);
+                debug("auth", "Username set to:", newUsername);
                 setUsername(newUsername);
             } else if (message.type === "currentUsername") {
-                console.log("Current username received:", message.content.username);
+                debug("auth", "Current username received:", message.content.username);
                 setUsername(message.content.username);
             }
         };
 
         window.addEventListener("message", handleMessage);
 
-        // Request username from extension using both possible commands
         vscode.postMessage({
             command: "requestUsername",
         });
@@ -398,23 +417,22 @@ const CodexCellEditor: React.FC = () => {
             command: "getCurrentUsername",
         });
 
-        console.log("Requested username from extension");
+        debug("auth", "Requested username from extension");
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
     // Debug effect to show when username changes
     useEffect(() => {
-        console.log("Username changed to:", username);
+        debug("auth", "Username changed:", { username });
 
-        // Force recalculation of counts when username changes
         if (username) {
-            console.log("Recalculating counts due to username change");
+            debug("auth", "Recalculating counts due to username change");
         }
     }, [username]);
 
     // Cells with no content (untranslated cells)
     const untranslatedCellsForSection = useMemo(() => {
-        console.log("Calculating cells with no content...");
+        debug("autocomplete", "Calculating cells with no content...");
 
         const result = translationUnitsForSection.filter((unit) => {
             // Check if the cell is empty
@@ -422,13 +440,16 @@ const CodexCellEditor: React.FC = () => {
             return hasNoContent;
         });
 
-        console.log("Cells with no content:", result.length);
+        debug("autocomplete", "Cells with no content:", result.length);
         return result;
     }, [translationUnitsForSection]);
 
     // Cells with no content or where the latest edit has no validators
     const untranslatedOrUnvalidatedUnitsForSection = useMemo(() => {
-        console.log("Calculating cells needing autocomplete (no content or no validators)...");
+        debug(
+            "autocomplete",
+            "Calculating cells needing autocomplete (no content or no validators)..."
+        );
 
         const result = translationUnitsForSection.filter((unit) => {
             // Check if the cell is empty
@@ -447,16 +468,16 @@ const CodexCellEditor: React.FC = () => {
             return hasNoContent || hasNoValidators;
         });
 
-        console.log("Cells with no content or no validators:", result.length);
+        debug("autocomplete", "Cells with no content or no validators:", result.length);
         return result;
     }, [translationUnitsForSection]);
 
     // Cells with no content, no validators, or not validated by current user
     const untranslatedOrNotValidatedByCurrentUserUnitsForSection = useMemo(() => {
         const currentUsername = username;
-        console.log("Calculating cells including not validated by current user...");
-        console.log("Current username:", currentUsername);
-        console.log("Total cells to process:", translationUnitsForSection.length);
+        debug("autocomplete", "Calculating cells including not validated by current user...");
+        debug("autocomplete", "Current username:", currentUsername);
+        debug("autocomplete", "Total cells to process:", translationUnitsForSection.length);
 
         // For debugging, show details of each cell's validation
         translationUnitsForSection.forEach((unit, index) => {
@@ -465,7 +486,7 @@ const CodexCellEditor: React.FC = () => {
                     ? unit.editHistory[unit.editHistory.length - 1]
                     : null;
 
-            console.log(`Cell ${index + 1} details:`, {
+            debug("autocomplete", `Cell ${index + 1} details:`, {
                 content:
                     unit.cellContent.substring(0, 30) + (unit.cellContent.length > 30 ? "..." : ""),
                 hasContent: !!unit.cellContent.trim(),
@@ -516,63 +537,65 @@ const CodexCellEditor: React.FC = () => {
                     !currentUserValidation || currentUserValidation.isDeleted;
 
                 // Debug information
-                if (currentUserValidation) {
-                    console.log(`Cell ${index + 1} validation for user ${currentUsername}:`, {
-                        hasValidation: !!currentUserValidation,
-                        isDeleted: currentUserValidation.isDeleted,
-                        shouldInclude: notValidatedByCurrentUser,
-                    });
-                } else {
-                    console.log(
-                        `Cell ${
-                            index + 1
-                        } has no validation for user ${currentUsername}, should include:`,
-                        true
-                    );
-                }
+                // if (currentUserValidation) {
+                //     console.log(`Cell ${index + 1} validation for user ${currentUsername}:`, {
+                //         hasValidation: !!currentUserValidation,
+                //         isDeleted: currentUserValidation.isDeleted,
+                //         shouldInclude: notValidatedByCurrentUser,
+                //     });
+                // } else {
+                //     console.log(
+                //         `Cell ${
+                //             index + 1
+                //         } has no validation for user ${currentUsername}, should include:`,
+                //         true
+                //     );
+                // }
             }
 
             const shouldInclude = hasNoContent || hasNoValidators || notValidatedByCurrentUser;
-            console.log(`Cell ${index + 1} inclusion decision:`, {
-                hasNoContent,
-                hasNoValidators,
-                notValidatedByCurrentUser,
-                shouldInclude,
-            });
+            // console.log(`Cell ${index + 1} inclusion decision:`, {
+            //     hasNoContent,
+            //     hasNoValidators,
+            //     notValidatedByCurrentUser,
+            //     shouldInclude,
+            // });
 
             return shouldInclude;
         });
 
-        console.log("Cells including not validated by current user:", result.length);
+        // console.log("Cells including not validated by current user:", result.length);
         return result;
     }, [translationUnitsForSection, username]);
 
     // Update handler for file/chapter changes to recalculate cells needing autocomplete
     useEffect(() => {
-        console.log("Active document or section changed, recalculating autocomplete cells...");
+        debug(
+            "autocomplete",
+            "Active document or section changed, recalculating autocomplete cells..."
+        );
 
         // Log all cell details for debugging
         if (translationUnitsForSection.length > 0) {
-            console.log(
-                "Current translation units:",
-                translationUnitsForSection.map((unit, index) => {
-                    const latestEdit =
-                        unit.editHistory && unit.editHistory.length > 0
-                            ? unit.editHistory[unit.editHistory.length - 1]
-                            : null;
-
-                    return {
-                        index,
-                        hasContent: !!unit.cellContent.trim(),
-                        editCount: unit.editHistory?.length || 0,
-                        validatorCount: latestEdit?.validatedBy?.length || 0,
-                        validators: latestEdit?.validatedBy?.map((v) => ({
-                            username: v.username,
-                            isDeleted: v.isDeleted,
-                        })),
-                    };
-                })
-            );
+            // console.log(
+            //     "Current translation units:",
+            //     translationUnitsForSection.map((unit, index) => {
+            //         const latestEdit =
+            //             unit.editHistory && unit.editHistory.length > 0
+            //                 ? unit.editHistory[unit.editHistory.length - 1]
+            //                 : null;
+            //         return {
+            //             index,
+            //             hasContent: !!unit.cellContent.trim(),
+            //             editCount: unit.editHistory?.length || 0,
+            //             validatorCount: latestEdit?.validatedBy?.length || 0,
+            //             validators: latestEdit?.validatedBy?.map((v) => ({
+            //                 username: v.username,
+            //                 isDeleted: v.isDeleted,
+            //             })),
+            //         };
+            //     })
+            // );
         }
     }, [chapterNumber, translationUnits, translationUnitsForSection, username]);
 
@@ -583,12 +606,11 @@ const CodexCellEditor: React.FC = () => {
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean
     ) => {
-        console.log(
-            "Requesting autocomplete chapter:",
+        debug("autocomplete", "Requesting autocomplete chapter:", {
             numberOfCells,
             includeNotValidatedByAnyUser,
-            includeNotValidatedByCurrentUser
-        );
+            includeNotValidatedByCurrentUser,
+        });
 
         // Choose which set of cells to use based on the include options
         let cellsToAutocomplete;
@@ -615,7 +637,7 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleStopAutocomplete = () => {
-        console.log("Stopping autocomplete chapter");
+        debug("autocomplete", "Stopping autocomplete chapter");
 
         // Just send the stop command, provider will update state
         vscode.postMessage({
@@ -640,7 +662,7 @@ const CodexCellEditor: React.FC = () => {
             const cellId = contentBeingUpdated.cellMarkers[0];
             const startTime = parseTimestampFromCellId(cellId);
             if (startTime !== null) {
-                console.log(`Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
+                debug("video", `Seeking to ${startTime} + ${OFFSET_SECONDS} seconds`);
                 playerRef.current.seekTo(startTime + OFFSET_SECONDS, "seconds");
             }
         }
@@ -677,7 +699,7 @@ const CodexCellEditor: React.FC = () => {
     const handleMetadataChange = (key: string, value: string) => {
         setMetadata((prev) => {
             const updatedMetadata = { ...prev, [key]: value };
-            console.log("Updated metadata:", updatedMetadata);
+            debug("metadata", "Updated metadata:", updatedMetadata);
             return updatedMetadata;
         });
     };
@@ -693,7 +715,7 @@ const CodexCellEditor: React.FC = () => {
             setVideoUrl(tempVideoUrl);
             setTempVideoUrl("");
         }
-        console.log("Saving metadata:", updatedMetadata);
+        debug("metadata", "Saving metadata:", updatedMetadata);
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: updatedMetadata,
@@ -751,35 +773,24 @@ const CodexCellEditor: React.FC = () => {
     // Debug helper: Log info about translation units and their validation status
     useEffect(() => {
         if (translationUnitsForSection.length > 0) {
-            console.log("Debug: Translation Units Status:");
-            console.log("Total units:", translationUnitsForSection.length);
-
-            const unitsWithNoContent = translationUnitsForSection.filter(
-                (unit) => !unit.cellContent.trim()
-            ).length;
-            console.log("Units with no content:", unitsWithNoContent);
-
-            const llmGeneratedUnits = translationUnitsForSection.filter((unit) => {
-                const cellValueData = getCellValueData(unit);
-                return cellValueData.editType === "llm-generation";
-            }).length;
-            console.log("LLM generated units:", llmGeneratedUnits);
-
-            const unitsWithValidations = translationUnitsForSection.filter((unit) => {
-                const cellValueData = getCellValueData(unit);
-                return cellValueData.validatedBy && cellValueData.validatedBy.length > 0;
-            }).length;
-            console.log("Units with validations:", unitsWithValidations);
-
-            console.log("Current username:", username);
-            console.log(
-                "Units needing autocomplete (no content or no validators):",
-                untranslatedOrUnvalidatedUnitsForSection.length
-            );
-            console.log(
-                "Units needing autocomplete (including not validated by current user):",
-                untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
-            );
+            debug("status", "Translation Units Status:", {
+                total: translationUnitsForSection.length,
+                unitsWithNoContent: translationUnitsForSection.filter(
+                    (unit) => !unit.cellContent.trim()
+                ).length,
+                llmGeneratedUnits: translationUnitsForSection.filter((unit) => {
+                    const cellValueData = getCellValueData(unit);
+                    return cellValueData.editType === "llm-generation";
+                }).length,
+                unitsWithValidations: translationUnitsForSection.filter((unit) => {
+                    const cellValueData = getCellValueData(unit);
+                    return cellValueData.validatedBy && cellValueData.validatedBy.length > 0;
+                }).length,
+                currentUsername: username,
+                unitsNeedingAutocomplete: untranslatedOrUnvalidatedUnitsForSection.length,
+                unitsNeedingAutocompleteWithCurrentUser:
+                    untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
+            });
         }
     }, [
         translationUnitsForSection,
@@ -787,13 +798,6 @@ const CodexCellEditor: React.FC = () => {
         untranslatedOrUnvalidatedUnitsForSection,
         untranslatedOrNotValidatedByCurrentUserUnitsForSection,
     ]);
-
-    // Add debugging for counts at render time
-    console.log("RENDER COUNTS:", {
-        noValidatorsCount: untranslatedOrUnvalidatedUnitsForSection.length,
-        withCurrentUserCount: untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
-        username,
-    });
 
     // Clean up when component unmounts
     useEffect(() => {
@@ -816,7 +820,8 @@ const CodexCellEditor: React.FC = () => {
 
         if (isProcessingCell) {
             // Already processing a cell
-            console.log(
+            debug(
+                "queue",
                 `Currently processing cell: ${singleCellQueueProcessingId}, queue: [${translationQueue.join(
                     ", "
                 )}]`
@@ -826,7 +831,8 @@ const CodexCellEditor: React.FC = () => {
 
         // Get the next cell to process
         const nextCellId = translationQueue[0];
-        console.log(
+        debug(
+            "queue",
             `Processing next cell in queue: ${nextCellId}. Queue length: ${translationQueue.length}`
         );
 
@@ -834,7 +840,7 @@ const CodexCellEditor: React.FC = () => {
         // This is important to do first to avoid race conditions
         setTranslationQueue((prev) => {
             const remaining = prev.slice(1);
-            console.log(`Updated queue after removing current cell: [${remaining.join(", ")}]`);
+            debug("queue", `Updated queue after removing current cell: [${remaining.join(", ")}]`);
             return remaining;
         });
 
@@ -847,7 +853,7 @@ const CodexCellEditor: React.FC = () => {
 
         // Send the translation request - do this outside of state updates
         setTimeout(() => {
-            console.log(`Sending translation request for: ${nextCellId}`);
+            debug("queue", `Sending translation request for: ${nextCellId}`);
             vscode.postMessage({
                 command: "llmCompletion",
                 content: {
@@ -859,9 +865,9 @@ const CodexCellEditor: React.FC = () => {
 
         // Set up a safety timeout in case the cell never completes
         const safetyTimeout = setTimeout(() => {
-            console.log(`Safety timeout for cell: ${nextCellId}`);
+            debug("queue", `Safety timeout for cell: ${nextCellId}`);
             if (singleCellQueueProcessingId === nextCellId && isProcessingCell) {
-                console.log("Forcing queue to continue");
+                debug("queue", "Forcing queue to continue");
                 setSingleCellQueueProcessingId(undefined);
                 setIsProcessingCell(false);
             }
@@ -884,14 +890,16 @@ const CodexCellEditor: React.FC = () => {
                 const processingTime = Date.now() - processingStartTimeRef.current;
                 if (processingTime > 20000) {
                     // 20 seconds
-                    console.log(
+                    debug(
+                        "queue",
                         `Cell ${singleCellQueueProcessingId} has been processing for ${processingTime}ms, which seems excessive`
                     );
                 }
 
                 if (processingTime > 45000) {
                     // 45 seconds (before the 60s timeout)
-                    console.log(
+                    debug(
+                        "queue",
                         `WARNING: Cell ${singleCellQueueProcessingId} has been processing for ${processingTime}ms. Forcing reset.`
                     );
                     // Reset state to allow next cell to process
@@ -907,23 +915,24 @@ const CodexCellEditor: React.FC = () => {
 
     // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
-        console.log(`Sparkle button clicked for cell: ${cellId}`);
+        debug("sparkle", `Sparkle button clicked for cell: ${cellId}`);
 
         // Add the cell to the queue instead of processing immediately
         setTranslationQueue((queue) => {
             // Check if this cell is already in the queue or is currently processing
             if (queue.includes(cellId) || cellId === singleCellQueueProcessingId) {
-                console.log(`Cell already in queue or processing: ${cellId}`);
+                debug("sparkle", `Cell already in queue or processing: ${cellId}`);
                 return queue; // Return unchanged queue
             }
 
             // Check that the cell ID is valid
             if (!cellId || cellId.trim() === "") {
-                console.log("Invalid cell ID, skipping:", cellId);
+                debug("sparkle", "Invalid cell ID, skipping:", cellId);
                 return queue;
             }
 
-            console.log(
+            debug(
+                "sparkle",
                 `Adding cell to translation queue: ${cellId}. Current queue length: ${queue.length}`
             );
 
@@ -931,14 +940,14 @@ const CodexCellEditor: React.FC = () => {
             const newQueue = [...queue, cellId];
 
             // Debug info
-            console.log(`Updated queue: [${newQueue.join(", ")}]`);
+            debug("sparkle", `Updated queue: [${newQueue.join(", ")}]`);
             return newQueue;
         });
     };
 
     // Error handler for failed translations
     const handleTranslationError = useCallback((cellId: string) => {
-        console.log(`Translation failed for cell: ${cellId}`);
+        debug("error", `Translation failed for cell: ${cellId}`);
 
         // Reset the processing state so the queue can continue
         setIsProcessingCell(false);
@@ -949,7 +958,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Handler to stop all single-cell translations
     const handleStopSingleCellTranslation = useCallback(() => {
-        console.log("Stopping pending cell translations");
+        debug("translation", "Stopping pending cell translations");
 
         // Only clear the queue, but keep the currently processing cell active
         // This ensures the spinner continues showing for cells already being translated
@@ -958,7 +967,8 @@ const CodexCellEditor: React.FC = () => {
         // Don't reset processing state for the currently processing cell
         // We want to keep the spinner showing for that cell since a response will eventually come back
 
-        console.log(
+        debug(
+            "translation",
             `Queue cleared. Currently processing cell (${singleCellQueueProcessingId}) will complete normally.`
         );
     }, [singleCellQueueProcessingId]);
@@ -976,13 +986,17 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         // If we're processing a cell, set up a timeout to detect if it gets stuck
         if (isProcessingCell && singleCellQueueProcessingId) {
-            console.log(
+            debug(
+                "monitor",
                 `Setting up stuck translation monitor for cell: ${singleCellQueueProcessingId}`
             );
 
             const stuckTimeout = setTimeout(() => {
                 if (isProcessingCell && singleCellQueueProcessingId) {
-                    console.log(`Cell translation appears stuck: ${singleCellQueueProcessingId}`);
+                    debug(
+                        "monitor",
+                        `Cell translation appears stuck: ${singleCellQueueProcessingId}`
+                    );
 
                     // Reset processing state to continue the queue
                     handleTranslationError(singleCellQueueProcessingId);
@@ -997,34 +1011,32 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         // If we're processing a cell, check if its content has changed
         if (isProcessingCell && singleCellQueueProcessingId) {
-            // Find this cell in the current translation units
             const cell = translationUnits.find(
                 (unit) => unit.cellMarkers[0] === singleCellQueueProcessingId
             );
 
             if (cell) {
-                // Get previous content (if we've seen this cell before)
                 const previousContent = cellContentMapRef.current.get(singleCellQueueProcessingId);
 
-                // If we have previous content and it's different from current, the translation likely completed
                 if (
                     previousContent !== undefined &&
                     previousContent !== cell.cellContent &&
                     cell.cellContent.trim().length > 0
                 ) {
-                    console.log(`Detected content change for cell ${singleCellQueueProcessingId}!`);
-                    console.log(`Previous: "${previousContent.substring(0, 50)}..."`);
-                    console.log(`Current: "${cell.cellContent.substring(0, 50)}..."`);
+                    debug("content", "Content change detected:", {
+                        cellId: singleCellQueueProcessingId,
+                        previousLength: previousContent.length,
+                        newLength: cell.cellContent.length,
+                        preview: {
+                            previous: previousContent.substring(0, 50),
+                            current: cell.cellContent.substring(0, 50),
+                        },
+                    });
 
-                    // Content has changed, mark translation as complete
-                    console.log(
-                        `Cell content changed - assuming translation complete for ${singleCellQueueProcessingId}`
-                    );
                     setSingleCellQueueProcessingId(undefined);
                     setIsProcessingCell(false);
                 }
 
-                // Always update our content map with the latest
                 cellContentMapRef.current.set(singleCellQueueProcessingId, cell.cellContent);
             }
         }
@@ -1070,7 +1082,7 @@ const CodexCellEditor: React.FC = () => {
                             includeNotValidatedByAnyUser,
                             includeNotValidatedByCurrentUser
                         ) => {
-                            console.log("Autocomplete requested with:", {
+                            debug("autocomplete", "Autocomplete requested with:", {
                                 numberOfCells,
                                 includeNotValidatedByAnyUser,
                                 includeNotValidatedByCurrentUser,

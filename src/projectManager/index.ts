@@ -139,40 +139,50 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
 
             if (selectedCount !== undefined) {
                 const count = parseInt(selectedCount.label);
-                
+
                 // Temporarily disable syncing from metadata to prevent race condition
                 disableSyncTemporarily();
-                
+
                 // Update configuration
                 await config.update("validationCount", count, vscode.ConfigurationTarget.Workspace);
-                
+
                 // Directly update the metadata file to ensure it happens
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri?.fsPath;
                 if (workspaceFolder) {
-                    const projectFilePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceFolder), "metadata.json");
+                    const projectFilePath = vscode.Uri.joinPath(
+                        vscode.Uri.file(workspaceFolder),
+                        "metadata.json"
+                    );
                     try {
                         // Read existing metadata
                         const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
                         const project = JSON.parse(projectFileData.toString());
-                        
+
                         // Update validation count
                         project.meta = project.meta || {};
                         project.meta.validationCount = count;
-                        
+
                         // Write back to metadata file
-                        const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
-                        await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
-                        
+                        const updatedProjectFileData = Buffer.from(
+                            JSON.stringify(project, null, 4),
+                            "utf8"
+                        );
+                        await vscode.workspace.fs.writeFile(
+                            projectFilePath,
+                            updatedProjectFileData
+                        );
+
                         console.log("Metadata file directly updated with validation count:", count);
-                        
+
                         // Force codex editors to re-fetch the validation count
                         // This will cause the validation status indicators to be updated
                         // This is needed because the configuration change listener might not trigger immediately
-                        await vscode.commands.executeCommand("codex-editor-extension.updateValidationIndicators");
-                        
+                        await vscode.commands.executeCommand(
+                            "codex-editor-extension.updateValidationIndicators"
+                        );
                     } catch (error) {
                         console.error("Error updating metadata file directly:", error);
-                        
+
                         // Fall back to using the command
                         vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
                     }
@@ -180,7 +190,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
                     // Fall back to using the command if no workspace folder
                     vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
                 }
-                
+
                 vscode.window.showInformationMessage(`Required validations set to ${count}.`);
             }
         })
@@ -496,7 +506,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const showProjectOverviewCommand = vscode.commands.registerCommand(
         "codex-project-manager.showProjectOverview",
         async () => {
-            await vscode.commands.executeCommand("workbench.view.extension.project-manager");
+            // await vscode.commands.executeCommand("workbench.view.extension.project-manager");
             await vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
 
             // Get the provider instance

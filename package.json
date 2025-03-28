@@ -53,10 +53,10 @@
             "codex-files-view": [
                 {
                     "type": "webview",
-                    "id": "codex-editor.codexFiles",
-                    "name": "Codex Files",
+                    "id": "codex-editor.navigation",
+                    "name": "Navigation",
                     "icon": "$(files)",
-                    "contextualTitle": "Codex Files"
+                    "contextualTitle": "Navigation"
                 }
             ],
             "parallel-passages-view": [
@@ -121,7 +121,7 @@
             "activitybar": [
                 {
                     "id": "codex-files-view",
-                    "title": "Codex Files",
+                    "title": "Navigation",
                     "icon": "$(files)"
                 },
                 {
@@ -1115,7 +1115,7 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run build:webviews && npm run compile",
+        "vscode:prepublish": "npm run compile",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
         "package": "webpack --config webpack.config.js --mode production --devtool hidden-source-map",

@@ -164,7 +164,7 @@ const styles = {
     },
 };
 
-function CodexFilesView() {
+function NavigationView() {
     const [state, setState] = useState<State>({
         codexItems: [],
         dictionaryItems: [],
@@ -353,11 +353,11 @@ function CodexFilesView() {
     );
 }
 
-export default CodexFilesView;
+export default NavigationView;
 
 // Mount the component
 const root = document.getElementById("root");
 if (root) {
     const reactRoot = createRoot(root);
-    reactRoot.render(<CodexFilesView />);
+    reactRoot.render(<NavigationView />);
 }

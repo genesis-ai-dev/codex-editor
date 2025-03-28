@@ -7,7 +7,7 @@ import { registerDictionaryTableProvider } from "../../providers/dictionaryTable
 import { registerChatProvider } from "../../providers/chat/customChatWebviewProvider";
 import { registerCommentsWebviewProvider } from "../../providers/commentsWebview/customCommentsWebviewProvider";
 import { registerProjectManagerViewWebviewProvider } from "../../projectManager/projectManagerViewProvider";
-import { registerCodexFilesWebviewProvider } from "../../providers/codexFilesWebview/register";
+import { registerNavigationWebviewProvider } from "../../providers/navigationWebview/register";
 
 export async function initializeWebviews(context: vscode.ExtensionContext) {
     registerParallelViewWebviewProvider(context);
@@ -16,5 +16,5 @@ export async function initializeWebviews(context: vscode.ExtensionContext) {
     registerChatProvider(context);
     registerCommentsWebviewProvider(context);
     registerProjectManagerViewWebviewProvider(context);
-    registerCodexFilesWebviewProvider(context);
+    registerNavigationWebviewProvider(context);
 }

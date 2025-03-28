@@ -94,8 +94,8 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Register Project Manager", stepStart);
         registerProjectManager(context);
         
-        // Show project manager view immediately
-        await vscode.commands.executeCommand("workbench.view.extension.project-manager");
+        // // Show project manager view immediately
+        // await vscode.commands.executeCommand("workbench.view.extension.project-manager");
 
         // Register startup flow commands
         stepStart = trackTiming("Register Startup Flow", stepStart);
