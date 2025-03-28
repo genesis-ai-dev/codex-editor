@@ -40,7 +40,7 @@ export enum StartupFlowEvents {
     VALIDATE_PROJECT_IS_OPEN = "VALIDATE_PROJECT_IS_OPEN",
     PROJECT_MISSING_CRITICAL_DATA = "PROJECT_MISSING_CRITICAL_DATA",
     SETUP_COMPLETE = "SETUP_COMPLETE",
-    SETUP_INCOMPLETE = "SETUP_INCOMPLETE"
+    SETUP_INCOMPLETE = "SETUP_INCOMPLETE",
 }
 
 type StartupFlowContext = {
@@ -178,14 +178,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         [StartupFlowEvents.UPDATE_AUTH_STATE]: {
                             actions: assign({
                                 authState: ({ event }) => ({
-                                    isAuthenticated: "data" in event ? !!event.data.isAuthenticated : false,
-                                    isAuthExtensionInstalled: "data" in event ? !!event.data.isAuthExtensionInstalled : false,
+                                    isAuthenticated:
+                                        "data" in event ? !!event.data.isAuthenticated : false,
+                                    isAuthExtensionInstalled:
+                                        "data" in event
+                                            ? !!event.data.isAuthExtensionInstalled
+                                            : false,
                                     isLoading: "data" in event ? !!event.data.isLoading : false,
                                     error: "data" in event ? event.data.error : undefined,
                                     gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
                                     workspaceState: {
-                                        isWorkspaceOpen: "data" in event ? !!event.data.workspaceState?.isWorkspaceOpen : false,
-                                        isProjectInitialized: "data" in event ? !!event.data.workspaceState?.isProjectInitialized : false,
+                                        isWorkspaceOpen:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                : false,
+                                        isProjectInitialized:
+                                            "data" in event
+                                                ? !!event.data.workspaceState?.isProjectInitialized
+                                                : false,
                                     },
                                 }),
                             }),
@@ -193,19 +203,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         [StartupFlowEvents.AUTH_LOGGED_IN]: [
                             {
                                 target: StartupFlowStates.OPEN_OR_CREATE_PROJECT,
-                                guard: ({ context }) => !context.authState?.workspaceState?.isWorkspaceOpen || false,
+                                guard: ({ context }) =>
+                                    !context.authState?.workspaceState?.isWorkspaceOpen || false,
                             },
                             {
                                 target: StartupFlowStates.ALREADY_WORKING,
-                                guard: ({ context }) => 
+                                guard: ({ context }) =>
                                     (context.authState?.workspaceState?.isWorkspaceOpen ?? false) &&
-                                    (context.authState?.workspaceState?.isProjectInitialized ?? false),
+                                    (context.authState?.workspaceState?.isProjectInitialized ??
+                                        false),
                             },
                             {
                                 target: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                                guard: ({ context }) => 
+                                guard: ({ context }) =>
                                     (context.authState?.workspaceState?.isWorkspaceOpen ?? false) &&
-                                    !(context.authState?.workspaceState?.isProjectInitialized ?? false),
+                                    !(
+                                        context.authState?.workspaceState?.isProjectInitialized ??
+                                        false
+                                    ),
                             },
                         ],
                         [StartupFlowEvents.SKIP_AUTH]: {
@@ -216,23 +231,32 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
                     on: {
                         [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
-                        [StartupFlowEvents.PROJECT_CREATE_EMPTY]: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
-                        [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
-                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]: StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                        [StartupFlowEvents.PROJECT_CREATE_EMPTY]:
+                            StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
+                            StartupFlowStates.ALREADY_WORKING,
+                        [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
+                            StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
+                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
                     },
                 },
                 [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {
                     on: {
-                        [StartupFlowEvents.INITIALIZE_PROJECT]: StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
-                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]: StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
-                        [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]: StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
+                        [StartupFlowEvents.INITIALIZE_PROJECT]:
+                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
+                            StartupFlowStates.ALREADY_WORKING,
+                        [StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA]:
+                            StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
+                        [StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT]:
+                            StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
                     },
                 },
                 [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
                     on: {
-                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]: StartupFlowStates.ALREADY_WORKING,
+                        [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
+                            StartupFlowStates.ALREADY_WORKING,
                     },
                 },
                 [StartupFlowStates.ALREADY_WORKING]: {
@@ -814,59 +838,59 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
-            case "project.initialize": {
-                debugLog("Initializing project");
-                // Set canInitializeProject to true when initialization starts
-                webviewPanel.webview.postMessage({
-                    command: "metadata.checkResponse",
-                    data: {
-                        exists: false,
-                        hasCriticalData: false,
-                        isInitializing: true
-                    }
-                });
-                
-                await createNewProject();
-                
-                // Wait for metadata.json to be created
-                const workspaceFolders = vscode.workspace.workspaceFolders;
-                if (workspaceFolders) {
-                    try {
-                        const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-                        // Wait for metadata.json to exist
-                        await vscode.workspace.fs.stat(metadataUri);
-                        
-                        // Show Project Manager view first
-                        await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                        
-                        // Send initialization status to webview
-                        webviewPanel.webview.postMessage({
-                            command: "project.initializationStatus",
-                            isInitialized: true
-                        });
-                        
-                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
-                    } catch (error) {
-                        console.error("Error checking metadata.json:", error);
-                        // If metadata.json doesn't exist yet, don't transition state
-                        webviewPanel.webview.postMessage({
-                            command: "project.initializationStatus",
-                            isInitialized: false
-                        });
-                        
-                        // Reset initialization state
-                        webviewPanel.webview.postMessage({
-                            command: "metadata.checkResponse",
-                            data: {
-                                exists: false,
-                                hasCriticalData: false,
-                                isInitializing: false
-                            }
-                        });
-                    }
-                }
-                break;
-            }
+            // case "project.initialize": {
+            //     debugLog("Initializing project");
+            //     // Set canInitializeProject to true when initialization starts
+            //     webviewPanel.webview.postMessage({
+            //         command: "metadata.checkResponse",
+            //         data: {
+            //             exists: false,
+            //             hasCriticalData: false,
+            //             isInitializing: true
+            //         }
+            //     });
+
+            //     await createNewProject();
+
+            //     // Wait for metadata.json to be created
+            //     const workspaceFolders = vscode.workspace.workspaceFolders;
+            //     if (workspaceFolders) {
+            //         try {
+            //             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+            //             // Wait for metadata.json to exist
+            //             await vscode.workspace.fs.stat(metadataUri);
+
+            //             // Show Project Manager view first
+            //             await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+
+            //             // Send initialization status to webview
+            //             webviewPanel.webview.postMessage({
+            //                 command: "project.initializationStatus",
+            //                 isInitialized: true
+            //             });
+
+            //             this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+            //         } catch (error) {
+            //             console.error("Error checking metadata.json:", error);
+            //             // If metadata.json doesn't exist yet, don't transition state
+            //             webviewPanel.webview.postMessage({
+            //                 command: "project.initializationStatus",
+            //                 isInitialized: false
+            //             });
+
+            //             // Reset initialization state
+            //             webviewPanel.webview.postMessage({
+            //                 command: "metadata.checkResponse",
+            //                 data: {
+            //                     exists: false,
+            //                     hasCriticalData: false,
+            //                     isInitializing: false
+            //                 }
+            //             });
+            //         }
+            //     }
+            //     break;
+            // }
         }
     }
 
@@ -882,7 +906,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         try {
             if (command === "changeSourceLanguage" || command === "changeTargetLanguage") {
                 const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const configKey = command === "changeSourceLanguage" ? "sourceLanguage" : "targetLanguage";
+                const configKey =
+                    command === "changeSourceLanguage" ? "sourceLanguage" : "targetLanguage";
                 await config.update(configKey, data.language, vscode.ConfigurationTarget.Workspace);
                 await vscode.commands.executeCommand("codex-project-manager.updateMetadataFile");
                 vscode.window.showInformationMessage(
@@ -915,7 +940,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.metadataWatcher.onDidCreate(() => {
             webviewPanel.webview.postMessage({
                 command: "project.initializationStatus",
-                isInitialized: true
+                isInitialized: true,
             });
         });
 
@@ -988,7 +1013,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });
                     break;
                 case "project.showManager":
-                    await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                    await vscode.commands.executeCommand(
+                        "codex-project-manager.showProjectOverview"
+                    );
                     break;
                 case "project.createEmpty": {
                     debugLog("Creating empty project");
@@ -998,31 +1025,36 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 case "project.initialize": {
                     debugLog("Initializing project");
                     await createNewProject();
-                    
+
                     // Wait for metadata.json to be created
                     const workspaceFolders = vscode.workspace.workspaceFolders;
                     if (workspaceFolders) {
                         try {
-                            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                            const metadataUri = vscode.Uri.joinPath(
+                                workspaceFolders[0].uri,
+                                "metadata.json"
+                            );
                             // Wait for metadata.json to exist
                             await vscode.workspace.fs.stat(metadataUri);
-                            
+
                             // Show Project Manager view first
-                            await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-                            
+                            await vscode.commands.executeCommand(
+                                "codex-project-manager.showProjectOverview"
+                            );
+
                             // Send initialization status to webview
                             webviewPanel.webview.postMessage({
                                 command: "project.initializationStatus",
-                                isInitialized: true
+                                isInitialized: true,
                             });
-                            
+
                             this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
                         } catch (error) {
                             console.error("Error checking metadata.json:", error);
                             // If metadata.json doesn't exist yet, don't transition state
                             webviewPanel.webview.postMessage({
                                 command: "project.initializationStatus",
-                                isInitialized: false
+                                isInitialized: false,
                             });
                         }
                     }
@@ -1035,22 +1067,28 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         type: StartupFlowEvents.UPDATE_AUTH_STATE,
                         data: preflightState.authState,
                     });
-                    
+
                     // Check workspace status
                     if (!preflightState.workspaceState.isOpen) {
                         this.stateMachine.send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN });
                         return;
                     }
-                    
+
                     // Check if metadata exists and project is set up
                     if (preflightState.workspaceState.hasMetadata) {
                         if (preflightState.workspaceState.isProjectSetup) {
-                            this.stateMachine.send({ type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN });
+                            this.stateMachine.send({
+                                type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
+                            });
                         } else {
-                            this.stateMachine.send({ type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA });
+                            this.stateMachine.send({
+                                type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
+                            });
                         }
                     } else {
-                        this.stateMachine.send({ type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT });
+                        this.stateMachine.send({
+                            type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
+                        });
                     }
                     break;
                 }
@@ -1082,10 +1120,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const workspaceFolders = vscode.workspace.workspaceFolders;
                     if (workspaceFolders) {
                         try {
-                            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+                            const metadataUri = vscode.Uri.joinPath(
+                                workspaceFolders[0].uri,
+                                "metadata.json"
+                            );
                             const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
                             const metadata = JSON.parse(metadataContent.toString());
-                            
+
                             const sourceLanguage = metadata.languages?.find(
                                 (l: any) => l.projectStatus === "source"
                             );
@@ -1094,15 +1135,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             );
 
                             // Get source texts
-                            const sourceTexts = metadata.ingredients ? Object.keys(metadata.ingredients) : [];
-                            
+                            const sourceTexts = metadata.ingredients
+                                ? Object.keys(metadata.ingredients)
+                                : [];
+
                             webviewPanel.webview.postMessage({
                                 command: "metadata.checkResponse",
                                 data: {
                                     sourceLanguage,
                                     targetLanguage,
-                                    sourceTexts
-                                }
+                                    sourceTexts,
+                                },
                             });
                         } catch (error) {
                             console.error("Error checking metadata:", error);
@@ -1111,8 +1154,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 data: {
                                     sourceLanguage: null,
                                     targetLanguage: null,
-                                    sourceTexts: []
-                                }
+                                    sourceTexts: [],
+                                },
                             });
                         }
                     }
@@ -1192,41 +1235,41 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 case "project.clone": {
                     debugLog("Cloning repository", message.repoUrl);
-                    
+
                     try {
                         // Get the .codex-projects directory
                         const codexProjectsDir = await getCodexProjectsDirectory();
-                        
+
                         // Extract project name from URL to use as folder name
-                        const urlParts = message.repoUrl.split('/');
+                        const urlParts = message.repoUrl.split("/");
                         let projectName = urlParts[urlParts.length - 1];
-                        
+
                         // Remove .git extension if present
-                        if (projectName.endsWith('.git')) {
+                        if (projectName.endsWith(".git")) {
                             projectName = projectName.slice(0, -4);
                         }
-                        
+
                         // Create a unique folder name if needed
                         let projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
-                        
+
                         // Check if directory already exists
                         try {
                             await vscode.workspace.fs.stat(projectDir);
                             // If we get here, the directory exists
-                            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
                             const newProjectName = `${projectName}-${timestamp}`;
                             projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
                         } catch {
                             // Directory doesn't exist, which is what we want
                         }
-                        
+
                         // Clone to the .codex-projects directory
                         this.frontierApi?.cloneRepository(message.repoUrl, projectDir.fsPath);
                     } catch (error) {
                         console.error("Error preparing to clone repository:", error);
                         this.frontierApi?.cloneRepository(message.repoUrl);
                     }
-                    
+
                     break;
                 }
             }
