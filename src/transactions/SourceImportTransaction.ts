@@ -122,7 +122,6 @@ export class SourceImportTransaction extends ImportTransaction {
                     navigation: [],
                     sourceCreatedAt: new Date().toISOString(),
                     codexLastModified: new Date().toISOString(),
-                    gitStatus: "untracked" as const,
                     corpusMarker: notebook.metadata?.corpusMarker || "",
                 };
                 await this.metadataManager.addOrUpdateMetadata(metadata);

@@ -4,7 +4,6 @@ import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
 } from "../../utils/notebookMetadataManager";
-import { registerScmCommands } from "../scm/scmActionHandler";
 import {
     CodexNotebookAsJSONData,
     NotebookPreview,
@@ -147,11 +146,10 @@ export class SourceUploadProvider
     private currentDownloadBibleTransaction: DownloadBibleTransaction | null = null;
     // private currentTranslationPairsTransaction: TranslationPairsImportTransaction | null = null;
     public availableCodexFiles: vscode.Uri[] = [];
-
     constructor(private readonly context: vscode.ExtensionContext) {
-        registerScmCommands(context);
-        // this.currentTranslationPairsTransaction = null;
+        this.context = context;
     }
+
 
     public async resolveCustomDocument(
         document: vscode.CustomDocument,
@@ -175,6 +173,9 @@ export class SourceUploadProvider
         webviewPanel: vscode.WebviewPanel,
         _token: vscode.CancellationToken
     ): Promise<void> {
+        if (!this.context) {
+            throw new Error("Context is not set in SourceUploadProvider.resolveCustomTextEditor");
+        }
         webviewPanel.webview.options = {
             enableScripts: true,
             localResourceRoots: [this.context.extensionUri],
@@ -427,6 +428,11 @@ export class SourceUploadProvider
                         break;
                     case "previewSourceText": {
                         // Create temporary file and start transaction
+                        if (!this.context) {
+                            throw new Error(
+                                "Context is not set in SourceUploadProvider.previewSourceText"
+                            );
+                        }
                         const tempUri = await this.saveUploadedFile(
                             message.fileContent,
                             message.fileName
@@ -619,10 +625,6 @@ export class SourceUploadProvider
                                         originalName: data.fileName,
                                         sourceFsPath: sourceUri.fsPath,
                                         codexFsPath: codexUri.fsPath,
-                                        // columnMapping: data.,
-                                        // totalPairs: data.preview.transformed.matchedCells,
-                                        // importDate: new Date().toISOString(),
-                                        gitStatus: "uninitialized",
                                         navigation: [],
                                         videoUrl: "",
                                         sourceCreatedAt: new Date().toISOString(),
@@ -803,7 +805,6 @@ export class SourceUploadProvider
             codexFsPath: metadata.codexFsPath,
             videoUrl: metadata.videoUrl,
             lastModified: metadata.codexLastModified,
-            gitStatus: metadata?.gitStatus,
         }));
 
         webviewPanel.webview.postMessage({
@@ -846,6 +847,9 @@ export class SourceUploadProvider
     }
 
     private async saveUploadedFile(content: string, fileName: string): Promise<vscode.Uri> {
+        if (!this.context) {
+            throw new Error("Context is not set in SourceUploadProvider.saveUploadedFile");
+        }
         const tempDirUri = vscode.Uri.joinPath(this.context.globalStorageUri, "temp");
         await vscode.workspace.fs.createDirectory(tempDirUri);
         const fileUri = vscode.Uri.joinPath(tempDirUri, fileName);
@@ -854,6 +858,9 @@ export class SourceUploadProvider
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
+        if (!this.context) {
+            throw new Error("Context is not set in SourceUploadProvider.getHtmlForWebview");
+        }
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
@@ -1143,6 +1150,11 @@ export class SourceUploadProvider
 
             // Initialize transactions based on file type
             for (const uri of fileUris) {
+                if (!this.context) {
+                    throw new Error(
+                        "Context is not set in SourceUploadProvider.handleMultipleSourceImports"
+                    );
+                }
                 const fileExtension = uri.fsPath.split(".").pop()?.toLowerCase();
                 const fileType = fileTypeMap[fileExtension as keyof typeof fileTypeMap];
 
@@ -1330,6 +1342,11 @@ export class SourceUploadProvider
         files: Array<{ content: string; name: string; sourceId: string }>,
         token: vscode.CancellationToken
     ): Promise<void> {
+        if (!this.context) {
+            throw new Error(
+                "Context is not set in SourceUploadProvider.handleMultipleTranslationImports"
+            );
+        }
         const BATCH_SIZE = 5;
         const transactions: (TranslationImportTransaction | UsfmTranslationImportTransaction)[] =
             [];

@@ -61,7 +61,6 @@ suite("NotebookMetadataManager Test Suite", () => {
             navigation: [],
             sourceCreatedAt: new Date().toISOString(),
             corpusMarker: "test-corpus",
-            gitStatus: "untracked",
         };
 
         // Create a temporary file for testing

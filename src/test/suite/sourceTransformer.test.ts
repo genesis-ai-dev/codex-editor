@@ -74,8 +74,6 @@ function validateNotebooks(
 
     // Verify metadata
     assert.ok(source.metadata.sourceCreatedAt);
-    assert.strictEqual(source.metadata.gitStatus, "untracked");
-    assert.strictEqual(target.metadata.gitStatus, "untracked");
 }
 
 async function createTempFile(content: string, extension: string): Promise<vscode.Uri> {

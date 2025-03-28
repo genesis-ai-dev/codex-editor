@@ -833,15 +833,6 @@ export interface CustomNotebookMetadata {
     videoUrl?: string;
     sourceCreatedAt: string;
     codexLastModified?: string;
-    gitStatus:
-        | "uninitialized"
-        | "modified"
-        | "added"
-        | "deleted"
-        | "renamed"
-        | "conflict"
-        | "untracked"
-        | "committed"; // FIXME: we should probably programmatically do things like track .codex .source and .dictionary files
     corpusMarker: string;
     cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;

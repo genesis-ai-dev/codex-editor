@@ -251,7 +251,6 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
                 navigation: navigationCells,
                 sourceCreatedAt: "migrated from old format Fall 2024",
                 codexLastModified: "",
-                gitStatus: "uninitialized",
             };
 
             if (notebookData?.metadata?.perf) {

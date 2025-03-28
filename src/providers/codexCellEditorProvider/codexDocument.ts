@@ -84,7 +84,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     codexFsPath: undefined,
                     navigation: [],
                     sourceCreatedAt: new Date().toISOString(),
-                    gitStatus: "uninitialized",
                     corpusMarker: "",
                 },
             };
@@ -663,7 +662,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     codexFsPath: "",
                     navigation: [],
                     sourceCreatedAt: new Date().toISOString(),
-                    gitStatus: "uninitialized",
                     corpusMarker: "",
                     validationMigrationComplete: true,
                 };

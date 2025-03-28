@@ -1,10 +1,10 @@
-import { API, GitExtension } from "./../providers/scm/git.d";
+// import { API, GitExtension } from "./../providers/scm/git.d";
 import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "../serializer";
 import { generateUniqueId, clearIdCache } from "./idGenerator";
 import { NavigationCell } from "./codexNotebookUtils";
-import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
+// import { API as GitAPI, Repository, Status } from "../providers/scm/git.d";
 import {
     deserializeDictionaryEntries,
     serializeDictionaryEntries,
@@ -22,15 +22,15 @@ function debugLog(...args: any[]): void {
     }
 }
 
-async function getGitAPI(): Promise<GitAPI | undefined> {
-    const gitExtension = vscode.extensions.getExtension<GitExtension>("vscode.git");
-    if (gitExtension && gitExtension.isActive) {
-        return gitExtension.exports.getAPI(1);
-    } else {
-        await gitExtension?.activate();
-        return gitExtension?.exports.getAPI(1);
-    }
-}
+// async function getGitAPI(): Promise<GitAPI | undefined> {
+//     const gitExtension = vscode.extensions.getExtension<GitExtension>("vscode.git");
+//     if (gitExtension && gitExtension.isActive) {
+//         return gitExtension.exports.getAPI(1);
+//     } else {
+//         await gitExtension?.activate();
+//         return gitExtension?.exports.getAPI(1);
+//     }
+// }
 
 interface MetadataValidationResult {
     isValid: boolean;
@@ -158,7 +158,6 @@ export class NotebookMetadataManager {
             videoUrl: "",
             sourceCreatedAt: "",
             codexLastModified: "",
-            gitStatus: "uninitialized",
             corpusMarker: "",
         };
     }
@@ -177,8 +176,6 @@ export class NotebookMetadataManager {
             // Store old metadata for comparison
             const oldMetadata = new Map(this.metadataMap);
             this.metadataMap.clear();
-
-            const gitAvailable = await this.isGitAvailable();
 
             // Only look in the proper directories
             const workspaceUri = getWorkSpaceUri();
@@ -266,14 +263,6 @@ export class NotebookMetadataManager {
                         }
                     }
 
-                    if (gitAvailable) {
-                        const newGitStatus = await this.getGitStatusForFile(file);
-                        if (metadata.gitStatus !== newGitStatus) {
-                            metadata.gitStatus = newGitStatus;
-                            hasChanges = true;
-                        }
-                    }
-
                     if (notebookData.metadata) {
                         const newMetadata = { ...metadata, ...notebookData.metadata };
                         if (JSON.stringify(metadata) !== JSON.stringify(newMetadata)) {
@@ -309,54 +298,6 @@ export class NotebookMetadataManager {
             path.includes("temp") ||
             path.includes("tmp")
         );
-    }
-
-    private async getGitStatusForFile(
-        fileUri: vscode.Uri
-    ): Promise<CustomNotebookMetadata["gitStatus"]> {
-        try {
-            const gitApi = await getGitAPI();
-            if (!gitApi || gitApi.repositories.length === 0) {
-                return "uninitialized";
-            }
-            const repository = gitApi.repositories[0];
-
-            if (!repository || !repository.state.HEAD) {
-                return "uninitialized";
-            }
-
-            const workingChanges = repository.state.workingTreeChanges;
-            const indexChanges = repository.state.indexChanges;
-            const mergeChanges = repository.state.mergeChanges;
-
-            const inMerge = mergeChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
-            if (inMerge) {
-                return "conflict";
-            }
-
-            const inIndex = indexChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
-            if (inIndex) {
-                return "modified";
-            }
-
-            const inWorking = workingChanges.some((change) => change.uri.fsPath === fileUri.fsPath);
-            if (inWorking) {
-                return "modified";
-            }
-
-            const isUntracked = workingChanges.some(
-                (change) =>
-                    change.status === Status.UNTRACKED && change.uri.fsPath === fileUri.fsPath
-            );
-            if (isUntracked) {
-                return "untracked";
-            }
-
-            return "committed";
-        } catch (error) {
-            console.error("Error getting Git status:", error);
-            return "uninitialized";
-        }
     }
 
     public getMetadataById(id: string): CustomNotebookMetadata | undefined {
@@ -406,15 +347,6 @@ export class NotebookMetadataManager {
         const newId = generateUniqueId(baseName);
         debugLog("Generated new ID:", newId, "for base name:", baseName);
         return newId;
-    }
-
-    private async isGitAvailable(): Promise<boolean> {
-        try {
-            const gitApi = await getGitAPI();
-            return !!gitApi;
-        } catch {
-            return false;
-        }
     }
 
     public async handleFileSystemEvent(

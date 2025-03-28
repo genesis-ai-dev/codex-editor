@@ -169,7 +169,6 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                             navigation: [],
                             sourceCreatedAt: new Date().toISOString(),
                             codexLastModified: new Date().toISOString(),
-                            gitStatus: "untracked" as const,
                             corpusMarker: bookCode,
                         }
                     }],
@@ -194,7 +193,6 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                             navigation: [],
                             sourceCreatedAt: new Date().toISOString(),
                             codexLastModified: new Date().toISOString(),
-                            gitStatus: "untracked" as const,
                             corpusMarker: bookCode,
                         }
                     }],

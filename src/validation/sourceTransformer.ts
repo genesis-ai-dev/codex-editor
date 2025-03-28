@@ -217,7 +217,6 @@ export class SourceTransformer {
                 codexFsPath: undefined,
                 navigation: [],
                 sourceCreatedAt: new Date().toISOString(),
-                gitStatus: "untracked",
                 corpusMarker: "",
             },
         };

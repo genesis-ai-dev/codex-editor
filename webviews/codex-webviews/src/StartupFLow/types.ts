@@ -1,4 +1,3 @@
-import { syncUtils } from "./../../../../src/activationHelpers/contextAware/syncUtils";
 import { BiblePreview, PreviewContent } from "../../../../types";
 import { DownloadBibleTransaction } from "../../../../src/transactions/DownloadBibleTransaction";
 import * as vscode from "vscode";
