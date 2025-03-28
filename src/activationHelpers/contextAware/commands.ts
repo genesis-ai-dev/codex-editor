@@ -23,8 +23,12 @@ import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransa
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
+import { registerSyncCommands } from "../../projectManager/syncManager";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
+    // Register the centralized sync commands
+    registerSyncCommands(context);
+
     const indexVrefsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.indexVrefs",
         indexVerseRefsInSourceText

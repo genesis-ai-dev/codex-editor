@@ -615,7 +615,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         let commitMessage = "";
         const originalExecuteCommand = vscode.commands.executeCommand;
         vscode.commands.executeCommand = async (command: string, message?: string) => {
-            if (command === "extension.manualCommit") {
+            if (command === "extension.scheduleSync") {
                 commitCommandCalled = true;
                 commitMessage = message || "";
             }

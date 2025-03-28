@@ -14,6 +14,7 @@ import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
+import { SyncManager } from "../syncManager";
 
 // Flag to temporarily disable metadata to config sync during direct updates
 let syncDisabled = false;
@@ -26,7 +27,7 @@ const SYNC_DISABLE_TIMEOUT = 2000; // 2 seconds
 export function disableSyncTemporarily() {
     console.log("Temporarily disabling metadata-to-config sync");
     syncDisabled = true;
-    
+
     // Re-enable after timeout
     setTimeout(() => {
         syncDisabled = false;
@@ -58,19 +59,19 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
     // Create a QuickPick instance instead of using showQuickPick
     const quickPick = vscode.window.createQuickPick<CustomQuickPickItem>();
     quickPick.placeholder = "Search for a language...";
-    quickPick.items = languages.map(lang => ({ label: getLanguageDisplayName(lang) }));
+    quickPick.items = languages.map((lang) => ({ label: getLanguageDisplayName(lang) }));
 
     // Track the original items for filtering
     const originalItems = quickPick.items;
 
-    quickPick.onDidChangeValue(value => {
+    quickPick.onDidChangeValue((value) => {
         if (!value) {
             quickPick.items = originalItems;
             return;
         }
 
         const searchValue = value.toLowerCase();
-        const filteredItems = originalItems.filter(item => 
+        const filteredItems = originalItems.filter((item) =>
             item.label.toLowerCase().includes(searchValue)
         );
 
@@ -81,8 +82,8 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
                 label: "$(plus) Custom Language",
                 detail: `Create custom language "${value}"`,
                 customValue: value,
-                alwaysShow: true
-            }
+                alwaysShow: true,
+            },
         ];
     });
 
@@ -100,7 +101,7 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
             if (selection.customValue) {
                 targetLanguage = {
                     name: {
-                        en: selection.customValue
+                        en: selection.customValue,
                     },
                     tag: "custom",
                     refName: selection.customValue,
@@ -109,7 +110,7 @@ export async function promptForTargetLanguage(): Promise<ProjectDetails | undefi
             } else {
                 // Find the selected language from the original list
                 const selectedLanguage = languages.find(
-                    lang => getLanguageDisplayName(lang) === selection.label
+                    (lang) => getLanguageDisplayName(lang) === selection.label
                 );
 
                 if (!selectedLanguage) {
@@ -146,19 +147,19 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
     // Create a QuickPick instance instead of using showQuickPick
     const quickPick = vscode.window.createQuickPick<CustomQuickPickItem>();
     quickPick.placeholder = "Search for a language...";
-    quickPick.items = languages.map(lang => ({ label: getLanguageDisplayName(lang) }));
+    quickPick.items = languages.map((lang) => ({ label: getLanguageDisplayName(lang) }));
 
     // Track the original items for filtering
     const originalItems = quickPick.items;
 
-    quickPick.onDidChangeValue(value => {
+    quickPick.onDidChangeValue((value) => {
         if (!value) {
             quickPick.items = originalItems;
             return;
         }
 
         const searchValue = value.toLowerCase();
-        const filteredItems = originalItems.filter(item => 
+        const filteredItems = originalItems.filter((item) =>
             item.label.toLowerCase().includes(searchValue)
         );
 
@@ -169,8 +170,8 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
                 label: "$(plus) Custom Language",
                 detail: `Create custom language "${value}"`,
                 customValue: value,
-                alwaysShow: true
-            }
+                alwaysShow: true,
+            },
         ];
     });
 
@@ -188,7 +189,7 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
             if (selection.customValue) {
                 sourceLanguage = {
                     name: {
-                        en: selection.customValue
+                        en: selection.customValue,
                     },
                     tag: "custom",
                     refName: selection.customValue,
@@ -197,7 +198,7 @@ export async function promptForSourceLanguage(): Promise<ProjectDetails | undefi
             } else {
                 // Find the selected language from the original list
                 const selectedLanguage = languages.find(
-                    lang => getLanguageDisplayName(lang) === selection.label
+                    (lang) => getLanguageDisplayName(lang) === selection.label
                 );
 
                 if (!selectedLanguage) {
@@ -476,25 +477,27 @@ export async function updateMetadataFile() {
     }
 
     const projectSettings = vscode.workspace.getConfiguration("codex-project-manager");
-    
+
     // Preserving existing validation count if it exists
     const existingValidationCount = project.meta?.validationCount;
     const configValidationCount = projectSettings.get("validationCount", 1);
-    
-    console.log(`Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`);
-    
+
+    console.log(
+        `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
+    );
+
     // Check if we're in a sync disabled state (meaning a direct update is occurring)
     if (syncDisabled) {
         console.log("Direct update in progress - using config value for validation count");
     }
-    
+
     // Update project properties
     project.projectName = projectSettings.get("projectName", "");
     project.meta = project.meta || {}; // Ensure meta object exists
-    
+
     // Explicitly update validation count
     project.meta.validationCount = configValidationCount;
-    
+
     project.meta.generator = project.meta.generator || {}; // Ensure generator object exists
     project.meta.generator.userName = projectSettings.get("userName", "");
     project.meta.generator.userEmail = projectSettings.get("userEmail", "");
@@ -503,17 +506,20 @@ export async function updateMetadataFile() {
     project.languages[1] = projectSettings.get("targetLanguage", project.languages[1] || "");
     project.meta.abbreviation = projectSettings.get("abbreviation", "");
     project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
-    
+
     // Update other fields as needed
     console.log("Project settings loaded, preparing to write to metadata.json");
-    
+
     try {
         const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
         await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
-        console.log("Successfully wrote metadata.json with validation count:", project.meta.validationCount);
-        
+        console.log(
+            "Successfully wrote metadata.json with validation count:",
+            project.meta.validationCount
+        );
+
         // Small delay to ensure file system operations complete before further operations
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
     } catch (error) {
         console.error("Error writing metadata.json:", error);
     }
@@ -664,7 +670,7 @@ export async function syncMetadataToConfiguration() {
         console.log("Metadata-to-config sync is temporarily disabled, skipping");
         return;
     }
-    
+
     try {
         const metadata = await accessMetadataFile();
         if (!metadata || !metadata.meta) {
@@ -673,31 +679,47 @@ export async function syncMetadataToConfiguration() {
         }
 
         const config = vscode.workspace.getConfiguration("codex-project-manager");
-        
+
         // Sync validationCount from metadata to config
-        if (metadata.meta && 'validationCount' in metadata.meta && typeof metadata.meta.validationCount === 'number') {
-            console.log(`Syncing validationCount from metadata (${metadata.meta.validationCount}) to configuration`);
-            
+        if (
+            metadata.meta &&
+            "validationCount" in metadata.meta &&
+            typeof metadata.meta.validationCount === "number"
+        ) {
+            console.log(
+                `Syncing validationCount from metadata (${metadata.meta.validationCount}) to configuration`
+            );
+
             const currentConfigValue = config.get("validationCount", 1);
             if (currentConfigValue !== metadata.meta.validationCount) {
-                console.log(`Current config value (${currentConfigValue}) differs from metadata (${metadata.meta.validationCount}), updating...`);
-                
+                console.log(
+                    `Current config value (${currentConfigValue}) differs from metadata (${metadata.meta.validationCount}), updating...`
+                );
+
                 await config.update(
-                    "validationCount", 
-                    metadata.meta.validationCount, 
+                    "validationCount",
+                    metadata.meta.validationCount,
                     vscode.ConfigurationTarget.Workspace
                 );
-                
-                console.log(`Configuration updated to match metadata validationCount: ${metadata.meta.validationCount}`);
+
+                console.log(
+                    `Configuration updated to match metadata validationCount: ${metadata.meta.validationCount}`
+                );
+
+                // Schedule a sync operation to ensure the changes are committed
+                SyncManager.getInstance().scheduleSyncOperation(
+                    "Update project configuration from metadata"
+                );
             } else {
-                console.log(`Configuration already matches metadata validationCount: ${metadata.meta.validationCount}`);
+                console.log(
+                    `Configuration already matches metadata validationCount: ${metadata.meta.validationCount}`
+                );
             }
         } else {
             console.log("No valid validationCount found in metadata");
         }
-        
+
         // Add other metadata properties sync here as needed
-        
     } catch (error) {
         console.error("Error syncing metadata to configuration:", error);
     }
@@ -719,7 +741,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // Check metadata file
         await vscode.workspace.fs.stat(metadataUri);
         metadataExists = true;
-        
+
         // Sync metadata values to configuration
         await syncMetadataToConfiguration();
     } catch {
@@ -739,7 +761,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
     }
 
     return metadataExists && gitExists;
-};
+}
 
 export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean }) => {
     try {

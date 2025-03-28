@@ -24,6 +24,7 @@ import git from "isomorphic-git";
 import * as fs from "fs";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
+import { SyncManager } from "./syncManager";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -624,10 +625,12 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 });
                 break;
             }
-            case "syncProject":
+            case "syncProject": {
                 console.log("Syncing project");
-                await stageAndCommitAllAndSync("Syncing project");
+                const syncManager = SyncManager.getInstance();
+                await syncManager.executeSync("Syncing project");
                 break;
+            }
             default:
                 console.error(`Unknown command: ${message.command}`, { message });
         }

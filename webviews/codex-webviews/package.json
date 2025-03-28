@@ -15,7 +15,7 @@
         "build:EditableReactTable": "cross-env APP_NAME=EditableReactTable vite build",
         "build:ProjectManagerView": "cross-env APP_NAME=ProjectManagerView vite build",
         "build:SourceUpload": "cross-env APP_NAME=SourceUpload vite build",
-        "build:all": "pnpm run build:ProjectManagerView && pnpm run build:ParallelView && pnpm run build:SemanticView && pnpm run build:ChatView && pnpm run build:CommentsView && pnpm run build:NavigationView && pnpm run build:SourceUpload",
+        "build:all": "pnpm run build:ChatView && pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:CodexCellEditor && pnpm run build:SemanticView && pnpm run build:CommentsView && pnpm run build:NavigationView && pnpm run build:EditableReactTable && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload",
         "type-check": "tsc --noEmit",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
         "watch:ChatView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ChatView",

@@ -22,6 +22,7 @@ import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
 import path from "path";
+import { SyncManager } from "../../projectManager/syncManager";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -422,8 +423,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private async executeGitCommit(document: CodexCellDocument): Promise<void> {
         debug("Executing git commit for:", document.uri.toString());
-        await vscode.commands.executeCommand(
-            "extension.manualCommit",
+        // Use the SyncManager for immediate sync
+        const syncManager = SyncManager.getInstance();
+        await syncManager.executeSync(
             `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
         );
     }
@@ -438,16 +440,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private scheduleCommit(document: CodexCellDocument) {
         debug("Scheduling commit for:", document.uri.toString());
-        // Clear any existing timer
-        if (this.commitTimer) {
-            clearTimeout(this.commitTimer);
-        }
-
-        // Set new timer
-        this.commitTimer = setTimeout(async () => {
-            debug("Executing scheduled commit");
-            await this.executeGitCommit(document);
-        }, this.COMMIT_DELAY_MS);
+        // Use the SyncManager instead of direct timer
+        const syncManager = SyncManager.getInstance();
+        syncManager.scheduleSyncOperation(
+            `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
+        );
     }
 
     public async saveCustomDocument(

@@ -816,6 +816,23 @@
                         "type": "boolean",
                         "default": true,
                         "description": "Enable or disable spellcheck for the project"
+                    },
+                    "codex-project-manager.autoSyncEnabled": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Enable automatic synchronization of changes to remote repository"
+                    },
+                    "codex-project-manager.syncDelayMinutes": {
+                        "type": "number",
+                        "enum": [
+                            1,
+                            5,
+                            15,
+                            30,
+                            60
+                        ],
+                        "default": 5,
+                        "description": "Delay in minutes before triggering automatic sync after changes"
                     }
                 }
             },

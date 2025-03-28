@@ -38,10 +38,9 @@ import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
-import { stageAndCommitAllAndSync } from "./projectManager/utils/projectUtils";
-import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "./utils/vscode";
 import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 
 interface ActivationTiming {
     step: string;
@@ -93,7 +92,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register project manager first to ensure it's available
         stepStart = trackTiming("Register Project Manager", stepStart);
         registerProjectManager(context);
-        
+
         // // Show project manager view immediately
         // await vscode.commands.executeCommand("workbench.view.extension.project-manager");
 
@@ -119,13 +118,6 @@ export async function activate(context: vscode.ExtensionContext) {
             registerLookupWordCommand(global.db, context);
             ingestJsonlDictionaryEntries(global.db);
         }
-        
-        context.subscriptions.push(
-            vscode.commands.registerCommand("extension.manualCommit", (message: string) => {
-                stageAndCommitAllAndSync(message);
-            })
-        );  
-
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
