@@ -10,6 +10,7 @@ import {
 import { CodexCellTypes } from "../../types/enums";
 import { allORGBibleVerseRefs } from "../utils/verseRefUtils/verseData";
 import { getTestamentForBook } from "../utils/verseRefUtils/verseData";
+import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
@@ -135,42 +136,59 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Validating Bible content",
                 increment: 10,
-                status: { validation: "active" }
+                status: { validation: "active" },
             });
 
+            // Check if we're dealing with the Macula Bible
+            const { languageCode, translationId } = this.state.metadata;
+            const isMaculaBible =
+                languageCode === "original-greek-hebrew" && translationId === "macula-greek-hebrew";
+
             // Download and validate content
-            const [vrefs, verses] = await Promise.all([
-                Promise.resolve(allORGBibleVerseRefs),
-                this.downloadVerseContent(),
-            ]);
+            let vrefs, verses;
+
+            if (isMaculaBible) {
+                // For Macula Bible, verse refs are embedded in the content
+                const versesWithRefs = await this.downloadVerseContent();
+                // Extract verse refs and content
+                [vrefs, verses] = this.extractVersesAndRefs(versesWithRefs);
+            } else {
+                // For regular ebible corpus, use existing allORGBibleVerseRefs
+                [vrefs, verses] = await Promise.all([
+                    Promise.resolve(allORGBibleVerseRefs),
+                    this.downloadVerseContent(),
+                ]);
+            }
 
             // Mark validation as complete and start download
             this.state.progress?.report({
                 message: "Downloading Bible content",
                 increment: 20,
-                status: { 
+                status: {
                     validation: "complete",
-                    download: "active"
-                }
+                    download: "active",
+                },
             });
 
-            // Trim verses array to match allORGBibleVerseRefs length
-            const trimmedVerses = verses.slice(0, vrefs.length);
+            // For standard ebible corpus, trim verses array to match allORGBibleVerseRefs length
+            if (!isMaculaBible) {
+                verses = verses.slice(0, vrefs.length);
+            }
 
-            this.state.verses = trimmedVerses.map((text, i) => ({
-                vref: vrefs[i],
-                text,
+            this.state.verses = vrefs.map((vref, i) => ({
+                vref,
+                text: verses[i] || "",
             }));
 
             // Mark download as complete and start splitting
             this.state.progress?.report({
                 message: "Splitting content",
                 increment: 40,
-                status: { 
+                status: {
                     validation: "complete",
                     download: "complete",
-                    splitting: "active"
-                }
+                    splitting: "active",
+                },
             });
 
             // Validate content
@@ -187,12 +205,12 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Creating notebooks",
                 increment: 60,
-                status: { 
+                status: {
                     validation: "complete",
                     download: "complete",
                     splitting: "complete",
-                    notebooks: "active"
-                }
+                    notebooks: "active",
+                },
             });
 
             // Transform content into notebooks
@@ -202,13 +220,13 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Setting up metadata",
                 increment: 80,
-                status: { 
+                status: {
                     validation: "complete",
                     download: "complete",
                     splitting: "complete",
                     notebooks: "complete",
-                    metadata: "active"
-                }
+                    metadata: "active",
+                },
             });
 
             // Create preview notebook
@@ -220,13 +238,13 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Preview ready",
                 increment: 90,
-                status: { 
+                status: {
                     validation: "complete",
                     download: "complete",
                     splitting: "complete",
                     notebooks: "complete",
-                    metadata: "complete"
-                }
+                    metadata: "complete",
+                },
             });
         } catch (error) {
             await this.rollback();
@@ -255,14 +273,14 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Committing changes",
                 increment: 85,
-                status: { 
+                status: {
                     validation: "complete",
                     download: "complete",
                     splitting: "complete",
                     notebooks: "complete",
                     metadata: "complete",
-                    commit: "active"
-                }
+                    commit: "active",
+                },
             });
 
             // Save notebooks
@@ -272,14 +290,14 @@ export class DownloadBibleTransaction extends BaseTransaction {
             this.state.progress?.report({
                 message: "Bible import complete",
                 increment: 100,
-                status: { 
+                status: {
                     validation: "complete",
                     download: "complete",
                     splitting: "complete",
                     notebooks: "complete",
                     metadata: "complete",
-                    commit: "complete"
-                }
+                    commit: "complete",
+                },
             });
             this.state.status = "committed";
         } catch (error) {
@@ -351,7 +369,25 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
     // FIXME: add an endpoint for our blank slate bibles
     private async downloadVerseContent(): Promise<string[]> {
-        const ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/0eed6f47ff555201874d5416bbfebba4ed743d4f/corpus/${this.getEbibleFileName()}`;
+        // Check if we're dealing with the Macula Hebrew and Greek Bible
+        const { languageCode, translationId } = this.state.metadata;
+
+        let ebibleUrl: string;
+
+        // Check for our custom Macula Bible by languageCode, translationId
+        // or using the special description we set
+        const isMaculaBible =
+            languageCode === "original-greek-hebrew" && translationId === "macula-greek-hebrew";
+
+        if (isMaculaBible) {
+            // Use the custom URL for Macula Bible
+            ebibleUrl =
+                "https://github.com/genesis-ai-dev/hebrew-greek-bible/raw/refs/heads/main/macula-ebible.txt";
+        } else {
+            // Use the standard ebible URL
+            ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/0eed6f47ff555201874d5416bbfebba4ed743d4f/corpus/${this.getEbibleFileName()}`;
+        }
+
         let response;
         try {
             response = await fetch(ebibleUrl);
@@ -621,4 +657,33 @@ export class DownloadBibleTransaction extends BaseTransaction {
 
     //     this.state.status = "awaiting_confirmation";
     // }
+
+    private extractVersesAndRefs(lines: string[]): [string[], string[]] {
+        const vrefs: string[] = [];
+        const verses: string[] = [];
+
+        for (const line of lines) {
+            const vref = extractVerseRefFromLine(line);
+            if (vref) {
+                vrefs.push(vref);
+
+                // The format is "GEN 1:1 [Hebrew text]", so we split by the first space after the verse ref
+                // This ensures we get all the Hebrew/Greek text, even if it has spaces
+                const verseRefPattern = /^(\b[A-Z1-9]{3}\s\d+:\d+\b)/;
+                const match = line.match(verseRefPattern);
+
+                if (match) {
+                    const refLength = match[0].length;
+                    // Get everything after the verse reference, trimming any leading space
+                    const text = line.substring(refLength).trim();
+                    verses.push(text);
+                } else {
+                    // Fallback, shouldn't happen with valid data
+                    verses.push(line);
+                }
+            }
+        }
+
+        return [vrefs, verses];
+    }
 }

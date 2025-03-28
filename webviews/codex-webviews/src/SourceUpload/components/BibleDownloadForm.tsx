@@ -13,6 +13,10 @@ import {
 } from "../../../../../src/utils/ebible/ebibleCorpusUtils";
 import "../../shared/components/LanguagePicker.css";
 
+// Special constant for our custom language
+const ORIGINAL_LANGUAGE_CODE = "original-greek-hebrew";
+const MACULA_BIBLE_ID = "macula-greek-hebrew";
+
 interface BibleDownloadFormProps {
     onDownload: (metadata: ExtendedMetadata, asTranslationOnly: boolean) => void;
     onCancel: () => void;
@@ -33,12 +37,12 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
     onCancel,
     error,
     onRetry,
-    initialLanguage
+    initialLanguage,
 }) => {
     const [selectedLanguage, setSelectedLanguage] = useState<string>(initialLanguage || "");
     const [languageFilter, setLanguageFilter] = useState<string>(() => {
         if (initialLanguage) {
-            const language = getAvailableLanguages().find(l => l.code === initialLanguage);
+            const language = getAvailableLanguages().find((l) => l.code === initialLanguage);
             return language ? language.name : "";
         }
         return "";
@@ -48,76 +52,86 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
     const [asTranslationOnly, setAsTranslationOnly] = useState(false);
     const [isLanguageDropdownOpen, setIsLanguageDropdownOpen] = useState(false);
     const [isBibleDropdownOpen, setIsBibleDropdownOpen] = useState(false);
-    const [previousLanguage, setPreviousLanguage] = useState<{code: string, name: string} | null>(null);
+    const [previousLanguage, setPreviousLanguage] = useState<{ code: string; name: string } | null>(
+        null
+    );
     const [previousBible, setPreviousBible] = useState<BibleInfo | null>(null);
     const [isLanguageEditing, setIsLanguageEditing] = useState(false);
     const [isBibleEditing, setIsBibleEditing] = useState(false);
     const [highlightedLanguageIndex, setHighlightedLanguageIndex] = useState(-1);
     const [highlightedBibleIndex, setHighlightedBibleIndex] = useState(-1);
-    
+
     const languageDropdownRef = useRef<HTMLDivElement>(null);
     const bibleDropdownRef = useRef<HTMLDivElement>(null);
     const languageListRef = useRef<HTMLDivElement>(null);
     const bibleListRef = useRef<HTMLDivElement>(null);
 
-    const availableLanguages = useMemo(() => getAvailableLanguages(), []);
+    const rawAvailableLanguages = useMemo(() => getAvailableLanguages(), []);
+
+    // Add our custom "Original Greek and Hebrew" option
+    const availableLanguages = useMemo(() => {
+        const customLanguage = {
+            code: ORIGINAL_LANGUAGE_CODE,
+            name: "Original Greek and Hebrew",
+            bibles: [],
+        };
+        return [customLanguage, ...rawAvailableLanguages];
+    }, [rawAvailableLanguages]);
 
     const filteredLanguages = useMemo(() => {
         if (!languageFilter) return availableLanguages;
         const searchTerm = languageFilter.toLowerCase();
-        
+
         // Filter languages and calculate scores
         const scoredLanguages = availableLanguages
-            .map(language => {
+            .map((language) => {
                 const name = language.name.toLowerCase();
                 const code = language.code.toLowerCase();
                 let score = 0;
-                
+
                 // Exact matches get highest score
                 if (name === searchTerm) score += 100;
                 if (code === searchTerm) score += 90;
-                
+
                 // Starts with gets high score
                 if (name.startsWith(searchTerm)) score += 80;
                 if (code.startsWith(searchTerm)) score += 70;
-                
-                // Contains gets medium score
-                if (name.includes(searchTerm)) score += 60;
-                if (code.includes(searchTerm)) score += 50;
-                
-                // Word boundary matches get bonus points
+
+                // Only match full words
                 const words = name.split(/[\s-_]+/);
-                if (words.some(word => word.startsWith(searchTerm))) score += 20;
+                const searchWords = searchTerm.split(/[\s-_]+/);
                 
-                // Consecutive character matches get points
-                let consecutiveMatches = 0;
-                let searchIndex = 0;
-                for (const char of name) {
-                    if (char === searchTerm[searchIndex]) {
-                        consecutiveMatches++;
-                        searchIndex++;
-                    } else {
-                        searchIndex = 0;
-                    }
-                }
-                score += consecutiveMatches * 2;
-                
+                // All search words must match the start of some word in the name
+                const allWordsMatch = searchWords.every(searchWord => 
+                    words.some(word => word.startsWith(searchWord))
+                );
+
+                if (allWordsMatch) score += 60;
+
+                // Only return strong matches
                 return { language, score };
             })
-            .filter(item => item.score > 0) // Only keep matches
-            .sort((a, b) => {
-                // Sort by score first
-                if (b.score !== a.score) return b.score - a.score;
-                // Then by name length (shorter names first)
-                return (a.language.name?.length || 0) - (b.language.name?.length || 0);
-            })
-            .map(item => item.language);
+            .filter((item) => item.score >= 70) // Much stricter threshold
+            .sort((a, b) => b.score - a.score)
+            .map((item) => item.language);
 
         return scoredLanguages;
     }, [availableLanguages, languageFilter]);
 
     const availableBibles = useMemo(() => {
         if (!selectedLanguage) return [];
+
+        // Special handling for our custom language
+        if (selectedLanguage === ORIGINAL_LANGUAGE_CODE) {
+            return [
+                {
+                    id: MACULA_BIBLE_ID,
+                    displayTitle: "Macula Hebrew and Greek Bible",
+                    coverage: "Full Bible",
+                    year: "(2023)",
+                },
+            ];
+        }
 
         const bibles = getBiblesForLanguage(selectedLanguage);
         return bibles.map((bible) => {
@@ -155,32 +169,32 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
     const filteredBibles = useMemo(() => {
         if (!selectedLanguage) return [];
         if (!bibleFilter) return availableBibles;
-        
+
         const searchTerm = bibleFilter.toLowerCase();
-        
+
         // Filter bibles and calculate scores
         const scoredBibles = availableBibles
-            .map(bible => {
+            .map((bible) => {
                 const displayTitle = bible.displayTitle.toLowerCase();
                 const coverage = bible.coverage.toLowerCase();
                 const year = bible.year.toLowerCase();
                 let score = 0;
-                
+
                 // Exact matches get highest score
                 if (displayTitle === searchTerm) score += 100;
-                
+
                 // Starts with gets high score
                 if (displayTitle.startsWith(searchTerm)) score += 80;
-                
+
                 // Contains gets medium score
                 if (displayTitle.includes(searchTerm)) score += 60;
                 if (coverage.includes(searchTerm)) score += 50;
                 if (year.includes(searchTerm)) score += 40;
-                
+
                 // Word boundary matches get bonus points
                 const words = displayTitle.split(/[\s-_]+/);
-                if (words.some(word => word.startsWith(searchTerm))) score += 20;
-                
+                if (words.some((word) => word.startsWith(searchTerm))) score += 20;
+
                 // Consecutive character matches get points
                 let consecutiveMatches = 0;
                 let searchIndex = 0;
@@ -193,17 +207,17 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                     }
                 }
                 score += consecutiveMatches * 2;
-                
+
                 return { bible, score };
             })
-            .filter(item => item.score > 0) // Only keep matches
+            .filter((item) => item.score > 0) // Only keep matches
             .sort((a, b) => {
                 // Sort by score first
                 if (b.score !== a.score) return b.score - a.score;
                 // Then by title length (shorter names first)
-                return (a.bible.displayTitle.length) - (b.bible.displayTitle.length);
+                return a.bible.displayTitle.length - b.bible.displayTitle.length;
             })
-            .map(item => item.bible);
+            .map((item) => item.bible);
 
         return scoredBibles;
     }, [selectedLanguage, availableBibles, bibleFilter]);
@@ -228,7 +242,9 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                 setIsBibleDropdownOpen(false);
                 if (isBibleEditing && !selectedBible && previousBible) {
                     setSelectedBible(previousBible.id);
-                    setBibleFilter(`${previousBible.displayTitle} ${previousBible.year} - ${previousBible.coverage}`);
+                    setBibleFilter(
+                        `${previousBible.displayTitle} ${previousBible.year} - ${previousBible.coverage}`
+                    );
                 }
                 setIsBibleEditing(false);
             }
@@ -236,7 +252,14 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
 
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [isLanguageEditing, isBibleEditing, previousLanguage, previousBible, selectedLanguage, selectedBible]);
+    }, [
+        isLanguageEditing,
+        isBibleEditing,
+        previousLanguage,
+        previousBible,
+        selectedLanguage,
+        selectedBible,
+    ]);
 
     const handleLanguageSelect = (code: string, name: string) => {
         // If selecting the same language as before, preserve Bible selection
@@ -246,7 +269,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
         setLanguageFilter(name);
         setIsLanguageDropdownOpen(false);
         setIsLanguageEditing(false);
-        
+
         // Only reset Bible selection if selecting a different language
         if (!isSameLanguage) {
             setSelectedBible("");
@@ -266,6 +289,24 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (selectedLanguage && selectedBible) {
+            // Custom handling for our special bible
+            if (selectedLanguage === ORIGINAL_LANGUAGE_CODE && selectedBible === MACULA_BIBLE_ID) {
+                const customMetadata: ExtendedMetadata = {
+                    languageCode: ORIGINAL_LANGUAGE_CODE,
+                    translationId: MACULA_BIBLE_ID,
+                    title: "Macula Hebrew and Greek Bible",
+                    shortTitle: "Macula",
+                    description: "Macula Hebrew and Greek Bible (special import)",
+                    languageName: "Original Greek and Hebrew",
+                    languageNameInEnglish: "Original Greek and Hebrew",
+                    OTbooks: 39,
+                    NTbooks: 27,
+                };
+                onDownload(customMetadata, asTranslationOnly);
+                return;
+            }
+
+            // Regular handling for other bibles
             const bibles = getBiblesForLanguage(selectedLanguage);
             const selectedMetadata = bibles.find((b) => b.translationId === selectedBible);
             if (selectedMetadata) {
@@ -279,7 +320,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
         items: any[],
         highlightedIndex: number,
         setHighlightedIndex: (index: number) => void,
-        handleSelect: Function,
+        handleSelect: (...args: any[]) => void,
         listRef: React.RefObject<HTMLDivElement>
     ) => {
         switch (e.key) {
@@ -297,7 +338,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                 e.preventDefault();
                 if (highlightedIndex >= 0 && highlightedIndex < items.length) {
                     const item = items[highlightedIndex];
-                    if ('code' in item) {
+                    if ("code" in item) {
                         handleSelect(item.code, item.name);
                     } else {
                         handleSelect(item);
@@ -306,7 +347,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                 break;
             case "Escape":
                 e.preventDefault();
-                if ('code' in items[0]) {
+                if ("code" in items[0]) {
                     setIsLanguageDropdownOpen(false);
                 } else {
                     setIsBibleDropdownOpen(false);
@@ -321,7 +362,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
             if (element) {
                 element.scrollIntoView({
                     block: "nearest",
-                    behavior: "smooth"
+                    behavior: "smooth",
                 });
             }
         }
@@ -351,10 +392,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
             <h2>Download Bible Translation</h2>
 
             <div style={{ marginBottom: "1rem" }} ref={languageDropdownRef}>
-                <label
-                    htmlFor="language-select"
-                    className="language-picker__label"
-                >
+                <label htmlFor="language-select" className="language-picker__label">
                     Select Language
                 </label>
                 <div className="language-picker__container">
@@ -390,14 +428,13 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                         }}
                     />
                     {isLanguageDropdownOpen && filteredLanguages.length > 0 && (
-                        <div
-                            ref={languageListRef}
-                            className="language-picker__dropdown"
-                        >
+                        <div ref={languageListRef} className="language-picker__dropdown">
                             {filteredLanguages.map((language, index) => (
                                 <div
                                     key={language.code}
-                                    onClick={() => handleLanguageSelect(language.code, language.name)}
+                                    onClick={() =>
+                                        handleLanguageSelect(language.code, language.name)
+                                    }
                                     className={`language-picker__option ${
                                         index === highlightedLanguageIndex
                                             ? "language-picker__option--highlighted"
@@ -407,7 +444,10 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                                     }`}
                                     onMouseEnter={() => setHighlightedLanguageIndex(index)}
                                     onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
-                                        if ((e.relatedTarget as HTMLElement)?.parentElement !== languageListRef.current) {
+                                        if (
+                                            (e.relatedTarget as HTMLElement)?.parentElement !==
+                                            languageListRef.current
+                                        ) {
                                             setHighlightedLanguageIndex(-1);
                                         }
                                     }}
@@ -422,10 +462,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
 
             {selectedLanguage && (
                 <div style={{ marginBottom: "1rem" }} ref={bibleDropdownRef}>
-                    <label
-                        htmlFor="bible-select"
-                        className="language-picker__label"
-                    >
+                    <label htmlFor="bible-select" className="language-picker__label">
                         Select Bible Translation
                     </label>
                     <div className="language-picker__container">
@@ -461,10 +498,7 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                             }}
                         />
                         {isBibleDropdownOpen && filteredBibles.length > 0 && (
-                            <div
-                                ref={bibleListRef}
-                                className="language-picker__dropdown"
-                            >
+                            <div ref={bibleListRef} className="language-picker__dropdown">
                                 {filteredBibles.map((bible, index) => (
                                     <div
                                         key={bible.id}
@@ -478,7 +512,10 @@ export const BibleDownloadForm: React.FC<BibleDownloadFormProps> = ({
                                         }`}
                                         onMouseEnter={() => setHighlightedBibleIndex(index)}
                                         onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
-                                            if ((e.relatedTarget as HTMLElement)?.parentElement !== bibleListRef.current) {
+                                            if (
+                                                (e.relatedTarget as HTMLElement)?.parentElement !==
+                                                bibleListRef.current
+                                            ) {
                                                 setHighlightedBibleIndex(-1);
                                             }
                                         }}
