@@ -505,7 +505,16 @@ export class TranslationImportTransaction extends ImportTransaction {
         let currentBook = "";
         let currentChapter: string | number = 0;
 
-        const newCells: CustomNotebookCellData[] = [];
+        // Create a map of existing cells for quick lookup
+        const existingCellsMap = new Map<string, CustomNotebookCellData>();
+        existingCells.forEach((cell: CustomNotebookCellData) => {
+            if (cell.metadata?.id) {
+                existingCellsMap.set(cell.metadata.id, cell);
+            }
+        });
+
+        // Store processed cells that should be updated or added to the notebook
+        const processedCells = new Map<string, CustomNotebookCellData>();
 
         // Keep track of cells that have been processed to handle multiple alignments
         const processedSourceCells = new Set<string>();
@@ -525,7 +534,7 @@ export class TranslationImportTransaction extends ImportTransaction {
                 const section = currentChapter || "1";
                 const paratextId = `${currentBook} ${section}:${alignedCell.importedContent.id}`;
 
-                newCells.push({
+                const paratextCell = {
                     kind: vscode.NotebookCellKind.Code,
                     languageId: "html",
                     value: alignedCell.importedContent.content,
@@ -537,7 +546,8 @@ export class TranslationImportTransaction extends ImportTransaction {
                             endTime: alignedCell.importedContent.endTime,
                         },
                     },
-                });
+                };
+                processedCells.set(paratextId, paratextCell);
                 paratextCount++;
             } else if (alignedCell.notebookCell) {
                 const sourceId = alignedCell.notebookCell.metadata.id;
@@ -549,7 +559,7 @@ export class TranslationImportTransaction extends ImportTransaction {
                         ? generateChildCellId(sourceId)
                         : sourceId;
 
-                    newCells.push({
+                    const updatedCell = {
                         kind: vscode.NotebookCellKind.Code,
                         languageId: "html",
                         value: alignedCell.importedContent.content,
@@ -563,7 +573,8 @@ export class TranslationImportTransaction extends ImportTransaction {
                                 endTime: alignedCell.importedContent.endTime,
                             },
                         },
-                    });
+                    };
+                    processedCells.set(cellId, updatedCell);
 
                     if (processedSourceCells.has(sourceId)) {
                         childCellCount++;
@@ -573,18 +584,34 @@ export class TranslationImportTransaction extends ImportTransaction {
                     }
                 } else {
                     // Keep existing cell content
-                    newCells.push({
-                        kind: alignedCell.notebookCell.kind,
-                        languageId: alignedCell.notebookCell.metadata.languageId,
-                        value: cellContent,
-                        metadata: alignedCell.notebookCell.metadata as CustomCellMetaData,
-                    } as CustomNotebookCellData);
+                    processedCells.set(sourceId, alignedCell.notebookCell);
                     skippedCount++;
                 }
             }
         }
 
-        // Update notebook with new cells
+        // Now build the final cell array, preserving order of original cells when possible
+        const newCells: CustomNotebookCellData[] = [];
+
+        // First add all existing cells, updating those that were processed
+        for (const cell of existingCells) {
+            const cellId = cell.metadata?.id;
+            if (cellId && processedCells.has(cellId)) {
+                // This cell was processed, use the updated version
+                newCells.push(processedCells.get(cellId)!);
+                processedCells.delete(cellId); // Remove from map to track what's been added
+            } else {
+                // This cell wasn't in the imported content, keep it unchanged
+                newCells.push(cell);
+            }
+        }
+
+        // Then add any remaining processed cells (new paratext, etc.) that weren't in the original
+        for (const [, cell] of processedCells) {
+            newCells.push(cell);
+        }
+
+        // Update notebook with combined cells
         const updatedNotebook: CodexNotebookAsJSONData = {
             ...existingNotebook,
             cells: newCells,
@@ -790,8 +817,11 @@ export class TranslationImportTransaction extends ImportTransaction {
 
             const match = importedItem.content.match(cellIdRegex);
             if (match) {
-                const [, file, cellId, content] = match;
-                const notebookCell = notebookCells.find((cell) => cell.metadata.id === cellId);
+                const [, book, verse, content] = match;
+                // Combine book and verse to match cell metadata.id format
+                const fullCellId = `${book} ${verse}`;
+                console.log(`Looking for cell with ID: ${fullCellId}`);
+                const notebookCell = notebookCells.find((cell) => cell.metadata.id === fullCellId);
 
                 if (notebookCell) {
                     alignedCells.push({
@@ -799,7 +829,9 @@ export class TranslationImportTransaction extends ImportTransaction {
                         importedContent: { ...importedItem, content },
                     });
                     totalMatches++;
+                    console.log(`Match found for cell ID: ${fullCellId}`);
                 } else {
+                    console.log(`No match found for cell ID: ${fullCellId}`);
                     // If no matching cell, mark as paratext
                     alignedCells.push({
                         notebookCell: null,
@@ -818,6 +850,10 @@ export class TranslationImportTransaction extends ImportTransaction {
         }
 
         if (totalMatches === 0 && importedContent.length > 0) {
+            console.log(
+                "Available cell IDs in notebook:",
+                notebookCells.map((cell) => cell.metadata.id).join(", ")
+            );
             throw new Error(
                 "No matching cell IDs found in plaintext. Please check the file format."
             );
