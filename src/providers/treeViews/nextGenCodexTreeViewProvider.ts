@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "../../serializer";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // Basic item types for the tree
 export type CodexTreeItemType = "corpus" | "codexDocument" | "dictionary";
@@ -18,6 +19,14 @@ interface CodexMetadata {
     progress?: number;
 }
 
+interface BibleBookInfo {
+    name: string;
+    abbr: string;
+    ord: string;
+    testament: string;
+    osisId: string;
+}
+
 export interface NextGenCodexItem {
     uri: vscode.Uri;
     label: string;
@@ -25,6 +34,7 @@ export interface NextGenCodexItem {
     children?: NextGenCodexItem[];
     corpusMarker?: string;
     progress?: number;
+    sortOrder?: string;
 }
 
 export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<NextGenCodexItem> {
@@ -36,13 +46,26 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
     private disposables: vscode.Disposable[] = [];
     private isBuilding = false;
     private serializer = new CodexContentSerializer();
+    private bibleBookMap: Map<string, BibleBookInfo> = new Map();
 
     constructor(private context: vscode.ExtensionContext) {
+        this.initBibleBookMap();
         this.buildInitialData();
         this.registerWatchers();
     }
 
-    // Core scanning and grouping
+    private initBibleBookMap(): void {
+        (bibleData as any[]).forEach((book) => {
+            this.bibleBookMap.set(book.abbr, {
+                name: book.name,
+                abbr: book.abbr,
+                ord: book.ord,
+                testament: book.testament,
+                osisId: book.osisId,
+            });
+        });
+    }
+
     private async buildInitialData(): Promise<void> {
         if (this.isBuilding) {
             return;
@@ -81,7 +104,6 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
                         vscode.workspace.findFiles(dictPattern),
                     ]);
 
-                    // Process codex files with metadata
                     progress.report({ message: "Reading codex metadata...", increment: 30 });
                     const codexItemsWithMetadata = await Promise.all(
                         codexUris.map(async (uri, index) => {
@@ -93,12 +115,10 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
                         })
                     );
 
-                    // Group by corpus
                     progress.report({ message: "Organizing by corpus...", increment: 20 });
                     const groupedItems = this.groupByCorpus(codexItemsWithMetadata);
                     this.codexItems = groupedItems;
 
-                    // Process dictionary items
                     progress.report({ message: "Processing dictionaries...", increment: 20 });
                     this.dictionaryItems = dictUris.map((uri) => this.makeDictionaryItem(uri));
 
@@ -125,19 +145,33 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             const metadata = notebookData.metadata as CodexMetadata;
             const fileName = path.basename(uri.fsPath, ".codex");
 
-            // Calculate progress based on cells with values
             const totalCells = notebookData.cells.length;
             const cellsWithValues = notebookData.cells.filter(
                 (cell) => cell.value && cell.value.trim().length > 0
             ).length;
             const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
+            const isBibleBook = this.bibleBookMap.has(fileName);
+            let label = fileName;
+            let sortOrder: string | undefined;
+
+            if (isBibleBook) {
+                const bookInfo = this.bibleBookMap.get(fileName);
+                if (bookInfo) {
+                    label = bookInfo.name;
+                    sortOrder = bookInfo.ord;
+                }
+            } else {
+                label = `${fileName} Codex`;
+            }
+
             return {
                 uri,
-                label: `${fileName} Codex`,
+                label,
                 type: "codexDocument",
                 corpusMarker: metadata?.corpusMarker,
                 progress: progress,
+                sortOrder,
             };
         } catch (error) {
             console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
@@ -149,40 +183,79 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
         const corpusGroups = new Map<string, NextGenCodexItem[]>();
         const ungroupedItems: NextGenCodexItem[] = [];
 
-        // Sort items into corpus groups or ungrouped
         items.forEach((item) => {
             if (item.corpusMarker) {
-                const group = corpusGroups.get(item.corpusMarker) || [];
+                let corpusMarker = item.corpusMarker;
+                if (corpusMarker === "Old Testament") corpusMarker = "OT";
+                if (corpusMarker === "New Testament") corpusMarker = "NT";
+
+                const group = corpusGroups.get(corpusMarker) || [];
                 group.push(item);
-                corpusGroups.set(item.corpusMarker, group);
+                corpusGroups.set(corpusMarker, group);
             } else {
                 ungroupedItems.push(item);
             }
         });
 
-        // Create corpus group nodes
         const groupedItems: NextGenCodexItem[] = [];
         corpusGroups.forEach((items, corpusMarker) => {
-            // Calculate average progress for the corpus
             const totalProgress = items.reduce((sum, item) => sum + (item.progress || 0), 0);
             const averageProgress = items.length > 0 ? totalProgress / items.length : 0;
 
+            let sortedItems: NextGenCodexItem[];
+
+            if (corpusMarker === "OT" || corpusMarker === "NT") {
+                sortedItems = items.sort((a, b) => {
+                    if (a.sortOrder && b.sortOrder) {
+                        return a.sortOrder.localeCompare(b.sortOrder);
+                    }
+                    return a.label.localeCompare(b.label);
+                });
+            } else {
+                sortedItems = items.sort((a, b) => a.label.localeCompare(b.label));
+            }
+
+            let corpusDisplayName = corpusMarker;
+            if (corpusMarker === "OT") corpusDisplayName = "Old Testament";
+            if (corpusMarker === "NT") corpusDisplayName = "New Testament";
+
             groupedItems.push({
-                uri: items[0].uri, // Use first item's URI for the group
-                label: corpusMarker,
+                uri: items[0].uri,
+                label: corpusDisplayName,
                 type: "corpus",
-                children: items.sort((a, b) => a.label.localeCompare(b.label)),
+                children: sortedItems,
                 progress: averageProgress,
             });
         });
 
-        // Sort corpus groups and add ungrouped items
-        return [...groupedItems.sort((a, b) => a.label.localeCompare(b.label)), ...ungroupedItems];
+        return [
+            ...groupedItems.sort((a, b) => {
+                if (a.label === "Old Testament") return -1;
+                if (b.label === "Old Testament") return 1;
+                if (a.label === "New Testament") return -1;
+                if (b.label === "New Testament") return 1;
+
+                return a.label.localeCompare(b.label);
+            }),
+            ...ungroupedItems,
+        ];
     }
 
-    // Utility to build one item node
     private makeCodexItem(uri: vscode.Uri): NextGenCodexItem {
         const fileName = path.basename(uri.fsPath, ".codex");
+
+        if (this.bibleBookMap.has(fileName)) {
+            const bookInfo = this.bibleBookMap.get(fileName);
+            if (bookInfo) {
+                return {
+                    uri,
+                    label: bookInfo.name,
+                    type: "codexDocument",
+                    sortOrder: bookInfo.ord,
+                };
+            }
+        }
+
         return {
             uri,
             label: `${fileName} Codex`,
@@ -207,7 +280,6 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
                 : vscode.TreeItemCollapsibleState.None
         );
 
-        // Add progress to the description
         if (element.progress !== undefined) {
             treeItem.description = `${Math.round(element.progress)}% complete`;
         }
@@ -220,7 +292,6 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             };
             treeItem.iconPath = new vscode.ThemeIcon("book");
 
-            // Add tooltip with progress information
             treeItem.tooltip = `${element.label}\n${Math.round(element.progress || 0)}% complete`;
         } else if (element.type === "dictionary") {
             treeItem.command = {
@@ -231,7 +302,6 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             treeItem.iconPath = new vscode.ThemeIcon("book");
         } else if (element.type === "corpus") {
             treeItem.iconPath = new vscode.ThemeIcon("library");
-            // Add tooltip with progress information for corpus
             if (element.progress !== undefined) {
                 treeItem.tooltip = `${element.label}\nAverage Progress: ${Math.round(element.progress)}%`;
             }
@@ -241,7 +311,6 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
     }
 
     public getChildren(element?: NextGenCodexItem): Thenable<NextGenCodexItem[]> {
-        // If requesting children for a top-level item with sub-items, return them.
         if (element) {
             if (element.children) {
                 return Promise.resolve(element.children);
@@ -249,13 +318,10 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             return Promise.resolve([]);
         }
 
-        // Combine top-level codex items and dictionary items if you want them in one big list
-        // or you can create separate nodes for "Codex" vs. "Dictionary" groups.
         const topLevel = [...this.codexItems, ...this.dictionaryItems];
         return Promise.resolve(topLevel);
     }
 
-    // Set up watchers for .codex and .dictionary
     private registerWatchers(): void {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders?.length) {
@@ -287,7 +353,6 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
     }
 
     public refresh(): void {
-        // Only rebuild if we're not already building
         if (!this.isBuilding) {
             this.buildInitialData()
                 .then(() => {
@@ -299,20 +364,16 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
         }
     }
 
-    // Dispose watchers
     public dispose(): void {
         this.disposables.forEach((d) => d.dispose());
     }
 }
 
-// Example command to open a codex file with custom viewer or default
 export async function openCodexFile(uri: vscode.Uri) {
     try {
-        // Try to open as notebook first
         await vscode.commands.executeCommand("vscode.openWith", uri, "codex.cellEditor");
     } catch (error) {
         console.warn("Failed to open as notebook, falling back to text editor:", error);
-        // Fallback to regular text editor
         const document = await vscode.workspace.openTextDocument(uri);
         await vscode.window.showTextDocument(document);
     }
