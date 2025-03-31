@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -1123,7 +1123,7 @@
         ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run compile",
+        "vscode:prepublish": "npm run build:webviews && npm run compile",
         "compile": "webpack --config webpack.config.js",
         "watch": "webpack --config webpack.config.js --watch",
         "package": "webpack --config webpack.config.js --mode production --devtool hidden-source-map",
