@@ -937,12 +937,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         );
 
         // When metadata.json is created
-        this.metadataWatcher.onDidCreate(() => {
-            webviewPanel.webview.postMessage({
-                command: "project.initializationStatus",
-                isInitialized: true,
-            });
-        });
+        // FIXME: this logic isn't right - metadata.json doesn't get created with the complete project data initially.
+        // part of the reason behind this is wanting to init git, create a project id, etc.
+        // We *could* refactor the project creation logic to be more concise, but currently we can't say the project is initialized until the metadata.json is created AND populated (in the initialization function).
+        // this.metadataWatcher.onDidCreate(() => {
+        //     webviewPanel.webview.postMessage({
+        //         command: "project.initializationStatus",
+        //         isInitialized: true,
+        //     });
+        // });
 
         // Add watcher to disposables
         this.disposables.push(this.metadataWatcher);
