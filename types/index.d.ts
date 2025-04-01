@@ -340,6 +340,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsListFromGitLab" }
     | { command: "getProjectsSyncStatus" }
     | { command: "project.open"; projectPath: string }
+    | { command: "project.delete"; projectPath: string }
     | { command: "project.createEmpty" }
     | { command: "project.initialize"; waitForStateUpdate?: boolean }
     | { command: "metadata.check" };
@@ -377,6 +378,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "error"; message: string }
     | { command: "extension.checkResponse"; isInstalled: boolean }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
+    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string }
     | {
           command: "updateAuthState";
           success: boolean;

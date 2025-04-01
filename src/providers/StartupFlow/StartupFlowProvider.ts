@@ -4,6 +4,7 @@ import {
     MessagesFromStartupFlowProvider,
     GitLabProject,
     ProjectWithSyncStatus,
+    LocalProject,
 } from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
@@ -291,21 +292,43 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
+        // First check if webview is still available
+        if (!webviewPanel || !webviewPanel.visible) {
+            debugLog("WebviewPanel is no longer available, skipping sendList");
+            return;
+        }
+        
         try {
             const projectList: ProjectWithSyncStatus[] = [];
 
+            // Fetch remote projects if authenticated
             let remoteProjects: GitLabProject[] = [];
             if (this.frontierApi) {
-                remoteProjects = await this.frontierApi.listProjects(false);
-            }
-            remoteProjects.forEach((project) => {
-                // remove the unique id from the project name if it exists
-                if (project.name[project.name.length - 23] === "-") {
-                    project.name = project.name.slice(0, -23);
+                try {
+                    remoteProjects = await this.frontierApi.listProjects(false);
+                    
+                    // Clean up project names - remove unique IDs
+                    remoteProjects.forEach((project) => {
+                        if (project.name[project.name.length - 23] === "-") {
+                            project.name = project.name.slice(0, -23);
+                        }
+                    });
+                } catch (error) {
+                    console.error("Error fetching remote projects:", error);
+                    // Continue with empty remote projects list
                 }
-            });
-            const localProject = await findAllCodexProjects();
+            }
+            
+            // Fetch local projects
+            let localProject: LocalProject[] = [];
+            try {
+                localProject = await findAllCodexProjects();
+            } catch (error) {
+                console.error("Error finding local Codex projects:", error);
+                // Continue with empty local projects list
+            }
 
+            // Process remote projects
             for (const project of remoteProjects) {
                 projectList.push({
                     name: project.name,
@@ -320,6 +343,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 });
             }
 
+            // Process local projects
             for (const project of localProject) {
                 if (!project.gitOriginUrl) {
                     projectList.push({
@@ -328,16 +352,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                     continue;
                 }
+                
+                // Check if this local project matches a remote one
                 const matchInRemoteIndex = projectList.findIndex(
                     (p) => p.gitOriginUrl === project.gitOriginUrl
                 );
-                // console.log({ matchInRemoteIndex, project });
+                
                 if (matchInRemoteIndex !== -1) {
+                    // Update the remote entry with local data
                     projectList[matchInRemoteIndex] = {
                         ...project,
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
+                    // Add as local-only project
                     projectList.push({
                         ...project,
                         syncStatus: "localOnlyNotSynced",
@@ -345,19 +373,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            // console.log({ localProject, projects: remoteProjects });
-
-            webviewPanel.webview.postMessage({
-                command: "projectsListFromGitLab",
-                projects: projectList,
-            } as MessagesFromStartupFlowProvider);
+            // Send the compiled list to the webview
+            if (webviewPanel.visible) {
+                webviewPanel.webview.postMessage({
+                    command: "projectsListFromGitLab",
+                    projects: projectList,
+                } as MessagesFromStartupFlowProvider);
+            }
         } catch (error) {
-            console.error("Failed to fetch GitLab projects:", error);
-            webviewPanel.webview.postMessage({
-                command: "projectsListFromGitLab",
-                projects: [],
-                error: error instanceof Error ? error.message : "Failed to fetch GitLab projects",
-            } as MessagesFromStartupFlowProvider);
+            console.error("Failed to fetch and process projects:", error);
+            
+            // Send error response only if webview is still available
+            if (webviewPanel.visible) {
+                webviewPanel.webview.postMessage({
+                    command: "projectsListFromGitLab",
+                    projects: [],
+                    error: error instanceof Error ? error.message : "Failed to fetch projects",
+                } as MessagesFromStartupFlowProvider);
+            }
         }
     }
 
@@ -1273,6 +1306,77 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         this.frontierApi?.cloneRepository(message.repoUrl);
                     }
 
+                    break;
+                }
+                case "project.delete": {
+                    debugLog("Deleting project", message.projectPath);
+                    
+                    // Ensure the path exists
+                    try {
+                        const projectUri = vscode.Uri.file(message.projectPath);
+                        await vscode.workspace.fs.stat(projectUri);
+                        
+                        // Show confirmation dialog
+                        const projectName = message.projectPath.split("/").pop() || message.projectPath;
+                        const confirmResult = await vscode.window.showWarningMessage(
+                            `Are you sure you want to delete project "${projectName}"? This action cannot be undone.`,
+                            { modal: true },
+                            "Delete"
+                        );
+                        
+                        if (confirmResult === "Delete") {
+                            // Delete the project directory
+                            try {
+                                // Use vscode.workspace.fs.delete with the recursive flag
+                                await vscode.workspace.fs.delete(projectUri, { recursive: true });
+                                vscode.window.showInformationMessage(`Project "${projectName}" has been deleted.`);
+                                
+                                // Send success response to webview
+                                webviewPanel.webview.postMessage({
+                                    command: "project.deleteResponse",
+                                    success: true,
+                                    projectPath: message.projectPath
+                                });
+                                
+                                // Refresh the projects list
+                                await this.sendList(webviewPanel);
+                            } catch (error) {
+                                console.error("Error deleting project:", error);
+                                vscode.window.showErrorMessage(`Failed to delete project: ${error instanceof Error ? error.message : String(error)}`);
+                                
+                                // Send error response to webview
+                                webviewPanel.webview.postMessage({
+                                    command: "project.deleteResponse",
+                                    success: false,
+                                    error: error instanceof Error ? error.message : String(error)
+                                });
+                                
+                                // Still attempt to refresh the list to ensure UI is in sync
+                                await this.sendList(webviewPanel);
+                            }
+                        } else {
+                            // User cancelled deletion
+                            webviewPanel.webview.postMessage({
+                                command: "project.deleteResponse",
+                                success: false,
+                                error: "Deletion cancelled by user"
+                            });
+                        }
+                    } catch (error) {
+                        console.error("Project not found:", error);
+                        vscode.window.showErrorMessage("The specified project could not be found.");
+                        
+                        // Send error response to webview
+                        webviewPanel.webview.postMessage({
+                            command: "project.deleteResponse",
+                            success: false,
+                            error: "The specified project could not be found."
+                        });
+                        
+                        // Still attempt to refresh the list to ensure UI is in sync
+                        await this.sendList(webviewPanel);
+                    }
+                    
                     break;
                 }
             }

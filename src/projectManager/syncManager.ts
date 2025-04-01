@@ -4,7 +4,7 @@ import { stageAndCommitAllAndSync } from "./utils/merge";
 // Singleton to manage sync operations across the application
 export class SyncManager {
     private static instance: SyncManager;
-    private pendingSyncTimeout: NodeJS.Timeout | null = null;
+    private pendingSyncTimeout: NodeJS.Timeout | number | null = null;
     private isSyncInProgress: boolean = false;
 
     private constructor() {

@@ -14,6 +14,7 @@ interface GitLabProjectsListProps {
     projects: ProjectWithSyncStatus[];
     onCloneProject: (project: ProjectWithSyncStatus) => void;
     onOpenProject: (project: ProjectWithSyncStatus) => void;
+    onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
 }
 
@@ -35,6 +36,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     projects,
     onCloneProject,
     onOpenProject,
+    onDeleteProject,
     isLoading,
 }) => {
     const [searchQuery, setSearchQuery] = useState("");
@@ -223,13 +225,24 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 project.syncStatus === "localOnlyNotSynced"
             ) {
                 return (
-                    <VSCodeButton
-                        appearance="primary"
-                        onClick={() => onOpenProject(project)}
-                        title="Open project"
-                    >
-                        <i className="codicon codicon-folder-opened"></i>
-                    </VSCodeButton>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                        <VSCodeButton
+                            appearance="primary"
+                            onClick={() => onOpenProject(project)}
+                            title="Open project"
+                        >
+                            <i className="codicon codicon-folder-opened"></i>
+                        </VSCodeButton>
+                        {onDeleteProject && (
+                            <VSCodeButton 
+                                appearance="secondary"
+                                onClick={() => onDeleteProject(project)}
+                                title="Delete local project"
+                            >
+                                <i className="codicon codicon-trash"></i>
+                            </VSCodeButton>
+                        )}
+                    </div>
                 );
             }
             return null;
@@ -271,7 +284,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     </div>
                     <div className="card-actions">
                         {mainAction()}
-                        {displayUrl && (
+                        {displayUrl ? (
                             <span
                                 className={`expand-button ${isExpanded ? "expanded" : ""}`}
                                 onClick={() =>
@@ -284,6 +297,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             >
                                 <i className="codicon codicon-chevron-down" />
                             </span>
+                        ) : (
+                            <span style={{ width: '24px', display: 'inline-block' }}></span>
                         )}
                     </div>
                 </div>

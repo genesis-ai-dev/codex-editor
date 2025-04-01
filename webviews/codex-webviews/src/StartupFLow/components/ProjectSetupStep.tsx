@@ -40,6 +40,19 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         setIsLoading(true);
     };
 
+    const handleDeleteProject = (project: ProjectWithSyncStatus) => {
+        if (!project.path) return;
+        
+        // Show confirmation dialog via VSCode
+        vscode.postMessage({
+            command: "project.delete",
+            projectPath: project.path
+        } as MessagesToStartupFlowProvider);
+        
+        // Set loading state
+        setIsLoading(true);
+    };
+
     useEffect(() => {
         vscode.postMessage({
             command: "getProjectsListFromGitLab",
@@ -48,10 +61,32 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
             const message = event.data;
             console.log({ message }, "message in ProjectSetupStep");
+            
             if (message.command === "projectsListFromGitLab") {
-                console.log(message.projects, "message in ProjectSetupStep");
+                console.log(message.projects, "projects list updated");
                 setProjectsList(message.projects);
                 setIsLoading(false);
+            } else if (message.command === "project.deleteResponse") {
+                console.log(`Project deletion response:`, message);
+                
+                if (message.success) {
+                    console.log(`Project at ${message.projectPath} successfully deleted`);
+                    
+                    // Explicitly request a fresh project list
+                    vscode.postMessage({
+                        command: "getProjectsListFromGitLab",
+                    } as MessagesToStartupFlowProvider);
+                } else {
+                    // Handle different error cases
+                    if (message.error === "Deletion cancelled by user") {
+                        console.log("Project deletion was cancelled by user");
+                    } else {
+                        console.error(`Failed to delete project: ${message.error}`);
+                    }
+                    
+                    // Always stop loading on any error or cancellation
+                    setIsLoading(false);
+                }
             }
         };
 
@@ -151,6 +186,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 isLoading={isLoading}
                 onOpenProject={onOpenProject}
                 projects={projectsList}
+                onDeleteProject={handleDeleteProject}
                 onCloneProject={(project) =>
                     project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)
                 }
