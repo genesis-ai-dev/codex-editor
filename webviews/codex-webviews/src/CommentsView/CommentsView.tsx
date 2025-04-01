@@ -80,7 +80,7 @@ function App() {
     const [showNewCommentForm, setShowNewCommentForm] = useState(false);
     const [newCommentText, setNewCommentText] = useState("");
     const [pendingResolveThreads, setPendingResolveThreads] = useState<Set<string>>(new Set());
-    const [isLocked, setIsLocked] = useState(true);
+    const [viewMode, setViewMode] = useState<"all" | "cell">("cell");
     const [currentUser, setCurrentUser] = useState<{
         username: string;
         email: string;
@@ -118,7 +118,7 @@ function App() {
                     console.log("Reload message received:", message.data);
                     if (message.data?.cellId) {
                         setCellId({ cellId: message.data.cellId, uri: message.data.uri || "" });
-                        if (isLocked) {
+                        if (viewMode === "cell") {
                             setSearchQuery(message.data.cellId);
                         }
                     }
@@ -145,7 +145,7 @@ function App() {
                 }
             }
         },
-        [isLocked]
+        [viewMode]
     );
 
     useEffect(() => {
@@ -326,16 +326,26 @@ function App() {
         return commentThreadArray.filter((commentThread) => {
             if (commentThread.deleted) return false;
 
-            return (
-                searchQuery.toLowerCase() === "" ||
-                commentThread.threadTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                commentThread.comments.some((comment) =>
-                    comment.body.toLowerCase().includes(searchQuery.toLowerCase())
-                ) ||
-                commentThread.cellId.cellId.toLowerCase().includes(searchQuery.toLowerCase())
-            );
+            // If in cell view mode, only show comments for the current cell
+            if (viewMode === "cell" && cellId.cellId) {
+                return commentThread.cellId.cellId === cellId.cellId;
+            }
+
+            // If searching, filter by search query
+            if (searchQuery) {
+                return (
+                    commentThread.threadTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    commentThread.comments.some((comment) =>
+                        comment.body.toLowerCase().includes(searchQuery.toLowerCase())
+                    ) ||
+                    commentThread.cellId.cellId.toLowerCase().includes(searchQuery.toLowerCase())
+                );
+            }
+
+            // In all view mode with no search, show all comments
+            return true;
         });
-    }, [commentThreadArray, searchQuery]);
+    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId]);
 
     return (
         <div
@@ -349,7 +359,7 @@ function App() {
                 fontFamily: "var(--vscode-font-family)",
             }}
         >
-            {/* Search and filter header */}
+            {/* Header */}
             <div
                 style={{
                     padding: "16px",
@@ -369,22 +379,84 @@ function App() {
                     </div>
                 )}
 
+                {/* View mode selector */}
+                <div
+                    style={{
+                        display: "flex",
+                        borderRadius: "4px",
+                        overflow: "hidden",
+                        border: "1px solid var(--vscode-button-background)",
+                    }}
+                >
+                    <button
+                        style={{
+                            flex: 1,
+                            padding: "8px 12px",
+                            border: "none",
+                            background:
+                                viewMode === "all"
+                                    ? "var(--vscode-button-background)"
+                                    : "transparent",
+                            color:
+                                viewMode === "all"
+                                    ? "var(--vscode-button-foreground)"
+                                    : "var(--vscode-foreground)",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            fontSize: "13px",
+                            fontWeight: 500,
+                            transition: "background-color 0.2s",
+                        }}
+                        onClick={() => {
+                            setViewMode("all");
+                            setSearchQuery("");
+                        }}
+                    >
+                        All Comments
+                    </button>
+                    <button
+                        style={{
+                            flex: 1,
+                            padding: "8px 12px",
+                            border: "none",
+                            background:
+                                viewMode === "cell"
+                                    ? "var(--vscode-button-background)"
+                                    : "transparent",
+                            color:
+                                viewMode === "cell"
+                                    ? "var(--vscode-button-foreground)"
+                                    : "var(--vscode-foreground)",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            fontSize: "13px",
+                            fontWeight: 500,
+                            transition: "background-color 0.2s",
+                        }}
+                        onClick={() => {
+                            setViewMode("cell");
+                            setSearchQuery(cellId.cellId);
+                        }}
+                    >
+                        Current Cell
+                    </button>
+                </div>
+
+                {/* Search */}
                 <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                     <VSCodeTextField
-                        placeholder="Search or filter comments..."
+                        placeholder={
+                            viewMode === "all"
+                                ? "Search all comments..."
+                                : `Showing comments for ${getCellId(cellId.cellId)}`
+                        }
                         value={searchQuery}
                         style={{ flex: 1 }}
                         onChange={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+                        disabled={viewMode === "cell"}
                     >
                         <span slot="start" className="codicon codicon-search"></span>
                     </VSCodeTextField>
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={() => setIsLocked(!isLocked)}
-                        title={isLocked ? "Unlock from current cell" : "Lock to current cell"}
-                    >
-                        <i className={`codicon codicon-${isLocked ? "lock" : "unlock"}`} />
-                    </VSCodeButton>
                 </div>
 
                 <div
@@ -435,8 +507,25 @@ function App() {
                         backgroundColor: "var(--vscode-editor-inactiveSelectionBackground)",
                     }}
                 >
-                    <div style={{ marginBottom: "12px", fontSize: "14px", fontWeight: 500 }}>
-                        Add a new comment
+                    <div
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            marginBottom: "12px",
+                            gap: "8px",
+                        }}
+                    >
+                        <span style={{ fontSize: "14px", fontWeight: 500 }}>New comment</span>
+                        {viewMode === "cell" && (
+                            <span
+                                style={{
+                                    fontSize: "12px",
+                                    color: "var(--vscode-descriptionForeground)",
+                                }}
+                            >
+                                on {getCellId(cellId.cellId)}
+                            </span>
+                        )}
                     </div>
                     <div
                         style={{
@@ -480,35 +569,97 @@ function App() {
                 </div>
             )}
 
-            {/* Comment list */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
-                {filteredCommentThreads.length === 0 ? (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            padding: "48px 16px",
-                            color: "var(--vscode-descriptionForeground)",
-                            textAlign: "center",
-                            gap: "16px",
-                        }}
-                    >
-                        <i
-                            className="codicon codicon-comment"
-                            style={{ fontSize: "32px", opacity: 0.6 }}
-                        ></i>
-                        <div>
-                            <div style={{ marginBottom: "8px", fontSize: "16px" }}>
-                                No comments yet
-                            </div>
-                            <div style={{ fontSize: "13px" }}>
-                                Start the conversation by adding a comment
-                            </div>
+            {/* Empty state for cell view with no comments */}
+            {viewMode === "cell" && filteredCommentThreads.length === 0 && cellId.cellId && (
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: "48px 16px",
+                        color: "var(--vscode-descriptionForeground)",
+                        textAlign: "center",
+                        gap: "16px",
+                        flex: 1,
+                    }}
+                >
+                    <i
+                        className="codicon codicon-comment"
+                        style={{ fontSize: "32px", opacity: 0.6 }}
+                    ></i>
+                    <div>
+                        <div style={{ marginBottom: "8px", fontSize: "16px" }}>
+                            No comments on this cell
+                        </div>
+                        <div style={{ fontSize: "13px" }}>
+                            Be the first to start a conversation here
                         </div>
                     </div>
-                ) : (
+                </div>
+            )}
+
+            {/* Empty state for all view with no comments */}
+            {viewMode === "all" && filteredCommentThreads.length === 0 && searchQuery.length === 0 && (
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: "48px 16px",
+                        color: "var(--vscode-descriptionForeground)",
+                        textAlign: "center",
+                        gap: "16px",
+                        flex: 1,
+                    }}
+                >
+                    <i
+                        className="codicon codicon-comments"
+                        style={{ fontSize: "32px", opacity: 0.6 }}
+                    ></i>
+                    <div>
+                        <div style={{ marginBottom: "8px", fontSize: "16px" }}>No comments yet</div>
+                        <div style={{ fontSize: "13px" }}>
+                            Start the conversation by adding a comment
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* No results for search */}
+            {searchQuery.length > 0 && filteredCommentThreads.length === 0 && (
+                <div
+                    style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: "48px 16px",
+                        color: "var(--vscode-descriptionForeground)",
+                        textAlign: "center",
+                        gap: "16px",
+                        flex: 1,
+                    }}
+                >
+                    <i
+                        className="codicon codicon-search-no-results"
+                        style={{ fontSize: "32px", opacity: 0.6 }}
+                    ></i>
+                    <div>
+                        <div style={{ marginBottom: "8px", fontSize: "16px" }}>
+                            No results found
+                        </div>
+                        <div style={{ fontSize: "13px" }}>
+                            Try a different search or view all comments
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Comment list */}
+            {filteredCommentThreads.length > 0 && (
+                <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                         {filteredCommentThreads.map((thread) => (
                             <div
@@ -942,8 +1093,8 @@ function App() {
                             </div>
                         ))}
                     </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }
