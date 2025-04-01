@@ -281,37 +281,19 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // For removing validations (when already validated), use direct validation
-        // For adding validations, use the pending system
-        const isRemovingValidation = isValidated;
-        
-        if (isRemovingValidation) {
-            // When removing validations, do it immediately via validateCell
-            vscode.postMessage({
-                command: "validateCell",
-                content: {
-                    cellId,
-                    validate: false
-                },
-            });
-            
-            // Show the validation progress state immediately for user feedback
-            setIsValidationInProgress(true);
-        } else {
-            // Toggle the pending validation state for adding new validations
-            const newPendingState = !isPendingValidation;
-            setIsPendingValidation(newPendingState);
+        // Toggle the pending validation state for all validation operations
+        const newPendingState = !isPendingValidation;
+        setIsPendingValidation(newPendingState);
 
-            // Queue the validation request
-            vscode.postMessage({
-                command: "queueValidation",
-                content: {
-                    cellId,
-                    validate: true,
-                    pending: newPendingState
-                },
-            });
-        }
+        // Queue the validation request (both for adding and removing validations)
+        vscode.postMessage({
+            command: "queueValidation",
+            content: {
+                cellId,
+                validate: !isValidated, // Toggle the current validation state
+                pending: newPendingState
+            },
+        });
 
         // Don't close popover immediately to allow user to see the change
         setTimeout(() => {
@@ -625,17 +607,18 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             
-                                                            // Remove validation
+                                                            // Queue the validation removal
                                                             vscode.postMessage({
-                                                                command: "validateCell",
+                                                                command: "queueValidation",
                                                                 content: {
                                                                     cellId,
-                                                                    validate: false
+                                                                    validate: false,
+                                                                    pending: true
                                                                 },
                                                             });
                                                             
-                                                            // Show the validation progress state
-                                                            setIsValidationInProgress(true);
+                                                            // Set the pending state
+                                                            setIsPendingValidation(true);
                                                             
                                                             // Immediately close the popover
                                                             setShowPopover(false);
