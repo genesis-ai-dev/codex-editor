@@ -575,6 +575,9 @@ export type EditorPostMessages =
     | { command: "getAlertCodes"; content: GetAlertCodes }
     | { command: "executeCommand"; content: { command: string; args: any[] } }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
+    | { command: "queueValidation"; content: { cellId: string; validate: boolean; pending: boolean } }
+    | { command: "applyPendingValidations" }
+    | { command: "clearPendingValidations" }
     | { command: "getCurrentUsername" }
     | { command: "getValidationCount" }
     | { command: "requestUsername" }
@@ -766,7 +769,35 @@ type EditorReceiveMessages =
       }
     | { type: "currentUsername"; content: { username: string } }
     | { type: "validationCount"; content: number }
-    | { type: "configurationChanged" };
+    | { type: "configurationChanged" }
+    | {
+          type: "validationInProgress";
+          content: {
+              cellId: string;
+              inProgress: boolean;
+              error?: string;
+          };
+      }
+    | {
+          type: "pendingValidationCleared";
+          content: {
+              cellIds: string[];
+          };
+      }
+    | {
+          type: "pendingValidationsUpdate";
+          content: {
+              count: number;
+              hasPending: boolean;
+          };
+      }
+    | {
+          type: "providerUpdatesValidationState";
+          content: {
+              cellId: string;
+              validatedBy: ValidationEntry[];
+          };
+      };
 
 type AlertCodesServerResponse = {
     code: number;

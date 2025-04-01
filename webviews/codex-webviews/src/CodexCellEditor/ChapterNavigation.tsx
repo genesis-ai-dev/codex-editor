@@ -409,7 +409,6 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         totalCellsWithCurrentUserOption,
         includeNotValidatedByAnyUser,
         includeNotValidatedByCurrentUser,
-        numberOfCellsToAutocomplete, // Add this to the dependency array to properly track changes
     ]);
 
     // Handler for "Include cells not validated by any user" checkbox
@@ -436,11 +435,17 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             }
         }
 
-        // If currently less than 5, set to min(5, newEffectiveTotal)
-        if (numberOfCellsToAutocomplete < 5 && newEffectiveTotal > numberOfCellsToAutocomplete) {
+        // Only update to 5 if current value is 0, otherwise preserve the custom value
+        if (customValue === 0 && newEffectiveTotal > 0) {
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
+        } 
+        // If current value exceeds new maximum, cap it
+        else if (customValue > newEffectiveTotal) {
+            const cappedValue = newEffectiveTotal;
+            setNumberOfCellsToAutocomplete(cappedValue);
+            setCustomValue(cappedValue);
         }
 
         setIncludeNotValidatedByAnyUser(newValue);
@@ -465,11 +470,17 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             }
         }
 
-        // If currently at 0, set to min(5, newEffectiveTotal)
-        if (numberOfCellsToAutocomplete === 0 && newEffectiveTotal > 0) {
+        // Only update to 5 if current value is 0, otherwise preserve the custom value
+        if (customValue === 0 && newEffectiveTotal > 0) {
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
+        } 
+        // If current value exceeds new maximum, cap it
+        else if (customValue > newEffectiveTotal) {
+            const cappedValue = newEffectiveTotal;
+            setNumberOfCellsToAutocomplete(cappedValue);
+            setCustomValue(cappedValue);
         }
 
         setIncludeNotValidatedByCurrentUser(newValue);
@@ -595,10 +606,12 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 setCustomValue(defaultValue);
                                 setNumberOfCellsToAutocomplete(defaultValue);
                             } else {
+                                // Use the existing custom value rather than resetting to default
                                 setNumberOfCellsToAutocomplete(customValue);
                             }
                         } else if (target.value === effectiveTotalCells.toString()) {
                             setNumberOfCellsToAutocomplete(effectiveTotalCells);
+                            // Don't update customValue here to preserve it for when user switches back
                         }
                     }}
                 >
@@ -635,7 +648,8 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             onChange={(e) => {
                                 const inputValue = e.target.value;
                                 if (inputValue === "") {
-                                    setCustomValue(0);
+                                    // Allow empty input without converting to 0
+                                    setCustomValue(NaN);
                                     setNumberOfCellsToAutocomplete(0);
                                     return;
                                 }
@@ -654,6 +668,8 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 padding: "4px",
                                 outline: "none",
                                 boxShadow: "0 0 0 1px var(--vscode-focusBorder)",
+                                backgroundColor: "var(--vscode-input-background)",
+                                color: "var(--vscode-input-foreground)"
                             }}
                             className="autocomplete-number-input"
                         />

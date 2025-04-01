@@ -41,8 +41,31 @@ const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content, mode =
                     <div style={{ display: "flex" }}>{button}</div>
                 </>
             ) : (
-                <div>
-                    {isWrapperHovered ? content : button}
+                <div
+                    style={{
+                        position: "relative",
+                        display: "flex",
+                        alignItems: "center"
+                    }}
+                >
+                    <div 
+                        style={{ 
+                            opacity: isWrapperHovered ? 0 : 1,
+                            position: isWrapperHovered ? "absolute" : "relative",
+                            visibility: isWrapperHovered ? "hidden" : "visible",
+                        }}
+                    >
+                        {button}
+                    </div>
+                    <div 
+                        style={{ 
+                            opacity: isWrapperHovered ? 1 : 0,
+                            position: isWrapperHovered ? "relative" : "absolute",
+                            visibility: isWrapperHovered ? "visible" : "hidden",
+                        }}
+                    >
+                        {content}
+                    </div>
                 </div>
             )}
         </div>
