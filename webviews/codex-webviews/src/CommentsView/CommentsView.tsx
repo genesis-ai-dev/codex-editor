@@ -81,6 +81,7 @@ function App() {
     const [newCommentText, setNewCommentText] = useState("");
     const [pendingResolveThreads, setPendingResolveThreads] = useState<Set<string>>(new Set());
     const [viewMode, setViewMode] = useState<"all" | "cell">("cell");
+    const [showResolvedThreads, setShowResolvedThreads] = useState(false);
     const [currentUser, setCurrentUser] = useState<{
         username: string;
         email: string;
@@ -325,8 +326,13 @@ function App() {
     };
 
     const filteredCommentThreads = useMemo(() => {
-        return commentThreadArray.filter((commentThread) => {
-            if (commentThread.deleted) return false;
+        // First, get all non-deleted threads
+        const nonDeletedThreads = commentThreadArray.filter((thread) => !thread.deleted);
+
+        // Then, apply additional filtering based on view mode, search, and resolved status
+        return nonDeletedThreads.filter((commentThread) => {
+            // Skip resolved threads if they're hidden
+            if (!showResolvedThreads && commentThread.resolved) return false;
 
             // If in cell view mode, only show comments for the current cell
             if (viewMode === "cell" && cellId.cellId) {
@@ -344,10 +350,32 @@ function App() {
                 );
             }
 
-            // In all view mode with no search, show all comments
+            // In all view mode with no search, show all comments (except resolved ones if hidden)
             return true;
         });
-    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId]);
+    }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads]);
+
+    // Count of hidden resolved threads
+    const hiddenResolvedThreadsCount = useMemo(() => {
+        if (showResolvedThreads) return 0;
+
+        const nonDeletedThreads = commentThreadArray.filter((thread) => !thread.deleted);
+
+        return nonDeletedThreads.filter((thread) => {
+            const isResolved = thread.resolved;
+            const matchesCurrentCell =
+                viewMode !== "cell" || thread.cellId.cellId === cellId.cellId;
+            const matchesSearch =
+                !searchQuery ||
+                thread.threadTitle?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                thread.comments.some((comment) =>
+                    comment.body.toLowerCase().includes(searchQuery.toLowerCase())
+                ) ||
+                thread.cellId.cellId.toLowerCase().includes(searchQuery.toLowerCase());
+
+            return isResolved && matchesCurrentCell && matchesSearch;
+        }).length;
+    }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads]);
 
     return (
         <div
@@ -359,6 +387,7 @@ function App() {
                 backgroundColor: "var(--vscode-editorWidget-background)",
                 color: "var(--vscode-editorWidget-foreground)",
                 fontFamily: "var(--vscode-font-family)",
+                position: "relative", // For positioning the resolved threads banner
             }}
         >
             {/* Header */}
@@ -1088,6 +1117,68 @@ function App() {
                     </div>
                 </div>
             )}
+
+            {/* Resolved threads banner */}
+            {hiddenResolvedThreadsCount > 0 && (
+                <div
+                    style={{
+                        position: "sticky",
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        padding: "8px 16px",
+                        backgroundColor: "var(--vscode-button-background)",
+                        color: "var(--vscode-button-foreground)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        cursor: "pointer",
+                        borderTop: "1px solid var(--vscode-widget-border)",
+                        fontSize: "13px",
+                        zIndex: 10,
+                    }}
+                    onClick={() => setShowResolvedThreads(true)}
+                >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <i className="codicon codicon-eye"></i>
+                        <span>
+                            {hiddenResolvedThreadsCount} resolved{" "}
+                            {hiddenResolvedThreadsCount === 1 ? "thread" : "threads"} hidden
+                        </span>
+                    </div>
+                    <i className="codicon codicon-chevron-up"></i>
+                </div>
+            )}
+
+            {/* Hide resolved threads button (when they're visible) */}
+            {showResolvedThreads &&
+                commentThreadArray.some((thread) => !thread.deleted && thread.resolved) && (
+                    <div
+                        style={{
+                            position: "sticky",
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            padding: "8px 16px",
+                            backgroundColor: "var(--vscode-button-background)",
+                            color: "var(--vscode-button-foreground)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            cursor: "pointer",
+                            borderTop: "1px solid var(--vscode-widget-border)",
+                            fontSize: "13px",
+                            zIndex: 10,
+                        }}
+                        onClick={() => setShowResolvedThreads(false)}
+                    >
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <i className="codicon codicon-eye-closed"></i>
+                            <span>Hide resolved threads</span>
+                        </div>
+                        <i className="codicon codicon-chevron-down"></i>
+                    </div>
+                )}
         </div>
     );
 }
