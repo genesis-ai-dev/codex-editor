@@ -736,37 +736,19 @@ export const handleMessages = async (
         }
         case "validateCell":
             if (event.content && event.content.cellId) {
-                await document.validateCellContent(event.content.cellId, event.content.validate);
-
-                // Make sure to save the document to trigger file system watchers
-                await document.save(new vscode.CancellationTokenSource().token);
-
-                // Update the current webview
-                updateWebview();
-
-                // Get validated entries from the document, this will filter out any string entries
-                const validatedEntries = document.getCellValidatedBy(event.content.cellId);
-
-                // Log validation count for debugging
-                const validationCount = document.getValidationCount(event.content.cellId);
-                debug(
-                    `Cell ${event.content.cellId} validation count: ${validationCount}, active entries: ${validatedEntries.filter((e) => !e.isDeleted).length}`
-                );
-
-                // Post the validation update to all other webview panels for this document
-                (provider as any).webviewPanels.forEach(
-                    (panel: vscode.WebviewPanel, docUri: string) => {
-                        if (docUri === document.uri.toString() && panel !== webviewPanel) {
-                            panel.webview.postMessage({
-                                type: "providerUpdatesValidationState",
-                                content: {
-                                    cellId: event.content.cellId,
-                                    validatedBy: validatedEntries,
-                                },
-                            });
-                        }
-                    }
-                );
+                try {
+                    // Directly queue the validation for immediate processing
+                    await provider.enqueueValidation(
+                        event.content.cellId,
+                        document,
+                        event.content.validate
+                    );
+                    
+                    // Update is now handled within the queue processing
+                } catch (error) {
+                    console.error(`Error validating cell ${event.content.cellId}:`, error);
+                    vscode.window.showErrorMessage("Failed to validate cell.");
+                }
             }
             break;
         case "getValidationCount": {
@@ -800,5 +782,43 @@ export const handleMessages = async (
             }
             return;
         }
+        case "queueValidation":
+            if (event.content && event.content.cellId) {
+                try {
+                    // Queue the validation instead of processing immediately
+                    provider.queueValidation(
+                        event.content.cellId,
+                        document,
+                        event.content.validate,
+                        event.content.pending
+                    );
+                    
+                    // No need to call updateWebview - pending state is handled via messages
+                } catch (error) {
+                    console.error(`Error queuing validation for cell ${event.content.cellId}:`, error);
+                    vscode.window.showErrorMessage("Failed to queue validation.");
+                }
+            }
+            break;
+        case "applyPendingValidations":
+            try {
+                await provider.applyPendingValidations();
+                // Webview updates will be handled by the validation process
+            } catch (error) {
+                console.error("Error applying pending validations:", error);
+                vscode.window.showErrorMessage("Failed to apply validations.");
+            }
+            break;
+        case "clearPendingValidations":
+            try {
+                // Clear all pending validations without applying them
+                provider.clearPendingValidations();
+                
+                // Webview updates will be handled by the provider
+            } catch (error) {
+                console.error("Error clearing pending validations:", error);
+                vscode.window.showErrorMessage("Failed to clear validations.");
+            }
+            break;
     }
 };

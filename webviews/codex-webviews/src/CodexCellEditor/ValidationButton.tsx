@@ -48,6 +48,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
     const [validationUsers, setValidationUsers] = useState<ValidationEntry[]>([]);
     const [isDetailedView, setIsDetailedView] = useState(false);
+    const [isPendingValidation, setIsPendingValidation] = useState(false);
+    const [isValidationInProgress, setIsValidationInProgress] = useState(false);
     const buttonRef = useRef<HTMLDivElement>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
     const uniqueId = useRef(`validation-${cellId}-${Math.random().toString(36).substring(2, 11)}`);
@@ -151,6 +153,10 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
                         );
                         setValidationUsers(activeValidations);
+                        
+                        // Validation is complete, clear pending state
+                        setIsPendingValidation(false);
+                        setIsValidationInProgress(false);
                     }
                 }
             } else if (message.type === "configurationChanged") {
@@ -162,6 +168,20 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 setRequiredValidations(message.content.requiredValidations || 1);
                 setIsValidated(message.content.isValidated);
                 setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
+            } else if (message.type === "validationInProgress") {
+                // Handle validation in progress message
+                if (message.content.cellId === cellId) {
+                    setIsValidationInProgress(message.content.inProgress);
+                    if (!message.content.inProgress) {
+                        // If validation is complete, clear pending state as well
+                        setIsPendingValidation(false);
+                    }
+                }
+            } else if (message.type === "pendingValidationCleared") {
+                // Handle when all pending validations are cleared
+                if (message.content.cellIds.includes(cellId)) {
+                    setIsPendingValidation(false);
+                }
             }
         };
 
@@ -261,17 +281,37 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     const handleValidate = (e: React.MouseEvent) => {
         e.stopPropagation();
 
-        // If the user has already validated, this click will unvalidate
-        vscode.postMessage({
-            command: "validateCell",
-            content: {
-                cellId,
-                validate: !isValidated,
-            },
-        });
+        // For removing validations (when already validated), use direct validation
+        // For adding validations, use the pending system
+        const isRemovingValidation = isValidated;
+        
+        if (isRemovingValidation) {
+            // When removing validations, do it immediately via validateCell
+            vscode.postMessage({
+                command: "validateCell",
+                content: {
+                    cellId,
+                    validate: false
+                },
+            });
+            
+            // Show the validation progress state immediately for user feedback
+            setIsValidationInProgress(true);
+        } else {
+            // Toggle the pending validation state for adding new validations
+            const newPendingState = !isPendingValidation;
+            setIsPendingValidation(newPendingState);
 
-        // Optimistically update the UI
-        setIsValidated(!isValidated);
+            // Queue the validation request
+            vscode.postMessage({
+                command: "queueValidation",
+                content: {
+                    cellId,
+                    validate: true,
+                    pending: newPendingState
+                },
+            });
+        }
 
         // Don't close popover immediately to allow user to see the change
         setTimeout(() => {
@@ -406,46 +446,86 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         >
             <VSCodeButton
                 appearance="icon"
-                style={buttonStyle}
+                style={{
+                    ...buttonStyle,
+                    // Add orange border for pending validations - use a consistent orange color
+                    ...(isPendingValidation && {
+                        border: '2px solid #f5a623', // Consistent orange color for both themes
+                        borderRadius: '50%'
+                    })
+                }}
                 onClick={(e) => {
                     e.stopPropagation();
                     handleButtonClick(e);
                 }}
-                // We only disable for source text. The previous restriction that prevented users from validating 
-                // their own edits has been removed, since users should be able to validate their own content.
-                disabled={isSourceText}
+                // We only disable for source text or when validation is in progress
+                disabled={isSourceText || isValidationInProgress}
             >
-                {/* Validation status icons:
-                   - Empty circle: No validations
-                   - Grey filled circle: Has validations but not from current user
-                   - Green checkmark: Current user validated but not fully validated
-                   - Double grey checkmarks: Fully validated but current user hasn't validated
-                   - Double green checkmarks: Fully validated and current user has validated
-                */}
-                {currentValidations === 0 ? (
+                {/* Show spinner when validation is in progress */}
+                {isValidationInProgress ? (
+                    <i className="codicon codicon-loading" style={{ 
+                        fontSize: "12px", 
+                        color: "var(--vscode-descriptionForeground)",
+                        animation: "spin 1.5s linear infinite"
+                    }}></i>
+                ) : currentValidations === 0 ? (
                     // Empty circle - No validations
                     <i className="codicon codicon-circle-outline"
-                       style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+                       style={{ 
+                           fontSize: "12px", 
+                           // Keep original color, don't change for pending validation
+                           color: "var(--vscode-descriptionForeground)" 
+                       }}></i>
                 ) : isFullyValidated ? (
                     isValidated ? (
                         // Double green checkmarks - Fully validated and current user has validated
                         <i className="codicon codicon-check-all"
-                           style={{ fontSize: "12px", color: "var(--vscode-testing-iconPassed)" }}></i>
+                           style={{ 
+                               fontSize: "12px", 
+                               // Keep original color, don't change for pending validation
+                               color: "var(--vscode-testing-iconPassed)" 
+                           }}></i>
                     ) : (
                         // Double grey checkmarks - Fully validated but current user hasn't validated
                         <i className="codicon codicon-check-all"
-                           style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+                           style={{ 
+                               fontSize: "12px", 
+                               // Keep original color, don't change for pending validation
+                               color: "var(--vscode-descriptionForeground)" 
+                           }}></i>
                     )
                 ) : isValidated ? (
                     // Green checkmark - Current user validated but not fully validated
                     <i className="codicon codicon-check"
-                       style={{ fontSize: "12px", color: "var(--vscode-testing-iconPassed)" }}></i>
+                       style={{ 
+                           fontSize: "12px", 
+                           // Keep original color, don't change for pending validation
+                           color: "var(--vscode-testing-iconPassed)" 
+                       }}></i>
                 ) : (
                     // Grey filled circle - Has validations but not from current user
                     <i className="codicon codicon-circle-filled"
-                       style={{ fontSize: "12px", color: "var(--vscode-descriptionForeground)" }}></i>
+                       style={{ 
+                           fontSize: "12px", 
+                           // Keep original color, don't change for pending validation
+                           color: "var(--vscode-descriptionForeground)" 
+                       }}></i>
                 )}
             </VSCodeButton>
+
+            {/* Add style for spinner animation */}
+            <style>
+                {`
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                .validation-button-container .pending {
+                    border: 2px solid #f5a623; /* Consistent orange color for both themes */
+                    border-radius: 50%;
+                }
+                `}
+            </style>
 
             {/* Popover for validation users */}
             {showPopover && uniqueValidationUsers.length > 0 && (
@@ -544,7 +624,26 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                         id={`trash-icon-${user.username}-${uniqueId.current}`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            handleValidate(e);
+                                                            
+                                                            // Remove validation
+                                                            vscode.postMessage({
+                                                                command: "validateCell",
+                                                                content: {
+                                                                    cellId,
+                                                                    validate: false
+                                                                },
+                                                            });
+                                                            
+                                                            // Show the validation progress state
+                                                            setIsValidationInProgress(true);
+                                                            
+                                                            // Immediately close the popover
+                                                            setShowPopover(false);
+                                                            setIsPersistentPopover(false);
+                                                            setIsDetailedView(false);
+                                                            if (popoverTracker.getActivePopover() === uniqueId.current) {
+                                                                popoverTracker.setActivePopover(null);
+                                                            }
                                                         }}
                                                         title="Remove your validation"
                                                         className="validation-trash-icon"
