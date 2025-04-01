@@ -1101,7 +1101,6 @@ function App() {
                                                         <VSCodeButton
                                                             appearance="icon"
                                                             onClick={() => handleReply(thread.id)}
-                                                            disabled={!replyText[thread.id]?.trim()}
                                                             title="Send reply"
                                                         >
                                                             <i className="codicon codicon-send" />
