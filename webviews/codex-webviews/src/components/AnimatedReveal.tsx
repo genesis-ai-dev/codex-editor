@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { useHover } from "@uidotdev/usehooks";
 
@@ -10,6 +10,26 @@ interface AnimatedRevealProps {
 
 const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content, mode = "reveal" }) => {
     const [wrapperRef, isWrapperHovered] = useHover();
+    const [isPopoverHovered, setIsPopoverHovered] = useState(false);
+
+    // Set up listener for validation popover hover
+    useEffect(() => {
+        const checkPopoverHover = () => {
+            const hoveredPopover = document.querySelector(".validation-popover:hover");
+            const hoveredPopoverSimpleView = document.querySelector(".validators-simple-view:hover");
+            setIsPopoverHovered(!!hoveredPopover || !!hoveredPopoverSimpleView);
+        };
+
+        // Add mouse move event listener to detect hover on validation popovers
+        document.addEventListener("mousemove", checkPopoverHover);
+        
+        return () => {
+            document.removeEventListener("mousemove", checkPopoverHover);
+        };
+    }, []);
+
+    // Only show content when wrapper is hovered AND no validation popover is being hovered
+    const shouldShowContent = isWrapperHovered && !isPopoverHovered;
 
     return (
         <div
@@ -25,13 +45,13 @@ const AnimatedReveal: React.FC<AnimatedRevealProps> = ({ button, content, mode =
                 <>
                     <div
                         style={{
-                            opacity: isWrapperHovered ? 1 : 0,
-                            transform: `translateX(${isWrapperHovered ? "0" : "20px"}) scale(${
-                                isWrapperHovered ? 1 : 0
+                            opacity: shouldShowContent ? 1 : 0,
+                            transform: `translateX(${shouldShowContent ? "0" : "20px"}) scale(${
+                                shouldShowContent ? 1 : 0
                             })`,
                             transition:
                                 "all 0.2s ease-in-out, transform 0.2s cubic-bezier(.68,-0.75,.27,1.75)",
-                            visibility: isWrapperHovered ? "visible" : "hidden",
+                            visibility: shouldShowContent ? "visible" : "hidden",
                             display: "flex",
                             alignItems: "center",
                         }}
