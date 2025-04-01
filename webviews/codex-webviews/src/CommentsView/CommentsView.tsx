@@ -319,7 +319,9 @@ function App() {
 
     const getCellId = (cellId: string) => {
         const parts = cellId.split(":");
-        return parts[parts.length - 1] || cellId;
+        const finalPart = parts[parts.length - 1] || cellId;
+        // Show full cell ID if it's less than 10 characters
+        return cellId.length < 10 ? cellId : finalPart;
     };
 
     const filteredCommentThreads = useMemo(() => {
@@ -488,11 +490,8 @@ function App() {
                             onClick={() => setShowNewCommentForm(true)}
                             style={{ fontWeight: 500 }}
                         >
-                            <i
-                                className="codicon codicon-comment-add"
-                                style={{ marginRight: "6px" }}
-                            />
-                            New Comment
+                            <i className="codicon codicon-add" style={{ marginRight: "6px" }} />
+                            Comment
                         </VSCodeButton>
                     )}
                 </div>
@@ -515,6 +514,10 @@ function App() {
                             gap: "8px",
                         }}
                     >
+                        <i
+                            className="codicon codicon-comment-draft"
+                            style={{ fontSize: "14px" }}
+                        ></i>
                         <span style={{ fontSize: "14px", fontWeight: 500 }}>New comment</span>
                         {viewMode === "cell" && (
                             <span
@@ -535,7 +538,7 @@ function App() {
                         }}
                     >
                         <VSCodeTextField
-                            placeholder="What's on your mind?"
+                            placeholder="What do you want to say?"
                             value={newCommentText}
                             style={{ width: "100%" }}
                             onKeyDown={(e) => {
@@ -559,18 +562,22 @@ function App() {
                                 appearance="secondary"
                                 onClick={() => setShowNewCommentForm(false)}
                             >
-                                Cancel
+                                <i className="codicon codicon-close" />
                             </VSCodeButton>
                             <VSCodeButton appearance="primary" onClick={handleNewComment}>
-                                Comment
+                                <i
+                                    className="codicon codicon-comment"
+                                    style={{ marginRight: "6px" }}
+                                />
+                                Send
                             </VSCodeButton>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Empty state for cell view with no comments */}
-            {viewMode === "cell" && filteredCommentThreads.length === 0 && cellId.cellId && (
+            {/* Empty states - make them mutually exclusive */}
+            {filteredCommentThreads.length === 0 && (
                 <div
                     style={{
                         display: "flex",
@@ -584,76 +591,52 @@ function App() {
                         flex: 1,
                     }}
                 >
-                    <i
-                        className="codicon codicon-comment"
-                        style={{ fontSize: "32px", opacity: 0.6 }}
-                    ></i>
-                    <div>
-                        <div style={{ marginBottom: "8px", fontSize: "16px" }}>
-                            No comments on this cell
-                        </div>
-                        <div style={{ fontSize: "13px" }}>
-                            Be the first to start a conversation here
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Empty state for all view with no comments */}
-            {viewMode === "all" && filteredCommentThreads.length === 0 && searchQuery.length === 0 && (
-                <div
-                    style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "48px 16px",
-                        color: "var(--vscode-descriptionForeground)",
-                        textAlign: "center",
-                        gap: "16px",
-                        flex: 1,
-                    }}
-                >
-                    <i
-                        className="codicon codicon-comments"
-                        style={{ fontSize: "32px", opacity: 0.6 }}
-                    ></i>
-                    <div>
-                        <div style={{ marginBottom: "8px", fontSize: "16px" }}>No comments yet</div>
-                        <div style={{ fontSize: "13px" }}>
-                            Start the conversation by adding a comment
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* No results for search */}
-            {searchQuery.length > 0 && filteredCommentThreads.length === 0 && (
-                <div
-                    style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "48px 16px",
-                        color: "var(--vscode-descriptionForeground)",
-                        textAlign: "center",
-                        gap: "16px",
-                        flex: 1,
-                    }}
-                >
-                    <i
-                        className="codicon codicon-search-no-results"
-                        style={{ fontSize: "32px", opacity: 0.6 }}
-                    ></i>
-                    <div>
-                        <div style={{ marginBottom: "8px", fontSize: "16px" }}>
-                            No results found
-                        </div>
-                        <div style={{ fontSize: "13px" }}>
-                            Try a different search or view all comments
-                        </div>
-                    </div>
+                    {viewMode === "cell" && cellId.cellId ? (
+                        <>
+                            <i
+                                className="codicon codicon-comment"
+                                style={{ fontSize: "32px", opacity: 0.6 }}
+                            ></i>
+                            <div>
+                                <div style={{ marginBottom: "8px", fontSize: "16px" }}>
+                                    No comments on this cell
+                                </div>
+                                <div style={{ fontSize: "13px" }}>
+                                    Be the first to start a conversation here
+                                </div>
+                            </div>
+                        </>
+                    ) : searchQuery.length > 0 ? (
+                        <>
+                            <i
+                                className="codicon codicon-search-no-results"
+                                style={{ fontSize: "32px", opacity: 0.6 }}
+                            ></i>
+                            <div>
+                                <div style={{ marginBottom: "8px", fontSize: "16px" }}>
+                                    No results found
+                                </div>
+                                <div style={{ fontSize: "13px" }}>
+                                    Try a different search or view all comments
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <i
+                                className="codicon codicon-comments"
+                                style={{ fontSize: "32px", opacity: 0.6 }}
+                            ></i>
+                            <div>
+                                <div style={{ marginBottom: "8px", fontSize: "16px" }}>
+                                    No comments yet
+                                </div>
+                                <div style={{ fontSize: "13px" }}>
+                                    Start the conversation by adding a comment
+                                </div>
+                            </div>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -765,6 +748,10 @@ function App() {
                                                         color: "var(--vscode-badge-foreground)",
                                                     }}
                                                 >
+                                                    <i
+                                                        className="codicon codicon-check"
+                                                        style={{ marginRight: "4px" }}
+                                                    ></i>
                                                     Resolved
                                                 </span>
                                             )}
@@ -813,26 +800,28 @@ function App() {
                                                 </div>
                                             )}
 
-                                            {/* Edit mode actions */}
+                                            {/* Edit mode actions - use icons instead of text */}
                                             {editingTitle === thread.id && (
                                                 <div style={{ display: "flex", gap: "8px" }}>
                                                     <VSCodeButton
-                                                        appearance="secondary"
+                                                        appearance="icon"
+                                                        title="Cancel"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setEditingTitle(null);
                                                         }}
                                                     >
-                                                        Cancel
+                                                        <i className="codicon codicon-close" />
                                                     </VSCodeButton>
                                                     <VSCodeButton
-                                                        appearance="primary"
+                                                        appearance="icon"
+                                                        title="Save"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleEditThreadTitle(thread.id);
                                                         }}
                                                     >
-                                                        Save
+                                                        <i className="codicon codicon-check" />
                                                     </VSCodeButton>
                                                 </div>
                                             )}
@@ -868,6 +857,10 @@ function App() {
                                             </span>
                                         </div>
                                         <span>
+                                            <i
+                                                className="codicon codicon-comment-discussion"
+                                                style={{ marginRight: "4px" }}
+                                            ></i>
                                             {thread.comments.length}{" "}
                                             {thread.comments.length === 1 ? "comment" : "comments"}
                                         </span>
@@ -1015,12 +1008,7 @@ function App() {
                                                     }}
                                                 >
                                                     <VSCodeTextField
-                                                        placeholder={
-                                                            replyingTo?.username &&
-                                                            replyingTo.threadId === thread.id
-                                                                ? `Reply to ${replyingTo.username}...`
-                                                                : "Add a reply..."
-                                                        }
+                                                        placeholder="Add a reply..."
                                                         value={replyText[thread.id] || ""}
                                                         style={{ width: "100%" }}
                                                         onKeyDown={(e) => {
@@ -1061,6 +1049,10 @@ function App() {
                                                                     color: "var(--vscode-textLink-foreground)",
                                                                 }}
                                                             >
+                                                                <i
+                                                                    className="codicon codicon-reply"
+                                                                    style={{ marginRight: "4px" }}
+                                                                ></i>
                                                                 Replying to @{replyingTo.username}
                                                                 <VSCodeButton
                                                                     appearance="icon"
@@ -1078,11 +1070,12 @@ function App() {
                                                         )}
 
                                                         <VSCodeButton
-                                                            appearance="primary"
+                                                            appearance="icon"
                                                             onClick={() => handleReply(thread.id)}
                                                             disabled={!replyText[thread.id]?.trim()}
+                                                            title="Send reply"
                                                         >
-                                                            Reply
+                                                            <i className="codicon codicon-send" />
                                                         </VSCodeButton>
                                                     </div>
                                                 </div>
