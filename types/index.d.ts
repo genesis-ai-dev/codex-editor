@@ -340,7 +340,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "getProjectsListFromGitLab" }
     | { command: "getProjectsSyncStatus" }
     | { command: "project.open"; projectPath: string }
-    | { command: "project.delete"; projectPath: string }
+    | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus }
     | { command: "project.createEmpty" }
     | { command: "project.initialize"; waitForStateUpdate?: boolean }
     | { command: "metadata.check" };

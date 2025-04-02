@@ -46,7 +46,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         // Show confirmation dialog via VSCode
         vscode.postMessage({
             command: "project.delete",
-            projectPath: project.path
+            projectPath: project.path,
+            syncStatus: project.syncStatus
         } as MessagesToStartupFlowProvider);
         
         // Set loading state

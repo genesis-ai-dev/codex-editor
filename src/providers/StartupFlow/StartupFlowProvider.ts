@@ -1318,8 +1318,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         
                         // Show confirmation dialog
                         const projectName = message.projectPath.split("/").pop() || message.projectPath;
+                        
+                        // Determine if this is a cloud-synced project
+                        let isCloudSynced = false;
+                        try {
+                            const localProjects = await findAllCodexProjects();
+                            const project = localProjects.find(p => p.path === message.projectPath);
+                            // If the project has a git origin URL, it might be synced with cloud
+                            isCloudSynced = !!project?.gitOriginUrl;
+                            
+                            // If we have sync status info from the message, use that
+                            if (message.syncStatus === "downloadedAndSynced") {
+                                isCloudSynced = true;
+                            }
+                        } catch (error) {
+                            console.error("Error determining project sync status:", error);
+                            // Fall back to local-only message if we can't determine
+                            isCloudSynced = false;
+                        }
+                        
+                        const confirmMessage = isCloudSynced
+                            ? `Are you sure you want to delete project \n"${projectName}" locally?\n\nPlease ensure the project is synced before deleting.`
+                            : `Are you sure you want to delete project \n"${projectName}"?\n\nThis action cannot be undone.`;
+                            
                         const confirmResult = await vscode.window.showWarningMessage(
-                            `Are you sure you want to delete project "${projectName}"? This action cannot be undone.`,
+                            confirmMessage,
                             { modal: true },
                             "Delete"
                         );
