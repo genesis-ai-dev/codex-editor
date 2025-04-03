@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
 import {
     VSCodeButton,
@@ -7,8 +7,17 @@ import {
     VSCodeDivider,
     VSCodeDropdown,
     VSCodeTextField,
+    VSCodeOption,
 } from "@vscode/webview-ui-toolkit/react";
 import "./GitLabProjectsList.css";
+
+// Filter options for projects
+type ProjectFilter = "all" | "local" | "remote" | "synced" | "non-synced";
+
+// Type guard to validate filter values
+function isValidFilter(value: string): value is ProjectFilter {
+    return ["all", "local", "remote", "synced", "non-synced"].includes(value);
+}
 
 interface GitLabProjectsListProps {
     projects: ProjectWithSyncStatus[];
@@ -40,8 +49,56 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     isLoading,
 }) => {
     const [searchQuery, setSearchQuery] = useState("");
+    const [filter, setFilter] = useState<ProjectFilter>("all");
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+    const dropdownRef = useRef<HTMLSelectElement | null>(null);
+
+    // Add effect to handle dropdown changes
+    useEffect(() => {
+        const dropdown = document.getElementById('project-filter') as HTMLSelectElement;
+        if (!dropdown) return;
+        
+        // Store ref to dropdown
+        dropdownRef.current = dropdown;
+        
+        // Set initial selected value
+        dropdown.value = filter;
+
+        const handleChange = () => {
+            const newValue = dropdown.value;
+            if (isValidFilter(newValue)) {
+                setFilter(newValue);
+            }
+        };
+
+        dropdown.addEventListener('change', handleChange);
+        return () => dropdown.removeEventListener('change', handleChange);
+    }, []);
+    
+    // Update dropdown when filter changes programmatically
+    useEffect(() => {
+        if (dropdownRef.current) {
+            dropdownRef.current.value = filter;
+        }
+    }, [filter]);
+
+    // Update dropdown option text when filter counts change due to search
+    useEffect(() => {
+        const dropdown = document.getElementById('project-filter') as HTMLSelectElement;
+        if (!dropdown) return;
+        
+        // Update the option text to reflect current counts
+        const options = dropdown.querySelectorAll('vscode-option');
+        options.forEach((option: Element) => {
+            const value = option.getAttribute('value');
+            if (value && isValidFilter(value)) {
+                const count = getFilterCount(value);
+                const label = getFilterLabel(value);
+                option.textContent = `${label} (${count})`;
+            }
+        });
+    }, [searchQuery, projects]);
 
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
@@ -187,15 +244,54 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     };
 
     const filterProjects = (projects: ProjectWithSyncStatus[]) => {
-        if (!searchQuery) return projects;
-        return projects.filter(
-            (project) =>
-                project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+        if (!projects) return [];
+        
+        return projects.filter(project => {
+            // Safe type comparison for filters
+            const currentFilter = filter as string;
+            
+            // Apply status filter based on current filter setting
+            if (currentFilter === "all") {
+                // Apply only search filter for "all"
+                if (searchQuery) {
+                    return project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase());
+                }
+                return true;
+            } 
+            else if (currentFilter === "local") {
+                if (!["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus)) {
+                    return false;
+                }
+            } 
+            else if (currentFilter === "remote") {
+                if (project.syncStatus !== "cloudOnlyNotSynced") {
+                    return false;
+                }
+            } 
+            else if (currentFilter === "synced") {
+                if (project.syncStatus !== "downloadedAndSynced") {
+                    return false;
+                }
+            }
+            else if (currentFilter === "non-synced") {
+                if (project.syncStatus !== "localOnlyNotSynced") {
+                    return false;
+                }
+            }
+            
+            // Then apply search filter if there is a query
+            if (searchQuery) {
+                return project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase());
+            }
+            
+            return true;
+        });
     };
-
+    
     const { hierarchy, ungroupedProjects } = useMemo(
         () => groupProjectsByHierarchy(projects || []),
         [projects]
@@ -298,7 +394,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 <i className="codicon codicon-chevron-down" />
                             </span>
                         ) : (
-                            <span style={{ width: '24px', display: 'inline-block' }}></span>
+                            // Add a placeholder with the same width as the expand button when there's no URL
+                            // This ensures trash buttons align between cloud and local projects
+                            <span style={{ width: '28px', display: 'inline-block' }}></span>
                         )}
                     </div>
                 </div>
@@ -333,7 +431,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             return filteredSubgroupProjects.length > 0;
         });
 
-        if (searchQuery && filteredProjects.length === 0 && !hasSubgroupsWithProjects) {
+        if ((filter !== "all" || searchQuery) && filteredProjects.length === 0 && !hasSubgroupsWithProjects) {
             return null;
         }
 
@@ -376,28 +474,83 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     };
 
     const filteredUngroupedProjects = filterProjects(ungroupedProjects || []);
+    
+    const getFilterLabel = (filterType: ProjectFilter): string => {
+        switch(filterType) {
+            case "all": return "All Projects";
+            case "local": return "Available Locally";
+            case "remote": return "Remote Only";
+            case "synced": return "Synced Projects";
+            case "non-synced": return "Non-Synced Projects";
+            default: return "All Projects";
+        }
+    };
+    
+    const getFilterCount = (filterType: ProjectFilter) => {
+        // First filter by the filter type
+        const typeFilteredProjects = projects.filter(project => {
+            if (filterType === "all") return true;
+            if (filterType === "local") {
+                return ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+            }
+            if (filterType === "remote") {
+                return project.syncStatus === "cloudOnlyNotSynced";
+            }
+            if (filterType === "synced") {
+                return project.syncStatus === "downloadedAndSynced";
+            }
+            if (filterType === "non-synced") {
+                return project.syncStatus === "localOnlyNotSynced";
+            }
+            return false;
+        });
+        
+        // If there's a search query, further filter the results
+        if (searchQuery) {
+            return typeFilteredProjects.filter(project => 
+                project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                project.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                project.gitOriginUrl?.toLowerCase().includes(searchQuery.toLowerCase())
+            ).length;
+        }
+        
+        return typeFilteredProjects.length;
+    };
 
     return (
         <div className="gitlab-projects-list">
-            <div className="search-container">
-                <VSCodeTextField
-                    placeholder="Search projects..."
-                    value={searchQuery}
-                    onInput={(e: any) => setSearchQuery((e.target as HTMLInputElement).value)}
-                >
-                    <i slot="start" className="codicon codicon-search"></i>
-                </VSCodeTextField>
-                {searchQuery && (
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={() => setSearchQuery("")}
-                        className="search-clear-button"
-                        title="Clear search"
+            <div className="search-filter-container">
+                <div className="search-container">
+                    <VSCodeTextField
+                        placeholder="Search projects..."
+                        value={searchQuery}
+                        onInput={(e: any) => setSearchQuery((e.target as HTMLInputElement).value)}
                     >
-                        <i className="codicon codicon-close"></i>
-                    </VSCodeButton>
-                )}
+                        <i slot="start" className="codicon codicon-search"></i>
+                    </VSCodeTextField>
+                    {searchQuery && (
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={() => setSearchQuery("")}
+                            className="search-clear-button"
+                            title="Clear search"
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </VSCodeButton>
+                    )}
+                </div>
+                
+                <div className="filter-container">
+                    <VSCodeDropdown id="project-filter">
+                        <VSCodeOption value="all">All Projects ({getFilterCount("all")})</VSCodeOption>
+                        <VSCodeOption value="local">Available Locally ({getFilterCount("local")})</VSCodeOption>
+                        <VSCodeOption value="remote">Remote Only ({getFilterCount("remote")})</VSCodeOption>
+                        <VSCodeOption value="synced">Synced Projects ({getFilterCount("synced")})</VSCodeOption>
+                        <VSCodeOption value="non-synced">Non-Synced Projects ({getFilterCount("non-synced")})</VSCodeOption>
+                    </VSCodeDropdown>
+                </div>
             </div>
+            
             {isLoading ? (
                 <div className="loading-container">
                     <VSCodeProgressRing />
@@ -419,6 +572,18 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                     renderProjectCard(project)
                                 )}
                             </div>
+                        </div>
+                    )}
+                    
+                    {filteredUngroupedProjects.length === 0 && Object.keys(hierarchy || {}).length === 0 && (
+                        <div className="no-results">
+                            <i className="codicon codicon-info"></i>
+                            <p>No projects match the current filters</p>
+                            {filter !== "all" && (
+                                <VSCodeButton onClick={() => setFilter("all")}>
+                                    Show All Projects
+                                </VSCodeButton>
+                            )}
                         </div>
                     )}
                 </div>
