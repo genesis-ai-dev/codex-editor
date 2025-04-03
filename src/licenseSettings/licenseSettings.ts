@@ -295,12 +295,36 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                     flex: 1;
                     min-width: 180px;
                 }
+                .warning-box ul {
+                    margin-top: 8px;
+                    margin-bottom: 12px;
+                    padding-left: 24px;
+                }
+                .warning-box li {
+                    margin-bottom: 4px;
+                }
+                .secondary-button {
+                    background-color: var(--vscode-button-secondaryBackground) !important;
+                    color: var(--vscode-button-secondaryForeground) !important;
+                }
+                .secondary-button:hover {
+                    background-color: var(--vscode-button-secondaryHoverBackground) !important;
+                }
                 .warning-cancel {
                     background-color: var(--vscode-button-secondaryBackground) !important;
                     color: var(--vscode-button-secondaryForeground) !important;
                 }
                 .warning-cancel:hover {
                     background-color: var(--vscode-button-secondaryHoverBackground) !important;
+                }
+                .disclaimer {
+                    padding: 8px 12px;
+                    margin: 12px 0;
+                    font-size: 0.9em;
+                    color: var(--vscode-descriptionForeground);
+                    background-color: var(--vscode-editorWidget-background);
+                    border-left: 3px solid var(--vscode-descriptionForeground);
+                    border-radius: 3px;
                 }
             </style>
         </head>
@@ -328,6 +352,10 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                         Consider using CC0 if you want maximum adoption and reuse of your content.
                     </div>
                     
+                    <div class="disclaimer">
+                        <p><strong>Disclaimer:</strong> The information provided here is for general informational purposes only and is not legal advice. If you're considering a restrictive license, please consult with a legal professional for guidance specific to your situation.</p>
+                    </div>
+
                     <select id="other-license">
                         <option value="cc-by" ${currentLicense.type === "cc-by" ? "selected" : ""}>CC BY (Attribution)</option>
                         <option value="cc-by-sa" ${currentLicense.type === "cc-by-sa" ? "selected" : ""}>CC BY-SA (Attribution-ShareAlike)</option>
@@ -335,22 +363,42 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                     
                     <div id="cc-by-warning" class="license-warning" style="display: none;">
                         <div class="warning-box">
-                            <h4>Before proceeding with CC BY...</h4>
-                            <p>Are you willing and able to pursue legal action against anyone who doesn't cite your name as a source?</p>
+                            <h4>Practical considerations for CC BY license:</h4>
+                            <p>
+                                Using CC BY means your work can only be used if you are credited. If you want this restriction to be meaningful, you may wish to consider:
+                            </p>
+                            <ul>
+                                <li>How you'll become aware if someone uses your work without attribution</li>
+                                <li>What steps, if any, you might take in response to non-compliance</li>
+                                <li>Whether you have the resources to address potential violations</li>
+                            </ul>
+                            <p>
+                                Note: While there's no legal requirement to enforce your license terms, choosing a license with restrictions implies you value those restrictions.
+                            </p>
                             <div class="warning-actions">
-                                <button onclick="confirmLicense('cc-by')">Yes, I accept this responsibility</button>
-                                <button class="warning-cancel" onclick="switchToCC0()">No, switch back to CC0</button>
+                                <button onclick="switchToCC0()">Switch to CC0 (recommended)</button>
+                                <button class="secondary-button" onclick="confirmLicense('cc-by')">I understand and want CC BY anyway</button>
                             </div>
                         </div>
                     </div>
                     
                     <div id="cc-by-sa-warning" class="license-warning" style="display: none;">
                         <div class="warning-box">
-                            <h4>Before proceeding with CC BY-SA...</h4>
-                            <p>Are you willing and able to pursue legal action against anyone who wants to gift their translation to the public domain (because they would have to use a ShareAlike license for their work too)?</p>
+                            <h4>Practical considerations for CC BY-SA license:</h4>
+                            <p>
+                                Using CC BY-SA means derivative works must use the same license. This has important implications:
+                            </p>
+                            <ul>
+                                <li>Others cannot release derivatives of your work under less restrictive terms</li>
+                                <li>This includes preventing others from releasing translations into the public domain</li>
+                                <li>The ShareAlike provision creates a perpetual restriction on all downstream works</li>
+                            </ul>
+                            <p>
+                                <strong>Important:</strong> By choosing ShareAlike, you're specifically preventing others from making their translations fully open, even if they want to. They would be required to maintain the same restrictions.
+                            </p>
                             <div class="warning-actions">
-                                <button onclick="confirmLicense('cc-by-sa')">Yes, I accept this responsibility</button>
-                                <button class="warning-cancel" onclick="switchToCC0()">No, switch back to CC0</button>
+                                <button onclick="switchToCC0()">Switch to CC0 (recommended)</button>
+                                <button class="secondary-button" onclick="confirmLicense('cc-by-sa')">I understand and want CC BY-SA anyway</button>
                             </div>
                         </div>
                     </div>
