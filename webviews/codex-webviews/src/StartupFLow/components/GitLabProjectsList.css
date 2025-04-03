@@ -9,16 +9,93 @@
     /* height: calc(100vh - 300px); */
 }
 
-.search-container {
+/* Updated container for search and filter components */
+.search-filter-container {
     position: sticky;
     top: 0;
     z-index: 10;
     background: var(--vscode-editor-background);
     padding: 1rem;
-    /* border-bottom: 1px solid var(--vscode-widget-border); */
+    display: flex;
+    flex-direction: row;
+    gap: 0.75rem;
+    align-items: center;
+    width: 100%;
+    border-bottom: 1px solid var(--vscode-widget-border);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.search-container {
+    position: relative;
+    flex: 1;
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+.filter-container {
+    width: 180px;
+}
+
+.filter-container vscode-dropdown {
+    width: 100%;
+    --dropdown-background: var(--vscode-dropdown-background);
+    --dropdown-border: var(--vscode-dropdown-border);
+    --dropdown-foreground: var(--vscode-dropdown-foreground);
+    --dropdown-list-max-height: 320px;
+    min-height: 28px;
+    height: auto;
+}
+
+/* Fix dropdown appearance */
+vscode-dropdown::part(control) {
+    background-color: var(--vscode-dropdown-background);
+    border: 1px solid var(--vscode-dropdown-border);
+    color: var(--vscode-dropdown-foreground);
+    padding: 0 10px;
+    border-radius: 2px;
+    font-size: 0.9em;
+    width: 100%;
+    min-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+}
+
+vscode-dropdown::part(listbox) {
+    background-color: var(--vscode-dropdown-background);
+    border: 1px solid var(--vscode-dropdown-border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    min-width: 180px;
+    width: 180px;
+    text-align: left;
+    padding: 0;
+}
+
+/* Style the dropdown options */
+vscode-option {
+    padding: 4px 10px;
+    cursor: pointer;
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+    text-align: left;
+}
+
+vscode-option:hover {
+    background-color: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 50%, transparent);
+}
+
+vscode-option[selected] {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
 }
 
 .search-container vscode-text-field {
@@ -48,6 +125,53 @@
     overflow-y: auto;
     overflow-x: hidden;
     max-width: 100%;
+}
+
+.filter-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    background: var(--vscode-editorWidget-background);
+    border-left: 4px solid var(--vscode-statusBar-background);
+    border-radius: 4px;
+    font-size: 0.95em;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.filter-info i {
+    color: var(--vscode-statusBar-foreground);
+    margin-right: 0.25rem;
+}
+
+.filter-info vscode-button {
+    margin-left: auto;
+}
+
+.no-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 3rem;
+    margin-top: 2rem;
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    background-color: var(--vscode-editorWidget-background);
+    border-radius: 6px;
+}
+
+.no-results i {
+    font-size: 2.5rem;
+    opacity: 0.7;
+    margin-bottom: 0.5rem;
+}
+
+.no-results p {
+    margin-bottom: 1rem;
+    font-size: 1.1em;
 }
 
 .group-section {
