@@ -269,6 +269,39 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                     border-left: 4px solid var(--vscode-errorForeground);
                     margin: 8px 0;
                 }
+                .license-warning {
+                    margin-top: 16px;
+                }
+                .warning-box {
+                    background-color: var(--vscode-inputValidation-warningBackground, #fffbe6);
+                    border: 1px solid var(--vscode-inputValidation-warningBorder, #ff8c00);
+                    color: var(--vscode-inputValidation-warningForeground, #5c3c00);
+                    padding: 16px;
+                    border-radius: 4px;
+                    margin-top: 12px;
+                }
+                .warning-box h4 {
+                    margin-top: 0;
+                    margin-bottom: 12px;
+                    color: var(--vscode-errorForeground);
+                }
+                .warning-actions {
+                    display: flex;
+                    gap: 8px;
+                    margin-top: 16px;
+                    flex-wrap: wrap;
+                }
+                .warning-actions button {
+                    flex: 1;
+                    min-width: 180px;
+                }
+                .warning-cancel {
+                    background-color: var(--vscode-button-secondaryBackground) !important;
+                    color: var(--vscode-button-secondaryForeground) !important;
+                }
+                .warning-cancel:hover {
+                    background-color: var(--vscode-button-secondaryHoverBackground) !important;
+                }
             </style>
         </head>
         <body>
@@ -299,6 +332,28 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                         <option value="cc-by" ${currentLicense.type === "cc-by" ? "selected" : ""}>CC BY (Attribution)</option>
                         <option value="cc-by-sa" ${currentLicense.type === "cc-by-sa" ? "selected" : ""}>CC BY-SA (Attribution-ShareAlike)</option>
                     </select>
+                    
+                    <div id="cc-by-warning" class="license-warning" style="display: none;">
+                        <div class="warning-box">
+                            <h4>Before proceeding with CC BY...</h4>
+                            <p>Are you willing and able to pursue legal action against anyone who doesn't cite your name as a source?</p>
+                            <div class="warning-actions">
+                                <button onclick="confirmLicense('cc-by')">Yes, I accept this responsibility</button>
+                                <button class="warning-cancel" onclick="switchToCC0()">No, switch back to CC0</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="cc-by-sa-warning" class="license-warning" style="display: none;">
+                        <div class="warning-box">
+                            <h4>Before proceeding with CC BY-SA...</h4>
+                            <p>Are you willing and able to pursue legal action against anyone who wants to gift their translation to the public domain (because they would have to use a ShareAlike license for their work too)?</p>
+                            <div class="warning-actions">
+                                <button onclick="confirmLicense('cc-by-sa')">Yes, I accept this responsibility</button>
+                                <button class="warning-cancel" onclick="switchToCC0()">No, switch back to CC0</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="info-section">
@@ -336,6 +391,7 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                 licenseTypeSelect.addEventListener('change', function() {
                     if (this.value === 'other') {
                         additionalOptions.style.display = 'block';
+                        updateWarningVisibility();
                     } else {
                         additionalOptions.style.display = 'none';
                     }
@@ -344,6 +400,30 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                 // Initialize UI based on current license
                 if (licenseTypeSelect.value === 'other') {
                     additionalOptions.style.display = 'block';
+                    updateWarningVisibility();
+                }
+                
+                // Show the appropriate warning based on the selected license
+                function updateWarningVisibility() {
+                    const selectedLicense = otherLicenseSelect.value;
+                    document.getElementById('cc-by-warning').style.display = 
+                        selectedLicense === 'cc-by' ? 'block' : 'none';
+                    document.getElementById('cc-by-sa-warning').style.display = 
+                        selectedLicense === 'cc-by-sa' ? 'block' : 'none';
+                }
+                
+                // Add listener to show/hide appropriate warning when license changes
+                otherLicenseSelect.addEventListener('change', updateWarningVisibility);
+                
+                function switchToCC0() {
+                    licenseTypeSelect.value = 'cc0';
+                    additionalOptions.style.display = 'none';
+                }
+                
+                function confirmLicense(licenseType) {
+                    // Just hide the warning, keeping the selected license
+                    const warningId = licenseType === 'cc-by' ? 'cc-by-warning' : 'cc-by-sa-warning';
+                    document.getElementById(warningId).style.display = 'none';
                 }
                 
                 function save() {
@@ -352,6 +432,15 @@ function getWebviewContent(currentLicense: { type: string; owner: string; year: 
                     
                     if (licenseType === 'other') {
                         licenseType = otherLicenseSelect.value;
+                        
+                        // Check if any warning is currently visible
+                        const ccByWarningVisible = document.getElementById('cc-by-warning').style.display === 'block';
+                        const ccBySaWarningVisible = document.getElementById('cc-by-sa-warning').style.display === 'block';
+                        
+                        if (ccByWarningVisible || ccBySaWarningVisible) {
+                            // If a warning is visible, don't save yet - user needs to confirm or cancel
+                            return;
+                        }
                     }
                     
                     vscode.postMessage({
