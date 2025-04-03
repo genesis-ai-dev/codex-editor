@@ -522,6 +522,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "openSourceUpload":
             case "toggleSpellcheck":
             case "openExportView":
+            case "openLicenseSettings":
                 await vscode.commands.executeCommand(`codex-project-manager.${message.command}`);
                 await this.store.refreshState();
                 // Send a response back to the webview

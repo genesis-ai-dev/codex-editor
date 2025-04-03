@@ -577,7 +577,10 @@ export type EditorPostMessages =
     | { command: "getAlertCodes"; content: GetAlertCodes }
     | { command: "executeCommand"; content: { command: string; args: any[] } }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
-    | { command: "queueValidation"; content: { cellId: string; validate: boolean; pending: boolean } }
+    | {
+          command: "queueValidation";
+          content: { cellId: string; validate: boolean; pending: boolean };
+      }
     | { command: "applyPendingValidations" }
     | { command: "clearPendingValidations" }
     | { command: "getCurrentUsername" }
@@ -1142,6 +1145,7 @@ type ProjectManagerMessageFromWebview =
     | { command: "setValidationCount" }
     | { command: "openSourceUpload" }
     | { command: "openAISettings" }
+    | { command: "openLicenseSettings" }
     | { command: "openExportView" }
     | { command: "closeProject" }
     | { command: "createNewWorkspaceAndProject" }

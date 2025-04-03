@@ -528,6 +528,15 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         () => openProjectExportView(context)
     );
 
+    const openLicenseSettingsCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openLicenseSettings",
+        async () => {
+            // Import dynamically to avoid circular dependencies
+            const licenseSettings = await import("../licenseSettings/licenseSettings");
+            return licenseSettings.openLicenseEditor();
+        }
+    );
+
     const toggleSpellcheckCommand = vscode.commands.registerCommand(
         "codex-project-manager.toggleSpellcheck",
         executeWithRedirecting(async () => {
@@ -582,6 +591,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         showProjectOverviewCommand,
         openAISettingsCommand,
         openExportViewCommand,
+        openLicenseSettingsCommand,
         importLocalUsfmSourceBibleCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,

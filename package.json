@@ -695,6 +695,20 @@
                 "command": "frontier.showWordsView",
                 "title": "Frontier: View All Words",
                 "category": "Frontier"
+            },
+            {
+                "command": "codex-project-manager.openAISettings",
+                "title": "Open AI Settings",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.openLicenseSettings",
+                "title": "Open License Settings",
+                "category": "Codex Project Management"
+            },
+            {
+                "command": "codex-project-manager.openExportView",
+                "title": "Open Export View"
             }
         ],
         "notebooks": [

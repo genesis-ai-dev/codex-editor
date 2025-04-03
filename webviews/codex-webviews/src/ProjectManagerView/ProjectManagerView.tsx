@@ -637,6 +637,20 @@ function ProjectManagerView() {
                                 </VSCodeButton>
 
                                 <VSCodeButton
+                                    onClick={() => handleAction({ command: "openLicenseSettings" })}
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-law"></i> License Settings
+                                    </div>
+                                </VSCodeButton>
+
+                                <VSCodeButton
                                     onClick={() => handleAction({ command: "openExportView" })}
                                 >
                                     <div
