@@ -880,4 +880,57 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // count only the ones where isDeleted is false
         return entries.filter((entry) => !entry.isDeleted).length;
     }
+
+    // Add methods to get and update cell data
+    public getCellData(cellId: string): any {
+        const cell = this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+        if (!cell) {
+            return null;
+        }
+        return cell.metadata?.data || {};
+    }
+
+    public getCell(cellId: string): any {
+        return this._documentData.cells.find((cell) => cell.metadata?.id === cellId);
+    }
+
+    public updateCellData(cellId: string, newData: any): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to update data`);
+        }
+
+        // Ensure metadata exists
+        if (!this._documentData.cells[indexOfCellToUpdate].metadata) {
+            this._documentData.cells[indexOfCellToUpdate].metadata = {
+                id: cellId,
+                type: CodexCellTypes.TEXT,
+                data: {},
+            };
+        }
+
+        // Ensure data exists
+        if (!this._documentData.cells[indexOfCellToUpdate].metadata.data) {
+            this._documentData.cells[indexOfCellToUpdate].metadata.data = {};
+        }
+
+        // Update the cell data
+        this._documentData.cells[indexOfCellToUpdate].metadata.data = {
+            ...this._documentData.cells[indexOfCellToUpdate].metadata.data,
+            ...newData,
+        };
+
+        this._isDirty = true;
+
+        // Emit change events
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: this._edits,
+        });
+        this._onDidChangeForWebview.fire({
+            edits: this._edits,
+        });
+    }
 }

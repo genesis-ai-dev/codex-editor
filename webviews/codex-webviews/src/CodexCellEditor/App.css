@@ -31,7 +31,8 @@
     text-align: center;
 }
 
-.editor-container, .text-editor-container {
+.editor-container,
+.text-editor-container {
     max-width: 48rem;
     width: 100%;
     margin: 0 auto;
@@ -185,7 +186,9 @@
     align-items: center;
     padding: 0.25rem;
     flex: 1;
-    width: calc(100% - 2rem); /* Adjust width to ensure it doesn't get cut off and leaves room for margins */
+    width: calc(
+        100% - 2rem
+    ); /* Adjust width to ensure it doesn't get cut off and leaves room for margins */
     min-width: 200px; /* Ensure minimum width so content doesn't get cut off */
     max-width: 95%; /* Ensure it doesn't overflow container */
     background-color: var(--vscode-editor-background);
@@ -750,7 +753,7 @@ li {
 }
 
 .checkbox-container input[type="checkbox"]:checked::after {
-    content: '';
+    content: "";
     position: absolute;
     left: 5px;
     top: 1px;
@@ -938,4 +941,114 @@ li {
 .validation-popover:hover .more-info-hint {
     opacity: 1;
     color: var(--vscode-focusBorder);
+}
+
+/* Footnote styles */
+.footnote-marker {
+    font-size: 0.75em;
+    vertical-align: super;
+    color: var(--vscode-editor-foreground);
+    background-color: var(--vscode-badge-background);
+    padding: 1px 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+}
+
+.footnote-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-focusBorder);
+    padding: 8px 12px;
+    border-radius: 4px;
+    z-index: 9999999999999999;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    visibility: hidden;
+    opacity: 0;
+    transition: visibility 0s, opacity 0.2s;
+    white-space: normal;
+    font-weight: normal;
+    font-size: 1em;
+    margin-bottom: 5px;
+}
+
+.footnote-tooltip:after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: var(--vscode-focusBorder) transparent transparent transparent;
+}
+
+.footnote-marker:hover .footnote-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
+
+.footnotes-content {
+    padding: 10px;
+    border-top: 1px solid var(--vscode-panelSection-border);
+}
+
+.footnotes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.footnote-item {
+    padding: 8px;
+    border: 1px solid var(--vscode-panelSection-border);
+    border-radius: 4px;
+    background-color: var(--vscode-editor-background);
+}
+
+.footnote-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--vscode-panelSection-border);
+}
+
+.footnote-id {
+    font-size: 0.9em;
+    color: var(--vscode-editor-foreground);
+}
+
+.footnote-delete {
+    background: none;
+    border: none;
+    color: var(--vscode-errorForeground);
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 2px;
+}
+
+.footnote-delete:hover {
+    background-color: var(--vscode-errorBackground);
+}
+
+.footnote-content {
+    padding: 6px;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    background-color: var(--vscode-input-background);
+    min-height: 60px;
+}
+
+.empty-footnotes {
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    padding: 20px;
+    font-style: italic;
 }

@@ -70,7 +70,9 @@ export async function performLLMCompletion(
         return await provider.enqueueTranslation(currentCellId, currentDocument, shouldUpdateValue);
     } catch (error) {
         console.error("Error in performLLMCompletion:", error);
-        vscode.window.showErrorMessage(`LLM completion failed: ${error instanceof Error ? error.message : String(error)}`);
+        vscode.window.showErrorMessage(
+            `LLM completion failed: ${error instanceof Error ? error.message : String(error)}`
+        );
         throw error;
     }
 }
@@ -117,14 +119,14 @@ export const handleMessages = async (
                 console.log("Sending username to webview:", username);
                 webviewPanel.webview.postMessage({
                     type: "setUsername",
-                    value: username
+                    value: username,
                 });
             } catch (error) {
                 console.error("Error getting username:", error);
                 // Send a default username if there's an error
                 webviewPanel.webview.postMessage({
                     type: "setUsername",
-                    value: "anonymous_user"
+                    value: "anonymous_user",
                 });
             }
             return;
@@ -278,14 +280,14 @@ export const handleMessages = async (
 
                 const cellId = event.content.currentLineId;
                 const addContentToValue = event.content.addContentToValue;
-                
+
                 // Directly add to the unified translation queue
                 const completionResult = await provider.enqueueTranslation(
                     cellId,
                     document,
                     addContentToValue
                 );
-                
+
                 // Send the result back to the webview when complete
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsLLMCompletionResponse",
@@ -296,7 +298,7 @@ export const handleMessages = async (
             } catch (error) {
                 console.error("Error during LLM completion:", error);
                 vscode.window.showErrorMessage("LLM completion failed.");
-                
+
                 // Use provider state management for failure
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 provider.failSingleCellTranslation(errorMessage);
@@ -308,13 +310,13 @@ export const handleMessages = async (
             try {
                 // Call the method to cancel the ongoing operation
                 const cancelled = provider.cancelAutocompleteChapter();
-                
+
                 if (cancelled) {
                     vscode.window.showInformationMessage("Autocomplete operation stopped.");
                 } else {
                     console.log("No active autocomplete operation to stop");
                 }
-                
+
                 // Provider's cancelAutocompleteChapter already handles updating the state and broadcasting
             } catch (error) {
                 console.error("Error stopping autocomplete chapter:", error);
@@ -332,7 +334,7 @@ export const handleMessages = async (
                         // Clear the queue and reset state
                         provider.clearTranslationQueue();
                         provider.completeSingleCellTranslation();
-                        
+
                         vscode.window.showInformationMessage("Translation cancelled.");
                     }
                 }
@@ -347,7 +349,7 @@ export const handleMessages = async (
             try {
                 // Extract cell ID from the event content safely
                 const cellId = (event as any).content?.cellId;
-                if (cellId && typeof cellId === 'string') {
+                if (cellId && typeof cellId === "string") {
                     // Mark the cell as complete in the provider's state tracking
                     provider.markCellComplete(cellId);
                 }
@@ -743,7 +745,7 @@ export const handleMessages = async (
                         document,
                         event.content.validate
                     );
-                    
+
                     // Update is now handled within the queue processing
                 } catch (error) {
                     console.error(`Error validating cell ${event.content.cellId}:`, error);
@@ -792,10 +794,13 @@ export const handleMessages = async (
                         event.content.validate,
                         event.content.pending
                     );
-                    
+
                     // No need to call updateWebview - pending state is handled via messages
                 } catch (error) {
-                    console.error(`Error queuing validation for cell ${event.content.cellId}:`, error);
+                    console.error(
+                        `Error queuing validation for cell ${event.content.cellId}:`,
+                        error
+                    );
                     vscode.window.showErrorMessage("Failed to queue validation.");
                 }
             }
@@ -813,7 +818,7 @@ export const handleMessages = async (
             try {
                 // Clear all pending validations without applying them
                 provider.clearPendingValidations();
-                
+
                 // Webview updates will be handled by the provider
             } catch (error) {
                 console.error("Error clearing pending validations:", error);

@@ -652,6 +652,16 @@ export type EditorPostMessages =
               leftToken: string;
               rightToken: string;
           };
+      }
+    | {
+          command: "storeFootnote";
+          content: {
+              cellId: string;
+              footnoteId?: string;
+              content?: string;
+              position?: number;
+              deleteFootnote?: string;
+          };
       };
 type EditorReceiveMessages =
     | {
@@ -802,6 +812,16 @@ type EditorReceiveMessages =
               cellId: string;
               validatedBy: ValidationEntry[];
           };
+      }
+    | {
+          type: "footnoteStored";
+          content: {
+              cellId: string;
+              footnoteId?: string;
+              content?: string;
+              position?: number;
+              deleteFootnote?: string;
+          };
       };
 
 type AlertCodesServerResponse = {
@@ -832,6 +852,7 @@ type EditHistory = {
 
 type CodexData = Timestamps & {
     [key: string]: any;
+    footnotes?: Footnote[];
 };
 
 type CustomCellMetaData = {
@@ -890,6 +911,7 @@ interface QuillCellContent {
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
+    data?: { [key: string]: any; footnotes?: Footnote[] };
 }
 
 interface Timestamps {
@@ -1461,3 +1483,9 @@ export interface ProcessingStage {
 }
 
 export type ImportType = "source" | "translation" | "bible-download" | "translation-pairs";
+
+// Add Footnote interface
+export interface Footnote {
+    id: string;
+    content: string;
+}

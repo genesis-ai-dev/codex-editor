@@ -71,6 +71,121 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     const cellRef = useRef<HTMLDivElement>(null);
     const { contentToScrollTo } = useContext(ScrollToContentContext);
 
+    // Add state for storing footnotes
+    const [footnotes, setFootnotes] = useState<{ [id: string]: string }>({});
+
+    // Process footnotes when the component mounts or when cell content changes
+    useEffect(() => {
+        if (!cell.cellContent) return;
+
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(cell.cellContent, "text/html");
+            const footnoteElements = doc.querySelectorAll("sup.footnote-marker");
+
+            if (footnoteElements.length === 0) {
+                setFootnotes({});
+                return;
+            }
+
+            const footnotesMap: { [id: string]: string } = {};
+            footnoteElements.forEach((element) => {
+                const id = element.textContent || "";
+                const content = element.getAttribute("data-footnote") || "";
+                if (id && content) {
+                    footnotesMap[id] = content;
+                }
+            });
+
+            setFootnotes(footnotesMap);
+        } catch (error) {
+            console.error("Error processing footnotes:", error);
+        }
+    }, [cell.cellContent]);
+
+    // Function to process the HTML and add tooltips to footnote markers
+    const processHtmlContent = (html: string): string => {
+        if (!html) return html;
+
+        // First apply the existing HACKY_removeContiguousSpans function
+        const processedHtml = HACKY_removeContiguousSpans(html);
+
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(processedHtml, "text/html");
+
+            // Find all footnote markers
+            const footnoteMarkers = doc.querySelectorAll("sup.footnote-marker");
+
+            // Skip if no footnote markers
+            if (footnoteMarkers.length === 0) {
+                return processedHtml;
+            }
+
+            // Create ordered map of footnotes based on their position in the document
+            const orderedFootnotes: Array<{ id: string; element: Element; position: number }> = [];
+
+            // First pass: collect markers and their positions
+            footnoteMarkers.forEach((marker) => {
+                if (!marker || !marker.textContent) return;
+
+                const fnId = marker.textContent || "";
+
+                // Calculate the marker's position in the document
+                const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL);
+                let position = 0;
+                let current = treeWalker.nextNode();
+
+                while (current && current !== marker) {
+                    position++;
+                    current = treeWalker.nextNode();
+                }
+
+                orderedFootnotes.push({
+                    id: fnId,
+                    element: marker,
+                    position: position,
+                });
+            });
+
+            // Sort footnotes by their position in the document
+            orderedFootnotes.sort((a, b) => {
+                if (!a || !b) return 0;
+                return a.position - b.position;
+            });
+
+            // Second pass: update markers with their index
+            orderedFootnotes.forEach((footnoteDef, index) => {
+                if (!footnoteDef || !footnoteDef.element) return;
+
+                const marker = footnoteDef.element;
+                const fnId = footnoteDef.id;
+                const footnoteNumber = index + 1; // 1-based index for display
+
+                // Get content directly from the data-footnote attribute
+                const content = marker.getAttribute("data-footnote") || "";
+
+                if (content) {
+                    // Replace marker text with footnote number
+                    marker.textContent = footnoteNumber.toString();
+
+                    // Create a tooltip element with HTML content
+                    const tooltip = doc.createElement("span");
+                    tooltip.className = "footnote-tooltip";
+                    tooltip.innerHTML = content; // Use HTML directly
+
+                    // Add tooltip as child of marker
+                    marker.appendChild(tooltip);
+                }
+            });
+
+            return doc.body.innerHTML;
+        } catch (error) {
+            console.error("Error processing HTML content:", error);
+            return processedHtml; // Return processed HTML even if tooltip addition fails
+        }
+    };
+
     // Handle fade-out effect when all translations complete
     useEffect(() => {
         if (allTranslationsComplete && translationState === "completed") {
@@ -333,7 +448,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             <div
                 className="cell-content"
                 dangerouslySetInnerHTML={{
-                    __html: HACKY_removeContiguousSpans(cellContent),
+                    __html: processHtmlContent(cell.cellContent),
                 }}
                 onClick={() => handleCellClick(cellIds[0])}
             ></div>

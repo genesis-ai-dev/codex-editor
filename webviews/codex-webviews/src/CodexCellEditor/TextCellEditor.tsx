@@ -1,30 +1,46 @@
-import React, { useContext, useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useContext, useCallback } from "react";
 import {
-    EditHistory,
     EditorCellContent,
     EditorPostMessages,
+    QuillCellContent,
+    EditHistory,
     SpellCheckResponse,
     Timestamps,
 } from "../../../../types";
-import Editor from "./Editor";
-import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
+import Editor, { EditorContentChanged } from "./Editor";
 import { getCleanedHtml } from "./react-quill-spellcheck";
-import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
-import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import createQuillDeltaOpsFromHtml from "./react-quill-spellcheck";
+import createQuillDeltaFromDeltaOps from "./react-quill-spellcheck";
 import { CodexCellTypes } from "../../../../types/enums";
+import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
+import { AddParatextButton } from "./AddParatextButton";
+import ReactMarkdown from "react-markdown";
+import "./TextCellEditorStyles.css";
+import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import "./TextEditor.css";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
-import { AddParatextButton } from "./AddParatextButton";
-import ReactMarkdown from "react-markdown";
+import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
+import Quill from "quill";
 
-import "./TextCellEditorStyles.css";
+// Define interface for saved backtranslation
+interface SavedBacktranslation {
+    backtranslation: string;
+    originalText?: string;
+    timestamp?: number;
+}
 
 interface SimilarCell {
     cellId: string;
     score: number;
+}
+
+interface Footnote {
+    id: string;
+    content: string;
 }
 
 interface CellEditorProps {
@@ -43,6 +59,7 @@ interface CellEditorProps {
     cellIsChild: boolean;
     openCellById: (cellId: string) => void;
     editHistory: EditHistory[];
+    cell: QuillCellContent;
 }
 
 const DEBUG_ENABLED = false;
@@ -51,6 +68,47 @@ function debug(message: string, ...args: any[]): void {
         console.log(`[TextCellEditor] ${message}`, ...args);
     }
 }
+
+// Footnote delete confirmation button component
+const FootnoteDeleteButton: React.FC<{ onConfirm: () => void }> = ({ onConfirm }) => {
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    if (isDeleting) {
+        return (
+            <div style={{ display: "flex", alignItems: "center" }}>
+                <button
+                    className="footnote-confirm"
+                    onClick={() => {
+                        onConfirm();
+                        setIsDeleting(false);
+                    }}
+                    title="Confirm Delete"
+                    style={{ marginRight: "4px", color: "var(--vscode-debugIcon-startForeground)" }}
+                >
+                    <i className="codicon codicon-check"></i>
+                </button>
+                <button
+                    className="footnote-cancel"
+                    onClick={() => setIsDeleting(false)}
+                    title="Cancel"
+                    style={{ color: "var(--vscode-debugIcon-stopForeground)" }}
+                >
+                    <i className="codicon codicon-close"></i>
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <button
+            className="footnote-delete"
+            onClick={() => setIsDeleting(true)}
+            title="Delete Footnote"
+        >
+            <i className="codicon codicon-trash"></i>
+        </button>
+    );
+};
 
 const CellEditor: React.FC<CellEditorProps> = ({
     cellMarkers,
@@ -68,6 +126,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellTimestamps,
     cellIsChild,
     openCellById,
+    cell,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -77,21 +136,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
     const [sourceText, setSourceText] = useState<string | null>(null);
-    const [backtranslation, setBacktranslation] = useState<string | null>(null);
+    const [backtranslation, setBacktranslation] = useState<SavedBacktranslation | null>(null);
     const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<"source" | "backtranslation">("source");
-
-    // const unsavedChangesState = !!(
-    //     contentBeingUpdated.cellContent &&
-    //     getCleanedHtml(contentBeingUpdated.cellContent) &&
-    //     getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !==
-    //         cellContent.replace(/\s/g, "")
-    // );
-
-    // useEffect(() => {
-    //     setUnsavedChanges(unsavedChangesState);
-    // }, [unsavedChangesState, setUnsavedChanges]);
+    const [activeTab, setActiveTab] = useState<"source" | "backtranslation" | "footnotes">(
+        "source"
+    );
+    const [footnotes, setFootnotes] = useState<
+        Array<{ id: string; content: string; element?: HTMLElement }>
+    >([]);
+    const editorRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -399,6 +453,121 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handleMessage);
     }, []); // Empty dependency array means this effect runs once on mount
 
+    // Add effect to initialize footnotes from the document
+    useEffect(() => {
+        // First try to get footnotes from cell data
+        if (cell?.data?.footnotes) {
+            setFootnotes(cell.data.footnotes);
+            return;
+        }
+
+        // Fallback to session storage
+        const storedFootnotes = sessionStorage.getItem(`footnotes-${cellMarkers[0]}`);
+        if (storedFootnotes) {
+            try {
+                setFootnotes(JSON.parse(storedFootnotes));
+            } catch (e) {
+                console.error("Error parsing stored footnotes:", e);
+            }
+        }
+
+        // Listen for storeFootnote messages
+        const handleMessage = (event: MessageEvent) => {
+            if (
+                event.data.type === "footnoteStored" &&
+                event.data.content.cellId === cellMarkers[0]
+            ) {
+                const newFootnote = {
+                    id: event.data.content.footnoteId,
+                    content: event.data.content.content,
+                };
+
+                setFootnotes((prev) => {
+                    // Check if footnote with this ID already exists
+                    const exists = prev.some((fn) => fn.id === newFootnote.id);
+                    const updatedFootnotes = exists
+                        ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
+                        : [...prev, newFootnote];
+
+                    return updatedFootnotes;
+                });
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, [cellMarkers, cell?.data?.footnotes]);
+
+    // Function to parse footnotes from cell content
+    const parseFootnotesFromContent = () => {
+        if (!editorContent) return;
+
+        try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(editorContent, "text/html");
+            const footnoteElements = doc.querySelectorAll("sup.footnote-marker");
+
+            if (footnoteElements.length === 0) {
+                setFootnotes([]);
+                return;
+            }
+
+            const extractedFootnotes: Array<{ id: string; content: string }> = [];
+            const allElements = Array.from(doc.body.querySelectorAll("*"));
+
+            footnoteElements.forEach((element) => {
+                const id = element.textContent || "";
+                const content = element.getAttribute("data-footnote") || "";
+                const position = allElements.indexOf(element);
+
+                if (id && content) {
+                    extractedFootnotes.push({
+                        id,
+                        content,
+                    });
+                }
+            });
+
+            // Sort footnotes based on their DOM position
+            extractedFootnotes.sort((a, b) => {
+                const numA = parseInt((a.id || "").replace(/\D/g, "")) || 0;
+                const numB = parseInt((b.id || "").replace(/\D/g, "")) || 0;
+                return numA - numB;
+            });
+
+            setFootnotes(extractedFootnotes);
+        } catch (error) {
+            console.error("Error parsing footnotes:", error);
+        }
+    };
+
+    // Parse footnotes when content changes
+    useEffect(() => {
+        parseFootnotesFromContent();
+    }, [editorContent]);
+
+    // Function to update footnote content in the editor
+    const updateFootnoteInEditor = (footnoteMark: string, newContent: string) => {
+        if (!editorRef.current) return;
+
+        // Get the editor content
+        const editorDom = document.createElement("div");
+        editorDom.innerHTML = editorContent;
+
+        // Find the footnote marker
+        const footnoteElement = Array.from(editorDom.querySelectorAll("sup.footnote-marker")).find(
+            (el) => el.textContent === footnoteMark
+        );
+
+        if (footnoteElement) {
+            // Update the data-footnote attribute
+            footnoteElement.setAttribute("data-footnote", newContent);
+
+            // Update the editor content
+            handleContentUpdate(editorDom.innerHTML);
+        }
+    };
+
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
             <div className="editor-controls-header">
@@ -563,13 +732,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     >
                         Backtranslation
                     </button>
+                    <button
+                        className={`tab-button ${activeTab === "footnotes" ? "active" : ""}`}
+                        onClick={() => setActiveTab("footnotes")}
+                    >
+                        Footnotes
+                    </button>
                 </div>
             </div>
 
             <div className="tab-content">
                 {activeTab === "source" && (
                     <div className="source-text-content">
-                        {sourceText || "No source text available."}
+                        {sourceText !== null ? sourceText : "Loading source text..."}
                     </div>
                 )}
                 {activeTab === "backtranslation" && (
@@ -596,7 +771,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 ) : (
                                     <>
                                         <div className="backtranslation-content">
-                                            <ReactMarkdown>{backtranslation}</ReactMarkdown>
+                                            <ReactMarkdown>
+                                                {backtranslation.backtranslation}
+                                            </ReactMarkdown>
                                         </div>
                                         <VSCodeButton
                                             onClick={() => setIsEditingBacktranslation(true)}
@@ -618,6 +795,97 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         >
                             <i className="codicon codicon-refresh"></i>
                         </VSCodeButton>
+                    </div>
+                )}
+                {activeTab === "footnotes" && (
+                    <div className="footnotes-content">
+                        {footnotes.length > 0 ? (
+                            <div className="footnotes-list">
+                                {footnotes.map((footnote, index) => (
+                                    <div key={footnote.id} className="footnote-item">
+                                        <div className="footnote-header">
+                                            <strong className="footnote-id">{index + 1}</strong>
+                                            <FootnoteDeleteButton
+                                                onConfirm={() => {
+                                                    // Create DOM parser to edit the HTML directly
+                                                    const parser = new DOMParser();
+                                                    const doc = parser.parseFromString(
+                                                        editorContent,
+                                                        "text/html"
+                                                    );
+
+                                                    // Find and remove footnote markers
+                                                    doc.querySelectorAll(
+                                                        "sup.footnote-marker"
+                                                    ).forEach((el) => {
+                                                        if (el.textContent === footnote.id) {
+                                                            el.remove();
+                                                        }
+                                                    });
+
+                                                    // Update editor content
+                                                    const updatedContent = doc.body.innerHTML;
+                                                    handleContentUpdate(updatedContent);
+
+                                                    // Force parse footnotes again
+                                                    setTimeout(parseFootnotesFromContent, 50);
+                                                }}
+                                            />
+                                        </div>
+                                        <div
+                                            className="footnote-content"
+                                            contentEditable
+                                            suppressContentEditableWarning
+                                            dangerouslySetInnerHTML={{ __html: footnote.content }}
+                                            onBlur={(e) => {
+                                                const updatedContent = e.currentTarget.innerHTML;
+
+                                                // Create DOM parser to edit the HTML directly
+                                                const parser = new DOMParser();
+                                                const doc = parser.parseFromString(
+                                                    editorContent,
+                                                    "text/html"
+                                                );
+
+                                                // Find and update footnote content attributes
+                                                doc.querySelectorAll("sup.footnote-marker").forEach(
+                                                    (el) => {
+                                                        if (el.textContent === footnote.id) {
+                                                            el.setAttribute(
+                                                                "data-footnote",
+                                                                updatedContent
+                                                            );
+                                                        }
+                                                    }
+                                                );
+
+                                                // Update editor content
+                                                const newHtml = doc.body.innerHTML;
+                                                handleContentUpdate(newHtml);
+
+                                                // Update footnotes array for immediate UI feedback
+                                                setFootnotes(
+                                                    footnotes.map((fn) =>
+                                                        fn.id === footnote.id
+                                                            ? { ...fn, content: updatedContent }
+                                                            : fn
+                                                    )
+                                                );
+                                            }}
+                                        ></div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="empty-footnotes">
+                                <p>No footnotes in this cell yet.</p>
+                                <p>
+                                    Use the footnote button (
+                                    <i className="codicon codicon-note"></i>) in the editor toolbar
+                                    to add footnotes.
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
