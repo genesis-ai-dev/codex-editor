@@ -515,6 +515,7 @@ const CellList: React.FC<CellListProps> = ({
                         style={{ display: "inline-flex", alignItems: "center" }}
                     >
                         <CellEditor
+                            cell={translationUnits[i]}
                             editHistory={editHistory}
                             spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
@@ -568,9 +569,9 @@ const CellList: React.FC<CellListProps> = ({
                                     ),
                                 }}
                             >
-                                <div style={{ display: "flex", width: "16px" }}/>
-                                    <AnimatedReveal
-                                        mode="swap"
+                                <div style={{ display: "flex", width: "16px" }} />
+                                <AnimatedReveal
+                                    mode="swap"
                                     button={
                                         !isSourceText && (
                                             <div style={{ flexShrink: 0 }}>
@@ -634,11 +635,16 @@ const CellList: React.FC<CellListProps> = ({
                                         </VSCodeButton>
                                     }
                                 />
-                                    {(cellLabel || generatedCellLabel) && (
-                                        <span className="cell-label-text" style={{ marginLeft: "10px" }}> {/* This is to account for the span that's for the {getAlertDot()} in the translated cells */}
-                                            {cellLabel || generatedCellLabel}
-                                        </span>
-                                    )}
+                                {(cellLabel || generatedCellLabel) && (
+                                    <span
+                                        className="cell-label-text"
+                                        style={{ marginLeft: "10px" }}
+                                    >
+                                        {" "}
+                                        {/* This is to account for the span that's for the {getAlertDot()} in the translated cells */}
+                                        {cellLabel || generatedCellLabel}
+                                    </span>
+                                )}
                                 <div
                                     style={{
                                         flex: "1",

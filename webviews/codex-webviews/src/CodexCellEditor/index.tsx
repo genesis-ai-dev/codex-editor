@@ -5,6 +5,7 @@ import "./App.css";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
+import { TooltipProvider } from "./contextProviders/TooltipContext";
 
 const Index: React.FC = () => {
     const [unsavedChanges, setUnsavedChanges] = useState<boolean>(false);
@@ -59,9 +60,11 @@ const Index: React.FC = () => {
         <SourceCellContext.Provider value={sourceContextValue}>
             <UnsavedChangesContext.Provider value={unsavedChangesContextValue}>
                 <ScrollToContentContext.Provider value={scrollContextValue}>
-                    <React.StrictMode>
-                        <App />
-                    </React.StrictMode>
+                    <TooltipProvider>
+                        <React.StrictMode>
+                            <App />
+                        </React.StrictMode>
+                    </TooltipProvider>
                 </ScrollToContentContext.Provider>
             </UnsavedChangesContext.Provider>
         </SourceCellContext.Provider>

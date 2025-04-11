@@ -945,14 +945,24 @@ li {
 
 /* Footnote styles */
 .footnote-marker {
-    font-size: 0.75em;
-    vertical-align: super;
-    color: var(--vscode-editor-foreground);
-    background-color: var(--vscode-badge-background);
-    padding: 1px 4px;
-    border-radius: 4px;
-    cursor: pointer;
+    cursor: help;
     position: relative;
+    font-size: 0.75em;
+    line-height: 0;
+    vertical-align: super;
+    text-decoration: none;
+    color: var(--vscode-textLink-foreground);
+    font-weight: bold;
+    padding: 1px 3px;
+    margin-left: 2px;
+    margin-right: 2px;
+    border-radius: 3px;
+    background-color: var(--vscode-editor-selectionBackground);
+    transition: background-color 0.2s;
+}
+
+.footnote-marker:hover {
+    background-color: var(--vscode-button-hoverBackground);
 }
 
 .footnote-tooltip {
@@ -964,7 +974,7 @@ li {
     border: 1px solid var(--vscode-focusBorder);
     padding: 8px 12px;
     border-radius: 4px;
-    z-index: 9999999999999999;
+    z-index: 9999;
     min-width: 200px;
     max-width: 300px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -975,6 +985,27 @@ li {
     font-weight: normal;
     font-size: 1em;
     margin-bottom: 5px;
+}
+
+/* Added new styles for the portal-based tooltips */
+.footnote-tooltip-portal {
+    position: fixed;
+    transform: translate(-50%, -100%);
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-focusBorder);
+    padding: 8px 12px;
+    border-radius: 4px;
+    min-width: 200px;
+    max-width: 300px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    white-space: normal;
+    font-weight: normal;
+    font-size: 1em;
+    margin-bottom: 8px;
+    z-index: 9999999;
+    pointer-events: none;
+    max-height: calc(100vh - 60px);
+    overflow-y: auto;
 }
 
 .footnote-tooltip:after {
