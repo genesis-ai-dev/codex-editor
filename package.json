@@ -192,6 +192,18 @@
                     "command": "codex-editor-extension.triggerInlineCompletion",
                     "title": "Translators Copilot: Autocomplete",
                     "when": "editorTextFocus && editorLangId == scripture"
+                },
+                {
+                    "command": "translators-copilot.getFileStats",
+                    "title": "Translators Copilot: Show File Statistics"
+                },
+                {
+                    "command": "translators-copilot.getFileInfo",
+                    "title": "Translators Copilot: Show Detailed File Information"
+                },
+                {
+                    "command": "translators-copilot.showFileStatsView",
+                    "title": "Translators Copilot: Show Translation Progress View"
                 }
             ]
         },
@@ -475,6 +487,12 @@
                 "category": "Translators Copilot"
             },
             {
+                "command": "translators-copilot.showFileStatsView",
+                "title": "Show Translation Progress",
+                "icon": "$(graph)",
+                "category": "Translators Copilot"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"
@@ -709,6 +727,14 @@
             {
                 "command": "codex-project-manager.openExportView",
                 "title": "Open Export View"
+            },
+            {
+                "command": "translators-copilot.getFileStats",
+                "title": "Translators Copilot: Show File Statistics"
+            },
+            {
+                "command": "translators-copilot.getFileInfo",
+                "title": "Translators Copilot: Show Detailed File Information"
             }
         ],
         "notebooks": [

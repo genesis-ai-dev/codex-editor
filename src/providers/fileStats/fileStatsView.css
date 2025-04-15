@@ -1,0 +1,136 @@
+body {
+    font-family: var(--vscode-font-family);
+    color: var(--vscode-foreground);
+    padding: 0;
+    margin: 0;
+}
+
+.container {
+    padding: 10px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+h1 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+}
+
+h2 {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0 0 5px 0;
+}
+
+button {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 4px 8px;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.stats-overview {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.stat-box {
+    flex: 1;
+    padding: 10px;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 4px;
+    margin-right: 10px;
+    text-align: center;
+}
+
+.stat-box:last-child {
+    margin-right: 0;
+}
+
+.stat-value {
+    font-size: 20px;
+    font-weight: bold;
+    margin-top: 5px;
+}
+
+.progress-container {
+    height: 8px;
+    background-color: var(--vscode-editor-background);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: var(--vscode-progressBar-background);
+    transition: width 0.3s ease;
+}
+
+.files-section {
+    margin-top: 20px;
+}
+
+.file-list {
+    margin-top: 10px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.file-item {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.file-item:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.file-header {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+}
+
+.file-name {
+    font-weight: 500;
+}
+
+.file-stats {
+    display: flex;
+    gap: 10px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-progress {
+    height: 4px;
+    background-color: var(--vscode-inputValidation-infoBackground);
+    overflow: hidden;
+    border-radius: 0 0 4px 4px;
+}
+
+.file-progress-bar {
+    height: 100%;
+    background-color: var(--vscode-progressBar-background);
+    transition: width 0.3s ease;
+}
