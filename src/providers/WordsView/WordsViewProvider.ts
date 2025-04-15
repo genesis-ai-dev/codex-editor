@@ -242,32 +242,114 @@ export class WordsViewProvider implements vscode.Disposable {
                 this._wordFrequencies.sort((a, b) => b.frequency - a.frequency);
                 break;
             case "leftContext":
-                // Sort by left context of first occurrence
+                // Sort by left context tokens in reverse order (tokens closest to the keyword first)
                 this._wordFrequencies.sort((a, b) => {
-                    const aContext = a.occurrences?.[0]?.leftContext || "";
-                    const bContext = b.occurrences?.[0]?.leftContext || "";
-                    return aContext.localeCompare(bContext);
+                    const aOcc = a.occurrences?.[0];
+                    const bOcc = b.occurrences?.[0];
+
+                    if (!aOcc || !bOcc) {
+                        return 0;
+                    }
+
+                    // Split left context into tokens and reverse them
+                    const aTokens = aOcc.leftContext.trim().split(/\s+/).filter(Boolean).reverse();
+                    const bTokens = bOcc.leftContext.trim().split(/\s+/).filter(Boolean).reverse();
+
+                    // Compare tokens one by one, starting from tokens closest to the keyword
+                    const minLength = Math.min(aTokens.length, bTokens.length);
+
+                    for (let i = 0; i < minLength; i++) {
+                        const comparison = aTokens[i].localeCompare(bTokens[i]);
+                        if (comparison !== 0) {
+                            return comparison;
+                        }
+                    }
+
+                    // If all common tokens are the same, shorter context comes first
+                    return aTokens.length - bTokens.length;
                 });
 
-                // Also sort occurrences within each word
+                // Also sort occurrences within each word using token-based sorting
                 this._wordFrequencies.forEach((wf) => {
                     if (wf.occurrences) {
-                        wf.occurrences.sort((a, b) => a.leftContext.localeCompare(b.leftContext));
+                        wf.occurrences.sort((a, b) => {
+                            // Split left context into tokens and reverse them
+                            const aTokens = a.leftContext
+                                .trim()
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .reverse();
+                            const bTokens = b.leftContext
+                                .trim()
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .reverse();
+
+                            // Compare tokens one by one, starting from tokens closest to the keyword
+                            const minLength = Math.min(aTokens.length, bTokens.length);
+
+                            for (let i = 0; i < minLength; i++) {
+                                const comparison = aTokens[i].localeCompare(bTokens[i]);
+                                if (comparison !== 0) {
+                                    return comparison;
+                                }
+                            }
+
+                            // If all common tokens are the same, shorter context comes first
+                            return aTokens.length - bTokens.length;
+                        });
                     }
                 });
                 break;
             case "rightContext":
-                // Sort by right context of first occurrence
+                // Similarly update right context sorting to be token-based (closest to keyword first)
                 this._wordFrequencies.sort((a, b) => {
-                    const aContext = a.occurrences?.[0]?.rightContext || "";
-                    const bContext = b.occurrences?.[0]?.rightContext || "";
-                    return aContext.localeCompare(bContext);
+                    const aOcc = a.occurrences?.[0];
+                    const bOcc = b.occurrences?.[0];
+
+                    if (!aOcc || !bOcc) {
+                        return 0;
+                    }
+
+                    // Split right context into tokens
+                    const aTokens = aOcc.rightContext.trim().split(/\s+/).filter(Boolean);
+                    const bTokens = bOcc.rightContext.trim().split(/\s+/).filter(Boolean);
+
+                    // Compare tokens one by one, starting from tokens closest to the keyword
+                    const minLength = Math.min(aTokens.length, bTokens.length);
+
+                    for (let i = 0; i < minLength; i++) {
+                        const comparison = aTokens[i].localeCompare(bTokens[i]);
+                        if (comparison !== 0) {
+                            return comparison;
+                        }
+                    }
+
+                    // If all common tokens are the same, shorter context comes first
+                    return aTokens.length - bTokens.length;
                 });
 
-                // Also sort occurrences within each word
+                // Also sort occurrences within each word using token-based sorting
                 this._wordFrequencies.forEach((wf) => {
                     if (wf.occurrences) {
-                        wf.occurrences.sort((a, b) => a.rightContext.localeCompare(b.rightContext));
+                        wf.occurrences.sort((a, b) => {
+                            // Split right context into tokens
+                            const aTokens = a.rightContext.trim().split(/\s+/).filter(Boolean);
+                            const bTokens = b.rightContext.trim().split(/\s+/).filter(Boolean);
+
+                            // Compare tokens one by one
+                            const minLength = Math.min(aTokens.length, bTokens.length);
+
+                            for (let i = 0; i < minLength; i++) {
+                                const comparison = aTokens[i].localeCompare(bTokens[i]);
+                                if (comparison !== 0) {
+                                    return comparison;
+                                }
+                            }
+
+                            // If all common tokens are the same, shorter context comes first
+                            return aTokens.length - bTokens.length;
+                        });
                     }
                 });
                 break;
@@ -293,6 +375,14 @@ export class WordsViewProvider implements vscode.Disposable {
                     --border-color: #e2e8f0;
                     --border-radius: 6px;
                     --shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    
+                    /* Color palette for token highlighting */
+                    --token-color-1: #8be9fd;
+                    --token-color-2: #50fa7b;
+                    --token-color-3: #ffb86c;
+                    --token-color-4: #ff79c6;
+                    --token-color-5: #bd93f9;
+                    --token-color-6: #f1fa8c;
                 }
                 
                 body {
@@ -364,6 +454,42 @@ export class WordsViewProvider implements vscode.Disposable {
                     box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
                 }
                 
+                .sort-controls {
+                    display: flex;
+                    justify-content: center;
+                    margin-bottom: 24px;
+                    background: var(--header-bg);
+                    border-radius: var(--border-radius);
+                    padding: 4px;
+                    width: fit-content;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
+                
+                .sort-controls button {
+                    background: transparent;
+                    border: none;
+                    color: var(--secondary-color);
+                    padding: 8px 16px;
+                    font-size: 14px;
+                    cursor: pointer;
+                    border-radius: var(--border-radius);
+                    position: relative;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                }
+                
+                .sort-controls button.active {
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                }
+                
+                .sort-controls button:hover:not(.active) {
+                    background: rgba(0, 0, 0, 0.05);
+                }
+                
                 .button-group {
                     display: flex;
                     gap: 8px;
@@ -371,7 +497,7 @@ export class WordsViewProvider implements vscode.Disposable {
                 
                 .option-bar {
                     display: flex;
-                    justify-content: space-between;
+                    justify-content: center;
                     margin-bottom: 16px;
                 }
                 
@@ -565,6 +691,18 @@ export class WordsViewProvider implements vscode.Disposable {
                     opacity: 0.85;
                 }
                 
+                .token {
+                    padding: 1px 2px;
+                    border-radius: 3px;
+                }
+                
+                .token.t-1 { background-color: rgba(139, 233, 253, 0.2); }
+                .token.t-2 { background-color: rgba(80, 250, 123, 0.2); }
+                .token.t-3 { background-color: rgba(255, 184, 108, 0.2); }
+                .token.t-4 { background-color: rgba(255, 121, 198, 0.2); }
+                .token.t-5 { background-color: rgba(189, 147, 249, 0.2); }
+                .token.t-6 { background-color: rgba(241, 250, 140, 0.2); }
+                
                 .file-info {
                     font-size: 12px;
                     color: var(--secondary-color);
@@ -603,6 +741,41 @@ export class WordsViewProvider implements vscode.Disposable {
                     display: none;
                 }
                 
+                .action-fab {
+                    position: fixed;
+                    bottom: 24px;
+                    right: 24px;
+                    width: 56px;
+                    height: 56px;
+                    border-radius: 28px;
+                    background: var(--primary-color);
+                    color: white;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                    transition: all 0.2s;
+                    z-index: 10;
+                }
+                
+                .action-fab:hover {
+                    background: var(--primary-hover);
+                    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+                    transform: translateY(-2px);
+                }
+                
+                .action-fab svg {
+                    width: 24px;
+                    height: 24px;
+                }
+                
+                .action-fab.disabled {
+                    opacity: 0.6;
+                    cursor: not-allowed;
+                    pointer-events: none;
+                }
+                
                 #replacement-panel {
                     position: fixed;
                     bottom: 0;
@@ -635,6 +808,23 @@ export class WordsViewProvider implements vscode.Disposable {
                     color: var(--secondary-color);
                 }
                 
+                .selection-count {
+                    position: absolute;
+                    top: -5px;
+                    right: -5px;
+                    background: white;
+                    color: var(--primary-color);
+                    border-radius: 12px;
+                    font-size: 12px;
+                    min-width: 20px;
+                    height: 20px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+                    font-weight: bold;
+                }
+                
                 .icon {
                     display: inline-block;
                     vertical-align: middle;
@@ -654,7 +844,7 @@ export class WordsViewProvider implements vscode.Disposable {
                             <circle cx="11" cy="11" r="8"></circle>
                             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                         </svg>
-                        <input type="text" id="searchBox" class="search-box" placeholder="Search words...">
+                <input type="text" id="searchBox" class="search-box" placeholder="Search words...">
                     </div>
                     
                     <div class="button-group">
@@ -665,23 +855,31 @@ export class WordsViewProvider implements vscode.Disposable {
                             </svg>
                             Select All
                         </button>
-                        <button id="replaceButton" disabled>
-                            <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="23 4 23 10 17 10"></polyline>
-                                <polyline points="1 20 1 14 7 14"></polyline>
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                            </svg>
-                            Replace (0)
-                        </button>
                     </div>
                 </div>
                 
-                <div class="option-bar">
-                    <div class="button-group">
-                        <button id="sortFrequency" class="${this._sortMode === "frequency" ? "active" : ""}">Frequency</button>
-                        <button id="sortLeft" class="${this._sortMode === "leftContext" ? "active" : ""}">Left Context</button>
-                        <button id="sortRight" class="${this._sortMode === "rightContext" ? "active" : ""}">Right Context</button>
-                    </div>
+                <div class="sort-controls">
+                    <button id="sortFrequency" class="${this._sortMode === "frequency" ? "active" : ""}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                            <line x1="4" y1="22" x2="4" y2="15"></line>
+                        </svg>
+                        Frequency
+                    </button>
+                    <button id="sortLeft" class="${this._sortMode === "leftContext" ? "active" : ""}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="11 17 6 12 11 7"></polyline>
+                            <line x1="18" y1="12" x2="6" y2="12"></line>
+                        </svg>
+                        Left Context
+                    </button>
+                    <button id="sortRight" class="${this._sortMode === "rightContext" ? "active" : ""}">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="13 17 18 12 13 7"></polyline>
+                            <line x1="6" y1="12" x2="18" y2="12"></line>
+                        </svg>
+                        Right Context
+                    </button>
                 </div>
                 
                 <div class="pagination">
@@ -731,6 +929,16 @@ export class WordsViewProvider implements vscode.Disposable {
                 </div>
             </div>
             
+            <!-- Floating action button (FAB) for replace -->
+            <div id="replaceButton" class="action-fab disabled">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <div id="selectionCount" class="selection-count hidden">0</div>
+            </div>
+            
             <div id="replacement-panel">
                 <span>Replace with:</span>
                 <input type="text" id="replacement-input" placeholder="New text...">
@@ -741,13 +949,14 @@ export class WordsViewProvider implements vscode.Disposable {
             <script>
                 (function() {
                     const vscode = acquireVsCodeApi();
-                    const searchBox = document.getElementById('searchBox');
+                const searchBox = document.getElementById('searchBox');
                     const kwicContainer = document.getElementById('kwicContainer');
                     const sortFrequencyBtn = document.getElementById('sortFrequency');
                     const sortLeftBtn = document.getElementById('sortLeft');
                     const sortRightBtn = document.getElementById('sortRight');
                     const selectAllBtn = document.getElementById('selectAll');
                     const replaceBtn = document.getElementById('replaceButton');
+                    const selectionCount = document.getElementById('selectionCount');
                     const replacementPanel = document.getElementById('replacement-panel');
                     const replacementInput = document.getElementById('replacement-input');
                     const applyReplacementBtn = document.getElementById('apply-replacement');
@@ -759,8 +968,12 @@ export class WordsViewProvider implements vscode.Disposable {
                     const pageInput = document.getElementById('pageInput');
                     const pageInput2 = document.getElementById('pageInput2');
                     
+                    // Current sort mode for token highlighting
+                    const currentSortMode = '${this._sortMode}';
+                    
                     // Track selected state
                     let selectedCount = ${this._selectedOccurrences.size};
+                    updateSelectionCountDisplay();
                     
                     // Initialize word headers for expansion/collapse
                     document.querySelectorAll('.word-header').forEach(header => {
@@ -771,6 +984,85 @@ export class WordsViewProvider implements vscode.Disposable {
                             vscode.postMessage({ command: 'toggleWordExpand', word });
                         });
                     });
+                    
+                    // Apply token highlighting based on sort mode
+                    function highlightMatchingTokens() {
+                        if (currentSortMode === 'leftContext') {
+                            highlightTokensInContext('.left-context');
+                        } else if (currentSortMode === 'rightContext') {
+                            highlightTokensInContext('.right-context');
+                        }
+                    }
+                    
+                    function highlightTokensInContext(selector) {
+                        const contexts = document.querySelectorAll(selector);
+                        const tokenMap = new Map();
+                        
+                        // First pass: identify unique tokens
+                        contexts.forEach(context => {
+                            // For left contexts, we need to reverse the order since it uses RTL display
+                            const isLeftContext = selector === '.left-context';
+                            let text = context.textContent.trim();
+                            let tokens = text.split(/\\s+/).filter(t => t.length > 0);
+                            
+                            if (isLeftContext) {
+                                tokens.reverse();
+                            }
+                            
+                            // Map the first 3 tokens (which are closest to the keyword)
+                            tokens.slice(0, 3).forEach((token, index) => {
+                                if (!tokenMap.has(token)) {
+                                    // Assign colors in a cycle (1-6)
+                                    const colorClass = \`t-\${(tokenMap.size % 6) + 1}\`;
+                                    tokenMap.set(token, colorClass);
+                                }
+                            });
+                        });
+                        
+                        // Now apply highlighting
+                        contexts.forEach(context => {
+                            const isLeftContext = selector === '.left-context';
+                            let text = context.textContent.trim();
+                            let tokens = text.split(/\\s+/).filter(t => t.length > 0);
+                            let html = '';
+                            
+                            if (isLeftContext) {
+                                // Process in reverse for left context (closest to keyword first)
+                                tokens.reverse().forEach((token, index) => {
+                                    if (index < 3 && tokenMap.has(token)) {
+                                        html += \`<span class="token \${tokenMap.get(token)}">\${token}</span> \`;
+                                    } else {
+                                        html += token + ' ';
+                                    }
+                                });
+                                
+                                // Re-reverse for RTL display
+                                const wrappedTokens = html.trim().split(/\\s+/).filter(t => t.length > 0);
+                                wrappedTokens.reverse();
+                                html = wrappedTokens.join(' ');
+                                
+                                // Special handling for RTL direction
+                                context.innerHTML = html;
+                                context.querySelectorAll('.token').forEach(el => {
+                                    el.style.direction = 'ltr';
+                                    el.style.display = 'inline-block';
+                                });
+                            } else {
+                                // Process normally for right context
+                                tokens.forEach((token, index) => {
+                                    if (index < 3 && tokenMap.has(token)) {
+                                        html += \`<span class="token \${tokenMap.get(token)}">\${token}</span> \`;
+                                    } else {
+                                        html += token + ' ';
+                                    }
+                                });
+                                context.innerHTML = html.trim();
+                            }
+                        });
+                    }
+                    
+                    // Initialize token highlighting
+                    highlightMatchingTokens();
                     
                     // Listen for messages from the extension
                     window.addEventListener('message', event => {
@@ -786,15 +1078,27 @@ export class WordsViewProvider implements vscode.Disposable {
                                         element.classList.remove('selected');
                                         selectedCount--;
                                     }
+                                    updateSelectionCountDisplay();
                                 }
-                                updateReplaceButtonState();
                                 break;
                         }
                     });
                     
+                    // Update the selection count display
+                    function updateSelectionCountDisplay() {
+                        if (selectedCount > 0) {
+                            replaceBtn.classList.remove('disabled');
+                            selectionCount.textContent = selectedCount;
+                            selectionCount.classList.remove('hidden');
+                        } else {
+                            replaceBtn.classList.add('disabled');
+                            selectionCount.classList.add('hidden');
+                        }
+                    }
+                    
                     // Search functionality
-                    searchBox.addEventListener('keyup', function(e) {
-                        const term = e.target.value.toLowerCase();
+                searchBox.addEventListener('keyup', function(e) {
+                    const term = e.target.value.toLowerCase();
                         
                         if (term === '') {
                             document.querySelectorAll('.word-card').forEach(card => {
@@ -878,19 +1182,6 @@ export class WordsViewProvider implements vscode.Disposable {
                     handlePageInput(pageInput);
                     handlePageInput(pageInput2);
                     
-                    // Selection functionality
-                    function updateReplaceButtonState() {
-                        replaceBtn.disabled = selectedCount === 0;
-                        replaceBtn.innerHTML = \`
-                            <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="23 4 23 10 17 10"></polyline>
-                                <polyline points="1 20 1 14 7 14"></polyline>
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-                            </svg>
-                            Replace (\${selectedCount})
-                        \`;
-                    }
-                    
                     // Attach click event to all kwic items for selection toggle
                     document.querySelectorAll('.kwic-item').forEach(item => {
                         item.addEventListener('click', (e) => {
@@ -955,9 +1246,6 @@ export class WordsViewProvider implements vscode.Disposable {
                         }
                     });
                     
-                    // Initialize button state
-                    updateReplaceButtonState();
-                    
                     // Focus search box on load
                     searchBox.focus();
                 })();
@@ -1006,9 +1294,9 @@ export class WordsViewProvider implements vscode.Disposable {
 
                     html += `
                     <div id="${id}" class="kwic-item ${isSelected ? "selected" : ""}">
-                        <div class="left-context">${this._escapeHtml(occurrence.leftContext)}</div>
+                        <div class="left-context" data-tokens="${this._escapeHtml(occurrence.leftContext)}">${this._escapeHtml(occurrence.leftContext)}</div>
                         <div class="keyword">${this._escapeHtml(occurrence.word)}</div>
-                        <div class="right-context">${this._escapeHtml(occurrence.rightContext)}</div>
+                        <div class="right-context" data-tokens="${this._escapeHtml(occurrence.rightContext)}">${this._escapeHtml(occurrence.rightContext)}</div>
                         <div class="file-info">${occurrence.fileName} (line ${occurrence.lineNumber + 1})</div>
                     </div>
                     `;

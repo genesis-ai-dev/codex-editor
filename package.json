@@ -59,6 +59,15 @@
                     "contextualTitle": "Parallel Passages"
                 }
             ],
+            "codex-files-view": [
+                {
+                    "type": "webview",
+                    "id": "codex-editor.navigation",
+                    "name": "Files",
+                    "icon": "$(files)",
+                    "contextualTitle": "Files"
+                }
+            ],
             "codexNotebookTreeView": [
                 {
                     "id": "codexNotebookTreeView",

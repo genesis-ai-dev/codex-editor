@@ -54,6 +54,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             switch (message.command) {
                 case "openFile":
                     try {
+                        // Now message.uri is already a string path, no need to convert from Uri object
                         // Handle both Windows and Unix paths
                         const normalizedPath = message.uri.replace(/\\/g, "/");
                         const uri = vscode.Uri.file(normalizedPath);
@@ -136,6 +137,135 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                 <script nonce="${nonce}">
                     const vscode = acquireVsCodeApi();
                 </script>
+                <style>
+                    .progress-container {
+                        margin: 6px 0;
+                    }
+                    
+                    .progress-label {
+                        display: flex;
+                        justify-content: space-between;
+                        margin-bottom: 4px;
+                        font-size: 12px;
+                        color: var(--vscode-foreground);
+                        opacity: 0.8;
+                    }
+                    
+                    .progress-bar {
+                        height: 4px;
+                        border-radius: 2px;
+                        background-color: var(--vscode-progressBar-background);
+                        position: relative;
+                        overflow: hidden;
+                        transition: all 0.3s ease;
+                    }
+                    
+                    .progress-fill {
+                        height: 100%;
+                        border-radius: 2px;
+                        background: linear-gradient(90deg, 
+                            var(--vscode-progressBar-background) 0%, 
+                            var(--vscode-charts-green) 100%);
+                        transition: width 0.5s ease-out;
+                    }
+                    
+                    .progress-complete .progress-fill {
+                        background: var(--vscode-charts-green);
+                    }
+                    
+                    .tree-item {
+                        padding: 6px 0;
+                        cursor: pointer;
+                        transition: background-color 0.2s;
+                    }
+                    
+                    .tree-item:hover {
+                        background-color: var(--vscode-list-hoverBackground);
+                    }
+                    
+                    .tree-item-content {
+                        display: flex;
+                        align-items: center;
+                        padding: 0 8px;
+                    }
+                    
+                    .item-icon {
+                        margin-right: 6px;
+                        color: var(--vscode-foreground);
+                        opacity: 0.7;
+                    }
+                    
+                    .folder-icon {
+                        color: var(--vscode-charts-yellow);
+                    }
+                    
+                    .file-icon {
+                        color: var(--vscode-charts-blue);
+                    }
+                    
+                    .dictionary-icon {
+                        color: var(--vscode-charts-purple);
+                    }
+                    
+                    .search-container {
+                        padding: 8px;
+                        position: sticky;
+                        top: 0;
+                        background: var(--vscode-sideBar-background);
+                        z-index: 10;
+                        display: flex;
+                        align-items: center;
+                    }
+                    
+                    .search-input {
+                        flex: 1;
+                        height: 24px;
+                        border-radius: 4px;
+                        background: var(--vscode-input-background);
+                        border: 1px solid var(--vscode-input-border, transparent);
+                        color: var(--vscode-input-foreground);
+                        padding: 0 8px;
+                        outline: none;
+                    }
+                    
+                    .search-input:focus {
+                        border-color: var(--vscode-focusBorder);
+                    }
+                    
+                    .refresh-button {
+                        margin-left: 8px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 24px;
+                        height: 24px;
+                        border-radius: 4px;
+                        background: transparent;
+                        border: none;
+                        color: var(--vscode-foreground);
+                        cursor: pointer;
+                    }
+                    
+                    .refresh-button:hover {
+                        background: var(--vscode-button-hoverBackground);
+                    }
+                    
+                    .header {
+                        font-size: 13px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                        padding: 8px;
+                        color: var(--vscode-foreground);
+                        opacity: 0.6;
+                        border-bottom: 1px solid var(--vscode-panel-border);
+                    }
+                    
+                    .complete-check {
+                        margin-left: auto;
+                        color: var(--vscode-charts-green);
+                    }
+                </style>
             </head>
             <body>
                 <div id="root"></div>
@@ -213,7 +343,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
 
             return {
                 uri,
-                label: `${fileName} Codex`,
+                label: this.formatLabel(fileName),
                 type: "codexDocument",
                 corpusMarker: metadata?.corpusMarker,
                 progress: progress,
@@ -245,7 +375,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
 
             groupedItems.push({
                 uri: items[0].uri,
-                label: corpusMarker,
+                label: this.formatLabel(corpusMarker),
                 type: "corpus",
                 children: items.sort((a, b) => a.label.localeCompare(b.label)),
                 progress: averageProgress,
@@ -259,7 +389,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         const fileName = path.basename(uri.fsPath, ".codex");
         return {
             uri,
-            label: `${fileName} Codex`,
+            label: this.formatLabel(fileName),
             type: "codexDocument",
         };
     }
@@ -268,7 +398,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         const fileName = path.basename(uri.fsPath, ".dictionary");
         return {
             uri,
-            label: `${fileName} Dictionary`,
+            label: "Dictionary",
             type: "dictionary",
         };
     }
@@ -306,12 +436,29 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
 
     private sendItemsToWebview(): void {
         if (this._view) {
+            // Convert Uri objects to path strings to prevent [object Object] issues
+            const serializedCodexItems = this.codexItems.map((item) => this.serializeItem(item));
+            const serializedDictItems = this.dictionaryItems.map((item) =>
+                this.serializeItem(item)
+            );
+
             this._view.webview.postMessage({
                 command: "updateItems",
-                codexItems: this.codexItems,
-                dictionaryItems: this.dictionaryItems,
+                codexItems: serializedCodexItems,
+                dictionaryItems: serializedDictItems,
             });
         }
+    }
+
+    // Helper method to convert Uri objects to path strings
+    private serializeItem(item: CodexItem): any {
+        return {
+            ...item,
+            uri: item.uri.fsPath,
+            children: item.children
+                ? item.children.map((child) => this.serializeItem(child))
+                : undefined,
+        };
     }
 
     private getNonce(): string {
@@ -321,6 +468,28 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             text += possible.charAt(Math.floor(Math.random() * possible.length));
         }
         return text;
+    }
+
+    // Helper method to format labels in a user-friendly way
+    private formatLabel(fileName: string): string {
+        // Remove technical suffixes
+        let cleanName = fileName.replace(/_Codex$/, "");
+
+        // Replace underscores with spaces
+        cleanName = cleanName.replace(/_/g, " ");
+
+        // Handle common replacements
+        if (cleanName === "NT") return "New Testament";
+        if (cleanName === "OT") return "Old Testament";
+
+        // Split on camelCase and capitalize first letter of each word
+        cleanName = cleanName.replace(/([A-Z])/g, " $1").trim();
+
+        // Remove redundant spaces
+        cleanName = cleanName.replace(/\s+/g, " ");
+
+        // Capitalize first letter if not already
+        return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
     }
 
     public dispose(): void {
