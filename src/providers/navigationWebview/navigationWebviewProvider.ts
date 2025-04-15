@@ -65,6 +65,12 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                                 uri,
                                 "codex.cellEditor"
                             );
+                        } else if (message.type === "dictionary") {
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                uri,
+                                "codex.dictionaryEditor"
+                            );
                         } else {
                             const doc = await vscode.workspace.openTextDocument(uri);
                             await vscode.window.showTextDocument(doc);
