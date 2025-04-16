@@ -94,12 +94,12 @@ export async function initializeProject(shouldImportUSFM: boolean) {
         );
     }
 
-    try {
-        // FIXME: do we need to do this here?? we refresh at the end of this function anyway
-        await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
-    } catch (error) {
-        console.log("Error calling commands of outside extension", error);
-    }
+    // try {
+    //     // FIXME: do we need to do this here?? we refresh at the end of this function anyway
+    //     await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+    // } catch (error) {
+    //     console.log("Error calling commands of outside extension", error);
+    // }
 
     vscode.window.withProgress(
         {
@@ -223,11 +223,11 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                 vscode.window.showErrorMessage(`Failed to initialize new project: ${error}`);
             }
 
-            try {
-                await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
-            } catch (error) {
-                console.log("Error calling commands of outside extension", error);
-            }
+            // try {
+            //     await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+            // } catch (error) {
+            //     console.log("Error calling commands of outside extension", error);
+            // }
         }
     );
 }

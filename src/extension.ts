@@ -401,8 +401,8 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 async function executeCommandsAfter() {
     vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
     vscode.commands.executeCommand("workbench.action.focusActivityBar");
-    vscode.commands.executeCommand("codexNotebookTreeView.refresh");
-    vscode.commands.executeCommand("codexNotebookTreeView.focus");
+    // vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+    vscode.commands.executeCommand("codex-editor.navigation.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
     // Configure auto-save in settings
     await vscode.workspace
