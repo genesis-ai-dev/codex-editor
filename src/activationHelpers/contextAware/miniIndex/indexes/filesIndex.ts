@@ -4,6 +4,9 @@ import { FileData, readSourceAndTargetFiles } from "./fileReaders";
 import { getWorkSpaceUri } from "../../../../utils";
 import { tokenizeText } from "../../../../utils/nlpUtils";
 
+// HTML tag regex for stripping HTML
+const HTML_TAG_REGEX = /<\/?[^>]+(>|$)/g;
+
 export interface FileInfo {
     sourceFile: {
         uri: vscode.Uri;
@@ -37,6 +40,13 @@ export interface FileInfo {
 const METHOD_SHOULD_BE_STORED_IN_CONFIG = "whitespace_and_punctuation";
 
 /**
+ * Strips HTML tags from text
+ */
+function stripHtml(text: string): string {
+    return text.replace(HTML_TAG_REGEX, "");
+}
+
+/**
  * Count words in text using the tokenizer
  */
 function countWords(text: string): number {
@@ -44,9 +54,12 @@ function countWords(text: string): number {
         return 0;
     }
 
+    // Strip HTML tags before counting words
+    const cleanText = stripHtml(text);
+
     const words = tokenizeText({
         method: METHOD_SHOULD_BE_STORED_IN_CONFIG,
-        text: text,
+        text: cleanText,
     });
 
     return words.length;

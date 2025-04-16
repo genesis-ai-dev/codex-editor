@@ -16,6 +16,11 @@ header {
     margin-bottom: 20px;
 }
 
+.header-actions {
+    display: flex;
+    gap: 8px;
+}
+
 h1 {
     font-size: 18px;
     font-weight: 600;
@@ -133,4 +138,71 @@ button:hover {
     height: 100%;
     background-color: var(--vscode-progressBar-background);
     transition: width 0.3s ease;
+}
+
+/* Sample details styling */
+.file-details {
+    padding: 10px;
+    border-top: 1px solid var(--vscode-widget-border);
+    background-color: var(--vscode-editor-background);
+}
+
+.file-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.sample-section {
+    margin-bottom: 15px;
+}
+
+.sample-section h3 {
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.sample-cell {
+    margin-bottom: 10px;
+    padding: 8px;
+    border: 1px solid var(--vscode-editor-lineHighlightBorder);
+    border-radius: 3px;
+    background-color: var(--vscode-editor-background);
+}
+
+.sample-header {
+    font-size: 12px;
+    color: var(--vscode-editorLineNumber-foreground);
+    margin-bottom: 5px;
+}
+
+.sample-content {
+    font-size: 13px;
+}
+
+.original-text,
+.cleaned-text {
+    margin-bottom: 5px;
+}
+
+pre {
+    margin: 5px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    overflow: auto;
+    max-height: 120px;
+    background-color: var(--vscode-textCodeBlock-background);
+    padding: 5px;
+    border-radius: 3px;
+}
+
+/* Add total row highlighting */
+.total-row {
+    font-weight: bold;
+    border-top: 1px solid var(--vscode-foreground);
+    margin-top: 10px;
+    padding-top: 10px;
 }
