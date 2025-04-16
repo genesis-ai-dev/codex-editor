@@ -73,6 +73,12 @@ button:hover {
     margin-top: 5px;
 }
 
+.stat-subtitle {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    margin-top: 5px;
+}
+
 .progress-container {
     height: 8px;
     background-color: var(--vscode-editor-background);
@@ -93,7 +99,6 @@ button:hover {
 
 .file-list {
     margin-top: 10px;
-    max-height: 400px;
     overflow-y: auto;
 }
 
@@ -205,4 +210,21 @@ pre {
     border-top: 1px solid var(--vscode-foreground);
     margin-top: 10px;
     padding-top: 10px;
+}
+
+.file-stats-detailed {
+    margin-bottom: 12px;
+    padding: 8px;
+    background-color: var(--vscode-editor-inactiveSelectionBackground);
+    border-radius: 3px;
+}
+
+.stat-row {
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.paratext-cell {
+    background-color: var(--vscode-editorRuler-background);
+    border-left: 3px solid var(--vscode-editorWarning-foreground);
 }

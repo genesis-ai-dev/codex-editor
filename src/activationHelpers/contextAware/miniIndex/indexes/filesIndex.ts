@@ -14,11 +14,14 @@ export interface FileInfo {
         id: string;
         totalCells: number;
         totalWords: number;
+        contentCells: number; // Cells excluding paratext
+        contentWords: number; // Words excluding paratext
         cells: Array<{
             id?: string;
             type?: string;
             value: string;
             wordCount: number;
+            isParatext: boolean;
         }>;
     };
     codexFile: {
@@ -27,11 +30,14 @@ export interface FileInfo {
         id: string;
         totalCells: number;
         totalWords: number;
+        contentCells: number; // Cells excluding paratext
+        contentWords: number; // Words excluding paratext
         cells: Array<{
             id?: string;
             type?: string;
             value: string;
             wordCount: number;
+            isParatext: boolean;
         }>;
     };
 }
@@ -89,16 +95,31 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
             if (sourceFile) {
                 let sourceWordCount = 0;
                 let codexWordCount = 0;
+                let sourceContentWordCount = 0;
+                let codexContentWordCount = 0;
+                let sourceContentCells = 0;
+                let codexContentCells = 0;
 
                 // Process source file cells
                 const sourceCells = sourceFile.cells.map((cell) => {
                     const wordCount = countWords(cell.value);
                     sourceWordCount += wordCount;
+
+                    // Check if this is a paratext cell
+                    const isParatext = cell.metadata?.type === "paratext";
+
+                    // Track content words separately
+                    if (!isParatext) {
+                        sourceContentWordCount += wordCount;
+                        sourceContentCells++;
+                    }
+
                     return {
                         id: cell.metadata?.id,
                         type: cell.metadata?.type,
                         value: cell.value,
                         wordCount,
+                        isParatext,
                     };
                 });
 
@@ -106,11 +127,22 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                 const codexCells = codexFile.cells.map((cell) => {
                     const wordCount = countWords(cell.value);
                     codexWordCount += wordCount;
+
+                    // Check if this is a paratext cell
+                    const isParatext = cell.metadata?.type === "paratext";
+
+                    // Track content words separately
+                    if (!isParatext) {
+                        codexContentWordCount += wordCount;
+                        codexContentCells++;
+                    }
+
                     return {
                         id: cell.metadata?.id,
                         type: cell.metadata?.type,
                         value: cell.value,
                         wordCount,
+                        isParatext,
                     };
                 });
 
@@ -122,6 +154,8 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                         id: sourceFile.id,
                         totalCells: sourceCells.length,
                         totalWords: sourceWordCount,
+                        contentCells: sourceContentCells,
+                        contentWords: sourceContentWordCount,
                         cells: sourceCells,
                     },
                     codexFile: {
@@ -130,6 +164,8 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
                         id: codexFile.id,
                         totalCells: codexCells.length,
                         totalWords: codexWordCount,
+                        contentCells: codexContentCells,
+                        contentWords: codexContentWordCount,
                         cells: codexCells,
                     },
                 };
@@ -170,20 +206,28 @@ export function getFilePairById(
 export function getWordCountStats(filesIndex: Map<string, FileInfo>): {
     totalSourceWords: number;
     totalCodexWords: number;
+    totalSourceContentWords: number;
+    totalCodexContentWords: number;
     totalFiles: number;
 } {
     let totalSourceWords = 0;
     let totalCodexWords = 0;
+    let totalSourceContentWords = 0;
+    let totalCodexContentWords = 0;
     const totalFiles = filesIndex.size;
 
     filesIndex.forEach((fileInfo) => {
         totalSourceWords += fileInfo.sourceFile.totalWords;
         totalCodexWords += fileInfo.codexFile.totalWords;
+        totalSourceContentWords += fileInfo.sourceFile.contentWords;
+        totalCodexContentWords += fileInfo.codexFile.contentWords;
     });
 
     return {
         totalSourceWords,
         totalCodexWords,
+        totalSourceContentWords,
+        totalCodexContentWords,
         totalFiles,
     };
 }

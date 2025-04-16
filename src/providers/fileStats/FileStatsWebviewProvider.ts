@@ -43,11 +43,19 @@ export class FileStatsWebviewProvider {
                 sourceFileName: pair.sourceFile.fileName,
                 codexFileName: pair.codexFile.fileName,
                 sourceWords: pair.sourceFile.totalWords,
+                sourceContentWords: pair.sourceFile.contentWords,
                 codexWords: pair.codexFile.totalWords,
-                sourceProgress: pair.sourceFile.totalWords > 0 ? 100 : 0,
+                codexContentWords: pair.codexFile.contentWords,
+                sourceCells: pair.sourceFile.totalCells,
+                sourceContentCells: pair.sourceFile.contentCells,
+                codexCells: pair.codexFile.totalCells,
+                codexContentCells: pair.codexFile.contentCells,
+                sourceProgress: pair.sourceFile.contentWords > 0 ? 100 : 0,
                 codexProgress:
-                    pair.sourceFile.totalWords > 0
-                        ? Math.round((pair.codexFile.totalWords / pair.sourceFile.totalWords) * 100)
+                    pair.sourceFile.contentWords > 0
+                        ? Math.round(
+                              (pair.codexFile.contentWords / pair.sourceFile.contentWords) * 100
+                          )
                         : 0,
                 // Include sample cells for debugging
                 sourceSamples: pair.sourceFile.cells.slice(0, 3).map((cell) => ({
@@ -55,6 +63,7 @@ export class FileStatsWebviewProvider {
                     type: cell.type,
                     value: cell.value,
                     wordCount: cell.wordCount,
+                    isParatext: cell.isParatext,
                     // Include original and cleaned text for debugging
                     originalText: cell.value,
                     cleanedText: this.stripHtml(cell.value),
@@ -64,6 +73,7 @@ export class FileStatsWebviewProvider {
                     type: cell.type,
                     value: cell.value,
                     wordCount: cell.wordCount,
+                    isParatext: cell.isParatext,
                     // Include original and cleaned text for debugging
                     originalText: cell.value,
                     cleanedText: this.stripHtml(cell.value),
@@ -193,14 +203,17 @@ export class FileStatsWebviewProvider {
                         <div class="stat-box">
                             <h2>Source Words</h2>
                             <div id="source-words" class="stat-value">Loading...</div>
+                            <div class="stat-subtitle">Content only: <span id="source-content-words">...</span></div>
                         </div>
                         <div class="stat-box">
                             <h2>Codex Words</h2>
                             <div id="codex-words" class="stat-value">Loading...</div>
+                            <div class="stat-subtitle">Content only: <span id="codex-content-words">...</span></div>
                         </div>
                         <div class="stat-box">
                             <h2>Progress</h2>
                             <div id="progress-percentage" class="stat-value">Loading...</div>
+                            <div class="stat-subtitle">Based on content cells</div>
                         </div>
                     </div>
 
@@ -252,9 +265,11 @@ export class FileStatsWebviewProvider {
                             // Update the stats overview
                             document.getElementById('source-words').textContent = data.stats.totalSourceWords.toLocaleString();
                             document.getElementById('codex-words').textContent = data.stats.totalCodexWords.toLocaleString();
+                            document.getElementById('source-content-words').textContent = data.stats.totalSourceContentWords.toLocaleString();
+                            document.getElementById('codex-content-words').textContent = data.stats.totalCodexContentWords.toLocaleString();
                             
-                            const progressPercentage = data.stats.totalSourceWords > 0 
-                                ? Math.round((data.stats.totalCodexWords / data.stats.totalSourceWords) * 100) 
+                            const progressPercentage = data.stats.totalSourceContentWords > 0 
+                                ? Math.round((data.stats.totalCodexContentWords / data.stats.totalSourceContentWords) * 100) 
                                 : 0;
                                 
                             document.getElementById('progress-percentage').textContent = \`\${progressPercentage}%\`;
@@ -273,7 +288,7 @@ export class FileStatsWebviewProvider {
                                     <div class="file-header">
                                         <div class="file-name">\${file.codexFileName}</div>
                                         <div class="file-stats">
-                                            <span>\${file.sourceWords.toLocaleString()} → \${file.codexWords.toLocaleString()}</span>
+                                            <span>\${file.sourceContentWords.toLocaleString()} → \${file.codexContentWords.toLocaleString()}</span>
                                             <span>\${file.codexProgress}%</span>
                                         </div>
                                     </div>
@@ -281,6 +296,17 @@ export class FileStatsWebviewProvider {
                                         <div class="file-progress-bar" style="width: \${file.codexProgress}%"></div>
                                     </div>
                                     <div class="file-details" style="display: none;">
+                                        <div class="file-stats-detailed">
+                                            <div class="stat-row">
+                                                <span>Source: <strong>\${file.sourceWords.toLocaleString()}</strong> total words / <strong>\${file.sourceContentWords.toLocaleString()}</strong> content words</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span>Codex: <strong>\${file.codexWords.toLocaleString()}</strong> total words / <strong>\${file.codexContentWords.toLocaleString()}</strong> content words</span>
+                                            </div>
+                                            <div class="stat-row">
+                                                <span>Cells: <strong>\${file.sourceCells}</strong> source / <strong>\${file.sourceContentCells}</strong> content / <strong>\${file.codexContentCells}</strong> translated</span>
+                                            </div>
+                                        </div>
                                         <div class="file-actions">
                                             <button class="view-file-btn">Open in Editor</button>
                                             <button class="toggle-samples-btn">Show Samples</button>
@@ -289,9 +315,9 @@ export class FileStatsWebviewProvider {
                                             <div class="sample-section">
                                                 <h3>Source Samples (First 3 Cells)</h3>
                                                 \${file.sourceSamples.map((sample, idx) => \`
-                                                    <div class="sample-cell">
+                                                    <div class="sample-cell \${sample.isParatext ? 'paratext-cell' : ''}">
                                                         <div class="sample-header">
-                                                            <span>Cell \${idx + 1} | ID: \${sample.id || 'N/A'} | Type: \${sample.type || 'N/A'} | Words: \${sample.wordCount}</span>
+                                                            <span>Cell \${idx + 1} | ID: \${sample.id || 'N/A'} | Type: \${sample.type || 'N/A'} | Words: \${sample.wordCount} \${sample.isParatext ? '(Paratext)' : ''}</span>
                                                         </div>
                                                         <div class="sample-content">
                                                             <div class="original-text">
@@ -309,9 +335,9 @@ export class FileStatsWebviewProvider {
                                             <div class="sample-section">
                                                 <h3>Codex Samples (First 3 Cells)</h3>
                                                 \${file.codexSamples.map((sample, idx) => \`
-                                                    <div class="sample-cell">
+                                                    <div class="sample-cell \${sample.isParatext ? 'paratext-cell' : ''}">
                                                         <div class="sample-header">
-                                                            <span>Cell \${idx + 1} | ID: \${sample.id || 'N/A'} | Type: \${sample.type || 'N/A'} | Words: \${sample.wordCount}</span>
+                                                            <span>Cell \${idx + 1} | ID: \${sample.id || 'N/A'} | Type: \${sample.type || 'N/A'} | Words: \${sample.wordCount} \${sample.isParatext ? '(Paratext)' : ''}</span>
                                                         </div>
                                                         <div class="sample-content">
                                                             <div class="original-text">
@@ -374,11 +400,20 @@ export class FileStatsWebviewProvider {
 
                         function exportToCSV(data) {
                             // Create CSV content
-                            const headerRow = ['File', 'Source Words', 'Codex Words', 'Progress (%)'];
+                            const headerRow = [
+                                'File',
+                                'Source Words (Total)',
+                                'Source Words (Content)',
+                                'Codex Words (Total)',
+                                'Codex Words (Content)',
+                                'Progress (%)'
+                            ];
                             const dataRows = data.filePairs.map(file => [
                                 file.codexFileName,
                                 file.sourceWords,
+                                file.sourceContentWords,
                                 file.codexWords,
+                                file.codexContentWords,
                                 file.codexProgress
                             ]);
                             
@@ -386,9 +421,11 @@ export class FileStatsWebviewProvider {
                             dataRows.push([
                                 'TOTAL',
                                 data.stats.totalSourceWords,
+                                data.stats.totalSourceContentWords,
                                 data.stats.totalCodexWords,
-                                data.stats.totalSourceWords > 0 
-                                    ? Math.round((data.stats.totalCodexWords / data.stats.totalSourceWords) * 100) 
+                                data.stats.totalCodexContentWords,
+                                data.stats.totalSourceContentWords > 0 
+                                    ? Math.round((data.stats.totalCodexContentWords / data.stats.totalSourceContentWords) * 100) 
                                     : 0
                             ]);
                             
