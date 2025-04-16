@@ -780,7 +780,7 @@ export const handleMessages = async (
                 });
             } catch (error) {
                 console.error("Error getting current username:", error);
-                vscode.window.showErrorMessage("Failed to get current username.");
+                // vscode.window.showErrorMessage("Failed to get current username.");
             }
             return;
         }
