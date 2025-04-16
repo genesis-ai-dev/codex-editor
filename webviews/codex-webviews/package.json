@@ -27,6 +27,7 @@
         "watch:StartupFlow": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:StartupFlow",
         "watch:EditableReactTable": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:EditableReactTable",
         "watch:ProjectManagerView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ProjectManagerView",
+        "watch:NavigationView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:NavigationView",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },
