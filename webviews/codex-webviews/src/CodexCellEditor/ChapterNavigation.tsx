@@ -972,6 +972,33 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     <i className="codicon codicon-chevron-right"></i>
                 </VSCodeButton>
 
+                {/* Chapter selector dropdown */}
+                <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
+                    <span style={{ marginRight: "0.5rem" }}>Chapter:</span>
+                    <VSCodeDropdown
+                        onChange={(e) => {
+                            const target = e.target as HTMLSelectElement;
+                            const newChapter = parseInt(target.value);
+                            if (newChapter && newChapter !== chapterNumber && !unsavedChanges) {
+                                // Send a message to synchronize source/codex views
+                                (window as any).vscodeApi.postMessage({
+                                    command: "jumpToChapter",
+                                    chapterNumber: newChapter,
+                                });
+                                setChapterNumber(newChapter);
+                            }
+                        }}
+                        value={chapterNumber.toString()}
+                        disabled={unsavedChanges}
+                    >
+                        {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
+                            <VSCodeOption key={chapter} value={chapter.toString()}>
+                                {chapter} of {totalChapters}
+                            </VSCodeOption>
+                        ))}
+                    </VSCodeDropdown>
+                </div>
+
                 {totalSections > 1 && (
                     <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
                         <span style={{ marginRight: "0.5rem" }}>Section:</span>

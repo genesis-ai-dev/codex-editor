@@ -176,14 +176,16 @@ const CodexCellEditor: React.FC = () => {
 
             // Add handler for pending validations updates
             if (message.type === "pendingValidationsUpdate") {
-                setPendingValidationsCount(message.type === "pendingValidationsUpdate" ? message.content.count : 0);
-                
+                setPendingValidationsCount(
+                    message.type === "pendingValidationsUpdate" ? message.content.count : 0
+                );
+
                 // If validation count is zero, reset the applying state
                 if (message.content.count === 0) {
                     setIsApplyingValidations(false);
                 }
             }
-            
+
             // Also listen for validation completion message
             if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
@@ -338,6 +340,10 @@ const CodexCellEditor: React.FC = () => {
                 );
                 handleTranslationError(singleCellQueueProcessingId);
             }
+        },
+        // Add the setChapterNumber handler
+        setChapterNumber: (chapter) => {
+            setChapterNumber(chapter);
         },
     });
 
@@ -1084,11 +1090,11 @@ const CodexCellEditor: React.FC = () => {
     const clearPendingValidations = (e: React.MouseEvent) => {
         // Stop propagation to prevent the main button click handler
         e.stopPropagation();
-        
+
         // Set isApplyingValidations to true temporarily to hide the button immediately
         // This gives immediate visual feedback before the server responds
         setIsApplyingValidations(true);
-        
+
         vscode.postMessage({
             command: "clearPendingValidations",
         });
@@ -1220,19 +1226,21 @@ const CodexCellEditor: React.FC = () => {
                     />
                 </div>
             </div>
-            
+
             {/* Floating button to apply pending validations */}
             {pendingValidationsCount > 0 && !isApplyingValidations && (
-                <div 
+                <div
                     className="floating-apply-validations-button"
                     onClick={applyPendingValidations}
-                    title={`Apply ${pendingValidationsCount} pending validation${pendingValidationsCount > 1 ? 's' : ''}`}
+                    title={`Apply ${pendingValidationsCount} pending validation${
+                        pendingValidationsCount > 1 ? "s" : ""
+                    }`}
                 >
                     <span className="validation-count">{pendingValidationsCount}</span>
                     <i className="codicon codicon-check-all"></i>
                     <span className="button-text">Apply Validations</span>
-                    <div 
-                        className="close-button" 
+                    <div
+                        className="close-button"
                         onClick={clearPendingValidations}
                         title="Clear pending validations"
                     >
@@ -1240,7 +1248,7 @@ const CodexCellEditor: React.FC = () => {
                     </div>
                 </div>
             )}
-            
+
             {/* Loading indicator while applying validations */}
             {isApplyingValidations && (
                 <div className="floating-apply-validations-button applying">
@@ -1248,7 +1256,7 @@ const CodexCellEditor: React.FC = () => {
                     <span className="button-text">Applying...</span>
                 </div>
             )}
-            
+
             {/* Add CSS for the floating button and loader */}
             <style>
                 {`
