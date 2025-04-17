@@ -96,7 +96,7 @@ export class FileStatsWebviewProvider {
 
         this._panel = vscode.window.createWebviewPanel(
             FileStatsWebviewProvider.viewType,
-            "Translation Progress Statistics",
+            "Translation Word Counts",
             vscode.ViewColumn.One,
             {
                 enableScripts: true,
@@ -179,56 +179,48 @@ export class FileStatsWebviewProvider {
 
         const nonce = getNonce();
 
-        return /* html */ `
-            <!DOCTYPE html>
+        return `<!DOCTYPE html>
             <html lang="en">
             <head>
                 <meta charset="UTF-8">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <link href="${styleUri}" rel="stylesheet" />
-                <title>Translation Progress Statistics</title>
+                <title>Translation Word Counts</title>
             </head>
             <body>
                 <div class="container">
                     <header>
-                        <h1>Translation Progress Statistics</h1>
+                        <h1>Translation Word Counts</h1>
                         <div class="header-actions">
-                            <button id="export-csv-btn" title="Export to CSV">Export CSV</button>
+                            <button id="export-csv-btn">Export CSV</button>
                             <button id="refresh-btn" title="Refresh Data">↻</button>
                         </div>
                     </header>
 
-                    <div class="stats-overview">
-                        <div class="stat-box">
-                            <h2>Source Words</h2>
-                            <div id="source-words" class="stat-value">Loading...</div>
-                            <div class="stat-subtitle">Content only: <span id="source-content-words">...</span></div>
-                        </div>
-                        <div class="stat-box">
-                            <h2>Codex Words</h2>
-                            <div id="codex-words" class="stat-value">Loading...</div>
-                            <div class="stat-subtitle">Content only: <span id="codex-content-words">...</span></div>
-                        </div>
-                        <div class="stat-box">
-                            <h2>Progress</h2>
-                            <div id="progress-percentage" class="stat-value">Loading...</div>
-                            <div class="stat-subtitle">Based on content cells</div>
-                        </div>
-                    </div>
-
-                    <div class="progress-container">
-                        <div id="progress-bar" class="progress-bar"></div>
-                    </div>
-
-                    <div class="files-section">
-                        <h2>Files (<span id="files-count">0</span>)</h2>
-                        <div id="file-list" class="file-list"></div>
-                    </div>
+                    <table class="word-count-table">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Source Words</th>
+                                <th>Codex Words</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="file-list">
+                        </tbody>
+                        <tfoot>
+                            <tr class="total-row">
+                                <td><strong>Total</strong></td>
+                                <td id="total-source-words">-</td>
+                                <td id="total-codex-words">-</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
                 </div>
 
                 <script nonce="${nonce}">
-                    // Basic script to handle the webview interaction
                     (function() {
                         const vscode = acquireVsCodeApi();
                         let currentData = null;
@@ -240,17 +232,13 @@ export class FileStatsWebviewProvider {
                         document.getElementById('export-csv-btn').addEventListener('click', () => {
                             if (currentData) {
                                 exportToCSV(currentData);
-                            } else {
-                                vscode.postMessage({ command: 'refresh' });
                             }
                         });
 
-                        // Notify the extension that the webview is ready
                         window.addEventListener('load', () => {
                             vscode.postMessage({ command: 'ready' });
                         });
 
-                        // Handle messages from the extension
                         window.addEventListener('message', event => {
                             const message = event.data;
                             switch (message.command) {
@@ -262,180 +250,78 @@ export class FileStatsWebviewProvider {
                         });
 
                         function updateUI(data) {
-                            // Update the stats overview
-                            document.getElementById('source-words').textContent = data.stats.totalSourceWords.toLocaleString();
-                            document.getElementById('codex-words').textContent = data.stats.totalCodexWords.toLocaleString();
-                            document.getElementById('source-content-words').textContent = data.stats.totalSourceContentWords.toLocaleString();
-                            document.getElementById('codex-content-words').textContent = data.stats.totalCodexContentWords.toLocaleString();
-                            
-                            const progressPercentage = data.stats.totalSourceContentWords > 0 
-                                ? Math.round((data.stats.totalCodexContentWords / data.stats.totalSourceContentWords) * 100) 
-                                : 0;
-                                
-                            document.getElementById('progress-percentage').textContent = \`\${progressPercentage}%\`;
-                            document.getElementById('progress-bar').style.width = \`\${progressPercentage}%\`;
-                            document.getElementById('files-count').textContent = data.stats.totalFiles;
-
-                            // Update the file list
                             const fileListElement = document.getElementById('file-list');
                             fileListElement.innerHTML = '';
 
+                            // Sort files alphabetically
                             data.filePairs.sort((a, b) => a.codexFileName.localeCompare(b.codexFileName))
                                 .forEach(file => {
-                                const fileElement = document.createElement('div');
-                                fileElement.className = 'file-item';
-                                fileElement.innerHTML = \`
-                                    <div class="file-header">
-                                        <div class="file-name">\${file.codexFileName}</div>
-                                        <div class="file-stats">
-                                            <span>\${file.sourceContentWords.toLocaleString()} → \${file.codexContentWords.toLocaleString()}</span>
-                                            <span>\${file.codexProgress}%</span>
-                                        </div>
-                                    </div>
-                                    <div class="file-progress">
-                                        <div class="file-progress-bar" style="width: \${file.codexProgress}%"></div>
-                                    </div>
-                                    <div class="file-details" style="display: none;">
-                                        <div class="file-stats-detailed">
-                                            <div class="stat-row">
-                                                <span>Source: <strong>\${file.sourceWords.toLocaleString()}</strong> total words / <strong>\${file.sourceContentWords.toLocaleString()}</strong> content words</span>
-                                            </div>
-                                            <div class="stat-row">
-                                                <span>Codex: <strong>\${file.codexWords.toLocaleString()}</strong> total words / <strong>\${file.codexContentWords.toLocaleString()}</strong> content words</span>
-                                            </div>
-                                            <div class="stat-row">
-                                                <span>Cells: <strong>\${file.sourceCells}</strong> source / <strong>\${file.sourceContentCells}</strong> content / <strong>\${file.codexContentCells}</strong> translated</span>
-                                            </div>
-                                        </div>
-                                        <div class="file-actions">
-                                            <button class="view-file-btn">Open in Editor</button>
-                                            <button class="toggle-samples-btn">Show Samples</button>
-                                        </div>
-                                        <div class="file-samples" style="display: none;">
-                                            <div class="sample-section">
-                                                <h3>Source Samples (First 3 Cells)</h3>
-                                                \${file.sourceSamples.map((sample, idx) => \`
-                                                    <div class="sample-cell \${sample.isParatext ? 'paratext-cell' : ''}">
-                                                        <div class="sample-header">
-                                                            <span>Cell \${idx + 1} | ID: \${sample.id || 'N/A'} | Type: \${sample.type || 'N/A'} | Words: \${sample.wordCount} \${sample.isParatext ? '(Paratext)' : ''}</span>
-                                                        </div>
-                                                        <div class="sample-content">
-                                                            <div class="original-text">
-                                                                <strong>Original:</strong> 
-                                                                <pre>\${sample.originalText.substring(0, 200)}\${sample.originalText.length > 200 ? '...' : ''}</pre>
-                                                            </div>
-                                                            <div class="cleaned-text">
-                                                                <strong>Cleaned:</strong> 
-                                                                <pre>\${sample.cleanedText.substring(0, 200)}\${sample.cleanedText.length > 200 ? '...' : ''}</pre>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                \`).join('')}
-                                            </div>
-                                            <div class="sample-section">
-                                                <h3>Codex Samples (First 3 Cells)</h3>
-                                                \${file.codexSamples.map((sample, idx) => \`
-                                                    <div class="sample-cell \${sample.isParatext ? 'paratext-cell' : ''}">
-                                                        <div class="sample-header">
-                                                            <span>Cell \${idx + 1} | ID: \${sample.id || 'N/A'} | Type: \${sample.type || 'N/A'} | Words: \${sample.wordCount} \${sample.isParatext ? '(Paratext)' : ''}</span>
-                                                        </div>
-                                                        <div class="sample-content">
-                                                            <div class="original-text">
-                                                                <strong>Original:</strong> 
-                                                                <pre>\${sample.originalText.substring(0, 200)}\${sample.originalText.length > 200 ? '...' : ''}</pre>
-                                                            </div>
-                                                            <div class="cleaned-text">
-                                                                <strong>Cleaned:</strong> 
-                                                                <pre>\${sample.cleanedText.substring(0, 200)}\${sample.cleanedText.length > 200 ? '...' : ''}</pre>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                \`).join('')}
-                                            </div>
-                                        </div>
-                                    </div>
-                                \`;
-                                
-                                // Toggle file details on click
-                                const fileHeader = fileElement.querySelector('.file-header');
-                                if (fileHeader) {
-                                    fileHeader.addEventListener('click', (e) => {
-                                        const detailsElement = fileElement.querySelector('.file-details');
-                                        if (detailsElement) {
-                                            const isVisible = detailsElement.style.display !== 'none';
-                                            detailsElement.style.display = isVisible ? 'none' : 'block';
-                                        }
-                                    });
-                                }
-                                
-                                // View file button
-                                const viewFileBtn = fileElement.querySelector('.view-file-btn');
-                                if (viewFileBtn) {
-                                    viewFileBtn.addEventListener('click', (e) => {
-                                        e.stopPropagation(); // Prevent triggering the header click
+                                    const row = document.createElement('tr');
+                                    
+                                    // File name cell
+                                    const fileNameCell = document.createElement('td');
+                                    fileNameCell.textContent = file.codexFileName;
+                                    row.appendChild(fileNameCell);
+                                    
+                                    // Source words cell
+                                    const sourceWordsCell = document.createElement('td');
+                                    sourceWordsCell.textContent = file.sourceContentWords.toLocaleString();
+                                    row.appendChild(sourceWordsCell);
+                                    
+                                    // Codex words cell
+                                    const codexWordsCell = document.createElement('td');
+                                    codexWordsCell.textContent = file.codexContentWords.toLocaleString();
+                                    row.appendChild(codexWordsCell);
+                                    
+                                    // Actions cell
+                                    const actionsCell = document.createElement('td');
+                                    const openButton = document.createElement('button');
+                                    openButton.className = 'view-file-btn';
+                                    openButton.setAttribute('data-file-id', file.id);
+                                    openButton.textContent = 'Open';
+                                    openButton.addEventListener('click', () => {
                                         vscode.postMessage({ 
                                             command: 'viewFile', 
                                             fileId: file.id 
                                         });
                                     });
-                                }
-                                
-                                // Toggle samples button
-                                const toggleSamplesBtn = fileElement.querySelector('.toggle-samples-btn');
-                                if (toggleSamplesBtn) {
-                                    toggleSamplesBtn.addEventListener('click', (e) => {
-                                        e.stopPropagation(); // Prevent triggering the header click
-                                        const samplesElement = fileElement.querySelector('.file-samples');
-                                        if (samplesElement) {
-                                            const isVisible = samplesElement.style.display !== 'none';
-                                            samplesElement.style.display = isVisible ? 'none' : 'block';
-                                            toggleSamplesBtn.textContent = isVisible ? 'Show Samples' : 'Hide Samples';
-                                        }
-                                    });
-                                }
-                                
-                                fileListElement.appendChild(fileElement);
-                            });
+                                    actionsCell.appendChild(openButton);
+                                    row.appendChild(actionsCell);
+                                    
+                                    fileListElement.appendChild(row);
+                                });
+
+                            // Update totals
+                            document.getElementById('total-source-words').textContent = 
+                                data.stats.totalSourceContentWords.toLocaleString();
+                            document.getElementById('total-codex-words').textContent = 
+                                data.stats.totalCodexContentWords.toLocaleString();
                         }
 
                         function exportToCSV(data) {
-                            // Create CSV content
                             const headerRow = [
                                 'File',
-                                'Source Words (Total)',
-                                'Source Words (Content)',
-                                'Codex Words (Total)',
-                                'Codex Words (Content)',
-                                'Progress (%)'
+                                'Source Words',
+                                'Codex Words'
                             ];
+                            
                             const dataRows = data.filePairs.map(file => [
                                 file.codexFileName,
-                                file.sourceWords,
                                 file.sourceContentWords,
-                                file.codexWords,
-                                file.codexContentWords,
-                                file.codexProgress
+                                file.codexContentWords
                             ]);
                             
-                            // Add summary row
                             dataRows.push([
                                 'TOTAL',
-                                data.stats.totalSourceWords,
                                 data.stats.totalSourceContentWords,
-                                data.stats.totalCodexWords,
-                                data.stats.totalCodexContentWords,
-                                data.stats.totalSourceContentWords > 0 
-                                    ? Math.round((data.stats.totalCodexContentWords / data.stats.totalSourceContentWords) * 100) 
-                                    : 0
+                                data.stats.totalCodexContentWords
                             ]);
                             
-                            // Convert to CSV string
                             const csvContent = [
                                 headerRow.join(','),
                                 ...dataRows.map(row => row.join(','))
                             ].join('\\n');
                             
-                            // Request the extension to save the file
                             vscode.postMessage({
                                 command: 'exportCSV',
                                 csvContent
@@ -444,8 +330,7 @@ export class FileStatsWebviewProvider {
                     }());
                 </script>
             </body>
-            </html>
-        `;
+            </html>`;
     }
 }
 

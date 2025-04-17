@@ -6,14 +6,16 @@ body {
 }
 
 .container {
-    padding: 10px;
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
 }
 
 header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    margin-bottom: 24px;
 }
 
 .header-actions {
@@ -22,8 +24,8 @@ header {
 }
 
 h1 {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 20px;
+    font-weight: 500;
     margin: 0;
 }
 
@@ -37,13 +39,46 @@ button {
     background: var(--vscode-button-background);
     color: var(--vscode-button-foreground);
     border: none;
-    padding: 4px 8px;
-    border-radius: 2px;
+    padding: 4px 12px;
+    border-radius: 3px;
     cursor: pointer;
+    font-size: 12px;
 }
 
 button:hover {
     background: var(--vscode-button-hoverBackground);
+}
+
+.word-count-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.word-count-table th {
+    text-align: left;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--vscode-widget-border);
+    font-weight: 500;
+    color: var(--vscode-foreground);
+}
+
+.word-count-table td {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+
+.word-count-table tbody tr:hover {
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.total-row {
+    border-top: 2px solid var(--vscode-widget-border);
+    font-weight: 500;
+}
+
+.total-row td {
+    padding-top: 16px;
 }
 
 .stats-overview {
@@ -202,14 +237,6 @@ pre {
     background-color: var(--vscode-textCodeBlock-background);
     padding: 5px;
     border-radius: 3px;
-}
-
-/* Add total row highlighting */
-.total-row {
-    font-weight: bold;
-    border-top: 1px solid var(--vscode-foreground);
-    margin-top: 10px;
-    padding-top: 10px;
 }
 
 .file-stats-detailed {
