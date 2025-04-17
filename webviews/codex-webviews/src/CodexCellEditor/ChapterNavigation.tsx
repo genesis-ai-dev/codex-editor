@@ -7,6 +7,8 @@ import {
     VSCodeRadioGroup,
     VSCodeTag,
     VSCodeCheckbox,
+    VSCodeDropdown,
+    VSCodeOption,
 } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
@@ -440,7 +442,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
-        } 
+        }
         // If current value exceeds new maximum, cap it
         else if (customValue > newEffectiveTotal) {
             const cappedValue = newEffectiveTotal;
@@ -475,7 +477,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             const newDefaultValue = Math.min(5, newEffectiveTotal);
             setNumberOfCellsToAutocomplete(newDefaultValue);
             setCustomValue(newDefaultValue);
-        } 
+        }
         // If current value exceeds new maximum, cap it
         else if (customValue > newEffectiveTotal) {
             const cappedValue = newEffectiveTotal;
@@ -669,7 +671,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 outline: "none",
                                 boxShadow: "0 0 0 1px var(--vscode-focusBorder)",
                                 backgroundColor: "var(--vscode-input-background)",
-                                color: "var(--vscode-input-foreground)"
+                                color: "var(--vscode-input-foreground)",
                             }}
                             className="autocomplete-number-input"
                         />
@@ -771,6 +773,9 @@ interface ChapterNavigationProps {
     translationUnitsForSection: QuillCellContent[];
     isTranslatingCell?: boolean;
     onStopSingleCellTranslation?: () => void;
+    currentSectionId?: number;
+    setCurrentSectionId?: React.Dispatch<React.SetStateAction<number>>;
+    totalSections?: number;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -804,6 +809,9 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     translationUnitsForSection,
     isTranslatingCell = false,
     onStopSingleCellTranslation,
+    currentSectionId = 1,
+    setCurrentSectionId = () => {},
+    totalSections = 1,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -874,6 +882,20 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     };
 
     const buttonGap = "0.5rem";
+
+    // Generate section options for dropdown
+    const sectionOptions = React.useMemo(() => {
+        return Array.from({ length: totalSections }, (_, i) => i + 1);
+    }, [totalSections]);
+
+    // Handle section change
+    const handleSectionChange = (e: any) => {
+        const target = e.target as HTMLSelectElement;
+        const newSection = parseInt(target.value);
+        if (newSection && newSection !== currentSectionId) {
+            setCurrentSectionId(newSection);
+        }
+    };
 
     return (
         <div className="chapter-navigation" style={{ gap: buttonGap }}>
@@ -949,6 +971,22 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 >
                     <i className="codicon codicon-chevron-right"></i>
                 </VSCodeButton>
+
+                {totalSections > 1 && (
+                    <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
+                        <span style={{ marginRight: "0.5rem" }}>Section:</span>
+                        <VSCodeDropdown
+                            onChange={handleSectionChange}
+                            value={currentSectionId.toString()}
+                        >
+                            {sectionOptions.map((section) => (
+                                <VSCodeOption key={section} value={section.toString()}>
+                                    {section} of {totalSections}
+                                </VSCodeOption>
+                            ))}
+                        </VSCodeDropdown>
+                    </div>
+                )}
             </div>
 
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>

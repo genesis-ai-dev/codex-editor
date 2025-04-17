@@ -16,6 +16,9 @@ import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 
+const DEBUG = false;
+const debug = DEBUG ? (...args: any[]) => console.log('[ProjectUtils]', ...args) : () => {};
+
 // Flag to temporarily disable metadata to config sync during direct updates
 let syncDisabled = false;
 const SYNC_DISABLE_TIMEOUT = 2000; // 2 seconds
@@ -25,13 +28,13 @@ const SYNC_DISABLE_TIMEOUT = 2000; // 2 seconds
  * to prevent race conditions during direct updates
  */
 export function disableSyncTemporarily() {
-    console.log("Temporarily disabling metadata-to-config sync");
+    debug("Temporarily disabling metadata-to-config sync");
     syncDisabled = true;
 
     // Re-enable after timeout
     setTimeout(() => {
         syncDisabled = false;
-        console.log("Re-enabled metadata-to-config sync");
+        debug("Re-enabled metadata-to-config sync");
     }, SYNC_DISABLE_TIMEOUT);
 }
 
@@ -470,7 +473,7 @@ export async function updateMetadataFile() {
         // Force read from disk to avoid cache issues
         const projectFileData = await vscode.workspace.fs.readFile(projectFilePath);
         project = JSON.parse(projectFileData.toString());
-        console.log("Read existing metadata.json file");
+        debug("Read existing metadata.json file");
     } catch (error) {
         console.warn("Metadata file does not exist, creating a new one.");
         project = {}; // Initialize an empty project object if the file does not exist
@@ -482,13 +485,13 @@ export async function updateMetadataFile() {
     const existingValidationCount = project.meta?.validationCount;
     const configValidationCount = projectSettings.get("validationCount", 1);
 
-    console.log(
+    debug(
         `Updating metadata file - existing validation count: ${existingValidationCount}, config validation count: ${configValidationCount}`
     );
 
     // Check if we're in a sync disabled state (meaning a direct update is occurring)
     if (syncDisabled) {
-        console.log("Direct update in progress - using config value for validation count");
+        debug("Direct update in progress - using config value for validation count");
     }
 
     // Update project properties
@@ -508,12 +511,12 @@ export async function updateMetadataFile() {
     project.spellcheckIsEnabled = projectSettings.get("spellcheckIsEnabled", false);
 
     // Update other fields as needed
-    console.log("Project settings loaded, preparing to write to metadata.json");
+    debug("Project settings loaded, preparing to write to metadata.json");
 
     try {
         const updatedProjectFileData = Buffer.from(JSON.stringify(project, null, 4), "utf8");
         await vscode.workspace.fs.writeFile(projectFilePath, updatedProjectFileData);
-        console.log(
+        debug(
             "Successfully wrote metadata.json with validation count:",
             project.meta.validationCount
         );
@@ -667,14 +670,14 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 export async function syncMetadataToConfiguration() {
     // Skip if temporarily disabled
     if (syncDisabled) {
-        console.log("Metadata-to-config sync is temporarily disabled, skipping");
+        debug("Metadata-to-config sync is temporarily disabled, skipping");
         return;
     }
 
     try {
         const metadata = await accessMetadataFile();
         if (!metadata || !metadata.meta) {
-            console.log("No metadata or meta object found to sync to configuration");
+            debug("No metadata or meta object found to sync to configuration");
             return;
         }
 
@@ -686,13 +689,13 @@ export async function syncMetadataToConfiguration() {
             "validationCount" in metadata.meta &&
             typeof metadata.meta.validationCount === "number"
         ) {
-            console.log(
+            debug(
                 `Syncing validationCount from metadata (${metadata.meta.validationCount}) to configuration`
             );
 
             const currentConfigValue = config.get("validationCount", 1);
             if (currentConfigValue !== metadata.meta.validationCount) {
-                console.log(
+                debug(
                     `Current config value (${currentConfigValue}) differs from metadata (${metadata.meta.validationCount}), updating...`
                 );
 
@@ -702,7 +705,7 @@ export async function syncMetadataToConfiguration() {
                     vscode.ConfigurationTarget.Workspace
                 );
 
-                console.log(
+                debug(
                     `Configuration updated to match metadata validationCount: ${metadata.meta.validationCount}`
                 );
 
@@ -711,12 +714,12 @@ export async function syncMetadataToConfiguration() {
                     "Update project configuration from metadata"
                 );
             } else {
-                console.log(
+                debug(
                     `Configuration already matches metadata validationCount: ${metadata.meta.validationCount}`
                 );
             }
         } else {
-            console.log("No valid validationCount found in metadata");
+            debug("No valid validationCount found in metadata");
         }
 
         // Add other metadata properties sync here as needed
@@ -728,7 +731,7 @@ export async function syncMetadataToConfiguration() {
 export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-        console.log("No workspace folder found"); // Changed to log since this is expected when no folder is open
+        debug("No workspace folder found"); // Changed to log since this is expected when no folder is open
         return false;
     }
 
@@ -745,7 +748,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         // Sync metadata values to configuration
         await syncMetadataToConfiguration();
     } catch {
-        console.log("No metadata.json file found yet"); // Changed to log since this is expected for new projects
+        debug("No metadata.json file found yet"); // Changed to log since this is expected for new projects
     }
 
     try {
@@ -757,7 +760,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         });
         gitExists = true;
     } catch {
-        console.log("Git repository not initialized yet"); // Changed to log since this is expected for new projects
+        debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
     }
 
     return metadataExists && gitExists;
@@ -775,7 +778,7 @@ export async function accessMetadataFile(): Promise<ProjectMetadata | undefined>
     // Accessing the metadata file
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        console.log("No workspace folder found. Please open a folder to store your project in.");
+        debug("No workspace folder found. Please open a folder to store your project in.");
         return;
     }
     const workspaceFolder = workspaceFolders[0];
@@ -786,7 +789,7 @@ export async function accessMetadataFile(): Promise<ProjectMetadata | undefined>
         return metadata;
     } catch (error) {
         // File doesn't exist or can't be read, which is expected for a new project
-        console.log("Metadata file not found or cannot be read. This is normal for a new project.");
+        debug("Metadata file not found or cannot be read. This is normal for a new project.");
         return;
     }
 }
@@ -909,7 +912,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
             await vscode.workspace.fs.stat(vscode.Uri.file(folder));
             validFolders.push(folder);
         } catch (error) {
-            console.log(`Removing non-existent folder from watched folders: ${folder}`);
+            debug(`Removing non-existent folder from watched folders: ${folder}`);
         }
     }
 
