@@ -73,9 +73,7 @@ export async function setTargetFont() {
             `${defaultFontFamily} ${fallbackFont}`,
             vscode.ConfigurationTarget.Workspace
         );
-        vscode.window.showInformationMessage(
-            `Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`
-        );
+        console.log(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
     }
 }
 enum ConfirmationOptions {

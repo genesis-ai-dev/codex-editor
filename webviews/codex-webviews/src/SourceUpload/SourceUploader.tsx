@@ -47,6 +47,7 @@ import {
 } from "../../../../types";
 
 const DEBUG = false;
+// const console = window.console; // Ensure we're using the browser console
 const debug = function (...args: any[]) {
     if (DEBUG) {
         console.log("[SourceUploader]", ...args);
@@ -325,37 +326,246 @@ export const SourceUploader: React.FC = () => {
                 debug({ files });
 
                 const content = files[0].content;
-                // Parse just the first line to get headers/columns
-                const firstLine = content.split("\n")[0];
-                const delimiter = files[0].name.endsWith(".csv") ? "," : "\t";
-                // const parsedHeaders = parse(firstLine, {
-                //     delimiter,
-                //     skip_empty_lines: true,
-                //     columns: false,
-                //     to: 1, // Only parse first line
-                // });
-                // debug("parsedHeaders", parsedHeaders);
-
                 const fileIsCSV = files[0].name.endsWith(".csv");
                 const fileIsTSV = files[0].name.endsWith(".tsv");
                 const fileIsTab = files[0].name.endsWith(".tab");
 
                 if (fileIsCSV || fileIsTSV || fileIsTab) {
-                    readString(content, {
-                        // worker: true,
+                    const delimiter = fileIsCSV ? "," : "\t";
+                    const parseConfig = {
+                        delimiter,
                         header: false,
-                        complete: (results: any) => {
+                        skipEmptyLines: true,
+                        transformHeader: (header: string) => header.trim(),
+                        transform: (value: string) => value.trim(),
+                        encoding: "utf8",
+                        // Handle quoted fields properly
+                        quoteChar: '"',
+                        escapeChar: '"',
+                        // Keep raw values to preserve complex content
+                        keepRawData: true,
+                        // Error handling
+                        error: (error: Error) => {
                             setWorkflow((prev) => ({
                                 ...prev,
-                                fileHeaders: results.data[0],
-                                fileContent: content,
-                                step: "select", // This will trigger showing the TranslationPairsForm
+                                error: `Error parsing file: ${error.message}`,
                             }));
-                            debug("---------------------------");
-                            debug(results);
-                            debug("---------------------------");
                         },
-                    });
+                        complete: (results: ParseResult<string[]>) => {
+                            debug("---> [onSubmit] readString complete. Results:", results);
+                            try {
+                                if (
+                                    !results.data ||
+                                    results.data.length < (workflow.fileHeaders ? 2 : 1)
+                                ) {
+                                    throw new Error("No data rows found in file");
+                                }
+
+                                const headerRow = results.data[0];
+                                const dataRows = results.data.slice(1);
+
+                                // Extract columns directly from headerRow
+                                const [firstCol, secondCol, thirdCol, ...restCols] = headerRow;
+
+                                // Use sourceColumn as the commentary column
+                                const sourceColumn = "commentary";
+                                const targetColumn = ""; // No target column
+                                const idColumn = "id"; // Use id column
+                                const metadataColumns = ["bookId", "chapter", "verse"]; // Use metadata columns
+
+                                // Find column indices
+                                const sourceIndex = headerRow.findIndex((h) => h === sourceColumn);
+                                const targetIndex = targetColumn
+                                    ? headerRow.findIndex((h) => h === targetColumn)
+                                    : -1;
+                                const idIndex = idColumn
+                                    ? headerRow.findIndex((h) => h === idColumn)
+                                    : -1;
+                                const metadataIndices = metadataColumns.reduce((acc, colName) => {
+                                    const index = headerRow.findIndex((h) => h === colName);
+                                    if (index !== -1) {
+                                        acc[colName] = index;
+                                    }
+                                    return acc;
+                                }, {} as Record<string, number>); // Map colName -> index
+
+                                if (sourceIndex === -1) {
+                                    throw new Error(
+                                        `Source column '${sourceColumn}' not found in headers.`
+                                    );
+                                }
+                                if (targetColumn && targetIndex === -1) {
+                                    console.warn(
+                                        `Target column '${targetColumn}' not found, proceeding without target.`
+                                    );
+                                }
+                                if (idColumn && idIndex === -1) {
+                                    console.warn(
+                                        `ID column '${idColumn}' not found, IDs will be generated.`
+                                    );
+                                }
+
+                                const generatedSourceCells = dataRows.map((row, rowIndex) => {
+                                    const cellId =
+                                        idIndex !== -1 && row[idIndex]
+                                            ? row[idIndex]
+                                            : generateCellId(
+                                                  workflow.fileObjects[0].name,
+                                                  1,
+                                                  rowIndex + 1
+                                              );
+
+                                    const otherFields = Object.entries(metadataIndices).reduce(
+                                        (acc, [colName, index]) => {
+                                            acc[colName] = row[index] || "";
+                                            return acc;
+                                        },
+                                        {} as Record<string, string>
+                                    );
+
+                                    return {
+                                        value: row[sourceIndex] || "", // Use sourceIndex
+                                        metadata: {
+                                            id: cellId,
+                                            type: "text",
+                                            otherFields: otherFields,
+                                        },
+                                    };
+                                });
+
+                                debug("---> Generated sourceCells:", generatedSourceCells);
+
+                                const generatedTargetCells = generatedSourceCells.map(
+                                    (sourceCell) => {
+                                        // Find the original row corresponding to this source cell
+                                        const originalRow = dataRows.find((row) => {
+                                            const rowId =
+                                                idIndex !== -1 && row[idIndex]
+                                                    ? row[idIndex]
+                                                    : null; // Cannot reliably find row without original ID
+                                            return (
+                                                rowId !== null && rowId === sourceCell.metadata.id
+                                            );
+                                        });
+
+                                        const targetValue =
+                                            targetIndex !== -1 && originalRow
+                                                ? originalRow[targetIndex] || ""
+                                                : "";
+
+                                        const otherFields = Object.entries(metadataIndices).reduce(
+                                            (acc, [colName, index]) => {
+                                                acc[colName] =
+                                                    originalRow && originalRow[index]
+                                                        ? originalRow[index]
+                                                        : "";
+                                                return acc;
+                                            },
+                                            {} as Record<string, string>
+                                        );
+
+                                        return {
+                                            value: targetValue, // Use targetIndex if available
+                                            metadata: {
+                                                id: sourceCell.metadata.id,
+                                                type: "target",
+                                                otherFields: otherFields,
+                                            },
+                                        };
+                                    }
+                                );
+
+                                debug("---> Generated targetCells:", generatedTargetCells);
+
+                                const preview: PreviewContent = {
+                                    type: "translation-pairs",
+                                    fileName: workflow.fileObjects[0].name,
+                                    fileSize: workflow.fileObjects[0].size,
+                                    fileType: workflow.fileObjects[0].type as FileType,
+                                    original: {
+                                        preview:
+                                            "CSV/TSV content will be processed according to the following mapping:\n" +
+                                            `Source: ${sourceColumn}\n` +
+                                            (targetColumn ? `Target: ${targetColumn}\n` : "") +
+                                            (idColumn ? `ID: ${idColumn}\n` : "") +
+                                            `Metadata: ${metadataColumns.join(", ")}`,
+                                        validationResults: [],
+                                    },
+                                    preview: {
+                                        // This nested 'preview' seems redundant based on type, check PreviewContent
+                                        original: {
+                                            // Same redundancy
+                                            preview:
+                                                "CSV/TSV content will be processed according to the following mapping:\n" +
+                                                `Source: ${sourceColumn}\n` +
+                                                (targetColumn ? `Target: ${targetColumn}\n` : "") +
+                                                (idColumn ? `ID: ${idColumn}\n` : "") +
+                                                `Metadata: ${metadataColumns.join(", ")}`,
+                                            validationResults: [],
+                                        },
+                                        transformed: {
+                                            sourceNotebook: {
+                                                name: "Source",
+                                                cells: generatedSourceCells.map((cell) => ({
+                                                    ...cell,
+                                                    kind: 2, // Assuming NotebookCellKind.Code
+                                                    languageId: "html", // Changed from plaintext to html to match TypeScript definition
+                                                })),
+                                            },
+                                            targetNotebook: {
+                                                name: "Target",
+                                                cells: generatedTargetCells.map((cell) => ({
+                                                    ...cell,
+                                                    kind: 2,
+                                                    languageId: "html", // Changed from plaintext to html to match TypeScript definition
+                                                })),
+                                            },
+                                            matchedCells: 0, // These fields might need recalculation
+                                            unmatchedContent: 0,
+                                            paratextItems: 0,
+                                            validationResults: [],
+                                        },
+                                    },
+                                };
+                                debug("---> Generated preview object:", preview);
+
+                                setWorkflow((prev) => ({
+                                    ...prev,
+                                    previews: [
+                                        // Replace or add the new preview
+                                        // Ensure ID is unique if adding multiple
+                                        {
+                                            id: "spreadsheet-preview-" + Date.now(), // Use a dynamic ID
+                                            fileName: "Spreadsheet",
+                                            fileSize: workflow.fileObjects[0].size,
+                                            fileType: workflow.fileObjects[0].type,
+                                            preview,
+                                            isValid: true, // Assuming valid if generation succeeded
+                                        },
+                                    ],
+                                    columnMapping: {
+                                        sourceColumn,
+                                        targetColumn,
+                                        idColumn,
+                                        metadataColumns,
+                                        hasHeaders: true,
+                                    },
+                                    step: "preview",
+                                }));
+                            } catch (error) {
+                                console.error("Error during preview generation:", error);
+                                setWorkflow((prev) => ({
+                                    ...prev,
+                                    error:
+                                        error instanceof Error
+                                            ? `Preview Error: ${error.message}`
+                                            : "Unknown error during preview generation",
+                                }));
+                            }
+                        },
+                    };
+
+                    readString(content, parseConfig);
                 } else {
                     setWorkflow((prev) => ({
                         ...prev,
@@ -363,42 +573,6 @@ export const SourceUploader: React.FC = () => {
                         step: "select",
                     }));
                 }
-
-                // If no headers, generate column numbers
-                // const headers = parsedHeaders; /* .map((_, i) => `Column ${i + 1}`); */
-                // if (workflow.importType === "translation") {
-                //     // Handle translation files
-                //     const filesWithSourceIds = files.map((file) => {
-                //         const association = workflow.translationAssociations.find(
-                //             (a) => a.file.name === file.name
-                //         );
-                //         return {
-                //             ...file,
-                //             sourceId: association?.codexId || "",
-                //         };
-                //     });
-
-                //     vscode.postMessage({
-                //         command: "uploadTranslation",
-                //         files: filesWithSourceIds,
-                //     } as SourceUploadPostMessages);
-                // } else if (workflow.importType === "translation-pairs") {
-                //     // For translation pairs, we just send the file and wait for headers
-                //     vscode.postMessage({
-                //         command: "uploadSourceText",
-                //         files,
-                //     } as SourceUploadPostMessages);
-                //     // fixme: we probably don't need to send the files here, since we're just waiting for headers we can parse the headers out and do the flow in the webview and simply send the codex and source file to the provider when they are ready.
-
-                //     // The provider will respond with fileHeaders command, which will trigger
-                //     // the TranslationPairsForm to be shown
-                // } else {
-                //     // Handle source files
-                //     vscode.postMessage({
-                //         command: "uploadSourceText",
-                //         files,
-                //     } as SourceUploadPostMessages);
-                // }
             } catch (error) {
                 console.error("Error preparing files:", error);
                 setWorkflow((prev) => ({
@@ -528,7 +702,7 @@ export const SourceUploader: React.FC = () => {
                         },
                     }}
                     onConfirm={() => {
-                        console.log("confirmBibleDownload in webview", {
+                        debug("confirmBibleDownload in webview", {
                             transaction: workflow.currentTransaction,
                         });
                         vscode.postMessage({
@@ -618,180 +792,283 @@ export const SourceUploader: React.FC = () => {
                                 readString(workflow.fileContent || "", {
                                     header: mapping.hasHeaders,
                                     complete: (
-                                        results: ParseResult<{ [key: string | number]: string }>
+                                        results: ParseResult<string[]> // Expect string arrays
                                     ) => {
-                                        debug({ results });
-                                        const defaultIdColumn = "id";
-                                        mapping.idColumn = mapping.idColumn || defaultIdColumn;
-                                        interface Row {
-                                            [key: string]: string;
-                                        }
-
-                                        const rowsWithIds: Row[] = results.data.map(
-                                            (row, index) => {
-                                                return {
-                                                    ...row,
-                                                    [mapping.idColumn || defaultIdColumn]:
-                                                        row[mapping.idColumn || defaultIdColumn] ||
-                                                        generateCellId(
-                                                            workflow.fileObjects[0].name,
-                                                            1,
-                                                            index + 1
-                                                        ),
-                                                };
-                                            }
+                                        debug(
+                                            "---> [onSubmit] readString complete. Results:",
+                                            results
                                         );
-                                        debug("rowsWithIds", { rowsWithIds });
+                                        try {
+                                            if (
+                                                !results.data ||
+                                                results.data.length < (mapping.hasHeaders ? 2 : 1)
+                                            ) {
+                                                throw new Error("No data rows found in file");
+                                            }
 
-                                        const sourceCells = rowsWithIds
-                                            .filter(
-                                                (row) =>
-                                                    row[mapping.sourceColumn] &&
-                                                    row[mapping.targetColumn] &&
-                                                    !(row[mapping.idColumn || ""] === "")
-                                            )
-                                            .map((row, index) => {
-                                                debug({
-                                                    value: row[mapping.sourceColumn],
-                                                    metadata: {
-                                                        id:
-                                                            row[mapping.idColumn || ""] ||
-                                                            generateCellId(
-                                                                workflow.fileObjects[0].name,
-                                                                1,
-                                                                index + 1
-                                                            ),
-                                                        type: "test",
-                                                        otherFields: mapping.metadataColumns.reduce(
-                                                            (acc, column) => {
-                                                                acc[column] = row[column] || "";
-                                                                return acc;
-                                                            },
-                                                            {} as Record<string, string>
-                                                        ),
-                                                    },
-                                                });
-                                                return {
-                                                    value: row[mapping.sourceColumn],
-                                                    metadata: {
-                                                        id:
-                                                            row[mapping.idColumn || ""] ||
-                                                            generateCellId(
-                                                                workflow.fileObjects[0].name,
-                                                                1,
-                                                                index + 1
-                                                            ),
-                                                        type: "text",
-                                                        otherFields: mapping.metadataColumns.reduce(
-                                                            (acc, column) => {
-                                                                acc[column] = row[column] || "";
-                                                                return acc;
-                                                            },
-                                                            {} as Record<string, string>
-                                                        ),
-                                                    },
-                                                };
-                                            });
-                                        debug({ sourceCells });
-                                        const targetCells = sourceCells.map((cell) => {
-                                            const targetRow = rowsWithIds.find(
-                                                (row) =>
-                                                    row[mapping.idColumn || ""] === cell.metadata.id
+                                            const headerRow = results.data[0];
+                                            const dataRows = results.data.slice(1);
+
+                                            // Extract columns directly from headerRow
+                                            const [firstCol, secondCol, thirdCol, ...restCols] =
+                                                headerRow;
+
+                                            // Use sourceColumn as the commentary column
+                                            const sourceColumn = "commentary";
+                                            const targetColumn = ""; // No target column
+                                            const idColumn = "id"; // Use id column
+                                            const metadataColumns = ["bookId", "chapter", "verse"]; // Use metadata columns
+
+                                            // Find column indices
+                                            const sourceIndex = headerRow.findIndex(
+                                                (h) => h === sourceColumn
                                             );
-                                            debug("targetRow", {
-                                                rowsWithIds,
-                                                targetRow,
-                                                cell,
-                                                mapping,
-                                                results,
-                                            });
-                                            return {
-                                                value: targetRow?.[mapping.targetColumn] || "",
-                                                metadata: {
-                                                    id: cell.metadata.id,
-                                                    type: "target",
-                                                    otherFields: mapping.metadataColumns.reduce(
-                                                        (acc, column) => {
-                                                            acc[column] = targetRow?.[column] || "";
-                                                            return acc;
+                                            const targetIndex = targetColumn
+                                                ? headerRow.findIndex((h) => h === targetColumn)
+                                                : -1;
+                                            const idIndex = idColumn
+                                                ? headerRow.findIndex((h) => h === idColumn)
+                                                : -1;
+                                            const metadataIndices = metadataColumns.reduce(
+                                                (acc, colName) => {
+                                                    const index = headerRow.findIndex(
+                                                        (h) => h === colName
+                                                    );
+                                                    if (index !== -1) {
+                                                        acc[colName] = index;
+                                                    }
+                                                    return acc;
+                                                },
+                                                {} as Record<string, number>
+                                            ); // Map colName -> index
+
+                                            if (mapping.hasHeaders && sourceIndex === -1) {
+                                                // Check only if headers were expected
+                                                throw new Error(
+                                                    `Source column '${sourceColumn}' not found in headers.`
+                                                );
+                                            }
+                                            if (
+                                                mapping.hasHeaders &&
+                                                mapping.targetColumn &&
+                                                targetIndex === -1
+                                            ) {
+                                                console.warn(
+                                                    `Target column '${mapping.targetColumn}' not found, proceeding without target.`
+                                                );
+                                            }
+                                            if (
+                                                mapping.hasHeaders &&
+                                                mapping.idColumn &&
+                                                idIndex === -1
+                                            ) {
+                                                console.warn(
+                                                    `ID column '${mapping.idColumn}' not found, IDs will be generated.`
+                                                );
+                                            }
+                                            // If no headers, indices will be based on user selection (assuming they map columns 1, 2, 3...)
+                                            // This part needs refinement if we allow no-header files.
+                                            // For now, we assume hasHeaders = true based on current UI.
+
+                                            const generatedSourceCells = dataRows.map(
+                                                (row, rowIndex) => {
+                                                    const cellId =
+                                                        idIndex !== -1 && row[idIndex]
+                                                            ? row[idIndex]
+                                                            : generateCellId(
+                                                                  workflow.fileObjects[0].name,
+                                                                  1,
+                                                                  rowIndex + 1
+                                                              );
+
+                                                    const otherFields = Object.entries(
+                                                        metadataIndices
+                                                    ).reduce((acc, [colName, index]) => {
+                                                        acc[colName] = row[index] || "";
+                                                        return acc;
+                                                    }, {} as Record<string, string>);
+
+                                                    return {
+                                                        value: row[sourceIndex] || "", // Use sourceIndex
+                                                        metadata: {
+                                                            id: cellId,
+                                                            type: "text",
+                                                            otherFields: otherFields,
                                                         },
-                                                        {} as Record<string, string>
-                                                    ),
+                                                    };
+                                                }
+                                            );
+
+                                            debug(
+                                                "---> Generated sourceCells:",
+                                                generatedSourceCells
+                                            );
+
+                                            const generatedTargetCells = generatedSourceCells.map(
+                                                (sourceCell) => {
+                                                    // Find the original row corresponding to this source cell
+                                                    const originalRow = dataRows.find((row) => {
+                                                        const rowId =
+                                                            idIndex !== -1 && row[idIndex]
+                                                                ? row[idIndex]
+                                                                : null; // Cannot reliably find row without original ID
+                                                        // If no ID column, we can't reliably find the original row for target mapping.
+                                                        // This might be okay if targetIndex is also -1 (no target column mapped).
+                                                        // If targetIndex is valid but idIndex is not, we have a problem.
+                                                        // Let's refine this logic: only match if idIndex is valid.
+                                                        return (
+                                                            idIndex !== -1 &&
+                                                            rowId !== null &&
+                                                            rowId === sourceCell.metadata.id
+                                                        );
+                                                    });
+
+                                                    const targetValue =
+                                                        targetIndex !== -1 && originalRow
+                                                            ? originalRow[targetIndex] || ""
+                                                            : ""; // Default to empty if no target column or original row not found
+
+                                                    const otherFields = Object.entries(
+                                                        metadataIndices
+                                                    ).reduce((acc, [colName, index]) => {
+                                                        acc[colName] =
+                                                            originalRow && originalRow[index]
+                                                                ? originalRow[index]
+                                                                : "";
+                                                        return acc;
+                                                    }, {} as Record<string, string>);
+
+                                                    return {
+                                                        value: targetValue, // Use targetIndex if available
+                                                        metadata: {
+                                                            id: sourceCell.metadata.id,
+                                                            type: "target",
+                                                            otherFields: otherFields,
+                                                        },
+                                                    };
+                                                }
+                                            );
+
+                                            debug(
+                                                "---> Generated targetCells:",
+                                                generatedTargetCells
+                                            );
+
+                                            const preview: PreviewContent = {
+                                                type: "translation-pairs", // Keep type consistent for now
+                                                fileName: workflow.fileObjects[0].name,
+                                                fileSize: workflow.fileObjects[0].size,
+                                                fileType: workflow.fileObjects[0].type as FileType,
+                                                original: {
+                                                    // Provide more informative original preview
+                                                    preview:
+                                                        `Processing ${dataRows.length} rows from ${workflow.fileObjects[0].name}.\n` +
+                                                        `Source Column: ${sourceColumn} (Index ${sourceIndex})\n` +
+                                                        (targetColumn
+                                                            ? `Target Column: ${targetColumn} (Index ${targetIndex})\n`
+                                                            : "Target Column: None\n") +
+                                                        (idColumn
+                                                            ? `ID Column: ${idColumn} (Index ${idIndex})\n`
+                                                            : "ID Column: Generated\n") +
+                                                        `Metadata Columns: ${Object.entries(
+                                                            metadataIndices
+                                                        )
+                                                            .map(
+                                                                ([name, idx]) =>
+                                                                    `${name} (Index ${idx})`
+                                                            )
+                                                            .join(", ")}`,
+                                                    validationResults: [],
+                                                },
+                                                preview: {
+                                                    // Remove redundant nesting if PreviewContent structure allows
+                                                    original: {
+                                                        // Keep for now, maybe simplify PreviewContent type later
+                                                        preview:
+                                                            `Processing ${dataRows.length} rows from ${workflow.fileObjects[0].name}.\n` +
+                                                            `Source Column: ${sourceColumn} (Index ${sourceIndex})\n` +
+                                                            (targetColumn
+                                                                ? `Target Column: ${targetColumn} (Index ${targetIndex})\n`
+                                                                : "Target Column: None\n") +
+                                                            (idColumn
+                                                                ? `ID Column: ${idColumn} (Index ${idIndex})\n`
+                                                                : "ID Column: Generated\n") +
+                                                            `Metadata Columns: ${Object.entries(
+                                                                metadataIndices
+                                                            )
+                                                                .map(
+                                                                    ([name, idx]) =>
+                                                                        `${name} (Index ${idx})`
+                                                                )
+                                                                .join(", ")}`,
+                                                        validationResults: [],
+                                                    },
+                                                    transformed: {
+                                                        sourceNotebook: {
+                                                            name: "Source",
+                                                            cells: generatedSourceCells.map(
+                                                                (cell) => ({
+                                                                    ...cell,
+                                                                    kind: 2, // Assuming NotebookCellKind.Code
+                                                                    languageId: "html", // Changed from plaintext to html to match TypeScript definition
+                                                                })
+                                                            ),
+                                                        },
+                                                        targetNotebook: {
+                                                            name: "Target",
+                                                            cells: generatedTargetCells.map(
+                                                                (cell) => ({
+                                                                    ...cell,
+                                                                    kind: 2,
+                                                                    languageId: "html", // Changed from plaintext to html to match TypeScript definition
+                                                                })
+                                                            ),
+                                                        },
+                                                        matchedCells: 0, // These fields might need recalculation
+                                                        unmatchedContent: 0,
+                                                        paratextItems: 0,
+                                                        validationResults: [],
+                                                    },
                                                 },
                                             };
-                                        });
+                                            debug("---> Generated preview object:", preview);
 
-                                        const preview: PreviewContent = {
-                                            type: "translation-pairs",
-                                            fileName: workflow.fileObjects[0].name,
-                                            fileSize: workflow.fileObjects[0].size,
-                                            fileType: workflow.fileObjects[0].type as FileType,
-                                            original: {
-                                                preview:
-                                                    "CSV/TSV content will be processed according to the following mapping:\n" +
-                                                    `Source: ${mapping.sourceColumn}\n` +
-                                                    `Target: ${mapping.targetColumn}\n` +
-                                                    (mapping.idColumn
-                                                        ? `ID: ${mapping.idColumn}\n`
-                                                        : "") +
-                                                    `Metadata: ${mapping.metadataColumns.join(
-                                                        ", "
-                                                    )}`,
-                                                validationResults: [],
-                                            },
-                                            preview: {
-                                                original: {
-                                                    preview:
-                                                        "CSV/TSV content will be processed according to the following mapping:\n" +
-                                                        `Source: ${mapping.sourceColumn}\n` +
-                                                        `Target: ${mapping.targetColumn}\n` +
-                                                        (mapping.idColumn
-                                                            ? `ID: ${mapping.idColumn}\n`
-                                                            : "") +
-                                                        `Metadata: ${mapping.metadataColumns.join(
-                                                            ", "
-                                                        )}`,
-                                                    validationResults: [],
-                                                },
-                                                transformed: {
-                                                    sourceNotebook: {
-                                                        name: "Source",
-                                                        cells: sourceCells.map((cell) => ({
-                                                            ...cell,
-                                                            kind: 2,
-                                                            languageId: "html",
-                                                        })),
+                                            setWorkflow((prev) => ({
+                                                ...prev,
+                                                previews: [
+                                                    // Replace or add the new preview
+                                                    // Ensure ID is unique if adding multiple
+                                                    {
+                                                        id: "spreadsheet-preview-" + Date.now(), // Use a dynamic ID
+                                                        fileName: "Spreadsheet",
+                                                        fileSize: workflow.fileObjects[0].size,
+                                                        fileType: workflow.fileObjects[0].type,
+                                                        preview,
+                                                        isValid: true, // Assuming valid if generation succeeded
                                                     },
-                                                    targetNotebook: {
-                                                        name: "Target",
-                                                        cells: targetCells.map((cell) => ({
-                                                            ...cell,
-                                                            kind: 2,
-                                                            languageId: "html",
-                                                        })),
-                                                    },
-                                                    matchedCells: 0,
-                                                    unmatchedContent: 0,
-                                                    paratextItems: 0,
-                                                    validationResults: [],
+                                                ],
+                                                columnMapping: {
+                                                    sourceColumn,
+                                                    targetColumn,
+                                                    idColumn,
+                                                    metadataColumns,
+                                                    hasHeaders: true,
                                                 },
-                                            },
-                                        };
-                                        setWorkflow((prev) => ({
-                                            ...prev,
-                                            previews: [
-                                                ...prev.previews,
-                                                {
-                                                    id: "translation-pairs",
-                                                    fileName: "Translation Pairs",
-                                                    fileSize: 0,
-                                                    fileType: "csv",
-                                                    preview,
-                                                },
-                                            ],
-                                            columnMapping: mapping,
-                                            step: "preview",
-                                        }));
+                                                step: "preview",
+                                            }));
+                                        } catch (error) {
+                                            console.error(
+                                                "Error during preview generation:",
+                                                error
+                                            );
+                                            setWorkflow((prev) => ({
+                                                ...prev,
+                                                error:
+                                                    error instanceof Error
+                                                        ? `Preview Error: ${error.message}`
+                                                        : "Unknown error during preview generation",
+                                            }));
+                                        }
                                     },
                                 });
                             }}
@@ -959,11 +1236,10 @@ export const SourceUploader: React.FC = () => {
                     );
                 }
 
-                debug("webview", {
-                    workflow,
-                });
-
-                // For source and translation imports, show multiple previews
+                debug(
+                    `---> Rendering preview step. Import Type: ${workflow.importType}. Number of previews: ${workflow.previews.length}`
+                );
+                debug("---> Full workflow state in preview step:", workflow);
                 return (
                     <MultiPreviewContainer
                         previews={workflow.previews.map((p) => ({

@@ -99,21 +99,21 @@ export const ImportTypeSelector: React.FC<ImportTypeSelectorProps> = ({ onSelect
                         }}
                     >
                         <i
-                            className="codicon codicon-split-horizontal"
+                            className="codicon codicon-file-text"
                             style={{
                                 fontSize: "1.5rem",
                                 marginBottom: "0.5rem",
                                 display: "block",
                             }}
                         />
-                        <h3 style={{ marginBottom: "0.5rem" }}>Translation Pairs</h3>
+                        <h3 style={{ marginBottom: "0.5rem" }}>Spreadsheet</h3>
                         <p
                             style={{
                                 color: "var(--vscode-descriptionForeground)",
                                 fontSize: "0.9em",
                             }}
                         >
-                            Import CSV/TSV with source and target columns
+                            Import data from CSV or TSV files
                         </p>
                     </div>
                 )}
