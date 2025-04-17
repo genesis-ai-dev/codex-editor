@@ -27,6 +27,7 @@
         "watch:StartupFlow": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:StartupFlow",
         "watch:EditableReactTable": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:EditableReactTable",
         "watch:ProjectManagerView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ProjectManagerView",
+        "watch:NavigationView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:NavigationView",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },
@@ -48,6 +49,7 @@
         "immutability-helper": "^3.1.1",
         "lodash.debounce": "^4.0.8",
         "marked": "^12.0.0",
+        "papaparse": "^5.5.2",
         "pnpm": "^10.6.2",
         "process": "^0.11.10",
         "quill": "^2.0.3",
@@ -81,6 +83,7 @@
         "@types/lodash": "^4.17.7",
         "@types/lodash.debounce": "^4.0.9",
         "@types/node": "^22.8.2",
+        "@types/papaparse": "^5.3.15",
         "@types/quill": "^2.0.14",
         "@types/react": "^18.2.58",
         "@types/react-dom": "^18.2.19",

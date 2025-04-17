@@ -587,6 +587,7 @@ export type EditorPostMessages =
     | { command: "getValidationCount" }
     | { command: "requestUsername" }
     | { command: "stopAutocompleteChapter" }
+    | { command: "jumpToChapter"; chapterNumber: number }
     | {
           command: "makeChildOfCell";
           content: {
@@ -806,6 +807,7 @@ type EditorReceiveMessages =
               hasPending: boolean;
           };
       }
+    | { type: "setChapterNumber"; content: number }
     | {
           type: "providerUpdatesValidationState";
           content: {

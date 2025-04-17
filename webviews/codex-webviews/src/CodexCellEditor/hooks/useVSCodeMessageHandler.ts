@@ -18,7 +18,7 @@ interface UseVSCodeMessageHandlerProps {
     updateVideoUrl: (url: string) => void;
     setAlertColorCodes: Dispatch<SetStateAction<{ [cellId: string]: number }>>;
     recheckAlertCodes: () => void;
-    
+
     // New handlers for provider-centric state management
     updateAutocompletionState?: (state: {
         isProcessing: boolean;
@@ -28,13 +28,13 @@ interface UseVSCodeMessageHandlerProps {
         cellsToProcess: string[];
         progress: number;
     }) => void;
-    
+
     updateSingleCellTranslationState?: (state: {
         isProcessing: boolean;
         cellId?: string;
         progress: number;
     }) => void;
-    
+
     // Keep old handlers for backward compatibility
     autocompleteChapterStart?: (data: { cellIds: string[]; totalCells: number }) => void;
     processingCell?: (data: { cellId: string; index: number; totalCells: number }) => void;
@@ -44,6 +44,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationProgress?: (data: { progress: number }) => void;
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
+    setChapterNumber?: (chapterNumber: number) => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -57,11 +58,11 @@ export const useVSCodeMessageHandler = ({
     updateVideoUrl,
     setAlertColorCodes,
     recheckAlertCodes,
-    
+
     // New handlers
     updateAutocompletionState,
     updateSingleCellTranslationState,
-    
+
     // Legacy handlers
     autocompleteChapterStart,
     processingCell,
@@ -71,6 +72,7 @@ export const useVSCodeMessageHandler = ({
     singleCellTranslationProgress,
     singleCellTranslationCompleted,
     singleCellTranslationFailed,
+    setChapterNumber,
 }: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -108,7 +110,7 @@ export const useVSCodeMessageHandler = ({
                 case "wordAdded":
                     recheckAlertCodes();
                     break;
-                
+
                 // New provider-centric state management
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
@@ -120,7 +122,7 @@ export const useVSCodeMessageHandler = ({
                         updateSingleCellTranslationState(message.state);
                     }
                     break;
-                
+
                 // Legacy messages - keep for backward compatibility
                 case "autocompleteChapterStart":
                     if (autocompleteChapterStart) {
@@ -169,9 +171,14 @@ export const useVSCodeMessageHandler = ({
                             updateCell({
                                 cellId: message.content.cellId,
                                 newContent: message.content.text || "",
-                                progress: message.content.progress
+                                progress: message.content.progress,
                             });
                         }
+                    }
+                    break;
+                case "setChapterNumber":
+                    if (setChapterNumber) {
+                        setChapterNumber(message.content);
                     }
                     break;
             }
@@ -193,11 +200,11 @@ export const useVSCodeMessageHandler = ({
         updateVideoUrl,
         setAlertColorCodes,
         recheckAlertCodes,
-        
+
         // New handlers
         updateAutocompletionState,
         updateSingleCellTranslationState,
-        
+
         // Legacy handlers
         autocompleteChapterStart,
         processingCell,
@@ -207,5 +214,6 @@ export const useVSCodeMessageHandler = ({
         singleCellTranslationProgress,
         singleCellTranslationCompleted,
         singleCellTranslationFailed,
+        setChapterNumber,
     ]);
 };

@@ -26,14 +26,24 @@ import {
     insertDraftsInCurrentEditor,
     CellWithMetadata,
 } from "./zeroDraftIndex";
-import { initializeWordsIndex, getWordFrequencies, getWordsAboveThreshold } from "./wordsIndex";
+import {
+    initializeWordsIndex,
+    getWordFrequencies,
+    getWordsAboveThreshold,
+    WordOccurrence,
+} from "./wordsIndex";
+import { initializeFilesIndex, getFilePairs, getWordCountStats, FileInfo } from "./filesIndex";
 import { updateCompleteDrafts } from "../indexingUtils";
 import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import {
+    registerFileStatsWebviewProvider,
+    updateFileStatsWebview,
+} from "../../../../providers/fileStats/register";
 
-type WordFrequencyMap = Map<string, number>;
+type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
 async function isDocumentAlreadyOpen(uri: vscode.Uri): Promise<boolean> {
     const openTextDocuments = vscode.workspace.textDocuments;
@@ -81,12 +91,16 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         idField: "cellId",
     });
 
-    let wordsIndex: WordFrequencyMap = new Map<string, number>();
+    let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
+    let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
     const debouncedRebuildIndexes = debounce(rebuildIndexes, 3000, {
         leading: true,
         trailing: true,
     });
+
+    // Register file stats webview provider
+    const fileStatsProvider = registerFileStatsWebviewProvider(context, filesIndex);
 
     // Debounced functions for individual indexes
     const debouncedUpdateTranslationPairsIndex = debounce(async (doc: vscode.TextDocument) => {
@@ -116,6 +130,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }, 3000);
 
+    const debouncedUpdateFilesIndex = debounce(async (doc: vscode.TextDocument) => {
+        if (!(await isDocumentAlreadyOpen(doc.uri))) {
+            filesIndex = await initializeFilesIndex();
+        }
+    }, 3000);
+
     const debouncedUpdateZeroDraftIndex = debounce(async (uri: vscode.Uri) => {
         if (!(await isDocumentAlreadyOpen(uri))) {
             await createZeroDraftIndex(zeroDraftIndex, zeroDraftIndex.documentCount === 0);
@@ -133,6 +153,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 sourceTextIndex?.removeAll();
                 zeroDraftIndex?.removeAll();
                 wordsIndex.clear();
+                filesIndex.clear();
             }
 
             // Read all source and target files once
@@ -154,7 +175,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 force || sourceTextIndex.documentCount === 0
             );
             wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+            filesIndex = await initializeFilesIndex();
             await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
+
+            // Update the file stats webview
+            updateFileStatsWebview(filesIndex);
 
             // Update complete drafts
             try {
@@ -196,6 +221,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             debouncedUpdateTranslationPairsIndex(doc);
             debouncedUpdateSourceTextIndex(doc);
             debouncedUpdateWordsIndex(doc);
+            debouncedUpdateFilesIndex(doc);
         }
     });
 
@@ -632,6 +658,125 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     );
 
+    // Add command to get file stats
+    const getFileStatsCommand = vscode.commands.registerCommand(
+        "translators-copilot.getFileStats",
+        async () => {
+            try {
+                const stats = getWordCountStats(filesIndex);
+                const message = `File Stats:\n- Total Files: ${stats.totalFiles}\n- Total Source Words: ${stats.totalSourceWords}\n- Total Codex Words: ${stats.totalCodexWords}`;
+                vscode.window.showInformationMessage(message);
+                return stats;
+            } catch (error) {
+                console.error("Error getting file stats:", error);
+                vscode.window.showErrorMessage(
+                    "Failed to get file stats. Check the logs for details."
+                );
+                return null;
+            }
+        }
+    );
+
+    // Add command to get detailed file info
+    const getFileInfoCommand = vscode.commands.registerCommand(
+        "translators-copilot.getFileInfo",
+        async () => {
+            try {
+                const filePairs = getFilePairs(filesIndex);
+
+                // Create QuickPick items for each file pair
+                const items = filePairs.map((filePair) => ({
+                    label: filePair.codexFile.fileName,
+                    description: `Source: ${filePair.sourceFile.fileName}`,
+                    detail: `Cells: ${filePair.codexFile.totalCells} | Words: ${filePair.codexFile.totalWords}`,
+                    fileId: filePair.codexFile.id,
+                }));
+
+                // Show QuickPick to select a file
+                const selection = await vscode.window.showQuickPick(items, {
+                    placeHolder: "Select a file to view details",
+                    matchOnDescription: true,
+                    matchOnDetail: true,
+                });
+
+                if (!selection) return null; // User cancelled
+
+                // Get the selected file info
+                const fileInfo = filesIndex.get(selection.fileId);
+                if (!fileInfo) return null;
+
+                // Create a virtual document to display the file info
+                const panel = vscode.window.createWebviewPanel(
+                    "fileInfo",
+                    `File Info: ${fileInfo.codexFile.fileName}`,
+                    vscode.ViewColumn.One,
+                    {}
+                );
+
+                // Generate HTML content
+                panel.webview.html = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <style>
+                            body { font-family: Arial, sans-serif; margin: 20px; }
+                            .file-info { margin-bottom: 20px; }
+                            .cell { margin-bottom: 15px; padding: 10px; border: 1px solid #ddd; }
+                            .cell-header { font-weight: bold; margin-bottom: 5px; }
+                            .cell-content { white-space: pre-wrap; }
+                            .stats { color: #666; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>File Information</h1>
+                        
+                        <div class="file-info">
+                            <h2>Codex File</h2>
+                            <p>Name: ${fileInfo.codexFile.fileName}</p>
+                            <p>ID: ${fileInfo.codexFile.id}</p>
+                            <p>Total Cells: ${fileInfo.codexFile.totalCells}</p>
+                            <p>Total Words: ${fileInfo.codexFile.totalWords}</p>
+                        </div>
+                        
+                        <div class="file-info">
+                            <h2>Source File</h2>
+                            <p>Name: ${fileInfo.sourceFile.fileName}</p>
+                            <p>ID: ${fileInfo.sourceFile.id}</p>
+                            <p>Total Cells: ${fileInfo.sourceFile.totalCells}</p>
+                            <p>Total Words: ${fileInfo.sourceFile.totalWords}</p>
+                        </div>
+                        
+                        <h2>Cells</h2>
+                        <div>
+                            ${fileInfo.codexFile.cells
+                                .map(
+                                    (cell, index) => `
+                                <div class="cell">
+                                    <div class="cell-header">Cell ${index + 1} - ID: ${cell.id || "N/A"} - Type: ${cell.type || "N/A"}</div>
+                                    <div class="stats">Word Count: ${cell.wordCount}</div>
+                                    <div class="cell-content">${cell.value}</div>
+                                </div>
+                            `
+                                )
+                                .join("")}
+                        </div>
+                    </body>
+                    </html>
+                `;
+
+                return fileInfo;
+            } catch (error) {
+                console.error("Error getting file info:", error);
+                vscode.window.showErrorMessage(
+                    "Failed to get file info. Check the logs for details."
+                );
+                return null;
+            }
+        }
+    );
+
     // Update the subscriptions
     context.subscriptions.push(
         ...[
@@ -655,6 +800,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             searchSimilarCellIdsCommand,
             findNextUntranslatedSourceCellCommand,
             searchAllCellsCommand,
+            getFileStatsCommand,
+            getFileInfoCommand,
         ]
     );
 

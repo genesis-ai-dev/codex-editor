@@ -105,7 +105,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
 
     // Add a property to track pending validations
-    private pendingValidations: Map<string, { cellId: string; document: CodexCellDocument; shouldValidate: boolean }> = new Map();
+    private pendingValidations: Map<
+        string,
+        { cellId: string; document: CodexCellDocument; shouldValidate: boolean }
+    > = new Map();
+
+    // Class property to track if we've registered the command already
+    public syncChapterCommandRegistered = false;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -134,7 +140,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     private static readonly viewType = "codex.cellEditor";
 
-    constructor(private readonly context: vscode.ExtensionContext) {
+    constructor(protected readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
 
@@ -1199,7 +1205,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // Check if this is a validation request
                 if (request.validationRequest) {
                     debug(`Processing validation request for cell ${request.cellId}`);
-                    
+
                     // Send validation in progress notification to all webviews for this document
                     this.webviewPanels.forEach((panel, docUri) => {
                         if (docUri === request.document.uri.toString()) {
@@ -1207,12 +1213,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 type: "validationInProgress" as any,
                                 content: {
                                     cellId: request.cellId,
-                                    inProgress: true
+                                    inProgress: true,
                                 },
                             });
                         }
                     });
-                    
+
                     try {
                         // Process the validation request using the document's validateCellContent method
                         await request.document.validateCellContent(
@@ -1230,7 +1236,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.translationQueue.shift();
 
                         // Get validated entries from the document for broadcasting to other panels
-                        const validatedEntries = request.document.getCellValidatedBy(request.cellId);
+                        const validatedEntries = request.document.getCellValidatedBy(
+                            request.cellId
+                        );
 
                         // Broadcast updates to all webview panels for this document
                         this.webviewPanels.forEach((panel, docUri) => {
@@ -1240,10 +1248,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     type: "validationInProgress" as any,
                                     content: {
                                         cellId: request.cellId,
-                                        inProgress: false
+                                        inProgress: false,
                                     },
                                 });
-                                
+
                                 // Send validation state update
                                 this.postMessageToWebview(panel, {
                                     type: "providerUpdatesValidationState" as any,
@@ -1254,12 +1262,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 });
                             }
                         });
-                        
+
                         // Resolve the promise to signal completion
                         request.resolve(true);
                     } catch (error) {
                         debug(`Error processing validation for cell ${request.cellId}:`, error);
-                        
+
                         // Send validation error notification
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === request.document.uri.toString()) {
@@ -1268,12 +1276,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     content: {
                                         cellId: request.cellId,
                                         inProgress: false, // Mark as complete even on error
-                                        error: error instanceof Error ? error.message : String(error)
+                                        error:
+                                            error instanceof Error ? error.message : String(error),
                                     },
                                 });
                             }
                         });
-                        
+
                         // Remove from queue and reject the promise
                         this.translationQueue.shift();
                         request.reject(error);
@@ -1438,20 +1447,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         shouldValidate: boolean,
         isPending: boolean
     ): void {
-        debug(`Queueing validation for cell ${cellId}, validate: ${shouldValidate}, pending: ${isPending}`);
-        
+        debug(
+            `Queueing validation for cell ${cellId}, validate: ${shouldValidate}, pending: ${isPending}`
+        );
+
         // If setting to pending, add to the queue
         if (isPending) {
-            this.pendingValidations.set(cellId, { 
-                cellId, 
-                document, 
-                shouldValidate 
+            this.pendingValidations.set(cellId, {
+                cellId,
+                document,
+                shouldValidate,
             });
         } else {
             // If removing from pending, delete from the queue
             this.pendingValidations.delete(cellId);
         }
-        
+
         // Notify webviews of pending validation status updates
         this.updatePendingValidationsUI();
     }
@@ -1474,8 +1485,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 type: "pendingValidationsUpdate" as any,
                 content: {
                     count: this.pendingValidations.size,
-                    hasPending: this.hasPendingValidations()
-                }
+                    hasPending: this.hasPendingValidations(),
+                },
             });
         });
     }
@@ -1483,79 +1494,82 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Method to apply all pending validations
     public async applyPendingValidations(): Promise<void> {
         debug(`Applying ${this.pendingValidations.size} pending validations`);
-        
+
         if (this.pendingValidations.size === 0) {
             return;
         }
-        
+
         // Create a new cancellation token source for this batch
         const cancelTokenSource = new vscode.CancellationTokenSource();
-        
+
         // Start progress indicator
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: "Applying validations",
-                cancellable: true
+                cancellable: true,
             },
             async (progress, token) => {
                 // Link our cancellation token with the progress cancellation
                 token.onCancellationRequested(() => {
                     cancelTokenSource.cancel();
                 });
-                
+
                 // Convert pending validations to an array
                 const validationsToProcess = Array.from(this.pendingValidations.values());
                 const totalValidations = validationsToProcess.length;
-                
+
                 // Create a list of cell IDs to clear pending state
-                const cellIdsToUpdate: string[] = validationsToProcess.map(v => v.cellId);
-                
+                const cellIdsToUpdate: string[] = validationsToProcess.map((v) => v.cellId);
+
                 try {
                     // Group validations by document to avoid repeated saves
-                    const validationsByDocument = new Map<string, {
-                        document: CodexCellDocument,
-                        validations: { cellId: string, shouldValidate: boolean }[]
-                    }>();
-                    
+                    const validationsByDocument = new Map<
+                        string,
+                        {
+                            document: CodexCellDocument;
+                            validations: { cellId: string; shouldValidate: boolean }[];
+                        }
+                    >();
+
                     // First group validations by document
-                    validationsToProcess.forEach(validation => {
+                    validationsToProcess.forEach((validation) => {
                         const docUri = validation.document.uri.toString();
                         if (!validationsByDocument.has(docUri)) {
                             validationsByDocument.set(docUri, {
                                 document: validation.document,
-                                validations: []
+                                validations: [],
                             });
                         }
                         validationsByDocument.get(docUri)!.validations.push({
                             cellId: validation.cellId,
-                            shouldValidate: validation.shouldValidate
+                            shouldValidate: validation.shouldValidate,
                         });
                     });
-                    
+
                     // Now process each document's validations
                     const allDocuments = Array.from(validationsByDocument.values());
                     let processedCount = 0;
-                    
+
                     for (const docEntry of allDocuments) {
                         const { document, validations } = docEntry;
-                        
+
                         // Process all validations for this document
                         for (const validation of validations) {
                             // Check if cancelled
                             if (cancelTokenSource.token.isCancellationRequested) {
-                                debug('Validation batch was cancelled');
+                                debug("Validation batch was cancelled");
                                 break;
                             }
-                            
+
                             processedCount++;
-                            
+
                             // Update progress
-                            progress.report({ 
+                            progress.report({
                                 message: `Processing ${processedCount} of ${totalValidations}`,
-                                increment: 100 / totalValidations 
+                                increment: 100 / totalValidations,
                             });
-                            
+
                             // Process this validation but don't save document yet
                             // Just update the document in memory
                             try {
@@ -1566,21 +1580,23 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                             type: "validationInProgress" as any,
                                             content: {
                                                 cellId: validation.cellId,
-                                                inProgress: true
+                                                inProgress: true,
                                             },
                                         });
                                     }
                                 });
-                                
+
                                 // Process validation but don't save
                                 await document.validateCellContent(
                                     validation.cellId,
                                     validation.shouldValidate
                                 );
-                                
+
                                 // Get validated entries for UI update
-                                const validatedEntries = document.getCellValidatedBy(validation.cellId);
-                                
+                                const validatedEntries = document.getCellValidatedBy(
+                                    validation.cellId
+                                );
+
                                 // Update UI with validation result
                                 this.webviewPanels.forEach((panel, docUri) => {
                                     if (docUri === document.uri.toString()) {
@@ -1589,10 +1605,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                             type: "validationInProgress" as any,
                                             content: {
                                                 cellId: validation.cellId,
-                                                inProgress: false
+                                                inProgress: false,
                                             },
                                         });
-                                        
+
                                         // Send validation state update
                                         this.postMessageToWebview(panel, {
                                             type: "providerUpdatesValidationState" as any,
@@ -1604,8 +1620,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     }
                                 });
                             } catch (error) {
-                                debug(`Error processing validation for cell ${validation.cellId}:`, error);
-                                
+                                debug(
+                                    `Error processing validation for cell ${validation.cellId}:`,
+                                    error
+                                );
+
                                 // Send validation error notification
                                 this.webviewPanels.forEach((panel, docUri) => {
                                     if (docUri === document.uri.toString()) {
@@ -1614,62 +1633,71 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                             content: {
                                                 cellId: validation.cellId,
                                                 inProgress: false,
-                                                error: error instanceof Error ? error.message : String(error)
+                                                error:
+                                                    error instanceof Error
+                                                        ? error.message
+                                                        : String(error),
                                             },
                                         });
                                     }
                                 });
                             }
                         }
-                        
+
                         // After processing all validations for this document, save it once
                         if (!cancelTokenSource.token.isCancellationRequested && document.isDirty) {
-                            debug(`Saving document ${document.uri.toString()} after batch validation`);
+                            debug(
+                                `Saving document ${document.uri.toString()} after batch validation`
+                            );
                             await document.save(new vscode.CancellationTokenSource().token);
                         }
                     }
-                    
+
                     // Only clear the pending validations after all have been processed
                     if (!cancelTokenSource.token.isCancellationRequested) {
                         // Clear all pending validations
                         this.pendingValidations.clear();
-                        
+
                         // Notify webviews that pending state should be cleared
                         this.webviewPanels.forEach((panel) => {
                             this.postMessageToWebview(panel, {
                                 type: "pendingValidationCleared" as any,
                                 content: {
-                                    cellIds: cellIdsToUpdate
-                                }
+                                    cellIds: cellIdsToUpdate,
+                                },
                             });
-                            
+
                             // Also send a specific message to indicate validation application is complete
                             this.postMessageToWebview(panel, {
-                                type: "validationsApplied" as any
+                                type: "validationsApplied" as any,
                             });
                         });
-                        
+
                         // Update UI
                         this.updatePendingValidationsUI();
-                        
+
                         // Show success notification
-                        vscode.window.showInformationMessage(`Successfully processed ${totalValidations} validations`);
+                        vscode.window.showInformationMessage(
+                            `Successfully processed ${totalValidations} validations`
+                        );
                     } else {
                         // If the operation was cancelled, also notify webviews
                         this.webviewPanels.forEach((panel) => {
                             this.postMessageToWebview(panel, {
-                                type: "validationsApplied" as any
+                                type: "validationsApplied" as any,
                             });
                         });
                     }
                 } catch (error) {
-                    debug('Error applying validations batch:', error);
-                    vscode.window.showErrorMessage(`Error applying validations: ${error instanceof Error ? error.message : String(error)}`);
-                    
+                    debug("Error applying validations batch:", error);
+                    vscode.window.showErrorMessage(
+                        `Error applying validations: ${error instanceof Error ? error.message : String(error)}`
+                    );
+
                     // Notify webviews of completion even on error
                     this.webviewPanels.forEach((panel) => {
                         this.postMessageToWebview(panel, {
-                            type: "validationsApplied" as any
+                            type: "validationsApplied" as any,
                         });
                     });
                 } finally {
@@ -1710,31 +1738,38 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add a method to clear all pending validations without applying them
     public clearPendingValidations(): void {
         debug(`Clearing ${this.pendingValidations.size} pending validations without applying them`);
-        
+
         if (this.pendingValidations.size === 0) {
             return;
         }
-        
+
         // Get a list of cell IDs that have pending validations
-        const cellIdsToUpdate: string[] = Array.from(this.pendingValidations.values()).map(v => v.cellId);
-        
+        const cellIdsToUpdate: string[] = Array.from(this.pendingValidations.values()).map(
+            (v) => v.cellId
+        );
+
         // Clear the pending validations map
         this.pendingValidations.clear();
-        
+
         // Notify webviews that pending state should be cleared
         this.webviewPanels.forEach((panel) => {
             this.postMessageToWebview(panel, {
                 type: "pendingValidationCleared" as any,
                 content: {
-                    cellIds: cellIdsToUpdate
-                }
+                    cellIds: cellIdsToUpdate,
+                },
             });
         });
-        
+
         // Update UI
         this.updatePendingValidationsUI();
-        
+
         // Show info notification
         vscode.window.showInformationMessage("Pending validations cleared");
+    }
+
+    // Add a method to expose webviewPanels in a controlled way
+    public getWebviewPanels(): Map<string, vscode.WebviewPanel> {
+        return this.webviewPanels;
     }
 }

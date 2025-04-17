@@ -73,31 +73,47 @@ export interface WorkflowState {
     importType: ImportType | null;
     selectedFiles: string[];
     fileObjects: File[];
-    fileHeaders?: string[]; // Add this for CSV/TSV headers
+    fileHeaders?: string[];
     fileContent?: string;
+    dataPreview?: string[][];
     translationAssociations: Array<{ file: File; codexId: string }>;
+    availableCodexFiles?: Array<{ id: string; name: string; path: string }>;
+    error?: string;
+    preview?: PreviewContent;
     previews: Array<{
         id: string;
         fileName: string;
         fileSize: number;
+        fileType: string;
         preview: PreviewContent;
+        isValid?: boolean;
         isRejected?: boolean;
     }>;
-    processingStages: ProcessingStages;
-    error?: string;
     progress?: {
         message: string;
         increment: number;
     };
-    preview?: PreviewContent;
-    currentTransaction?: any;
+    processingStages: Record<
+        string,
+        {
+            label: string;
+            description: string;
+            status: ProcessingStatus;
+        }
+    >;
     bibleDownload?: BibleDownloadState;
-    availableCodexFiles?: Array<{ id: string; name: string; path: string }>;
+    currentTransaction?: any;
     columnMapping?: {
         sourceColumn: string;
-        targetColumn: string;
+        targetColumn?: string;
         idColumn?: string;
         metadataColumns: string[];
+        hasHeaders: boolean;
+    };
+    parseConfig?: {
+        delimiter: string;
+        hasHeaders: boolean;
+        totalRows: number;
     };
 }
 

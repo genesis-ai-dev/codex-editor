@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.3.6",
+    "version": "0.3.9",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -20,7 +20,8 @@
     "activationEvents": [
         "onCustomEditor:sourceUploadProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
-        "onStartupFinished"
+        "onStartupFinished",
+        "onView:codex-editor.navigation"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -29,12 +30,6 @@
                 "command": "extension.triggerInlineCompletion",
                 "key": "alt+z",
                 "when": "editorTextFocus && !inputDisabled"
-            }
-        ],
-        "viewsWelcome": [
-            {
-                "view": "codexNotebookTreeView",
-                "contents": "Welcome to the Codex Translation Editor! When you bookmark cells in your Codex notebook, you will see navigation shortcuts here."
             }
         ],
         "notebookEditorDecorations": [
@@ -59,13 +54,13 @@
                     "contextualTitle": "Parallel Passages"
                 }
             ],
-            "codexNotebookTreeView": [
+            "codex-files-view": [
                 {
-                    "id": "codexNotebookTreeView",
-                    "name": "Codex Notebooks",
-                    "visibility": "visible",
-                    "initialSize": 1,
-                    "icon": "$(compass)"
+                    "type": "webview",
+                    "id": "codex-editor.navigation",
+                    "name": "Navigation",
+                    "icon": "$(compass)",
+                    "contextualTitle": "Navigation"
                 }
             ],
             "comments-sidebar-view": [
@@ -113,11 +108,6 @@
                 {
                     "id": "codex-files-view",
                     "title": "Navigation",
-                    "icon": "$(files)"
-                },
-                {
-                    "id": "codexNotebookTreeView",
-                    "title": "Navigation",
                     "icon": "$(compass)"
                 },
                 {
@@ -150,11 +140,6 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "codexNotebookTreeView.refresh",
-                    "when": "view == codexNotebookTreeView",
-                    "group": "navigation"
-                },
-                {
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
                     "group": "navigation"
@@ -164,11 +149,6 @@
                 {
                     "command": "dictionaryTable.showDictionaryTable",
                     "when": "view == dictionaryTable",
-                    "group": "navigation"
-                },
-                {
-                    "command": "nextGenCodexTreeView.openFile",
-                    "when": "view == codexNotebookTreeView && viewItem == codexDocument",
                     "group": "navigation"
                 }
             ],
@@ -192,6 +172,18 @@
                     "command": "codex-editor-extension.triggerInlineCompletion",
                     "title": "Translators Copilot: Autocomplete",
                     "when": "editorTextFocus && editorLangId == scripture"
+                },
+                {
+                    "command": "translators-copilot.getFileStats",
+                    "title": "Translators Copilot: Show File Statistics"
+                },
+                {
+                    "command": "translators-copilot.getFileInfo",
+                    "title": "Translators Copilot: Show Detailed File Information"
+                },
+                {
+                    "command": "translators-copilot.showFileStatsView",
+                    "title": "Translators Copilot: Show Translation Progress View"
                 }
             ]
         },
@@ -475,6 +467,12 @@
                 "category": "Translators Copilot"
             },
             {
+                "command": "translators-copilot.showFileStatsView",
+                "title": "Show Translation Progress",
+                "icon": "$(graph)",
+                "category": "Translators Copilot"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"
@@ -516,18 +514,8 @@
                 "title": "Create Codex Project"
             },
             {
-                "command": "codexNotebookTreeView.refresh",
-                "title": "Refresh",
-                "icon": "$(refresh)"
-            },
-            {
                 "command": "codex-editor-extension.analyzeEdits",
                 "title": "Analyze Edits"
-            },
-            {
-                "command": "codexNotebookTreeView.openSection",
-                "title": "Open",
-                "icon": "$(arrow-right)"
             },
             {
                 "command": "dictionaryTable.showDictionaryTable",
@@ -649,11 +637,6 @@
                 "category": "Codex Project Manager"
             },
             {
-                "command": "codexNotebookTreeView.openSourceFile",
-                "title": "Open Source File",
-                "icon": "$(open-preview)"
-            },
-            {
                 "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
                 "title": "Search Source Cells"
             },
@@ -709,6 +692,14 @@
             {
                 "command": "codex-project-manager.openExportView",
                 "title": "Open Export View"
+            },
+            {
+                "command": "translators-copilot.getFileStats",
+                "title": "Translators Copilot: Show File Statistics"
+            },
+            {
+                "command": "translators-copilot.getFileInfo",
+                "title": "Translators Copilot: Show Detailed File Information"
             }
         ],
         "notebooks": [

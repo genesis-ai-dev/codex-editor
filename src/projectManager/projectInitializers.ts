@@ -73,9 +73,7 @@ export async function setTargetFont() {
             `${defaultFontFamily} ${fallbackFont}`,
             vscode.ConfigurationTarget.Workspace
         );
-        vscode.window.showInformationMessage(
-            `Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`
-        );
+        console.log(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
     }
 }
 enum ConfirmationOptions {
@@ -94,12 +92,12 @@ export async function initializeProject(shouldImportUSFM: boolean) {
         );
     }
 
-    try {
-        // FIXME: do we need to do this here?? we refresh at the end of this function anyway
-        await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
-    } catch (error) {
-        console.log("Error calling commands of outside extension", error);
-    }
+    // try {
+    //     // FIXME: do we need to do this here?? we refresh at the end of this function anyway
+    //     await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+    // } catch (error) {
+    //     console.log("Error calling commands of outside extension", error);
+    // }
 
     vscode.window.withProgress(
         {
@@ -223,11 +221,11 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                 vscode.window.showErrorMessage(`Failed to initialize new project: ${error}`);
             }
 
-            try {
-                await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
-            } catch (error) {
-                console.log("Error calling commands of outside extension", error);
-            }
+            // try {
+            //     await vscode.commands.executeCommand("codexNotebookTreeView.refresh");
+            // } catch (error) {
+            //     console.log("Error calling commands of outside extension", error);
+            // }
         }
     );
 }

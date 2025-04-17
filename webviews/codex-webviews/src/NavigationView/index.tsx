@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, FormEventHandler } from "react";
 import { createRoot } from "react-dom/client";
 import {
     VSCodeButton,
@@ -114,6 +114,7 @@ const styles = {
         flex: 1,
         fontSize: "13px",
         color: "var(--vscode-foreground)",
+        fontFeatureSettings: "'kern' 1, 'liga' 1",
     },
     icon: {
         fontSize: "14px",
@@ -162,6 +163,36 @@ const styles = {
         flexDirection: "column" as const,
         gap: "1px",
     },
+    noResults: {
+        padding: "16px",
+        textAlign: "center" as const,
+        color: "var(--vscode-descriptionForeground)",
+    },
+};
+
+// Helper function to sort items alphanumerically
+const sortAlphanumerically = (a: CodexItem, b: CodexItem) => {
+    // Extract any numbers from the labels
+    const aMatch = a.label.match(/\d+/);
+    const bMatch = b.label.match(/\d+/);
+
+    if (aMatch && bMatch) {
+        const aNum = parseInt(aMatch[0]);
+        const bNum = parseInt(bMatch[0]);
+        if (aNum !== bNum) {
+            return aNum - bNum;
+        }
+    }
+
+    return a.label.localeCompare(b.label);
+};
+
+// Helper function to clean up label display
+const cleanLabelForDisplay = (label: string) => {
+    return label
+        .replace(/[-_]/g, " ") // Replace hyphens and underscores with spaces
+        .replace(/LOCALLY\d*$/, "") // Remove 'LOCALLY' and any numbers after it
+        .trim(); // Remove any extra spaces
 };
 
 function NavigationView() {
@@ -206,6 +237,15 @@ function NavigationView() {
         });
     };
 
+    const handleSearch: FormEventHandler<HTMLElement> & ((e: Event) => unknown) = (e) => {
+        const target = e.target as HTMLInputElement;
+        setState((prev) => ({ ...prev, searchQuery: target.value }));
+    };
+
+    const handleRefresh = () => {
+        vscode.postMessage({ command: "refresh" });
+    };
+
     const openFile = (item: CodexItem) => {
         // Get the file system path from the URI
         const uri = item.uri.toString();
@@ -217,6 +257,32 @@ function NavigationView() {
             uri: fsPath,
             type: item.type,
         });
+    };
+
+    const filterItems = (items: CodexItem[]): CodexItem[] => {
+        if (!state.searchQuery) return items;
+
+        const searchLower = state.searchQuery.toLowerCase();
+
+        return items
+            .map((item) => {
+                if (item.type === "corpus" && item.children) {
+                    const filteredChildren = item.children
+                        .filter((child) => child.label.toLowerCase().includes(searchLower))
+                        .sort(sortAlphanumerically);
+
+                    if (filteredChildren.length > 0) {
+                        return {
+                            ...item,
+                            children: filteredChildren,
+                        };
+                    }
+                    return null;
+                }
+
+                return item.label.toLowerCase().includes(searchLower) ? item : null;
+            })
+            .filter((item): item is CodexItem => item !== null);
     };
 
     const renderProgressSection = (progress?: number) => {
@@ -247,74 +313,44 @@ function NavigationView() {
     const renderItem = (item: CodexItem) => {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
-        const icon = isGroup
-            ? isExpanded
-                ? "chevron-down"
-                : "chevron-right"
-            : item.type === "dictionary"
-            ? "book"
-            : "notebook";
-
-        if (isGroup) {
-            return (
-                <div key={item.uri.toString()}>
-                    <div
-                        style={styles.groupItem}
-                        onClick={() => toggleGroup(item.label)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                                toggleGroup(item.label);
-                                e.preventDefault();
-                            }
-                        }}
-                    >
-                        <div style={styles.itemHeader}>
-                            <i className={`codicon codicon-${icon}`} style={styles.icon} />
-                            <span style={styles.label}>{item.label}</span>
-                            {item.progress === 100 && (
-                                <i className="codicon codicon-check" style={styles.checkIcon} />
-                            )}
-                        </div>
-                    </div>
-                    {isExpanded && item.children && (
-                        <div style={styles.childrenContainer}>
-                            {item.children.map((child) => renderItem(child))}
-                        </div>
-                    )}
-                </div>
-            );
-        }
+        const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
+        const displayLabel = cleanLabelForDisplay(item.label);
 
         return (
-            <div key={item.uri.toString()}>
+            <div key={item.label}>
                 <div
-                    style={styles.item}
-                    onClick={() => openFile(item)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                            openFile(item);
-                            e.preventDefault();
-                        }
-                    }}
+                    style={isGroup ? styles.groupItem : styles.item}
+                    onClick={() => (isGroup ? toggleGroup(item.label) : openFile(item))}
                 >
-                    <div style={styles.itemContent}>
-                        <div style={styles.itemHeader}>
-                            <i className={`codicon codicon-${icon}`} style={styles.icon} />
-                            <span style={styles.label}>{item.label}</span>
-                            {item.progress === 100 && (
-                                <i className="codicon codicon-check" style={styles.checkIcon} />
-                            )}
-                        </div>
-                        {renderProgressSection(item.progress)}
+                    <div style={styles.itemHeader}>
+                        {isGroup && (
+                            <i
+                                className={`codicon codicon-${
+                                    isExpanded ? "chevron-down" : "chevron-right"
+                                }`}
+                                style={styles.icon}
+                            />
+                        )}
+                        <i className={`codicon codicon-${icon}`} style={styles.icon} />
+                        <span style={styles.label}>{displayLabel}</span>
+                        {item.progress === 100 && (
+                            <i className="codicon codicon-check" style={styles.checkIcon} />
+                        )}
                     </div>
+                    {renderProgressSection(item.progress)}
                 </div>
+                {isGroup && isExpanded && item.children && (
+                    <div style={styles.childrenContainer}>
+                        {item.children.sort(sortAlphanumerically).map(renderItem)}
+                    </div>
+                )}
             </div>
         );
     };
+
+    const filteredCodexItems = filterItems(state.codexItems);
+    const filteredDictionaryItems = filterItems(state.dictionaryItems);
+    const hasResults = filteredCodexItems.length > 0 || filteredDictionaryItems.length > 0;
 
     return (
         <div style={styles.container}>
@@ -324,40 +360,31 @@ function NavigationView() {
                     <VSCodeTextField
                         placeholder="Search files..."
                         value={state.searchQuery}
-                        onChange={(e: any) =>
-                            setState((prev) => ({ ...prev, searchQuery: e.target.value }))
-                        }
-                        style={{ width: "100%", paddingLeft: "28px" }}
+                        onInput={handleSearch}
+                        style={{ width: "100%" }}
                     />
                 </div>
                 <VSCodeButton
                     appearance="icon"
-                    onClick={() => vscode.postMessage({ command: "refresh" })}
-                    title="Refresh"
+                    onClick={handleRefresh}
                     style={styles.refreshButton}
                 >
-                    <i className="codicon codicon-refresh" style={{ fontSize: "14px" }} />
+                    <i className="codicon codicon-refresh" />
                 </VSCodeButton>
             </div>
-
             <div style={styles.itemsContainer}>
-                {state.codexItems.map((item) => renderItem(item))}
-                {state.dictionaryItems.length > 0 && (
+                {hasResults ? (
                     <>
-                        <VSCodeDivider style={{ margin: "8px 0" }} />
-                        {state.dictionaryItems.map((item) => renderItem(item))}
+                        {filteredCodexItems.map(renderItem)}
+                        {filteredDictionaryItems.map(renderItem)}
                     </>
+                ) : (
+                    <div style={styles.noResults}>No matching files found</div>
                 )}
             </div>
         </div>
     );
 }
 
-export default NavigationView;
-
-// Mount the component
-const root = document.getElementById("root");
-if (root) {
-    const reactRoot = createRoot(root);
-    reactRoot.render(<NavigationView />);
-}
+const root = createRoot(document.getElementById("root")!);
+root.render(<NavigationView />);

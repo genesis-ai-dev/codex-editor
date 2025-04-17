@@ -295,9 +295,9 @@ export class NextGenCodexTreeViewProvider implements vscode.TreeDataProvider<Nex
             treeItem.tooltip = `${element.label}\n${Math.round(element.progress || 0)}% complete`;
         } else if (element.type === "dictionary") {
             treeItem.command = {
-                command: "vscode.open",
+                command: "vscode.openWith",
                 title: "Open Dictionary",
-                arguments: [element.uri],
+                arguments: [element.uri, "codex.dictionaryEditor"],
             };
             treeItem.iconPath = new vscode.ThemeIcon("book");
         } else if (element.type === "corpus") {
