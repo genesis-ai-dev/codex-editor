@@ -174,6 +174,11 @@ export default function Editor(props: EditorProps) {
                             },
                         },
                     },
+                    keyboard: {
+                        bindings: {
+                            "list autofill": false, // This disables the automatic list creation
+                        },
+                    },
                     spellChecker: {},
                 },
             });
