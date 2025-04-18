@@ -656,12 +656,28 @@ export const SourceUploader: React.FC = () => {
                                                     ? Object.keys(results.data[0])
                                                     : [];
 
-                                                const dataRows = results.data.slice(1);
+                                                const dataRows = results.data.slice(
+                                                    safeMapping.hasHeaders ? 1 : 0
+                                                );
 
                                                 debug("Processing data", {
                                                     headerRow,
                                                     totalRows: dataRows.length,
                                                 });
+
+                                                // Log the exact headers with their lengths to debug whitespace issues
+                                                debug("Header details", {
+                                                    headers: headerRow.map((h) => ({
+                                                        text: h,
+                                                        length: h.length,
+                                                        withQuotes: JSON.stringify(h),
+                                                    })),
+                                                });
+
+                                                // Check if the data is an array or object
+                                                const dataRowsType = Array.isArray(dataRows[0])
+                                                    ? "array"
+                                                    : "object";
 
                                                 // Make sure we have valid header values to work with
                                                 const safeHeaders = Array.isArray(headerRow)
@@ -682,12 +698,42 @@ export const SourceUploader: React.FC = () => {
                                                           )
                                                         : -1;
 
-                                                const targetIndex =
-                                                    typeof targetColumn === "string" && targetColumn
-                                                        ? safeHeaders.findIndex(
-                                                              (h) => h === targetColumn
-                                                          )
-                                                        : -1;
+                                                // Add more debugging to understand the issue
+                                                debug("Finding target column", {
+                                                    targetColumn,
+                                                    safeHeaders,
+                                                    dataRowsType,
+                                                    hasTargetKey:
+                                                        dataRows[0] &&
+                                                        typeof dataRows[0] === "object" &&
+                                                        targetColumn in dataRows[0],
+                                                });
+
+                                                // Enhanced target index finding - handles both array and object structures
+                                                let targetIndex = -1;
+                                                if (
+                                                    typeof targetColumn === "string" &&
+                                                    targetColumn
+                                                ) {
+                                                    // First check by index in headers
+                                                    targetIndex = safeHeaders.findIndex(
+                                                        (h) => h === targetColumn
+                                                    );
+
+                                                    // If not found but data is in object format, check if the key exists directly
+                                                    if (
+                                                        targetIndex === -1 &&
+                                                        dataRows.length > 0 &&
+                                                        typeof dataRows[0] === "object" &&
+                                                        !Array.isArray(dataRows[0]) &&
+                                                        targetColumn in dataRows[0]
+                                                    ) {
+                                                        debug(
+                                                            "Found target key directly in data object"
+                                                        );
+                                                        targetIndex = 1; // Set to a non-negative value to indicate it exists
+                                                    }
+                                                }
 
                                                 const idIndex =
                                                     typeof idColumn === "string" && idColumn
@@ -715,7 +761,7 @@ export const SourceUploader: React.FC = () => {
                                                         ? Array.isArray(dataRows[0])
                                                             ? dataRows[0][sourceIndex as number]
                                                             : (dataRows[0] as Record<string, any>)[
-                                                                  sourceColumn as keyof (typeof dataRows)[0]
+                                                                  sourceColumn as string
                                                               ]
                                                         : null,
                                                 });
@@ -741,9 +787,7 @@ export const SourceUploader: React.FC = () => {
                                                 if (
                                                     safeMapping.hasHeaders &&
                                                     sourceIndex === -1 &&
-                                                    !dataRows[0]?.[
-                                                        sourceColumn as keyof (typeof dataRows)[0]
-                                                    ]
+                                                    !(dataRows[0] as any)?.[sourceColumn]
                                                 ) {
                                                     // Check only if headers were expected
                                                     throw new Error(
@@ -752,37 +796,51 @@ export const SourceUploader: React.FC = () => {
                                                 }
 
                                                 // Process each row to extract content and metadata
-                                                const processRow = (rowData: any, rowIndex: number) => {
+                                                const processRow = (
+                                                    rowData: any,
+                                                    rowIndex: number
+                                                ) => {
                                                     try {
                                                         // Extract metadata based on configured columns
                                                         const metadata: Record<string, string> = {};
                                                         Object.entries(metadataIndices).forEach(
                                                             ([key, index]) => {
                                                                 const metadataKey = key as string;
-                                                                const metadataColumnName = metadataColumns[metadataKey as keyof typeof metadataColumns];
-                                                                
+                                                                const metadataColumnName =
+                                                                    metadataColumns[
+                                                                        metadataKey as keyof typeof metadataColumns
+                                                                    ];
+
                                                                 const value = Array.isArray(rowData)
                                                                     ? rowData[index]
-                                                                    : typeof rowData === "object" && typeof metadataColumnName === "string"
+                                                                    : typeof rowData === "object" &&
+                                                                      typeof metadataColumnName ===
+                                                                          "string"
                                                                     ? rowData[metadataColumnName]
                                                                     : undefined;
-                                                                
+
                                                                 if (value !== undefined) {
-                                                                    metadata[metadataKey] = String(value);
+                                                                    metadata[metadataKey] =
+                                                                        String(value);
                                                                 }
                                                             }
                                                         );
 
                                                         // Calculate section ID for pagination
-                                                        const sectionNumber = Math.floor(rowIndex / 10) + 1;
-                                                        
+                                                        const sectionNumber =
+                                                            Math.floor(rowIndex / 10) + 1;
+
                                                         // Get source content
-                                                        const sourceContent = Array.isArray(rowData) 
-                                                            ? rowData[sourceIndex] 
-                                                            : typeof rowData === "object" && sourceColumn && typeof sourceColumn === "string"
-                                                            ? (rowData as Record<string, any>)[sourceColumn] 
+                                                        const sourceContent = Array.isArray(rowData)
+                                                            ? rowData[sourceIndex]
+                                                            : typeof rowData === "object" &&
+                                                              sourceColumn &&
+                                                              typeof sourceColumn === "string"
+                                                            ? (rowData as Record<string, any>)[
+                                                                  sourceColumn
+                                                              ]
                                                             : "";
-                                                            
+
                                                         // Generate cell ID
                                                         const cellId =
                                                             idIndex !== -1 &&
@@ -791,18 +849,30 @@ export const SourceUploader: React.FC = () => {
                                                                 ? String(rowData[idIndex])
                                                                 : idColumn &&
                                                                   typeof rowData === "object" &&
-                                                                  (rowData as Record<string, any>)[idColumn] != null
-                                                                ? String((rowData as Record<string, any>)[idColumn])
+                                                                  (rowData as Record<string, any>)[
+                                                                      idColumn
+                                                                  ] != null
+                                                                ? String(
+                                                                      (
+                                                                          rowData as Record<
+                                                                              string,
+                                                                              any
+                                                                          >
+                                                                      )[idColumn]
+                                                                  )
                                                                 : generateCellId(
-                                                                      workflow.fileObjects?.[0]?.name || "unknown",
+                                                                      workflow.fileObjects?.[0]
+                                                                          ?.name || "unknown",
                                                                       sectionNumber,
                                                                       (rowIndex % 10) + 1
                                                                   );
-                                                        
+
                                                         return {
-                                                            value: sourceContent !== null && sourceContent !== undefined 
-                                                                ? String(sourceContent) 
-                                                                : "",
+                                                            value:
+                                                                sourceContent !== null &&
+                                                                sourceContent !== undefined
+                                                                    ? String(sourceContent)
+                                                                    : "",
                                                             metadata: {
                                                                 id: cellId,
                                                                 type: "text",
@@ -810,12 +880,16 @@ export const SourceUploader: React.FC = () => {
                                                             },
                                                         };
                                                     } catch (error) {
-                                                        console.error("Error processing row:", error);
+                                                        console.error(
+                                                            "Error processing row:",
+                                                            error
+                                                        );
                                                         return {
                                                             value: "",
                                                             metadata: {
                                                                 id: generateCellId(
-                                                                    workflow.fileObjects?.[0]?.name || "unknown",
+                                                                    workflow.fileObjects?.[0]
+                                                                        ?.name || "unknown",
                                                                     0,
                                                                     rowIndex
                                                                 ),
@@ -825,12 +899,12 @@ export const SourceUploader: React.FC = () => {
                                                         };
                                                     }
                                                 };
-                                                
+
                                                 // Process all rows
-                                                const sourceCells = Array.isArray(dataRows) 
+                                                const sourceCells = Array.isArray(dataRows)
                                                     ? dataRows.map(processRow)
                                                     : [];
-                                                    
+
                                                 debug("---> Generated sourceCells:", sourceCells);
 
                                                 // Generate target cells with strict type safety
@@ -852,109 +926,250 @@ export const SourceUploader: React.FC = () => {
                                                                   },
                                                               };
 
-                                                            // Find the original row corresponding to this source cell
-                                                            const originalRow = Array.isArray(
-                                                                dataRows
-                                                            )
-                                                                ? dataRows.find((row) => {
-                                                                      if (!row) return false;
+                                                          // Find the original row corresponding to this source cell
+                                                          let originalRow: any = null;
 
-                                                                      if (idIndex === -1)
-                                                                          return false;
+                                                          // If we have an ID index and can locate the row by ID
+                                                          if (
+                                                              idIndex !== -1 &&
+                                                              Array.isArray(dataRows)
+                                                          ) {
+                                                              originalRow = dataRows.find((row) => {
+                                                                  if (!row) return false;
 
-                                                                      const rowId =
-                                                                          row[idIndex];
-                                                                      const cellId =
-                                                                          sourceCell?.metadata
-                                                                              ?.id;
+                                                                  const rowId = row[idIndex];
+                                                                  const cellId =
+                                                                      sourceCell?.metadata?.id;
 
-                                                                      return (
-                                                                          rowId != null &&
-                                                                          cellId != null &&
-                                                                          String(rowId) ===
-                                                                              String(cellId)
+                                                                  return (
+                                                                      rowId != null &&
+                                                                      cellId != null &&
+                                                                      String(rowId) ===
+                                                                          String(cellId)
+                                                                  );
+                                                              });
+                                                          }
+
+                                                          // Fall back to using the source cell's position in the array if we couldn't find by ID
+                                                          if (
+                                                              !originalRow &&
+                                                              Array.isArray(dataRows) &&
+                                                              Array.isArray(sourceCells)
+                                                          ) {
+                                                              // Find the index of this source cell in the sourceCells array
+                                                              const cellIndex =
+                                                                  sourceCells.findIndex(
+                                                                      (cell) => cell === sourceCell
+                                                                  );
+
+                                                              // If found and in range of dataRows, use the corresponding row
+                                                              if (
+                                                                  cellIndex !== -1 &&
+                                                                  cellIndex < dataRows.length
+                                                              ) {
+                                                                  originalRow = dataRows[cellIndex];
+                                                                  debug(
+                                                                      `Using position-based row matching for index ${cellIndex}`
+                                                                  );
+                                                              }
+                                                          }
+
+                                                          // Extract the target value, ensuring we handle array vs object data structures
+                                                          let targetValue: string | null = null;
+
+                                                          // Get detailed info about the target column
+                                                          const targetColumnInOriginalRow =
+                                                              Object.keys(originalRow).some(
+                                                                  (key) => key === targetColumn
+                                                              );
+
+                                                          debug(
+                                                              "Target column extraction details:",
+                                                              {
+                                                                  targetColumn,
+                                                                  originalRowKeys:
+                                                                      Object.keys(originalRow),
+                                                                  targetColumnInOriginalRow,
+                                                              }
+                                                          );
+
+                                                          if (Array.isArray(originalRow)) {
+                                                              const targetIndex =
+                                                                  safeHeaders.indexOf(targetColumn);
+                                                              if (
+                                                                  targetIndex !== -1 &&
+                                                                  originalRow[targetIndex] !==
+                                                                      undefined
+                                                              ) {
+                                                                  targetValue = String(
+                                                                      originalRow[targetIndex]
+                                                                  );
+                                                              }
+                                                          } else {
+                                                              // First try direct key lookup
+                                                              if (
+                                                                  originalRow[targetColumn] !==
+                                                                  undefined
+                                                              ) {
+                                                                  targetValue = String(
+                                                                      originalRow[targetColumn]
+                                                                  );
+                                                              } else {
+                                                                  // Enhanced whitespace handling - try more extensive matching approaches
+                                                                  const trimmedTargetColumn =
+                                                                      targetColumn.trim();
+
+                                                                  // Method 1: Find key that matches when trimmed
+                                                                  let matchingKey = Object.keys(
+                                                                      originalRow
+                                                                  ).find(
+                                                                      (key) =>
+                                                                          key.trim() ===
+                                                                          trimmedTargetColumn
+                                                                  );
+
+                                                                  // Method 2: Find key that contains the target or vice versa
+                                                                  if (!matchingKey) {
+                                                                      matchingKey = Object.keys(
+                                                                          originalRow
+                                                                      ).find(
+                                                                          (key) =>
+                                                                              key
+                                                                                  .trim()
+                                                                                  .includes(
+                                                                                      trimmedTargetColumn
+                                                                                  ) ||
+                                                                              trimmedTargetColumn.includes(
+                                                                                  key.trim()
+                                                                              )
                                                                       );
-                                                                  })
-                                                                : null;
+                                                                  }
 
-                                                            // Safe target value extraction
-                                                            const targetValue =
-                                                                targetIndex !== -1 &&
-                                                                originalRow &&
-                                                                originalRow[targetIndex] !=
-                                                                    null
-                                                                    ? String(
-                                                                          originalRow[
-                                                                              targetIndex
-                                                                          ]
-                                                                      )
-                                                                    : "";
+                                                                  // Method 3: Try case-insensitive matching
+                                                                  if (!matchingKey) {
+                                                                      const lowerTargetColumn =
+                                                                          trimmedTargetColumn.toLowerCase();
+                                                                      matchingKey = Object.keys(
+                                                                          originalRow
+                                                                      ).find(
+                                                                          (key) =>
+                                                                              key
+                                                                                  .trim()
+                                                                                  .toLowerCase() ===
+                                                                              lowerTargetColumn
+                                                                      );
+                                                                  }
 
-                                                            // Create metadata fields safely
-                                                            const otherFields: Record<
-                                                                string,
-                                                                string
-                                                            > = {};
+                                                                  if (matchingKey) {
+                                                                      targetValue = String(
+                                                                          originalRow[matchingKey]
+                                                                      );
+                                                                      debug(
+                                                                          "Found target column with advanced matching:",
+                                                                          {
+                                                                              requestedColumn:
+                                                                                  targetColumn,
+                                                                              matchingColumn:
+                                                                                  matchingKey,
+                                                                              value: targetValue,
+                                                                          }
+                                                                      );
+                                                                  }
+                                                              }
+                                                          }
 
-                                                            // Only process if metadataIndices is a valid object
-                                                            if (
-                                                                metadataIndices &&
-                                                                typeof metadataIndices ===
-                                                                    "object" &&
-                                                                originalRow
-                                                            ) {
-                                                                Object.entries(
-                                                                    metadataIndices
-                                                                ).forEach(
-                                                                    ([colName, index]) => {
-                                                                        if (
-                                                                            colName &&
-                                                                            index != null &&
-                                                                            originalRow[
-                                                                                index
-                                                                            ] != null
-                                                                        ) {
-                                                                            otherFields[
-                                                                                colName
-                                                                            ] = String(
-                                                                                originalRow[
-                                                                                    index
-                                                                                ] || ""
-                                                                            );
-                                                                        }
-                                                                    }
-                                                                );
-                                                            }
+                                                          // Log if we couldn't extract target value
+                                                          if (targetValue === null) {
+                                                              debug(
+                                                                  "Could not extract target value using standard methods",
+                                                                  {
+                                                                      row: originalRow,
+                                                                      targetColumn,
+                                                                  }
+                                                              );
+                                                              // Ensure targetValue is always a string
+                                                              targetValue = "";
+                                                          }
 
-                                                            return {
-                                                                value: targetValue,
-                                                                metadata: {
-                                                                    id:
-                                                                        sourceCell.metadata
-                                                                            ?.id ||
-                                                                    generateCellId(
-                                                                        "unknown",
-                                                                        1,
-                                                                        1
-                                                                    ),
-                                                                    type: "target",
-                                                                    otherFields,
-                                                                },
-                                                            };
-                                                        })
-                                                      : [];
+                                                          // Create metadata fields safely
+                                                          const otherFields: Record<
+                                                              string,
+                                                              string
+                                                          > = {};
 
-                                                    // Create preview object with proper safety checks
-                                                    const preview: PreviewContent = {
-                                                        type: "translation-pairs",
-                                                        fileName:
-                                                            workflow.fileObjects?.[0]?.name ||
-                                                            "unknown",
-                                                        fileSize:
-                                                            workflow.fileObjects?.[0]?.size ||
-                                                            0,
-                                                        fileType: (workflow.fileObjects?.[0]
-                                                            ?.type || "text/plain") as FileType,
+                                                          // Only process if metadataIndices is a valid object
+                                                          if (
+                                                              metadataIndices &&
+                                                              typeof metadataIndices === "object" &&
+                                                              originalRow
+                                                          ) {
+                                                              Object.entries(
+                                                                  metadataIndices
+                                                              ).forEach(([colName, index]) => {
+                                                                  if (
+                                                                      colName &&
+                                                                      index != null &&
+                                                                      originalRow[index] != null
+                                                                  ) {
+                                                                      otherFields[colName] = String(
+                                                                          originalRow[index] || ""
+                                                                      );
+                                                                  }
+                                                              });
+                                                          }
+
+                                                          return {
+                                                              value: targetValue,
+                                                              metadata: {
+                                                                  id:
+                                                                      sourceCell.metadata?.id ||
+                                                                      generateCellId(
+                                                                          "unknown",
+                                                                          1,
+                                                                          1
+                                                                      ),
+                                                                  type: "target",
+                                                                  otherFields,
+                                                              },
+                                                          };
+                                                      })
+                                                    : [];
+
+                                                // Create preview object with proper safety checks
+                                                const preview: PreviewContent = {
+                                                    type: "translation-pairs",
+                                                    fileName:
+                                                        workflow.fileObjects?.[0]?.name ||
+                                                        "unknown",
+                                                    fileSize: workflow.fileObjects?.[0]?.size || 0,
+                                                    fileType: (workflow.fileObjects?.[0]?.type ||
+                                                        "text/plain") as FileType,
+                                                    original: {
+                                                        preview:
+                                                            `Processing ${
+                                                                dataRows.length
+                                                            } rows from ${
+                                                                workflow.fileObjects?.[0]?.name ||
+                                                                "unknown"
+                                                            }.\n` +
+                                                            `Source Column: ${sourceColumn} (Index ${sourceIndex})\n` +
+                                                            (targetColumn
+                                                                ? `Target Column: ${targetColumn} (Index ${targetIndex})\n`
+                                                                : "Target Column: None\n") +
+                                                            (idColumn
+                                                                ? `ID Column: ${idColumn} (Index ${idIndex})\n`
+                                                                : "ID Column: Generated\n") +
+                                                            `Metadata Columns: ${Object.entries(
+                                                                metadataIndices || {}
+                                                            )
+                                                                .map(
+                                                                    ([name, idx]) =>
+                                                                        `${name} (Index ${idx})`
+                                                                )
+                                                                .join(", ")}`,
+                                                        validationResults: [],
+                                                    },
+                                                    preview: {
                                                         original: {
                                                             preview:
                                                                 `Processing ${
@@ -970,129 +1185,76 @@ export const SourceUploader: React.FC = () => {
                                                                 (idColumn
                                                                     ? `ID Column: ${idColumn} (Index ${idIndex})\n`
                                                                     : "ID Column: Generated\n") +
-                                                                `Metadata Columns: ${Object.entries(
+                                                                `Metadata Columns: ${Object.keys(
                                                                     metadataIndices || {}
-                                                                )
-                                                                    .map(
-                                                                        ([name, idx]) =>
-                                                                            `${name} (Index ${idx})`
-                                                                    )
-                                                                    .join(", ")}`,
+                                                                ).join(", ")}`,
                                                             validationResults: [],
                                                         },
-                                                        preview: {
-                                                            original: {
-                                                                preview:
-                                                                    `Processing ${
-                                                                        dataRows.length
-                                                                    } rows from ${
-                                                                        workflow
-                                                                            .fileObjects?.[0]
-                                                                            ?.name || "unknown"
-                                                                    }.\n` +
-                                                                    `Source Column: ${sourceColumn} (Index ${sourceIndex})\n` +
-                                                                    (targetColumn
-                                                                        ? `Target Column: ${targetColumn} (Index ${targetIndex})\n`
-                                                                        : "Target Column: None\n") +
-                                                                    (idColumn
-                                                                        ? `ID Column: ${idColumn} (Index ${idIndex})\n`
-                                                                        : "ID Column: Generated\n") +
-                                                                    `Metadata Columns: ${Object.keys(
-                                                                        metadataIndices || {}
-                                                                    ).join(", ")}`,
-                                                                validationResults: [],
+                                                        transformed: {
+                                                            sourceNotebook: {
+                                                                name: "Source",
+                                                                cells: Array.isArray(sourceCells)
+                                                                    ? sourceCells.map((cell) => ({
+                                                                          ...cell,
+                                                                          kind: 2,
+                                                                          languageId: "html",
+                                                                      }))
+                                                                    : [],
                                                             },
-                                                            transformed: {
-                                                                sourceNotebook: {
-                                                                    name: "Source",
-                                                                    cells: Array.isArray(
-                                                                        sourceCells
-                                                                    )
-                                                                        ? sourceCells.map(
-                                                                              (cell) => ({
-                                                                                  ...cell,
-                                                                                  kind: 2,
-                                                                                  languageId:
-                                                                                      "html",
-                                                                              })
-                                                                        )
-                                                                        : [],
-                                                                },
-                                                                targetNotebook: {
-                                                                    name: "Target",
-                                                                    cells: Array.isArray(
-                                                                        generatedTargetCells
-                                                                    )
-                                                                        ? generatedTargetCells.map(
-                                                                              (cell) => ({
-                                                                                  ...cell,
-                                                                                  kind: 2,
-                                                                                  languageId:
-                                                                                      "html",
-                                                                              })
-                                                                        )
-                                                                        : [],
-                                                                },
-                                                                matchedCells: 0,
-                                                                unmatchedContent: 0,
-                                                                paratextItems: 0,
-                                                                validationResults: [],
+                                                            targetNotebook: {
+                                                                name: "Target",
+                                                                cells: Array.isArray(
+                                                                    generatedTargetCells
+                                                                )
+                                                                    ? generatedTargetCells.map(
+                                                                          (cell) => ({
+                                                                              ...cell,
+                                                                              kind: 2,
+                                                                              languageId: "html",
+                                                                          })
+                                                                      )
+                                                                    : [],
                                                             },
+                                                            matchedCells: 0,
+                                                            unmatchedContent: 0,
+                                                            paratextItems: 0,
+                                                            validationResults: [],
                                                         },
-                                                    };
-                                                    debug(
-                                                        "---> Generated preview object:",
-                                                        preview
-                                                    );
+                                                    },
+                                                };
+                                                debug("---> Generated preview object:", preview);
 
-                                                    // Update workflow state
-                                                    setWorkflow((prev) => ({
-                                                        ...prev,
-                                                        previews: [
-                                                            {
-                                                                id:
-                                                                    "spreadsheet-preview-" +
-                                                                    Date.now(),
-                                                                fileName: "Spreadsheet",
-                                                                fileSize:
-                                                                    workflow.fileObjects?.[0]
-                                                                        ?.size || 0,
-                                                                fileType:
-                                                                    workflow.fileObjects?.[0]
-                                                                        ?.type || "text/plain",
-                                                                preview,
-                                                                isValid: true,
-                                                            },
-                                                        ],
-                                                        columnMapping: {
-                                                            sourceColumn,
-                                                            targetColumn,
-                                                            idColumn,
-                                                            metadataColumns: Array.isArray(
-                                                                metadataColumns
-                                                            )
-                                                                ? metadataColumns
-                                                                : [],
-                                                            hasHeaders: Boolean(
-                                                                safeMapping.hasHeaders
-                                                            ),
+                                                // Update workflow state
+                                                setWorkflow((prev) => ({
+                                                    ...prev,
+                                                    previews: [
+                                                        {
+                                                            id: "spreadsheet-preview-" + Date.now(),
+                                                            fileName: "Spreadsheet",
+                                                            fileSize:
+                                                                workflow.fileObjects?.[0]?.size ||
+                                                                0,
+                                                            fileType:
+                                                                workflow.fileObjects?.[0]?.type ||
+                                                                "text/plain",
+                                                            preview,
+                                                            isValid: true,
                                                         },
-                                                        step: "preview",
-                                                        error: undefined,
-                                                    }));
-                                                } catch (error) {
-                                                    console.error(
-                                                        "Error during preview generation:",
-                                                        error
-                                                    );
-                                                    setWorkflow((prev) => ({
-                                                        ...prev,
-                                                        error:
-                                                            error instanceof Error
-                                                                ? `Preview Error: ${error.message}`
-                                                                : "Unknown error during preview generation",
-                                                    }));
-                                                }
+                                                    ],
+                                                    columnMapping: {
+                                                        sourceColumn,
+                                                        targetColumn,
+                                                        idColumn,
+                                                        metadataColumns: Array.isArray(
+                                                            metadataColumns
+                                                        )
+                                                            ? metadataColumns
+                                                            : [],
+                                                        hasHeaders: Boolean(safeMapping.hasHeaders),
+                                                    },
+                                                    step: "preview",
+                                                    error: undefined,
+                                                }));
                                             } catch (error) {
                                                 console.error(
                                                     "Error during preview generation:",
