@@ -743,9 +743,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             <div className="tab-content">
                 {activeTab === "source" && (
-                    <div className="source-text-content">
-                        {sourceText !== null ? sourceText : "Loading source text..."}
-                    </div>
+                    <div
+                        className="source-text-content"
+                        dangerouslySetInnerHTML={{
+                            __html: sourceText !== null ? sourceText : "Loading source text...",
+                        }}
+                    />
                 )}
                 {activeTab === "backtranslation" && (
                     <div className="backtranslation-section">
