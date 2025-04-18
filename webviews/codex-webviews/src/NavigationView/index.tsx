@@ -7,11 +7,20 @@ import {
     VSCodeTextField,
 } from "@vscode/webview-ui-toolkit/react";
 import { WebviewHeader } from "../components/WebviewHeader";
+import bibleData from "../assets/bible-books-lookup.json";
 
 // Declare the VS Code API globally like in ProjectManagerView
 declare const vscode: {
     postMessage: (message: any) => void;
 };
+
+interface BibleBookInfo {
+    name: string;
+    abbr: string;
+    ord: string;
+    testament: string;
+    osisId: string;
+}
 
 interface CodexItem {
     uri: { toString: () => string };
@@ -20,6 +29,7 @@ interface CodexItem {
     children?: CodexItem[];
     corpusMarker?: string;
     progress?: number;
+    sortOrder?: string;
 }
 
 interface State {
@@ -27,6 +37,7 @@ interface State {
     dictionaryItems: CodexItem[];
     expandedGroups: Set<string>;
     searchQuery: string;
+    bibleBookMap: Map<string, BibleBookInfo>;
 }
 
 // Styles object to keep things organized
@@ -170,9 +181,22 @@ const styles = {
     },
 };
 
-// Helper function to sort items alphanumerically
-const sortAlphanumerically = (a: CodexItem, b: CodexItem) => {
-    // Extract any numbers from the labels
+// Helper function to sort items based on Bible book order or alphanumerically
+const sortItems = (a: CodexItem, b: CodexItem) => {
+    // If both items have sortOrder (Bible books), sort by that
+    if (a.sortOrder && b.sortOrder) {
+        return a.sortOrder.localeCompare(b.sortOrder);
+    }
+
+    // For corpus items, prioritize OT and NT
+    if (a.type === "corpus" && b.type === "corpus") {
+        if (a.label === "Old Testament") return -1;
+        if (b.label === "Old Testament") return 1;
+        if (a.label === "New Testament") return -1;
+        if (b.label === "New Testament") return 1;
+    }
+
+    // Extract any numbers from the labels for alphanumeric sorting
     const aMatch = a.label.match(/\d+/);
     const bMatch = b.label.match(/\d+/);
 
@@ -187,12 +211,24 @@ const sortAlphanumerically = (a: CodexItem, b: CodexItem) => {
     return a.label.localeCompare(b.label);
 };
 
-// Helper function to clean up label display
-const cleanLabelForDisplay = (label: string) => {
-    return label
-        .replace(/[-_]/g, " ") // Replace hyphens and underscores with spaces
-        .replace(/LOCALLY\d*$/, "") // Remove 'LOCALLY' and any numbers after it
-        .trim(); // Remove any extra spaces
+// Helper function to get proper Bible book name or format label nicely
+const formatLabel = (label: string, bibleBookMap: Map<string, BibleBookInfo>): string => {
+    // Check if it's a Bible book abbreviation
+    if (bibleBookMap.has(label)) {
+        return bibleBookMap.get(label)!.name;
+    }
+
+    // Handle corpus labels
+    if (label === "OT") return "Old Testament";
+    if (label === "NT") return "New Testament";
+
+    // Clean up other labels
+    let cleanName = label.replace(/_Codex$/, "");
+    cleanName = cleanName.replace(/_/g, " ");
+    cleanName = cleanName.replace(/([A-Z])/g, " $1").trim();
+    cleanName = cleanName.replace(/\s+/g, " ");
+
+    return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
 };
 
 function NavigationView() {
@@ -201,18 +237,88 @@ function NavigationView() {
         dictionaryItems: [],
         expandedGroups: new Set(),
         searchQuery: "",
+        bibleBookMap: new Map(),
     });
+
+    // Initialize Bible book map on component mount
+    useEffect(() => {
+        const bookMap = new Map<string, BibleBookInfo>();
+        (bibleData as any[]).forEach((book) => {
+            bookMap.set(book.abbr, {
+                name: book.name,
+                abbr: book.abbr,
+                ord: book.ord,
+                testament: book.testament,
+                osisId: book.osisId,
+            });
+        });
+
+        setState((prev) => ({
+            ...prev,
+            bibleBookMap: bookMap,
+        }));
+    }, []);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
             switch (message.command) {
                 case "updateItems":
-                    setState((prevState) => ({
-                        ...prevState,
-                        codexItems: message.codexItems || [],
-                        dictionaryItems: message.dictionaryItems || [],
-                    }));
+                    setState((prevState) => {
+                        // Process items to add sortOrder for Bible books
+                        const processedCodexItems = (message.codexItems || []).map(
+                            (item: CodexItem) => {
+                                const fileName = item.label.replace(/ Codex$/, "");
+
+                                // Check if it's a Bible book
+                                if (prevState.bibleBookMap.has(fileName)) {
+                                    const bookInfo = prevState.bibleBookMap.get(fileName)!;
+                                    return {
+                                        ...item,
+                                        label: fileName,
+                                        sortOrder: bookInfo.ord,
+                                    };
+                                }
+
+                                // Process children if it's a corpus
+                                if (item.children) {
+                                    const processedChildren = item.children.map(
+                                        (child: CodexItem) => {
+                                            const childFileName = child.label.replace(
+                                                / Codex$/,
+                                                ""
+                                            );
+
+                                            if (prevState.bibleBookMap.has(childFileName)) {
+                                                const bookInfo =
+                                                    prevState.bibleBookMap.get(childFileName)!;
+                                                return {
+                                                    ...child,
+                                                    label: childFileName,
+                                                    sortOrder: bookInfo.ord,
+                                                };
+                                            }
+
+                                            return child;
+                                        }
+                                    );
+
+                                    return {
+                                        ...item,
+                                        children: processedChildren,
+                                    };
+                                }
+
+                                return item;
+                            }
+                        );
+
+                        return {
+                            ...prevState,
+                            codexItems: processedCodexItems,
+                            dictionaryItems: message.dictionaryItems || [],
+                        };
+                    });
                     break;
             }
         };
@@ -268,8 +374,11 @@ function NavigationView() {
             .map((item) => {
                 if (item.type === "corpus" && item.children) {
                     const filteredChildren = item.children
-                        .filter((child) => child.label.toLowerCase().includes(searchLower))
-                        .sort(sortAlphanumerically);
+                        .filter((child) => {
+                            const displayName = formatLabel(child.label, state.bibleBookMap);
+                            return displayName.toLowerCase().includes(searchLower);
+                        })
+                        .sort(sortItems);
 
                     if (filteredChildren.length > 0) {
                         return {
@@ -280,7 +389,8 @@ function NavigationView() {
                     return null;
                 }
 
-                return item.label.toLowerCase().includes(searchLower) ? item : null;
+                const displayName = formatLabel(item.label, state.bibleBookMap);
+                return displayName.toLowerCase().includes(searchLower) ? item : null;
             })
             .filter((item): item is CodexItem => item !== null);
     };
@@ -314,10 +424,10 @@ function NavigationView() {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
-        const displayLabel = cleanLabelForDisplay(item.label);
+        const displayLabel = formatLabel(item.label, state.bibleBookMap);
 
         return (
-            <div key={item.label}>
+            <div key={item.label + (item.uri?.toString() || "")}>
                 <div
                     style={isGroup ? styles.groupItem : styles.item}
                     onClick={() => (isGroup ? toggleGroup(item.label) : openFile(item))}
@@ -341,7 +451,7 @@ function NavigationView() {
                 </div>
                 {isGroup && isExpanded && item.children && (
                     <div style={styles.childrenContainer}>
-                        {item.children.sort(sortAlphanumerically).map(renderItem)}
+                        {item.children.sort(sortItems).map(renderItem)}
                     </div>
                 )}
             </div>

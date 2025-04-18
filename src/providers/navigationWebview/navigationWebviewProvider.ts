@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import { CodexContentSerializer } from "../../serializer";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 interface CodexMetadata {
     id: string;
@@ -15,6 +16,14 @@ interface CodexMetadata {
     progress?: number;
 }
 
+interface BibleBookInfo {
+    name: string;
+    abbr: string;
+    ord: string;
+    testament: string;
+    osisId: string;
+}
+
 export interface CodexItem {
     uri: vscode.Uri;
     label: string;
@@ -22,6 +31,7 @@ export interface CodexItem {
     children?: CodexItem[];
     corpusMarker?: string;
     progress?: number;
+    sortOrder?: string;
 }
 
 export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
@@ -32,10 +42,24 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
     private disposables: vscode.Disposable[] = [];
     private isBuilding = false;
     private serializer = new CodexContentSerializer();
+    private bibleBookMap: Map<string, BibleBookInfo> = new Map();
 
     constructor(private readonly context: vscode.ExtensionContext) {
+        this.initBibleBookMap();
         this.buildInitialData();
         this.registerWatchers();
+    }
+
+    private initBibleBookMap(): void {
+        (bibleData as any[]).forEach((book) => {
+            this.bibleBookMap.set(book.abbr, {
+                name: book.name,
+                abbr: book.abbr,
+                ord: book.ord,
+                testament: book.testament,
+                osisId: book.osisId,
+            });
+        });
     }
 
     public async resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -347,12 +371,26 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             ).length;
             const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
+            // Check if this is a Bible book by abbreviation
+            const isBibleBook = this.bibleBookMap.has(fileName);
+            let label = fileName;
+            let sortOrder: string | undefined;
+
+            if (isBibleBook) {
+                const bookInfo = this.bibleBookMap.get(fileName);
+                if (bookInfo) {
+                    label = fileName; // Keep the abbreviation as label, frontend will format it
+                    sortOrder = bookInfo.ord;
+                }
+            }
+
             return {
                 uri,
-                label: this.formatLabel(fileName),
+                label,
                 type: "codexDocument",
                 corpusMarker: metadata?.corpusMarker,
                 progress: progress,
+                sortOrder,
             };
         } catch (error) {
             console.warn(`Failed to read metadata for ${uri.fsPath}:`, error);
@@ -366,9 +404,13 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
 
         items.forEach((item) => {
             if (item.corpusMarker) {
-                const group = corpusGroups.get(item.corpusMarker) || [];
+                let corpusMarker = item.corpusMarker;
+                if (corpusMarker === "Old Testament") corpusMarker = "OT";
+                if (corpusMarker === "New Testament") corpusMarker = "NT";
+
+                const group = corpusGroups.get(corpusMarker) || [];
                 group.push(item);
-                corpusGroups.set(item.corpusMarker, group);
+                corpusGroups.set(corpusMarker, group);
             } else {
                 ungroupedItems.push(item);
             }
@@ -379,23 +421,63 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             const totalProgress = items.reduce((sum, item) => sum + (item.progress || 0), 0);
             const averageProgress = items.length > 0 ? totalProgress / items.length : 0;
 
+            let sortedItems: CodexItem[];
+
+            if (corpusMarker === "OT" || corpusMarker === "NT") {
+                // Sort Bible books by their canonical order
+                sortedItems = items.sort((a, b) => {
+                    if (a.sortOrder && b.sortOrder) {
+                        return a.sortOrder.localeCompare(b.sortOrder);
+                    }
+                    return a.label.localeCompare(b.label);
+                });
+            } else {
+                sortedItems = items.sort((a, b) => a.label.localeCompare(b.label));
+            }
+
+            // Use the corpus marker as the label, frontend will format it
             groupedItems.push({
                 uri: items[0].uri,
-                label: this.formatLabel(corpusMarker),
+                label: corpusMarker,
                 type: "corpus",
-                children: items.sort((a, b) => a.label.localeCompare(b.label)),
+                children: sortedItems,
                 progress: averageProgress,
             });
         });
 
-        return [...groupedItems.sort((a, b) => a.label.localeCompare(b.label)), ...ungroupedItems];
+        return [
+            ...groupedItems.sort((a, b) => {
+                // Prioritize OT and NT
+                if (a.label === "OT") return -1;
+                if (b.label === "OT") return 1;
+                if (a.label === "NT") return -1;
+                if (b.label === "NT") return 1;
+
+                return a.label.localeCompare(b.label);
+            }),
+            ...ungroupedItems,
+        ];
     }
 
     private makeCodexItem(uri: vscode.Uri): CodexItem {
         const fileName = path.basename(uri.fsPath, ".codex");
+
+        // Check if this is a Bible book
+        if (this.bibleBookMap.has(fileName)) {
+            const bookInfo = this.bibleBookMap.get(fileName);
+            if (bookInfo) {
+                return {
+                    uri,
+                    label: fileName, // Keep abbreviation, frontend will format it
+                    type: "codexDocument",
+                    sortOrder: bookInfo.ord,
+                };
+            }
+        }
+
         return {
             uri,
-            label: this.formatLabel(fileName),
+            label: fileName,
             type: "codexDocument",
         };
     }
@@ -404,7 +486,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         const fileName = path.basename(uri.fsPath, ".dictionary");
         return {
             uri,
-            label: "Dictionary",
+            label: fileName,
             type: "dictionary",
         };
     }
@@ -476,26 +558,10 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         return text;
     }
 
-    // Helper method to format labels in a user-friendly way
+    // Helper method to format labels is no longer needed in the backend
+    // The frontend will handle label formatting based on the book abbreviation
     private formatLabel(fileName: string): string {
-        // Remove technical suffixes
-        let cleanName = fileName.replace(/_Codex$/, "");
-
-        // Replace underscores with spaces
-        cleanName = cleanName.replace(/_/g, " ");
-
-        // Handle common replacements
-        if (cleanName === "NT") return "New Testament";
-        if (cleanName === "OT") return "Old Testament";
-
-        // Split on camelCase and capitalize first letter of each word
-        cleanName = cleanName.replace(/([A-Z])/g, " $1").trim();
-
-        // Remove redundant spaces
-        cleanName = cleanName.replace(/\s+/g, " ");
-
-        // Capitalize first letter if not already
-        return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
+        return fileName;
     }
 
     public dispose(): void {
