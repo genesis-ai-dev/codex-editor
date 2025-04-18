@@ -946,39 +946,100 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     appearance="icon"
                     disabled={chapterNumber === 1 || unsavedChanges}
                     onClick={() => setChapterNumber(chapterNumber - 1)}
+                    style={{ marginRight: "1rem" }}
                 >
                     <i className="codicon codicon-chevron-left"></i>
                 </VSCodeButton>
-                <h1
+                <div
+                    className="chapter-title-container"
                     style={{
-                        fontSize: "1.5rem",
-                        marginLeft: "1rem",
-                        marginRight: "1rem",
+                        display: "flex",
+                        alignItems: "center",
+                        cursor: unsavedChanges ? "not-allowed" : "pointer",
+                        padding: "0.5rem 0.75rem",
+                        borderRadius: "4px",
+                        transition: "background-color 0.2s ease, box-shadow 0.2s ease",
+                        position: "relative",
+                        backgroundColor: "var(--vscode-button-secondaryBackground, transparent)",
+                        border: "1px solid transparent",
+                        minWidth: "150px",
+                        justifyContent: "center",
                     }}
+                    onClick={() => {
+                        if (!unsavedChanges) {
+                            // Directly use the HTMLSelectElement click to open native dropdown
+                            const dropdown = document.getElementById(
+                                "chapter-dropdown"
+                            ) as HTMLSelectElement;
+                            if (dropdown) {
+                                // Create and dispatch a mouse event to trigger the dropdown
+                                const event = new MouseEvent("mousedown", {
+                                    view: window,
+                                    bubbles: true,
+                                    cancelable: true,
+                                });
+                                dropdown.dispatchEvent(event);
+                            }
+                        }
+                    }}
+                    onMouseEnter={(e) => {
+                        if (!unsavedChanges) {
+                            e.currentTarget.style.backgroundColor =
+                                "var(--vscode-button-secondaryHoverBackground, rgba(90, 93, 94, 0.31))";
+                            e.currentTarget.style.boxShadow =
+                                "0 0 0 1px var(--vscode-focusBorder, rgba(0, 122, 204, 0.4))";
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor =
+                            "var(--vscode-button-secondaryBackground, transparent)";
+                        e.currentTarget.style.boxShadow = "none";
+                    }}
+                    title={
+                        unsavedChanges
+                            ? "Save changes first to change chapter"
+                            : "Click to change chapter"
+                    }
                 >
-                    {(translationUnitsForSection[0]?.cellMarkers?.[0]
-                        ?.split(":")[0]
-                        .split(" ")[0] || "") +
-                        "\u00A0" +
-                        (translationUnitsForSection[0]?.cellMarkers?.[0]
+                    <h1
+                        style={{
+                            fontSize: "1.5rem",
+                            margin: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            opacity: unsavedChanges ? 0.6 : 1,
+                        }}
+                    >
+                        {(translationUnitsForSection[0]?.cellMarkers?.[0]
                             ?.split(":")[0]
-                            .split(" ")[1] || "")}
-                </h1>
-                <VSCodeButton
-                    appearance="icon"
-                    disabled={chapterNumber === totalChapters || unsavedChanges}
-                    onClick={() => setChapterNumber(chapterNumber + 1)}
-                >
-                    <i className="codicon codicon-chevron-right"></i>
-                </VSCodeButton>
-
-                {/* Chapter selector dropdown */}
-                <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
-                    <span style={{ marginRight: "0.5rem" }}>Chapter:</span>
-                    <VSCodeDropdown
+                            .split(" ")[0] || "") +
+                            "\u00A0" +
+                            (translationUnitsForSection[0]?.cellMarkers?.[0]
+                                ?.split(":")[0]
+                                .split(" ")[1] || "")}
+                        <i
+                            className="codicon codicon-chevron-down"
+                            style={{
+                                fontSize: "0.85rem",
+                                marginLeft: "0.5rem",
+                                opacity: 0.7,
+                            }}
+                        />
+                    </h1>
+                    <select
+                        id="chapter-dropdown"
+                        style={{
+                            position: "absolute",
+                            opacity: 0,
+                            pointerEvents: unsavedChanges ? "none" : "auto",
+                            height: "100%",
+                            width: "100%",
+                            left: 0,
+                            top: 0,
+                            cursor: "pointer",
+                        }}
                         onChange={(e) => {
-                            const target = e.target as HTMLSelectElement;
-                            const newChapter = parseInt(target.value);
+                            const newChapter = parseInt(e.target.value);
                             if (newChapter && newChapter !== chapterNumber && !unsavedChanges) {
                                 // Send a message to synchronize source/codex views
                                 (window as any).vscodeApi.postMessage({
@@ -992,12 +1053,20 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         disabled={unsavedChanges}
                     >
                         {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
-                            <VSCodeOption key={chapter} value={chapter.toString()}>
+                            <option key={chapter} value={chapter.toString()}>
                                 {chapter} of {totalChapters}
-                            </VSCodeOption>
+                            </option>
                         ))}
-                    </VSCodeDropdown>
+                    </select>
                 </div>
+                <VSCodeButton
+                    appearance="icon"
+                    disabled={chapterNumber === totalChapters || unsavedChanges}
+                    onClick={() => setChapterNumber(chapterNumber + 1)}
+                    style={{ marginLeft: "1rem" }}
+                >
+                    <i className="codicon codicon-chevron-right"></i>
+                </VSCodeButton>
 
                 {totalSections > 1 && (
                     <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
