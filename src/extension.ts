@@ -399,11 +399,16 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 }
 
 async function executeCommandsAfter() {
-    vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-    vscode.commands.executeCommand("workbench.action.focusActivityBar");
-    // vscode.commands.executeCommand("codexNotebookTreeView.refresh");
-    vscode.commands.executeCommand("codex-editor.navigation.focus");
-    vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+    // First show project overview in secondary sidebar
+    await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+
+    // Then focus navigation in primary sidebar
+    await vscode.commands.executeCommand("workbench.action.focusActivityBar");
+    await vscode.commands.executeCommand("codex-editor.navigation.focus");
+
+    // Set editor font and configure auto-save
+    await vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+
     // Configure auto-save in settings
     await vscode.workspace
         .getConfiguration()
