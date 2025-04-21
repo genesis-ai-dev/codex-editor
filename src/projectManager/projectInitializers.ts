@@ -30,7 +30,16 @@ export async function setTargetFont() {
     )?.tag;
     if (targetLanguageCode) {
         const fontApiUrl = `https://lff.api.languagetechnology.org/lang/${targetLanguageCode}`;
-        const fontApiResponse = await fetch(fontApiUrl);
+        let fontApiResponse = await fetch(fontApiUrl);
+        try {
+            fontApiResponse = await fetch(fontApiUrl);
+        } catch (error: any) {
+            console.warn(
+                "Could not fetch font API in setTargetFont. Error message:",
+                JSON.stringify(error)
+            );
+            return;
+        }
         const fontApiData = (await fontApiResponse.json()) as {
             defaultfamily: string[];
             families: {
