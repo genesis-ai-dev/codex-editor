@@ -1120,6 +1120,12 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
+    const handleTriggerSync = () => {
+        vscode.postMessage({
+            command: "triggerSync",
+        } as EditorPostMessages);
+    };
+
     if (duplicateCellsExist) {
         return (
             <DuplicateCellResolver
@@ -1245,6 +1251,7 @@ const CodexCellEditor: React.FC = () => {
                             vscode={vscode}
                             fileStatus={fileStatus}
                             onClose={handleCloseCurrentDocument}
+                            onTriggerSync={handleTriggerSync}
                         />
                     </div>
                     {shouldShowVideoPlayer && videoUrl && (
@@ -1332,42 +1339,6 @@ const CodexCellEditor: React.FC = () => {
                         <span className="button-text">Applying...</span>
                     </div>
                 )}
-            </div>
-            <div
-                className="scrollable-content"
-                style={{ height: `calc(100vh - ${headerHeight}px)` }}
-            >
-                <div className="editor-container">
-                    <CellList
-                        spellCheckResponse={spellCheckResponse}
-                        translationUnits={translationUnitsForSection}
-                        contentBeingUpdated={contentBeingUpdated}
-                        setContentBeingUpdated={handleSetContentBeingUpdated}
-                        handleCloseEditor={handleCloseEditor}
-                        handleSaveHtml={handleSaveHtml}
-                        vscode={vscode}
-                        textDirection={textDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        isSourceText={isSourceText}
-                        windowHeight={windowHeight}
-                        headerHeight={headerHeight}
-                        alertColorCodes={alertColorCodes}
-                        highlightedCellId={highlightedCellId}
-                        scrollSyncEnabled={scrollSyncEnabled}
-                        translationQueue={translationQueue}
-                        currentProcessingCellId={
-                            singleCellQueueProcessingId || autocompletionState.currentCellId
-                        }
-                        cellsInAutocompleteQueue={
-                            autocompletionState.isProcessing
-                                ? autocompletionState.cellsToProcess
-                                : // Keep showing spinner for current processing cell even if autocomplete was canceled
-                                autocompletionState.currentCellId
-                                ? [autocompletionState.currentCellId]
-                                : []
-                        }
-                    />
-                </div>
             </div>
 
             {/* Floating button to apply pending validations */}

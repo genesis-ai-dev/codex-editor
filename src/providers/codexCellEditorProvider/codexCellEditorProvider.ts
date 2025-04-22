@@ -463,10 +463,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         debug("Saving custom document:", document.uri.toString());
-        this.updateFileStatus("syncing");
-        await document.save(cancellation);
-        this.scheduleCommit(document); // Schedule commit instead of immediate commit
-        this.updateFileStatus("synced");
+
+        try {
+            // Set status to syncing
+            this.updateFileStatus("syncing");
+
+            // Save the document
+            await document.save(cancellation);
+
+            // Get the SyncManager singleton
+            const syncManager = SyncManager.getInstance();
+
+            // Schedule the sync operation
+            const fileName = document.uri.fsPath.split(/[/\\]/).pop() || "document";
+            syncManager.scheduleSyncOperation(`changes to ${fileName}`);
+
+            // Update the file status based on source control (will check if still dirty)
+            setTimeout(() => this.updateFileStatus(), 500);
+        } catch (error) {
+            console.error("Error saving document:", error);
+            // If save fails, check status
+            this.updateFileStatus();
+            throw error;
+        }
     }
 
     public async saveCustomDocumentAs(
@@ -1844,16 +1863,108 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
      * Updates the file status and broadcasts it to all webviews
      * @param status The file status to update to
      */
-    public updateFileStatus(status: "dirty" | "syncing" | "synced" | "none") {
+    public updateFileStatus(status?: "dirty" | "syncing" | "synced" | "none") {
         // Find all webview panels associated with the current document
         if (this.currentDocument) {
-            const docUri = this.currentDocument.uri.toString();
-            const panel = this.webviewPanels.get(docUri);
+            const docUri = this.currentDocument.uri;
+            const panel = this.webviewPanels.get(docUri.toString());
+
             if (panel) {
-                this.postMessageToWebview(panel, {
-                    type: "updateFileStatus",
-                    status,
-                });
+                // If status is provided, use it directly (for explicit status updates)
+                if (status) {
+                    this.postMessageToWebview(panel, {
+                        type: "updateFileStatus",
+                        status,
+                    });
+                    return;
+                }
+
+                // Otherwise, determine status from VS Code's source control
+                try {
+                    const scm = vscode.scm.createSourceControl("git", "Git");
+                    const gitExt = vscode.extensions.getExtension("vscode.git")?.exports;
+
+                    if (gitExt) {
+                        // Get the repository that contains this file
+                        const api = gitExt.getAPI(1);
+                        const repos = api.repositories;
+
+                        if (repos.length > 0) {
+                            // Find the repository that contains this file
+                            const repo = repos.find((r: any) =>
+                                docUri.fsPath.startsWith(r.rootUri.fsPath)
+                            );
+
+                            if (repo) {
+                                // Check if the file is dirty in the source control
+                                const fileStatus = repo.state.workingTreeChanges.find(
+                                    (change: any) => change.uri.fsPath === docUri.fsPath
+                                );
+
+                                if (fileStatus) {
+                                    // The file has uncommitted changes
+                                    this.postMessageToWebview(panel, {
+                                        type: "updateFileStatus",
+                                        status: "dirty",
+                                    });
+                                } else {
+                                    // The file is in sync with the repository
+                                    this.postMessageToWebview(panel, {
+                                        type: "updateFileStatus",
+                                        status: "synced",
+                                    });
+                                }
+                                return;
+                            }
+                        }
+                    }
+
+                    // Default to checking if the document is dirty in the editor
+                    const isDirty = vscode.workspace.textDocuments.some(
+                        (doc) => doc.uri.fsPath === docUri.fsPath && doc.isDirty
+                    );
+
+                    this.postMessageToWebview(panel, {
+                        type: "updateFileStatus",
+                        status: isDirty ? "dirty" : "synced",
+                    });
+                } catch (error) {
+                    console.error("Error determining file status:", error);
+                    // In case of error, don't update the status
+                }
+            }
+        }
+    }
+
+    /**
+     * Triggers an immediate sync of the current document
+     */
+    public triggerSync(): void {
+        if (this.currentDocument) {
+            try {
+                // Set status to syncing
+                this.updateFileStatus("syncing");
+
+                // Get the SyncManager singleton
+                const syncManager = SyncManager.getInstance();
+
+                // Get the filename for the commit message
+                const fileName = this.currentDocument.uri.fsPath.split(/[/\\]/).pop() || "document";
+
+                // Execute sync immediately rather than scheduling
+                syncManager
+                    .executeSync(`manual sync for ${fileName}`)
+                    .then(() => {
+                        // Update status after sync completes
+                        setTimeout(() => this.updateFileStatus(), 500);
+                    })
+                    .catch((error) => {
+                        console.error("Error during manual sync:", error);
+                        this.updateFileStatus();
+                    });
+            } catch (error) {
+                console.error("Error triggering sync:", error);
+                this.updateFileStatus();
             }
         }
     }

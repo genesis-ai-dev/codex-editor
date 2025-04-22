@@ -408,8 +408,8 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 }
 
 async function executeCommandsAfter() {
-    vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-    vscode.commands.executeCommand("workbench.action.focusActivityBar");
+    // vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
+    // vscode.commands.executeCommand("workbench.action.focusActivityBar");
     // Focus our main menu instead of the navigation view
     vscode.commands.executeCommand("codex-editor.mainMenu.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");

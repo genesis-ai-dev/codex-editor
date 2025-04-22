@@ -671,7 +671,8 @@ export type EditorPostMessages =
               deleteFootnote?: string;
           };
       }
-    | { command: "closeCurrentDocument" };
+    | { command: "closeCurrentDocument" }
+    | { command: "triggerSync" };
 
 type EditorReceiveMessages =
     | {

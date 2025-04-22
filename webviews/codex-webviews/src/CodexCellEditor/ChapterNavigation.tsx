@@ -779,6 +779,7 @@ interface ChapterNavigationProps {
     vscode: any;
     fileStatus?: "dirty" | "syncing" | "synced" | "none";
     onClose?: () => void;
+    onTriggerSync?: () => void;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -818,6 +819,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     vscode,
     fileStatus = "none",
     onClose,
+    onTriggerSync,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -953,12 +955,14 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         let icon: string;
         let color: string;
         let title: string;
+        let clickHandler: (() => void) | undefined = undefined;
 
         switch (fileStatus) {
             case "dirty":
                 icon = "codicon-cloud";
                 color = "var(--vscode-editorWarning-foreground)"; // Yellow warning color
-                title = "Unsaved changes";
+                title = "Unsaved changes - Click to sync";
+                clickHandler = onTriggerSync;
                 break;
             case "syncing":
                 icon = "codicon-sync";
@@ -975,7 +979,13 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         }
 
         return (
-            <VSCodeButton appearance="icon" title={title} style={{ color }}>
+            <VSCodeButton
+                appearance="icon"
+                title={title}
+                style={{ color }}
+                onClick={clickHandler}
+                disabled={fileStatus === "syncing"}
+            >
                 <i
                     className={`codicon ${icon}`}
                     style={{

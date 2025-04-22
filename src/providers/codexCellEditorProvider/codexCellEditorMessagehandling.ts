@@ -936,5 +936,16 @@ export const handleMessages = async (
             }
             return;
         }
+        case "triggerSync": {
+            console.log("triggerSync message received");
+            try {
+                // Trigger an immediate sync using the provider's method
+                provider.triggerSync();
+            } catch (error) {
+                console.error("Error triggering sync:", error);
+                vscode.window.showErrorMessage("Failed to trigger sync.");
+            }
+            return;
+        }
     }
 };
