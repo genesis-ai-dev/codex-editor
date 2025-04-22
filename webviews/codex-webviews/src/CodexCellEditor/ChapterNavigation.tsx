@@ -776,6 +776,7 @@ interface ChapterNavigationProps {
     currentSectionId?: number;
     setCurrentSectionId?: React.Dispatch<React.SetStateAction<number>>;
     totalSections?: number;
+    vscode: any;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -812,10 +813,35 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     currentSectionId = 1,
     setCurrentSectionId = () => {},
     totalSections = 1,
+    vscode,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
+    const [editorPosition, setEditorPosition] = useState<
+        "leftmost" | "rightmost" | "center" | "single" | "unknown"
+    >("unknown");
+
+    // Request editor position when component mounts
+    useEffect(() => {
+        if (vscode) {
+            vscode.postMessage({ command: "getEditorPosition" });
+
+            // Listen for editor position updates
+            const messageHandler = (event: MessageEvent) => {
+                const message = event.data;
+                if (message.type === "editorPosition") {
+                    setEditorPosition(message.position);
+                }
+            };
+
+            window.addEventListener("message", messageHandler);
+
+            return () => {
+                window.removeEventListener("message", messageHandler);
+            };
+        }
+    }, [vscode]);
 
     const handleAutocompleteClick = () => {
         console.log("Autocomplete clicked, showing modal with:", {
@@ -897,6 +923,25 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         }
     };
 
+    // Update this function to use the passed vscode prop
+    const handleToggleWorkspaceUI = () => {
+        if (vscode) {
+            vscode.postMessage({ command: "toggleWorkspaceUI" });
+        }
+    };
+
+    const handleTogglePrimarySidebar = () => {
+        if (vscode) {
+            vscode.postMessage({ command: "togglePrimarySidebar" });
+        }
+    };
+
+    const handleToggleSecondarySidebar = () => {
+        if (vscode) {
+            vscode.postMessage({ command: "toggleSecondarySidebar" });
+        }
+    };
+
     return (
         <div className="chapter-navigation" style={{ gap: buttonGap }}>
             <div
@@ -931,6 +976,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     </VSCodeButton>
                 )}
             </div>
+
             <div
                 style={{
                     display: "flex",
@@ -942,14 +988,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     flexGrow: 2,
                 }}
             >
-                <VSCodeButton
-                    appearance="icon"
-                    disabled={chapterNumber === 1 || unsavedChanges}
-                    onClick={() => setChapterNumber(chapterNumber - 1)}
-                    style={{ marginRight: "1rem" }}
-                >
-                    <i className="codicon codicon-chevron-left"></i>
-                </VSCodeButton>
                 <div
                     className="chapter-title-container"
                     style={{
@@ -1059,14 +1097,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         ))}
                     </select>
                 </div>
-                <VSCodeButton
-                    appearance="icon"
-                    disabled={chapterNumber === totalChapters || unsavedChanges}
-                    onClick={() => setChapterNumber(chapterNumber + 1)}
-                    style={{ marginLeft: "1rem" }}
-                >
-                    <i className="codicon codicon-chevron-right"></i>
-                </VSCodeButton>
 
                 {totalSections > 1 && (
                     <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
@@ -1086,6 +1116,40 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             </div>
 
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
+                <VSCodeButton
+                    appearance="icon"
+                    onClick={handleToggleWorkspaceUI}
+                    title="Toggle Distraction-Free Mode"
+                >
+                    <i className="codicon codicon-layout"></i>
+                </VSCodeButton>
+
+                {/* Show left sidebar toggle only when editor is not leftmost */}
+                {(editorPosition === "rightmost" ||
+                    editorPosition === "center" ||
+                    editorPosition === "single") && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={handleTogglePrimarySidebar}
+                        title="Toggle Primary Sidebar"
+                    >
+                        <i className="codicon codicon-layout-sidebar-left"></i>
+                    </VSCodeButton>
+                )}
+
+                {/* Show right sidebar toggle only when editor is not rightmost */}
+                {(editorPosition === "leftmost" ||
+                    editorPosition === "center" ||
+                    editorPosition === "single") && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={handleToggleSecondarySidebar}
+                        title="Toggle Secondary Sidebar"
+                    >
+                        <i className="codicon codicon-layout-sidebar-right"></i>
+                    </VSCodeButton>
+                )}
+
                 {!isSourceText && (
                     <>
                         {isAnyTranslationInProgress ? (
@@ -1201,6 +1265,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     ></i>
                 </VSCodeButton>
             </div>
+
             {metadata && (
                 <NotebookMetadataModal
                     isOpen={isMetadataModalOpen}

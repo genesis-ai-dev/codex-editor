@@ -30,8 +30,7 @@ import { getCellValueData } from "@sharedUtils";
 import { isValidValidationEntry } from "./ValidationButton";
 import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
-const vscode = acquireVsCodeApi();
-(window as any).vscodeApi = vscode;
+import { getVSCodeAPI } from "../shared/vscodeApi";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -153,6 +152,13 @@ const CodexCellEditor: React.FC = () => {
 
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
+
+    // Add these new state variables
+    const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
+    const [secondarySidebarVisible, setSecondarySidebarVisible] = useState(true);
+
+    // Acquire VS Code API once at component initialization
+    const vscode = useMemo(() => getVSCodeAPI(), []);
 
     // Initialize state store after webview is ready
     useEffect(() => {
@@ -1100,6 +1106,39 @@ const CodexCellEditor: React.FC = () => {
         });
     };
 
+    // Update toggle functions to use the shared VS Code API instance
+    const togglePrimarySidebar = () => {
+        vscode.postMessage({ command: "togglePrimarySidebar" });
+        setPrimarySidebarVisible(!primarySidebarVisible);
+    };
+
+    const toggleSecondarySidebar = () => {
+        vscode.postMessage({ command: "toggleSecondarySidebar" });
+        setSecondarySidebarVisible(!secondarySidebarVisible);
+    };
+
+    const toggleWorkspaceUI = () => {
+        vscode.postMessage({ command: "toggleWorkspaceUI" });
+    };
+
+    // Define sidebar toggle button styles
+    const sidebarToggleStyle: React.CSSProperties = {
+        position: "fixed",
+        top: "50%",
+        transform: "translateY(-50%)",
+        width: "8px", // Make even thinner initially
+        height: "60px", // Slightly smaller height
+        backgroundColor: "var(--vscode-button-background)",
+        opacity: 0.4, // More subtle initially
+        cursor: "pointer",
+        zIndex: 1000,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        transition: "all 0.3s cubic-bezier(0.2, 0, 0.2, 1)", // More elegant easing
+        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.2)", // Subtle shadow
+    };
+
     if (duplicateCellsExist) {
         return (
             <DuplicateCellResolver
@@ -1111,144 +1150,241 @@ const CodexCellEditor: React.FC = () => {
     }
 
     return (
-        <div className="codex-cell-editor">
-            <div className="static-header" ref={headerRef}>
-                <div ref={navigationRef}>
-                    <ChapterNavigation
-                        chapterNumber={chapterNumber}
-                        setChapterNumber={setChapterNumber}
-                        totalChapters={totalChapters}
-                        totalUntranslatedCells={untranslatedCellsForSection.length}
-                        totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
-                        totalCellsWithCurrentUserOption={
-                            untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
-                        }
-                        setShouldShowVideoPlayer={setShouldShowVideoPlayer}
-                        shouldShowVideoPlayer={shouldShowVideoPlayer}
-                        unsavedChanges={!!contentBeingUpdated.cellContent}
-                        onAutocompleteChapter={(
-                            numberOfCells,
-                            includeNotValidatedByAnyUser,
-                            includeNotValidatedByCurrentUser
-                        ) => {
-                            debug("autocomplete", "Autocomplete requested with:", {
-                                numberOfCells,
-                                includeNotValidatedByAnyUser,
-                                includeNotValidatedByCurrentUser,
-                                countNoValidators: untranslatedOrUnvalidatedUnitsForSection.length,
-                                countWithCurrentUser:
-                                    untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
-                            });
-                            handleAutocompleteChapter(
+        <div className="cell-editor-container" style={{ direction: textDirection as any }}>
+            {/* Primary sidebar toggle button */}
+            <div
+                className="sidebar-toggle primary-toggle"
+                style={{
+                    ...sidebarToggleStyle,
+                    left: 0,
+                    borderRadius: "0 3px 3px 0", // Slightly tighter radius
+                }}
+                onClick={togglePrimarySidebar}
+                onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "0.8";
+                    e.currentTarget.style.width = "22px";
+                    e.currentTarget.style.boxShadow = "0 2px 6px rgba(0, 0, 0, 0.25)";
+                    // Show the icon when hovering
+                    const icon = e.currentTarget.querySelector(".codicon");
+                    if (icon) {
+                        (icon as HTMLElement).style.opacity = "1";
+                    }
+                }}
+                onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "0.4";
+                    e.currentTarget.style.width = "8px";
+                    e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.2)";
+                    // Hide the icon when not hovering
+                    const icon = e.currentTarget.querySelector(".codicon");
+                    if (icon) {
+                        (icon as HTMLElement).style.opacity = "0";
+                    }
+                }}
+            >
+                <span
+                    className="codicon codicon-sidebar-left"
+                    style={{
+                        color: "var(--vscode-button-foreground)",
+                        opacity: 0,
+                        transition: "opacity 0.3s ease",
+                        position: "absolute",
+                        right: "4px",
+                    }}
+                ></span>
+            </div>
+
+            {/* Secondary sidebar toggle button */}
+            <div
+                className="sidebar-toggle secondary-toggle"
+                style={{
+                    ...sidebarToggleStyle,
+                    right: 0,
+                    borderRadius: "3px 0 0 3px", // Slightly tighter radius
+                }}
+                onClick={toggleSecondarySidebar}
+                onMouseEnter={(e) => {
+                    e.currentTarget.style.opacity = "0.8";
+                    e.currentTarget.style.width = "22px";
+                    e.currentTarget.style.boxShadow = "0 2px 6px rgba(0, 0, 0, 0.25)";
+                    // Show the icon when hovering
+                    const icon = e.currentTarget.querySelector(".codicon");
+                    if (icon) {
+                        (icon as HTMLElement).style.opacity = "1";
+                    }
+                }}
+                onMouseLeave={(e) => {
+                    e.currentTarget.style.opacity = "0.4";
+                    e.currentTarget.style.width = "8px";
+                    e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.2)";
+                    // Hide the icon when not hovering
+                    const icon = e.currentTarget.querySelector(".codicon");
+                    if (icon) {
+                        (icon as HTMLElement).style.opacity = "0";
+                    }
+                }}
+            >
+                <span
+                    className="codicon codicon-sidebar-right"
+                    style={{
+                        color: "var(--vscode-button-foreground)",
+                        opacity: 0,
+                        transition: "opacity 0.3s ease",
+                        position: "absolute",
+                        left: "4px",
+                    }}
+                ></span>
+            </div>
+
+            {/* Add some CSS to handle the hover effects better */}
+            <style>{`
+                .sidebar-toggle:hover .codicon {
+                    opacity: 1 !important;
+                }
+            `}</style>
+
+            <div className="codex-cell-editor">
+                <div className="static-header" ref={headerRef}>
+                    <div ref={navigationRef}>
+                        <ChapterNavigation
+                            chapterNumber={chapterNumber}
+                            setChapterNumber={setChapterNumber}
+                            totalChapters={totalChapters}
+                            totalUntranslatedCells={untranslatedCellsForSection.length}
+                            totalCellsToAutocomplete={
+                                untranslatedOrUnvalidatedUnitsForSection.length
+                            }
+                            totalCellsWithCurrentUserOption={
+                                untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
+                            }
+                            setShouldShowVideoPlayer={setShouldShowVideoPlayer}
+                            shouldShowVideoPlayer={shouldShowVideoPlayer}
+                            unsavedChanges={!!contentBeingUpdated.cellContent}
+                            onAutocompleteChapter={(
                                 numberOfCells,
                                 includeNotValidatedByAnyUser,
                                 includeNotValidatedByCurrentUser
-                            );
-                        }}
-                        onStopAutocomplete={handleStopAutocomplete}
-                        isAutocompletingChapter={isAutocompletingChapter}
-                        onSetTextDirection={(direction) => {
-                            setTextDirection(direction);
-                            vscode.postMessage({
-                                command: "updateTextDirection",
-                                direction,
-                            } as EditorPostMessages);
-                        }}
-                        textDirection={textDirection}
-                        onSetCellDisplayMode={setCellDisplayMode}
-                        cellDisplayMode={cellDisplayMode}
-                        isSourceText={isSourceText}
-                        openSourceText={openSourceText}
-                        documentHasVideoAvailable={documentHasVideoAvailable}
-                        metadata={metadata}
-                        tempVideoUrl={tempVideoUrl}
-                        onMetadataChange={handleMetadataChange}
-                        onSaveMetadata={handleSaveMetadata}
-                        onPickFile={handlePickFile}
-                        onUpdateVideoUrl={handleUpdateVideoUrl}
-                        toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
-                        scrollSyncEnabled={scrollSyncEnabled}
-                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
-                        isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
-                        onStopSingleCellTranslation={handleStopSingleCellTranslation}
-                    />
-                </div>
-                {shouldShowVideoPlayer && videoUrl && (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                        }}
-                        ref={videoPlayerRef}
-                    >
-                        <VideoTimelineEditor
-                            videoUrl={videoUrl}
+                            ) => {
+                                debug("autocomplete", "Autocomplete requested with:", {
+                                    numberOfCells,
+                                    includeNotValidatedByAnyUser,
+                                    includeNotValidatedByCurrentUser,
+                                    countNoValidators:
+                                        untranslatedOrUnvalidatedUnitsForSection.length,
+                                    countWithCurrentUser:
+                                        untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
+                                });
+                                handleAutocompleteChapter(
+                                    numberOfCells,
+                                    includeNotValidatedByAnyUser,
+                                    includeNotValidatedByCurrentUser
+                                );
+                            }}
+                            onStopAutocomplete={handleStopAutocomplete}
+                            isAutocompletingChapter={isAutocompletingChapter}
+                            onSetTextDirection={(direction) => {
+                                setTextDirection(direction);
+                                vscode.postMessage({
+                                    command: "updateTextDirection",
+                                    direction,
+                                } as EditorPostMessages);
+                            }}
+                            textDirection={textDirection}
+                            onSetCellDisplayMode={setCellDisplayMode}
+                            cellDisplayMode={cellDisplayMode}
+                            isSourceText={isSourceText}
+                            openSourceText={openSourceText}
+                            documentHasVideoAvailable={documentHasVideoAvailable}
+                            metadata={metadata}
+                            tempVideoUrl={tempVideoUrl}
+                            onMetadataChange={handleMetadataChange}
+                            onSaveMetadata={handleSaveMetadata}
+                            onPickFile={handlePickFile}
+                            onUpdateVideoUrl={handleUpdateVideoUrl}
+                            toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
+                            scrollSyncEnabled={scrollSyncEnabled}
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
+                            isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
+                            onStopSingleCellTranslation={handleStopSingleCellTranslation}
                             vscode={vscode}
-                            playerRef={playerRef}
                         />
                     </div>
-                )}
-            </div>
-            <div
-                className="scrollable-content"
-                style={{ height: `calc(100vh - ${headerHeight}px)` }}
-            >
-                <div className="editor-container">
-                    <CellList
-                        spellCheckResponse={spellCheckResponse}
-                        translationUnits={translationUnitsForSection}
-                        contentBeingUpdated={contentBeingUpdated}
-                        setContentBeingUpdated={handleSetContentBeingUpdated}
-                        handleCloseEditor={handleCloseEditor}
-                        handleSaveHtml={handleSaveHtml}
-                        vscode={vscode}
-                        textDirection={textDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        isSourceText={isSourceText}
-                        windowHeight={windowHeight}
-                        headerHeight={headerHeight}
-                        alertColorCodes={alertColorCodes}
-                        highlightedCellId={highlightedCellId}
-                        scrollSyncEnabled={scrollSyncEnabled}
-                        translationQueue={translationQueue}
-                        currentProcessingCellId={
-                            singleCellQueueProcessingId || autocompletionState.currentCellId
-                        }
-                        cellsInAutocompleteQueue={
-                            autocompletionState.isProcessing
-                                ? autocompletionState.cellsToProcess
-                                : // Keep showing spinner for current processing cell even if autocomplete was canceled
-                                autocompletionState.currentCellId
-                                ? [autocompletionState.currentCellId]
-                                : []
-                        }
-                    />
+                    {shouldShowVideoPlayer && videoUrl && (
+                        <div
+                            style={{
+                                display: "flex",
+                                flexDirection: "column",
+                            }}
+                            ref={videoPlayerRef}
+                        >
+                            <VideoTimelineEditor
+                                videoUrl={videoUrl}
+                                translationUnitsForSection={
+                                    translationUnitsWithCurrentEditorContent
+                                }
+                                vscode={vscode}
+                                playerRef={playerRef}
+                            />
+                        </div>
+                    )}
                 </div>
-            </div>
-
-            {/* Floating button to apply pending validations */}
-            {!isSourceText && pendingValidationsCount > 0 && !isApplyingValidations && (
                 <div
-                    className="floating-apply-validations-button"
-                    onClick={applyPendingValidations}
-                    title={`Apply ${pendingValidationsCount} pending validation${
-                        pendingValidationsCount > 1 ? "s" : ""
-                    }`}
+                    className="scrollable-content"
+                    style={{ height: `calc(100vh - ${headerHeight}px)` }}
                 >
-                    {/* NOTE: styles for this component are hard-coded into the CodexCellEditorProvider.ts */}
-                    <span className="validation-count">{pendingValidationsCount}</span>
-                    <i className="codicon codicon-check-all"></i>
-                    <span className="button-text">Apply Validations</span>
-                    <div
-                        className="close-button"
-                        onClick={clearPendingValidations}
-                        title="Clear pending validations"
-                    >
-                        <i className="codicon codicon-close"></i>
+                    <div className="editor-container">
+                        <CellList
+                            spellCheckResponse={spellCheckResponse}
+                            translationUnits={translationUnitsForSection}
+                            contentBeingUpdated={contentBeingUpdated}
+                            setContentBeingUpdated={handleSetContentBeingUpdated}
+                            handleCloseEditor={handleCloseEditor}
+                            handleSaveHtml={handleSaveHtml}
+                            vscode={vscode}
+                            textDirection={textDirection}
+                            cellDisplayMode={cellDisplayMode}
+                            isSourceText={isSourceText}
+                            windowHeight={windowHeight}
+                            headerHeight={headerHeight}
+                            alertColorCodes={alertColorCodes}
+                            highlightedCellId={highlightedCellId}
+                            scrollSyncEnabled={scrollSyncEnabled}
+                            translationQueue={translationQueue}
+                            currentProcessingCellId={
+                                singleCellQueueProcessingId || autocompletionState.currentCellId
+                            }
+                            cellsInAutocompleteQueue={
+                                autocompletionState.isProcessing
+                                    ? autocompletionState.cellsToProcess
+                                    : // Keep showing spinner for current processing cell even if autocomplete was canceled
+                                    autocompletionState.currentCellId
+                                    ? [autocompletionState.currentCellId]
+                                    : []
+                            }
+                        />
                     </div>
                 </div>
-            )}
+
+                {/* Floating button to apply pending validations */}
+                {pendingValidationsCount > 0 && !isApplyingValidations && (
+                    <div
+                        className="floating-apply-validations-button"
+                        onClick={applyPendingValidations}
+                        title={`Apply ${pendingValidationsCount} pending validation${
+                            pendingValidationsCount > 1 ? "s" : ""
+                        }`}
+                    >
+                        <span className="validation-count">{pendingValidationsCount}</span>
+                        <i className="codicon codicon-check-all"></i>
+                        <span className="button-text">Apply Validations</span>
+                        <div
+                            className="close-button"
+                            onClick={clearPendingValidations}
+                            title="Clear pending validations"
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </div>
+                    </div>
+                )}
 
             {/* Loading indicator while applying validations */}
             {isApplyingValidations && !isSourceText && (
