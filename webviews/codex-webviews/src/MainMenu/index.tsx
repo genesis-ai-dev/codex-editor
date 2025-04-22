@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
-const vscode = acquireVsCodeApi();
+
+// Declare the global vscode object that's already acquired by something else
+declare const vscode: any;
 
 interface MenuButton {
     id: string;
@@ -154,7 +156,13 @@ function MainMenu() {
         };
 
         window.addEventListener("message", handleMessage);
-        vscode.postMessage({ command: "webviewReady" });
+
+        // Use the globally available vscode object
+        try {
+            vscode.postMessage({ command: "webviewReady" });
+        } catch (error) {
+            console.error("Could not send webviewReady message:", error);
+        }
 
         return () => window.removeEventListener("message", handleMessage);
     }, []);
@@ -165,18 +173,26 @@ function MainMenu() {
             activeViewId: viewId,
         }));
 
-        vscode.postMessage({
-            command: "focusView",
-            viewId: viewId,
-        });
+        try {
+            vscode.postMessage({
+                command: "focusView",
+                viewId: viewId,
+            });
+        } catch (error) {
+            console.error("Could not focus view:", viewId, error);
+        }
     };
 
-    // Function to return to main menu by focusing this view
+    // Function to return to main menu
     const returnToMainMenu = () => {
-        vscode.postMessage({
-            command: "focusView",
-            viewId: "codex-editor.mainMenu",
-        });
+        try {
+            vscode.postMessage({
+                command: "focusView",
+                viewId: "codex-editor.mainMenu",
+            });
+        } catch (error) {
+            console.error("Could not return to main menu:", error);
+        }
     };
 
     return (

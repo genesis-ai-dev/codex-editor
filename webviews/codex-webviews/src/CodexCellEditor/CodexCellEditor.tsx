@@ -155,7 +155,6 @@ const CodexCellEditor: React.FC = () => {
 
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
-    const [secondarySidebarVisible, setSecondarySidebarVisible] = useState(true);
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -1112,31 +1111,24 @@ const CodexCellEditor: React.FC = () => {
         setPrimarySidebarVisible(!primarySidebarVisible);
     };
 
-    const toggleSecondarySidebar = () => {
-        vscode.postMessage({ command: "focusMainMenu" });
-        setSecondarySidebarVisible(!secondarySidebarVisible);
-    };
-
-    const toggleWorkspaceUI = () => {
-        vscode.postMessage({ command: "focusMainMenu" });
-    };
-
     // Define sidebar toggle button styles
-    const sidebarToggleStyle: React.CSSProperties = {
+    const menuToggleStyle: React.CSSProperties = {
         position: "fixed",
         top: "50%",
         transform: "translateY(-50%)",
-        width: "8px", // Make even thinner initially
-        height: "60px", // Slightly smaller height
+        left: 0,
+        width: "8px", // Thin initially
+        height: "60px",
         backgroundColor: "var(--vscode-button-background)",
-        opacity: 0.4, // More subtle initially
+        opacity: 0.4,
         cursor: "pointer",
         zIndex: 1000,
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        transition: "all 0.3s cubic-bezier(0.2, 0, 0.2, 1)", // More elegant easing
-        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.2)", // Subtle shadow
+        transition: "all 0.3s cubic-bezier(0.2, 0, 0.2, 1)",
+        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.2)",
+        borderRadius: "0 3px 3px 0", // Round only the right corners
     };
 
     if (duplicateCellsExist) {
@@ -1151,14 +1143,10 @@ const CodexCellEditor: React.FC = () => {
 
     return (
         <div className="cell-editor-container" style={{ direction: textDirection as any }}>
-            {/* Primary sidebar toggle button */}
+            {/* Menu toggle button */}
             <div
-                className="sidebar-toggle primary-toggle"
-                style={{
-                    ...sidebarToggleStyle,
-                    left: 0,
-                    borderRadius: "0 3px 3px 0", // Slightly tighter radius
-                }}
+                className="sidebar-toggle menu-toggle"
+                style={menuToggleStyle}
                 onClick={togglePrimarySidebar}
                 onMouseEnter={(e) => {
                     e.currentTarget.style.opacity = "0.8";
@@ -1182,55 +1170,13 @@ const CodexCellEditor: React.FC = () => {
                 }}
             >
                 <span
-                    className="codicon codicon-sidebar-left"
+                    className="codicon codicon-menu"
                     style={{
                         color: "var(--vscode-button-foreground)",
                         opacity: 0,
                         transition: "opacity 0.3s ease",
                         position: "absolute",
                         right: "4px",
-                    }}
-                ></span>
-            </div>
-
-            {/* Secondary sidebar toggle button */}
-            <div
-                className="sidebar-toggle secondary-toggle"
-                style={{
-                    ...sidebarToggleStyle,
-                    right: 0,
-                    borderRadius: "3px 0 0 3px", // Slightly tighter radius
-                }}
-                onClick={toggleSecondarySidebar}
-                onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = "0.8";
-                    e.currentTarget.style.width = "22px";
-                    e.currentTarget.style.boxShadow = "0 2px 6px rgba(0, 0, 0, 0.25)";
-                    // Show the icon when hovering
-                    const icon = e.currentTarget.querySelector(".codicon");
-                    if (icon) {
-                        (icon as HTMLElement).style.opacity = "1";
-                    }
-                }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = "0.4";
-                    e.currentTarget.style.width = "8px";
-                    e.currentTarget.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.2)";
-                    // Hide the icon when not hovering
-                    const icon = e.currentTarget.querySelector(".codicon");
-                    if (icon) {
-                        (icon as HTMLElement).style.opacity = "0";
-                    }
-                }}
-            >
-                <span
-                    className="codicon codicon-sidebar-right"
-                    style={{
-                        color: "var(--vscode-button-foreground)",
-                        opacity: 0,
-                        transition: "opacity 0.3s ease",
-                        position: "absolute",
-                        left: "4px",
                     }}
                 ></span>
             </div>

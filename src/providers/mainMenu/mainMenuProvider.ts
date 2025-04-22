@@ -167,13 +167,13 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
                 <link href="${styleResetUri}" rel="stylesheet">
                 <link href="${styleVSCodeUri}" rel="stylesheet">
                 <link href="${codiconsUri}" rel="stylesheet">
-                <script nonce="${nonce}">
-                    const vscode = acquireVsCodeApi();
-                </script>
                 <title>Codex Main Menu</title>
             </head>
             <body>
                 <div id="root"></div>
+                <script nonce="${nonce}">
+                    const vscode = acquireVsCodeApi();
+                </script>
                 <script nonce="${nonce}" src="${scriptUri}"></script>
             </body>
             </html>
