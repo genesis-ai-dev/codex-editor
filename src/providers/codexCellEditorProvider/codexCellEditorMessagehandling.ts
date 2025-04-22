@@ -964,5 +964,16 @@ export const handleMessages = async (
                 vscode.window.showErrorMessage("Failed to jump to chapter");
             }
             break;
+        case "focusMainMenu": {
+            console.log("focusMainMenu message received");
+            try {
+                // Focus the main menu webview
+                await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+            } catch (error) {
+                console.error("Error focusing main menu:", error);
+                vscode.window.showErrorMessage("Failed to focus main menu.");
+            }
+            return;
+        }
     }
 };

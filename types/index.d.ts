@@ -579,6 +579,7 @@ export type EditorPostMessages =
     | { command: "toggleWorkspaceUI" }
     | { command: "togglePrimarySidebar" }
     | { command: "toggleSecondarySidebar" }
+    | { command: "focusMainMenu" }
     | { command: "getEditorPosition" }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
     | {

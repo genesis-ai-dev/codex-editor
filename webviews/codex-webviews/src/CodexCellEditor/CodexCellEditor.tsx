@@ -1108,17 +1108,17 @@ const CodexCellEditor: React.FC = () => {
 
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
-        vscode.postMessage({ command: "togglePrimarySidebar" });
+        vscode.postMessage({ command: "focusMainMenu" });
         setPrimarySidebarVisible(!primarySidebarVisible);
     };
 
     const toggleSecondarySidebar = () => {
-        vscode.postMessage({ command: "toggleSecondarySidebar" });
+        vscode.postMessage({ command: "focusMainMenu" });
         setSecondarySidebarVisible(!secondarySidebarVisible);
     };
 
     const toggleWorkspaceUI = () => {
-        vscode.postMessage({ command: "toggleWorkspaceUI" });
+        vscode.postMessage({ command: "focusMainMenu" });
     };
 
     // Define sidebar toggle button styles

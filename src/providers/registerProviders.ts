@@ -3,12 +3,16 @@ import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEdit
 import { NextGenCodexTreeViewProvider } from "./treeViews/nextGenCodexTreeViewProvider";
 import { openCodexFile } from "./treeViews/nextGenCodexTreeViewProvider";
 import { createEditAnalysisProvider } from "./EditAnalysisView/EditAnalysisViewProvider";
+import { registerMainMenuProvider } from "./mainMenu/register";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];
 
     // Register CodexCellEditorProvider
     disposables.push(CodexCellEditorProvider.register(context));
+
+    // Register MainMenuProvider
+    registerMainMenuProvider(context);
 
     // Register SourceControlProvider
     // const sourceControlProvider = registerSourceControl(context);
