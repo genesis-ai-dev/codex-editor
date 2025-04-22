@@ -22,6 +22,7 @@ import {
 import { openSystemMessageEditor } from "../copilotSettings/copilotSettings";
 import { openProjectExportView } from "./projectExportView";
 import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
+import { openBookNameEditor } from '../bookNameSettings/bookNameSettings';
 
 export async function registerProjectManager(context: vscode.ExtensionContext) {
     console.log("Codex Project Manager is now active!");
@@ -537,6 +538,13 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         }
     );
 
+    const openBookNameEditorCommand = vscode.commands.registerCommand(
+        "codex-project-manager.openBookNameEditor",
+        async () => {
+            return openBookNameEditor();
+        }
+    );
+
     const toggleSpellcheckCommand = vscode.commands.registerCommand(
         "codex-project-manager.toggleSpellcheck",
         executeWithRedirecting(async () => {
@@ -592,6 +600,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openAISettingsCommand,
         openExportViewCommand,
         openLicenseSettingsCommand,
+        openBookNameEditorCommand,
         importLocalUsfmSourceBibleCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,

@@ -776,6 +776,7 @@ interface ChapterNavigationProps {
     currentSectionId?: number;
     setCurrentSectionId?: React.Dispatch<React.SetStateAction<number>>;
     totalSections?: number;
+    bibleBookMap?: Map<string, { name: string; [key: string]: any }>;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -812,6 +813,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     currentSectionId = 1,
     setCurrentSectionId = () => {},
     totalSections = 1,
+    bibleBookMap,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -895,6 +897,24 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         if (newSection && newSection !== currentSectionId) {
             setCurrentSectionId(newSection);
         }
+    };
+
+    // Determine the display name using the map
+    const getDisplayTitle = () => {
+        const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
+        if (!firstMarker) return "Chapter"; // Fallback title
+
+        const parts = firstMarker.split(" ");
+        const bookAbbr = parts[0]; // e.g., "GEN"
+        const chapterNum = parts[1] || ""; // e.g., "1"
+
+        // Look up the localized name
+        const localizedName = bibleBookMap?.get(bookAbbr)?.name;
+        
+        // Use localized name if found, otherwise use the abbreviation
+        const displayBookName = localizedName || bookAbbr;
+
+        return `${displayBookName}\u00A0${chapterNum}`;
     };
 
     return (
@@ -1010,13 +1030,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             opacity: unsavedChanges ? 0.6 : 1,
                         }}
                     >
-                        {(translationUnitsForSection[0]?.cellMarkers?.[0]
-                            ?.split(":")[0]
-                            .split(" ")[0] || "") +
-                            "\u00A0" +
-                            (translationUnitsForSection[0]?.cellMarkers?.[0]
-                                ?.split(":")[0]
-                                .split(" ")[1] || "")}
+                        {getDisplayTitle()}
                         <i
                             className="codicon codicon-chevron-down"
                             style={{

@@ -676,6 +676,11 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await syncManager.executeSync("Manual sync triggered from project view");
                 break;
             }
+            case "openBookNameEditor":
+                await vscode.commands.executeCommand("codex-project-manager.openBookNameEditor");
+                await this.store.refreshState();
+                this._view?.webview.postMessage({ command: "actionCompleted" });
+                break;
             default:
                 console.error(`Unknown command: ${message.command}`, { message });
         }

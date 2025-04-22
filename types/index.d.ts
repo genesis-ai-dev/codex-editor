@@ -663,7 +663,8 @@ export type EditorPostMessages =
               position?: number;
               deleteFootnote?: string;
           };
-      };
+      }
+    | { command: "openBookNameEditor" };
 type EditorReceiveMessages =
     | {
           type: "providerSendsInitialContent";
@@ -1191,7 +1192,8 @@ type ProjectManagerMessageFromWebview =
           command: "updateSyncSettings";
           data: { autoSyncEnabled: boolean; syncDelayMinutes: number };
       }
-    | { command: "triggerSync" };
+    | { command: "triggerSync" }
+    | { command: "openBookNameEditor" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
