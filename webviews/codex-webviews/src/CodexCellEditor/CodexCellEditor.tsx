@@ -155,6 +155,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
+    const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -194,6 +195,11 @@ const CodexCellEditor: React.FC = () => {
             // Also listen for validation completion message
             if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
+            }
+
+            // Handle file status updates
+            if (message.type === "updateFileStatus") {
+                setFileStatus(message.status);
             }
         };
         window.addEventListener("message", handleMessage);
@@ -1108,6 +1114,12 @@ const CodexCellEditor: React.FC = () => {
         borderRadius: "0 3px 3px 0", // Round only the right corners
     };
 
+    const handleCloseCurrentDocument = () => {
+        vscode.postMessage({
+            command: "closeCurrentDocument",
+        } as EditorPostMessages);
+    };
+
     if (duplicateCellsExist) {
         return (
             <DuplicateCellResolver
@@ -1231,6 +1243,8 @@ const CodexCellEditor: React.FC = () => {
                             isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
                             onStopSingleCellTranslation={handleStopSingleCellTranslation}
                             vscode={vscode}
+                            fileStatus={fileStatus}
+                            onClose={handleCloseCurrentDocument}
                         />
                     </div>
                     {shouldShowVideoPlayer && videoUrl && (

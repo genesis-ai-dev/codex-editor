@@ -670,7 +670,9 @@ export type EditorPostMessages =
               position?: number;
               deleteFootnote?: string;
           };
-      };
+      }
+    | { command: "closeCurrentDocument" };
+
 type EditorReceiveMessages =
     | {
           type: "providerSendsInitialContent";
@@ -831,6 +833,14 @@ type EditorReceiveMessages =
               position?: number;
               deleteFootnote?: string;
           };
+      }
+    | {
+          type: "updateFileStatus";
+          status: "dirty" | "syncing" | "synced" | "none";
+      }
+    | {
+          type: "editorPosition";
+          position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
       };
 
 type AlertCodesServerResponse = {

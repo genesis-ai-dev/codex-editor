@@ -463,8 +463,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cancellation: vscode.CancellationToken
     ): Promise<void> {
         debug("Saving custom document:", document.uri.toString());
+        this.updateFileStatus("syncing");
         await document.save(cancellation);
         this.scheduleCommit(document); // Schedule commit instead of immediate commit
+        this.updateFileStatus("synced");
     }
 
     public async saveCustomDocumentAs(
@@ -1836,5 +1838,23 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add a method to expose webviewPanels in a controlled way
     public getWebviewPanels(): Map<string, vscode.WebviewPanel> {
         return this.webviewPanels;
+    }
+
+    /**
+     * Updates the file status and broadcasts it to all webviews
+     * @param status The file status to update to
+     */
+    public updateFileStatus(status: "dirty" | "syncing" | "synced" | "none") {
+        // Find all webview panels associated with the current document
+        if (this.currentDocument) {
+            const docUri = this.currentDocument.uri.toString();
+            const panel = this.webviewPanels.get(docUri);
+            if (panel) {
+                this.postMessageToWebview(panel, {
+                    type: "updateFileStatus",
+                    status,
+                });
+            }
+        }
     }
 }
