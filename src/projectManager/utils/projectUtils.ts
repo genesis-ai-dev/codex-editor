@@ -17,7 +17,7 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log('[ProjectUtils]', ...args) : () => {};
+const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => {};
 
 // Flag to temporarily disable metadata to config sync during direct updates
 let syncDisabled = false;
@@ -596,6 +596,7 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 
         const currentWorkspaceFolderName = workspaceFolder.name;
 
+        console.log("RYDER 5");
         const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",

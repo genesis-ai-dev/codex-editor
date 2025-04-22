@@ -426,39 +426,57 @@ const CodexCellEditor: React.FC = () => {
         debug("auth", "Setting up username listener and requesting username");
 
         const handleMessage = (event: MessageEvent) => {
-            debug("auth", "Message received:", event.data);
-            const message = event.data;
+            try {
+                debug("auth", "Message received:", event.data);
+                const message = event.data;
 
-            if (message.type === "setUsername" || message.command === "setUsername") {
-                const newUsername = message.username || message.value;
-                debug("auth", "Username set to:", newUsername);
-                setUsername(newUsername);
-            } else if (message.type === "currentUsername") {
-                debug("auth", "Current username received:", message.content.username);
-                setUsername(message.content.username);
+                if (message.type === "setUsername" || message.command === "setUsername") {
+                    const newUsername = message.username || message.value;
+                    debug("auth", "Username set to:", newUsername);
+                    setUsername(newUsername || "anonymous");
+                } else if (message.type === "currentUsername") {
+                    debug("auth", "Current username received:", message.content?.username);
+                    setUsername(message.content?.username || "anonymous");
+                } else if (message.type === "error" && message.errorType === "authentication") {
+                    // Handle authentication errors by setting a default username
+                    debug("auth", "Authentication error, using default username");
+                    setUsername("anonymous");
+                }
+            } catch (error) {
+                // Prevent any errors in message handling from breaking the component
+                debug("auth", "Error handling message:", error);
             }
         };
 
         window.addEventListener("message", handleMessage);
 
-        vscode.postMessage({
-            command: "requestUsername",
-        });
+        // Send requests with error handling
+        try {
+            vscode.postMessage({
+                command: "requestUsername",
+            });
 
-        vscode.postMessage({
-            command: "getCurrentUsername",
-        });
+            vscode.postMessage({
+                command: "getCurrentUsername",
+            });
 
-        debug("auth", "Requested username from extension");
+            debug("auth", "Requested username from extension");
+        } catch (error) {
+            debug("auth", "Error requesting username:", error);
+            // Set default username if we can't even send the request
+            setUsername("anonymous");
+        }
+
         return () => window.removeEventListener("message", handleMessage);
-    }, []);
+    }, [vscode]); // Only run this once with vscode reference as the dependency
 
     // Debug effect to show when username changes
     useEffect(() => {
-        debug("auth", "Username changed:", { username });
-
-        if (username) {
-            debug("auth", "Recalculating counts due to username change");
+        if (DEBUG_ENABLED) {
+            debug("auth", "Username changed:", { username });
+            if (username) {
+                debug("auth", "Recalculating counts due to username change");
+            }
         }
     }, [username]);
 
@@ -506,7 +524,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Cells with no content, no validators, or not validated by current user
     const untranslatedOrNotValidatedByCurrentUserUnitsForSection = useMemo(() => {
-        const currentUsername = username;
+        const currentUsername = username || "anonymous";
         debug("autocomplete", "Calculating cells including not validated by current user...");
         debug("autocomplete", "Current username:", currentUsername);
         debug("autocomplete", "Total cells to process:", translationUnitsForSection.length);
@@ -552,6 +570,7 @@ const CodexCellEditor: React.FC = () => {
             // Check if the cell is not validated by the current user
             let notValidatedByCurrentUser = false;
 
+            // Only check for user validation if we have a valid username
             if (
                 latestEdit &&
                 latestEdit.validatedBy &&
@@ -567,67 +586,24 @@ const CodexCellEditor: React.FC = () => {
 
                 notValidatedByCurrentUser =
                     !currentUserValidation || currentUserValidation.isDeleted;
-
-                // Debug information
-                // if (currentUserValidation) {
-                //     console.log(`Cell ${index + 1} validation for user ${currentUsername}:`, {
-                //         hasValidation: !!currentUserValidation,
-                //         isDeleted: currentUserValidation.isDeleted,
-                //         shouldInclude: notValidatedByCurrentUser,
-                //     });
-                // } else {
-                //     console.log(
-                //         `Cell ${
-                //             index + 1
-                //         } has no validation for user ${currentUsername}, should include:`,
-                //         true
-                //     );
-                // }
             }
 
             const shouldInclude = hasNoContent || hasNoValidators || notValidatedByCurrentUser;
-            // console.log(`Cell ${index + 1} inclusion decision:`, {
-            //     hasNoContent,
-            //     hasNoValidators,
-            //     notValidatedByCurrentUser,
-            //     shouldInclude,
-            // });
-
             return shouldInclude;
         });
 
-        // console.log("Cells including not validated by current user:", result.length);
         return result;
     }, [translationUnitsForSection, username]);
 
     // Update handler for file/chapter changes to recalculate cells needing autocomplete
     useEffect(() => {
-        debug(
-            "autocomplete",
-            "Active document or section changed, recalculating autocomplete cells..."
-        );
-
-        // Log all cell details for debugging
-        if (translationUnitsForSection.length > 0) {
-            // console.log(
-            //     "Current translation units:",
-            //     translationUnitsForSection.map((unit, index) => {
-            //         const latestEdit =
-            //             unit.editHistory && unit.editHistory.length > 0
-            //                 ? unit.editHistory[unit.editHistory.length - 1]
-            //                 : null;
-            //         return {
-            //             index,
-            //             hasContent: !!unit.cellContent.trim(),
-            //             editCount: unit.editHistory?.length || 0,
-            //             validatorCount: latestEdit?.validatedBy?.length || 0,
-            //             validators: latestEdit?.validatedBy?.map((v) => ({
-            //                 username: v.username,
-            //                 isDeleted: v.isDeleted,
-            //             })),
-            //         };
-            //     })
-            // );
+        try {
+            debug(
+                "autocomplete",
+                "Active document or section changed, recalculating autocomplete cells..."
+            );
+        } catch (error) {
+            debug("autocomplete", "Error while handling document/section change", error);
         }
     }, [chapterNumber, translationUnits, translationUnitsForSection, username]);
 
@@ -1107,7 +1083,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
-        vscode.postMessage({ command: "focusMainMenu" });
+        vscode.postMessage({ command: "toggleSidebar" });
         setPrimarySidebarVisible(!primarySidebarVisible);
     };
 

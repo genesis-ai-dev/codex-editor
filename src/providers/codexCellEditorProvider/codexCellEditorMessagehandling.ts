@@ -106,6 +106,7 @@ export const handleMessages = async (
     updateWebview: () => void,
     provider: CodexCellEditorProvider
 ) => {
+    console.log("RYDER", { event });
     switch (event.command) {
         case "webviewReady":
             // The webview is ready to receive messages
@@ -964,14 +965,14 @@ export const handleMessages = async (
                 vscode.window.showErrorMessage("Failed to jump to chapter");
             }
             break;
-        case "focusMainMenu": {
-            console.log("focusMainMenu message received");
+        case "toggleSidebar": {
+            console.log("toggleSidebar message received");
             try {
-                // Focus the main menu webview
-                await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                // Toggle main menu visibility by executing the toggle command instead of just focusing
+                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
             } catch (error) {
-                console.error("Error focusing main menu:", error);
-                vscode.window.showErrorMessage("Failed to focus main menu.");
+                console.error("Error toggling main menu visibility:", error);
+                vscode.window.showErrorMessage("Failed to toggle sidebar visibility.");
             }
             return;
         }

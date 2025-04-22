@@ -580,6 +580,7 @@ export type EditorPostMessages =
     | { command: "togglePrimarySidebar" }
     | { command: "toggleSecondarySidebar" }
     | { command: "focusMainMenu" }
+    | { command: "toggleSidebar" }
     | { command: "getEditorPosition" }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
     | {

@@ -95,6 +95,7 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(async (message) => {
+            console.log("RYDER 1", { message });
             switch (message.command) {
                 case "focusView":
                     try {
