@@ -1386,6 +1386,74 @@ const CodexCellEditor: React.FC = () => {
                     </div>
                 )}
 
+                {/* Loading indicator while applying validations */}
+                {isApplyingValidations && (
+                    <div className="floating-apply-validations-button applying">
+                        <i className="codicon codicon-loading spin"></i>
+                        <span className="button-text">Applying...</span>
+                    </div>
+                )}
+            </div>
+            <div
+                className="scrollable-content"
+                style={{ height: `calc(100vh - ${headerHeight}px)` }}
+            >
+                <div className="editor-container">
+                    <CellList
+                        spellCheckResponse={spellCheckResponse}
+                        translationUnits={translationUnitsForSection}
+                        contentBeingUpdated={contentBeingUpdated}
+                        setContentBeingUpdated={handleSetContentBeingUpdated}
+                        handleCloseEditor={handleCloseEditor}
+                        handleSaveHtml={handleSaveHtml}
+                        vscode={vscode}
+                        textDirection={textDirection}
+                        cellDisplayMode={cellDisplayMode}
+                        isSourceText={isSourceText}
+                        windowHeight={windowHeight}
+                        headerHeight={headerHeight}
+                        alertColorCodes={alertColorCodes}
+                        highlightedCellId={highlightedCellId}
+                        scrollSyncEnabled={scrollSyncEnabled}
+                        translationQueue={translationQueue}
+                        currentProcessingCellId={
+                            singleCellQueueProcessingId || autocompletionState.currentCellId
+                        }
+                        cellsInAutocompleteQueue={
+                            autocompletionState.isProcessing
+                                ? autocompletionState.cellsToProcess
+                                : // Keep showing spinner for current processing cell even if autocomplete was canceled
+                                autocompletionState.currentCellId
+                                ? [autocompletionState.currentCellId]
+                                : []
+                        }
+                    />
+                </div>
+            </div>
+
+            {/* Floating button to apply pending validations */}
+            {!isSourceText && pendingValidationsCount > 0 && !isApplyingValidations && (
+                <div
+                    className="floating-apply-validations-button"
+                    onClick={applyPendingValidations}
+                    title={`Apply ${pendingValidationsCount} pending validation${
+                        pendingValidationsCount > 1 ? "s" : ""
+                    }`}
+                >
+                    {/* NOTE: styles for this component are hard-coded into the CodexCellEditorProvider.ts */}
+                    <span className="validation-count">{pendingValidationsCount}</span>
+                    <i className="codicon codicon-check-all"></i>
+                    <span className="button-text">Apply Validations</span>
+                    <div
+                        className="close-button"
+                        onClick={clearPendingValidations}
+                        title="Clear pending validations"
+                    >
+                        <i className="codicon codicon-close"></i>
+                    </div>
+                </div>
+            )}
+
             {/* Loading indicator while applying validations */}
             {isApplyingValidations && !isSourceText && (
                 <div className="floating-apply-validations-button applying">
