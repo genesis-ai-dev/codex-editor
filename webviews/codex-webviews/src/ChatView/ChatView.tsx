@@ -30,7 +30,7 @@ function messageWithContext({
 
     //Reflection needs to swap around the instructions, so passing in a space can suppress
     //having the instructions block.
-    if( instructions != " " ){
+    if (instructions != " ") {
         content += "## Instructions:\n";
         if (!instructions) {
             content += `Please use the context below to respond to the user's message. If you know the answer, be concise. If the answer is in the context, please quote the wording of the source. If the answer is not in the context, avoid making up anything, but you can use general knowledge from a devout Christian perspective.`;
@@ -96,7 +96,7 @@ function App() {
     function formatMessageLogToString(messages: ChatMessageWithContext[]): string {
         return messages
             .map((message) => {
-                return `${ChatRoleLabel[message.role]}: ${message.content}`;
+                return `${ChatRoleLabel[message.role as keyof typeof ChatRoleLabel]}: ${message.content}`;
             })
             .join("\n");
     }
@@ -307,7 +307,9 @@ function App() {
             //so that it can be handled separately.
             const messages: ChatMessageWithContext[] = [
                 messageWithContext({
-                    messageHistory:formatMessageLogToString(messageLog.slice(0, messageLog.length - 1)),
+                    messageHistory: formatMessageLogToString(
+                        messageLog.slice(0, messageLog.length - 1)
+                    ),
                     instructions: reflectionBlankInstruction,
                     selectedText: selectedTextContext,
                     contextItems: contextItemsFromState,
@@ -370,12 +372,18 @@ function App() {
             }, REFLECTION_DEBOUNCE_TIME_MS) as any;
         }
 
-
         if (needsReflection()) {
             requestReflection();
             setCurrentlyReflecting(true);
         }
-    }, [messageLog, messageLog.length, contextItems, selectedTextContext, enableGrading, enableReflection]);
+    }, [
+        messageLog,
+        messageLog.length,
+        contextItems,
+        selectedTextContext,
+        enableGrading,
+        enableReflection,
+    ]);
 
     // FIXME: use loading state to show/hide a progress ring while
     useEffect(() => {
@@ -476,7 +484,13 @@ function App() {
                                     changedSomething = true;
                                     //The reflection message gets put in as content and the preReflection is set to the original message.
                                     //We reset any grade or gradeComment if they exist
-                                    return { ...m, content: message.reflectedMessage, preReflection: m.content, grade: undefined, gradeComment: undefined };
+                                    return {
+                                        ...m,
+                                        content: message.reflectedMessage,
+                                        preReflection: m.content,
+                                        grade: undefined,
+                                        gradeComment: undefined,
+                                    };
                                 }
                                 return m;
                             });
@@ -530,7 +544,7 @@ function App() {
                 case "updateSetting": {
                     if (message.setting === "enableDoctrineGrading") {
                         setEnableGrading(message.value.toLowerCase().startsWith("t"));
-                    }else if(message.setting === "enableChatReflection"){
+                    } else if (message.setting === "enableChatReflection") {
                         setEnableReflection(message.value.toLowerCase().startsWith("t"));
                     }
                     break;
@@ -562,7 +576,7 @@ function App() {
     useEffect(() => {
         vscode.postMessage({
             command: "subscribeSettings",
-            settingsToSubscribe: ["enableDoctrineGrading","enableChatReflection"],
+            settingsToSubscribe: ["enableDoctrineGrading", "enableChatReflection"],
         } as ChatPostMessages);
     }, []);
 
@@ -680,7 +694,7 @@ function App() {
                 overflowX: "hidden",
             }}
         >
-            <WebviewHeader>
+            <WebviewHeader vscode={vscode}>
                 <VSCodeButton
                     appearance="icon"
                     aria-label="Start New Thread"
@@ -729,7 +743,7 @@ function App() {
                     width: "100%",
                     boxSizing: "border-box",
                 }}
-            > 
+            >
                 {messageLog.map((messageLogItem, index) => (
                     <MessageItem
                         key={index}

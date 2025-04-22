@@ -153,7 +153,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             (entry: any) => isValidValidationEntry(entry) && !entry.isDeleted
                         );
                         setValidationUsers(activeValidations);
-                        
+
                         // Validation is complete, clear pending state
                         setIsPendingValidation(false);
                         setIsValidationInProgress(false);
@@ -242,7 +242,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
             // If not enough space on either side, center horizontally
             if (spaceRight < popoverRect.width + 10 && spaceLeft < popoverRect.width + 10) {
-                left = -(popoverRect.width / 2) + (buttonRect.width / 2);
+                left = -(popoverRect.width / 2) + buttonRect.width / 2;
             }
 
             // Vertical positioning
@@ -254,7 +254,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 top = -popoverRect.height - 5;
             } else {
                 // Center vertically if no good space above or below
-                top = -(popoverRect.height / 2) + (buttonRect.height / 2);
+                top = -(popoverRect.height / 2) + buttonRect.height / 2;
             }
 
             // Ensure popover stays within viewport bounds
@@ -269,12 +269,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             );
 
             // Apply the calculated position with fixed positioning
-            popoverRef.current.style.position = 'fixed';
+            popoverRef.current.style.position = "fixed";
             popoverRef.current.style.top = `${buttonRect.top + finalTop}px`;
             popoverRef.current.style.left = `${buttonRect.left + finalLeft}px`;
-            popoverRef.current.style.opacity = '1';
-            popoverRef.current.style.pointerEvents = 'auto';
-            popoverRef.current.style.zIndex = '100000';
+            popoverRef.current.style.opacity = "1";
+            popoverRef.current.style.pointerEvents = "auto";
+            popoverRef.current.style.zIndex = "100000";
         }
     }, [showPopover]);
 
@@ -291,7 +291,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             content: {
                 cellId,
                 validate: !isValidated, // Toggle the current validation state
-                pending: newPendingState
+                pending: newPendingState,
             },
         });
 
@@ -348,7 +348,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             // Add a small delay before hiding to prevent flickering
             setTimeout(() => {
                 // Check if the mouse is still outside before hiding
-                if (!buttonRef.current?.matches(':hover')) {
+                if (!buttonRef.current?.matches(":hover")) {
                     setShowPopover(false);
                     setIsDetailedView(false);
                     if (popoverTracker.getActivePopover() === uniqueId.current) {
@@ -387,8 +387,8 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Helper function to format timestamps
     const formatTimestamp = (timestamp: number): string => {
-        if (!timestamp) return '';
-        
+        if (!timestamp) return "";
+
         const date = new Date(timestamp);
         const now = new Date();
         const diffMs = now.getTime() - date.getTime();
@@ -396,23 +396,23 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
         const diffMins = Math.floor(diffSecs / 60);
         const diffHours = Math.floor(diffMins / 60);
         const diffDays = Math.floor(diffHours / 24);
-        
+
         // For recent validations (less than a day)
         if (diffDays < 1) {
             if (diffHours < 1) {
                 if (diffMins < 1) {
-                    return 'just now';
+                    return "just now";
                 }
                 return `${diffMins}m ago`;
             }
             return `${diffHours}h ago`;
         }
-        
+
         // For older validations
         if (diffDays < 7) {
             return `${diffDays}d ago`;
         }
-        
+
         // Format date if more than a week ago
         return date.toLocaleDateString();
     };
@@ -432,9 +432,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     ...buttonStyle,
                     // Add orange border for pending validations - use a consistent orange color
                     ...(isPendingValidation && {
-                        border: '2px solid #f5a623', // Consistent orange color for both themes
-                        borderRadius: '50%'
-                    })
+                        border: "2px solid #f5a623", // Consistent orange color for both themes
+                        borderRadius: "50%",
+                    }),
                 }}
                 onClick={(e) => {
                     e.stopPropagation();
@@ -445,53 +445,66 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             >
                 {/* Show spinner when validation is in progress */}
                 {isValidationInProgress ? (
-                    <i className="codicon codicon-loading" style={{ 
-                        fontSize: "12px", 
-                        color: "var(--vscode-descriptionForeground)",
-                        animation: "spin 1.5s linear infinite"
-                    }}></i>
+                    <i
+                        className="codicon codicon-loading"
+                        style={{
+                            fontSize: "12px",
+                            color: "var(--vscode-descriptionForeground)",
+                            animation: "spin 1.5s linear infinite",
+                        }}
+                    ></i>
                 ) : currentValidations === 0 ? (
                     // Empty circle - No validations
-                    <i className="codicon codicon-circle-outline"
-                       style={{ 
-                           fontSize: "12px", 
-                           // Keep original color, don't change for pending validation
-                           color: "var(--vscode-descriptionForeground)" 
-                       }}></i>
+                    <i
+                        className="codicon codicon-circle-outline"
+                        style={{
+                            fontSize: "12px",
+                            // Keep original color, don't change for pending validation
+                            color: "var(--vscode-descriptionForeground)",
+                        }}
+                    ></i>
                 ) : isFullyValidated ? (
                     isValidated ? (
                         // Double green checkmarks - Fully validated and current user has validated
-                        <i className="codicon codicon-check-all"
-                           style={{ 
-                               fontSize: "12px", 
-                               // Keep original color, don't change for pending validation
-                               color: "var(--vscode-testing-iconPassed)" 
-                           }}></i>
+                        <i
+                            className="codicon codicon-check-all"
+                            style={{
+                                fontSize: "12px",
+                                // Keep original color, don't change for pending validation
+                                color: "var(--vscode-testing-iconPassed)",
+                            }}
+                        ></i>
                     ) : (
                         // Double grey checkmarks - Fully validated but current user hasn't validated
-                        <i className="codicon codicon-check-all"
-                           style={{ 
-                               fontSize: "12px", 
-                               // Keep original color, don't change for pending validation
-                               color: "var(--vscode-descriptionForeground)" 
-                           }}></i>
+                        <i
+                            className="codicon codicon-check-all"
+                            style={{
+                                fontSize: "12px",
+                                // Keep original color, don't change for pending validation
+                                color: "var(--vscode-descriptionForeground)",
+                            }}
+                        ></i>
                     )
                 ) : isValidated ? (
                     // Green checkmark - Current user validated but not fully validated
-                    <i className="codicon codicon-check"
-                       style={{ 
-                           fontSize: "12px", 
-                           // Keep original color, don't change for pending validation
-                           color: "var(--vscode-testing-iconPassed)" 
-                       }}></i>
+                    <i
+                        className="codicon codicon-check"
+                        style={{
+                            fontSize: "12px",
+                            // Keep original color, don't change for pending validation
+                            color: "var(--vscode-testing-iconPassed)",
+                        }}
+                    ></i>
                 ) : (
                     // Grey filled circle - Has validations but not from current user
-                    <i className="codicon codicon-circle-filled"
-                       style={{ 
-                           fontSize: "12px", 
-                           // Keep original color, don't change for pending validation
-                           color: "var(--vscode-descriptionForeground)" 
-                       }}></i>
+                    <i
+                        className="codicon codicon-circle-filled"
+                        style={{
+                            fontSize: "12px",
+                            // Keep original color, don't change for pending validation
+                            color: "var(--vscode-descriptionForeground)",
+                        }}
+                    ></i>
                 )}
             </VSCodeButton>
 
@@ -513,16 +526,18 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
             {showPopover && uniqueValidationUsers.length > 0 && (
                 <div
                     ref={popoverRef}
-                    className={`validation-popover ${isDetailedView ? 'detailed-view' : 'simple-view'}`}
+                    className={`validation-popover ${
+                        isDetailedView ? "detailed-view" : "simple-view"
+                    }`}
                     style={{
                         position: "fixed",
                         zIndex: 100000,
-                        opacity: showPopover ? '1' : '0',
-                        transition: 'opacity 0.2s ease-in-out',
-                        pointerEvents: showPopover ? 'auto' : 'none',
-                        backgroundColor: 'var(--vscode-editor-background)',
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                        border: '1px solid var(--vscode-editorWidget-border)',
+                        opacity: showPopover ? "1" : "0",
+                        transition: "opacity 0.2s ease-in-out",
+                        pointerEvents: showPopover ? "auto" : "none",
+                        backgroundColor: "var(--vscode-editor-background)",
+                        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                        border: "1px solid var(--vscode-editorWidget-border)",
                     }}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -563,7 +578,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             <i className="codicon codicon-close" />
                         </div>
                     )}
-                    
+
                     {isDetailedView ? (
                         <>
                             <div
@@ -580,7 +595,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                 const isCurrentUser = user.username === username;
                                 const canDelete = isCurrentUser && isValidated;
                                 const formattedTime = formatTimestamp(user.updatedTimestamp);
-                                
+
                                 return (
                                     <div
                                         key={user.username}
@@ -592,40 +607,49 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                             position: "relative",
                                         }}
                                     >
-                                        <div style={{ 
-                                            display: "flex",
-                                            alignItems: "center",
-                                            position: "relative",
-                                            flex: "0 1 auto",
-                                            marginRight: "8px"
-                                        }}>
-                                            <span id={`username-${user.username}-${uniqueId.current}`}>
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                position: "relative",
+                                                flex: "0 1 auto",
+                                                marginRight: "8px",
+                                            }}
+                                        >
+                                            <span
+                                                id={`username-${user.username}-${uniqueId.current}`}
+                                            >
                                                 {user.username}
                                                 {user.username === username && (
                                                     <span
                                                         id={`trash-icon-${user.username}-${uniqueId.current}`}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            
+
                                                             // Queue the validation removal
                                                             vscode.postMessage({
                                                                 command: "queueValidation",
                                                                 content: {
                                                                     cellId,
                                                                     validate: false,
-                                                                    pending: true
+                                                                    pending: true,
                                                                 },
                                                             });
-                                                            
+
                                                             // Set the pending state
                                                             setIsPendingValidation(true);
-                                                            
+
                                                             // Immediately close the popover
                                                             setShowPopover(false);
                                                             setIsPersistentPopover(false);
                                                             setIsDetailedView(false);
-                                                            if (popoverTracker.getActivePopover() === uniqueId.current) {
-                                                                popoverTracker.setActivePopover(null);
+                                                            if (
+                                                                popoverTracker.getActivePopover() ===
+                                                                uniqueId.current
+                                                            ) {
+                                                                popoverTracker.setActivePopover(
+                                                                    null
+                                                                );
                                                             }
                                                         }}
                                                         title="Remove your validation"
@@ -671,13 +695,15 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                 )}
                                             </span>
                                         </div>
-                                        <div style={{ 
-                                            fontSize: "10px", 
-                                            color: "#888", 
-                                            flex: "0 0 auto",
-                                            minWidth: "45px",
-                                            textAlign: "right" 
-                                        }}>
+                                        <div
+                                            style={{
+                                                fontSize: "10px",
+                                                color: "#888",
+                                                flex: "0 0 auto",
+                                                minWidth: "45px",
+                                                textAlign: "right",
+                                            }}
+                                        >
                                             {formatTimestamp(user.updatedTimestamp)}
                                         </div>
                                     </div>
@@ -689,10 +715,14 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         <div className="validators-simple-view">
                             {uniqueValidationUsers.map((user, index) => (
                                 <React.Fragment key={user.username}>
-                                    <span className={user.username === username ? "current-user" : ""}>
+                                    <span
+                                        className={user.username === username ? "current-user" : ""}
+                                    >
                                         {user.username}
                                     </span>
-                                    {index < uniqueValidationUsers.length - 1 && <span className="separator">•</span>}
+                                    {index < uniqueValidationUsers.length - 1 && (
+                                        <span className="separator">•</span>
+                                    )}
                                 </React.Fragment>
                             ))}
                             <div className="more-info-hint">
@@ -700,7 +730,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                             </div>
                         </div>
                     )}
-                    
+
                     {/* Add this CSS to the component */}
                     <style>
                         {`

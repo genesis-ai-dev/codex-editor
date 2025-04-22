@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
-import { GlobalMessage, SourceCellVersions, TranslationPair } from "../../../types";
+import {
+    GlobalMessage,
+    ParallelViewPostMessages,
+    SourceCellVersions,
+    TranslationPair,
+} from "../../../types";
 import { GlobalProvider } from "../../globalProvider";
 
 // Local type definitions
@@ -296,7 +301,13 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     message.editIndex
                 );
                 break;
-
+            case "navigateToMainMenu":
+                try {
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                } catch (error) {
+                    console.error("Error navigating to main menu:", error);
+                }
+                break;
             case "addedFeedback":
                 console.log("addedFeedback", message.feedback, message.cellId);
                 await vscode.commands.executeCommand(

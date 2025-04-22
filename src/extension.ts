@@ -41,6 +41,7 @@ import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { waitForExtensionActivation } from "./utils/vscode";
 import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
+import { registerCommandsBefore } from "./activationHelpers/contextAware/commandsBefore";
 
 interface ActivationTiming {
     step: string;
@@ -83,6 +84,9 @@ export async function activate(context: vscode.ExtensionContext) {
         if (extension?.isActive) {
             authApi = extension.exports;
         }
+
+        stepStart = trackTiming("Execute Commands Before", stepStart);
+        await executeCommandsBefore(context);
 
         // Initialize metadata manager
         stepStart = trackTiming("Initialize Metadata Manager", stepStart);
@@ -398,17 +402,17 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
     registerCompletionsCodeLensProviders(context);
 }
 
+async function executeCommandsBefore(context: vscode.ExtensionContext) {
+    registerCommandsBefore(context);
+    await vscode.commands.executeCommand("codex-editor-extension.toggleWorkspaceUI");
+}
+
 async function executeCommandsAfter() {
-    // First show project overview in secondary sidebar
-    await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-
-    // Then focus navigation in primary sidebar
-    await vscode.commands.executeCommand("workbench.action.focusActivityBar");
-    await vscode.commands.executeCommand("codex-editor.navigation.focus");
-
-    // Set editor font and configure auto-save
-    await vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
-
+    vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
+    vscode.commands.executeCommand("workbench.action.focusActivityBar");
+    // Focus our main menu instead of the navigation view
+    vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+    vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
     // Configure auto-save in settings
     await vscode.workspace
         .getConfiguration()

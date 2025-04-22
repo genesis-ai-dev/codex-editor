@@ -16,6 +16,7 @@ import { LanguageProjectStatus } from "codex-types";
 import "./App.css";
 import React, { CSSProperties } from "react";
 import SyncSettings from "./components/SyncSettings";
+import { WebviewHeader } from "../components/WebviewHeader";
 
 declare const vscode: {
     postMessage: (message: any) => void;
@@ -444,6 +445,8 @@ function ProjectManagerView() {
                 flexDirection: "column",
             }}
         >
+            <WebviewHeader title="Project Settings" vscode={vscode} />
+
             <VSCodePanels>
                 <VSCodePanelTab id="current-project">Current Project</VSCodePanelTab>
 

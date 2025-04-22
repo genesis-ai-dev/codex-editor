@@ -784,6 +784,82 @@ export const handleMessages = async (
             }
             return;
         }
+        case "toggleWorkspaceUI": {
+            try {
+                await vscode.commands.executeCommand("codex-editor-extension.toggleWorkspaceUI");
+            } catch (error) {
+                console.error("Error toggling workspace UI:", error);
+                vscode.window.showErrorMessage("Failed to toggle workspace UI");
+            }
+            return;
+        }
+        case "togglePrimarySidebar": {
+            try {
+                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+                await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+            } catch (error) {
+                console.error("Error toggling primary sidebar:", error);
+                vscode.window.showErrorMessage("Failed to toggle primary sidebar");
+            }
+            return;
+        }
+        case "toggleSecondarySidebar": {
+            try {
+                await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
+            } catch (error) {
+                console.error("Error toggling secondary sidebar:", error);
+                vscode.window.showErrorMessage("Failed to toggle secondary sidebar");
+            }
+            return;
+        }
+        case "getEditorPosition": {
+            try {
+                const activeEditor = vscode.window.activeTextEditor;
+                let position = "unknown";
+
+                if (activeEditor) {
+                    // Get all visible editors to determine the layout
+                    const visibleEditors = vscode.window.visibleTextEditors;
+
+                    // If there's only one editor, it's both leftmost and rightmost
+                    if (visibleEditors.length <= 1) {
+                        position = "single";
+                    } else {
+                        // Sort editors by their view column
+                        const sortedEditors = [...visibleEditors].sort(
+                            (a, b) => (a.viewColumn || 0) - (b.viewColumn || 0)
+                        );
+
+                        // Find the index of the active editor in the sorted array
+                        const activeEditorIndex = sortedEditors.findIndex(
+                            (editor) =>
+                                editor.document.uri.toString() ===
+                                activeEditor.document.uri.toString()
+                        );
+
+                        if (activeEditorIndex === 0) {
+                            position = "leftmost";
+                        } else if (activeEditorIndex === sortedEditors.length - 1) {
+                            position = "rightmost";
+                        } else {
+                            position = "center";
+                        }
+                    }
+                }
+
+                webviewPanel.webview.postMessage({
+                    type: "editorPosition",
+                    position,
+                });
+            } catch (error) {
+                console.error("Error determining editor position:", error);
+                webviewPanel.webview.postMessage({
+                    type: "editorPosition",
+                    position: "unknown",
+                });
+            }
+            return;
+        }
         case "queueValidation":
             if (event.content && event.content.cellId) {
                 try {
@@ -889,5 +965,16 @@ export const handleMessages = async (
                 vscode.window.showErrorMessage("Failed to jump to chapter");
             }
             break;
+        case "toggleSidebar": {
+            console.log("toggleSidebar message received");
+            try {
+                // Toggle main menu visibility by executing the toggle command instead of just focusing
+                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+            } catch (error) {
+                console.error("Error toggling main menu visibility:", error);
+                vscode.window.showErrorMessage("Failed to toggle sidebar visibility.");
+            }
+            return;
+        }
     }
 };

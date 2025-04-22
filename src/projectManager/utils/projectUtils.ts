@@ -17,7 +17,7 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log('[ProjectUtils]', ...args) : () => {};
+const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => {};
 
 // Flag to temporarily disable metadata to config sync during direct updates
 let syncDisabled = false;

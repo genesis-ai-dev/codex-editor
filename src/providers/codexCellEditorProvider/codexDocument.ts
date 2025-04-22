@@ -547,10 +547,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
             latestEdit.validatedBy = [];
         }
 
-        const authApi = await getAuthApi();
-        const userInfo = await authApi?.getUserInfo();
-        const username = userInfo?.username || "anonymous";
+        // FIXME: we shouldn't be doing this constantly every time we validate a cell!
+        // we should just get the current user once at the top level of the codexCellEditorProvider
+        let username = "anonymous";
         const currentTimestamp = Date.now();
+        try {
+            const authApi = await getAuthApi();
+            const userInfo = await authApi?.getUserInfo();
+            username = userInfo?.username || "anonymous";
+        } catch (e) {
+            console.error("Could not get user info in validateCellContent", e);
+        }
 
         // Find existing validation entry for this user
         const existingEntryIndex = latestEdit.validatedBy.findIndex(

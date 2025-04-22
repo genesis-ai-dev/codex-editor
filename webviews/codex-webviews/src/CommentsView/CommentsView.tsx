@@ -11,6 +11,7 @@ import {
 import "../App.css";
 import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
+import { WebviewHeader } from "../components/WebviewHeader";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -390,6 +391,8 @@ function App() {
                 position: "relative", // For positioning the resolved threads banner
             }}
         >
+            <WebviewHeader title="Comments" vscode={vscode} />
+
             {/* Header */}
             <div
                 style={{

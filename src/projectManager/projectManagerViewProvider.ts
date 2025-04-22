@@ -681,6 +681,14 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await this.store.refreshState();
                 this._view?.webview.postMessage({ command: "actionCompleted" });
                 break;
+            case "navigateToMainMenu": {
+                try {
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                } catch (error) {
+                    console.error("Error navigating to main menu:", error);
+                }
+                break;
+            }
             default:
                 console.error(`Unknown command: ${message.command}`, { message });
         }

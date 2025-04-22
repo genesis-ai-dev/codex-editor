@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.3.11",
+    "version": "0.3.12",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -45,6 +45,15 @@
             }
         ],
         "views": {
+            "codex-main-menu": [
+                {
+                    "type": "webview",
+                    "id": "codex-editor.mainMenu",
+                    "name": "Main Menu",
+                    "icon": "$(list-tree)",
+                    "contextualTitle": "Codex Main Menu"
+                }
+            ],
             "parallel-passages-view": [
                 {
                     "type": "webview",
@@ -105,6 +114,11 @@
         },
         "viewsContainers": {
             "activitybar": [
+                {
+                    "id": "codex-main-menu",
+                    "title": "Codex Main Menu",
+                    "icon": "$(list-tree)"
+                },
                 {
                     "id": "codex-files-view",
                     "title": "Navigation",

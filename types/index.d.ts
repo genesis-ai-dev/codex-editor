@@ -166,7 +166,8 @@ type CommentPostMessages =
     | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string } }
     | { command: "getCurrentCellId" }
     | { command: "fetchComments" }
-    | { command: "updateUserInfo"; userInfo?: { username: string; email: string } };
+    | { command: "updateUserInfo"; userInfo?: { username: string; email: string } }
+    | { command: "navigateToMainMenu" };
 
 interface SelectedTextDataWithContext {
     selection: string;
@@ -576,6 +577,12 @@ export type EditorPostMessages =
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
     | { command: "executeCommand"; content: { command: string; args: any[] } }
+    | { command: "toggleWorkspaceUI" }
+    | { command: "togglePrimarySidebar" }
+    | { command: "toggleSecondarySidebar" }
+    | { command: "focusMainMenu" }
+    | { command: "toggleSidebar" }
+    | { command: "getEditorPosition" }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
     | {
           command: "queueValidation";
@@ -1193,7 +1200,8 @@ type ProjectManagerMessageFromWebview =
           data: { autoSyncEnabled: boolean; syncDelayMinutes: number };
       }
     | { command: "triggerSync" }
-    | { command: "openBookNameEditor" };
+    | { command: "openBookNameEditor" }
+    | { command: "navigateToMainMenu" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1492,4 +1500,21 @@ export type ImportType = "source" | "translation" | "bible-download" | "translat
 export interface Footnote {
     id: string;
     content: string;
+}
+
+export type ParallelViewPostMessages =
+    | { command: "openFileAtLocation"; uri: string; word: string }
+    | { command: "requestPinning"; content: { cellId: string } }
+    | { command: "chatStream"; context: string[]; query: string; editIndex?: number }
+    | { command: "navigateToMainMenu" }
+    | { command: "addedFeedback"; feedback: string; cellId: string }
+    | { command: "search"; query: string; completeOnly: boolean }
+    | { command: "deleteChatSession"; sessionId: string }
+    | { command: "startNewChatSession" }
+    | { command: "getCurrentChatSessionInfo" }
+    | { command: "getAllChatSessions" }
+    | { command: "loadChatSession"; sessionId: string };
+
+interface DictionaryMetadata {
+    // ... existing code ...
 }
