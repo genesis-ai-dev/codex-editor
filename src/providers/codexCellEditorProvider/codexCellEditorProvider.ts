@@ -601,6 +601,71 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <body>
                 <div id="root"></div>
                 <script nonce="${nonce}" src="${scriptUri}"></script>
+                
+                {/* Add CSS for the floating button and loader */}
+                <style>
+                    .floating-apply-validations-button {
+                        position: fixed;
+                        bottom: 20px;
+                        right: 20px;
+                        display: flex;
+                        align-items: center;
+                        background-color: var(--vscode-button-background);
+                        color: var(--vscode-button-foreground);
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+                        z-index: 1000;
+                        font-size: 12px;
+                        transition: background-color 0.2s;
+                    }
+                    .floating-apply-validations-button:hover {
+                        background-color: var(--vscode-button-hoverBackground);
+                    }
+                    .floating-apply-validations-button.applying {
+                        cursor: default;
+                        opacity: 0.8;
+                    }
+                    .floating-apply-validations-button .validation-count {
+                        background-color: #f5a623; /* Use the same consistent orange color */
+                        color: var(--vscode-button-background);
+                        border-radius: 50%;
+                        width: 20px;
+                        height: 20px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-right: 8px;
+                        font-weight: bold;
+                    }
+                    .floating-apply-validations-button .codicon {
+                        margin-right: 8px;
+                    }
+                    .floating-apply-validations-button .close-button {
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-left: 8px;
+                        padding: 2px;
+                        border-radius: 3px;
+                        cursor: pointer;
+                    }
+                    .floating-apply-validations-button .close-button:hover {
+                        background-color: rgba(255, 255, 255, 0.2);
+                    }
+                    .floating-apply-validations-button .close-button .codicon {
+                        margin-right: 0;
+                        font-size: 14px;
+                    }
+                    .spin {
+                        animation: spin 1.5s linear infinite;
+                    }
+                    @keyframes spin {
+                        from { transform: rotate(0deg); }
+                        to { transform: rotate(360deg); }
+                    }
+                </style>
             </body>
             </html>`;
     }
