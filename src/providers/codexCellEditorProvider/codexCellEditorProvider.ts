@@ -245,7 +245,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Initial setup
         this.currentDocument = document;
-        console.log("RYDER 4");
         const authApi = await this.getAuthApi();
         this.userInfo = await authApi?.getUserInfo();
         debug("User info retrieved:", this.userInfo);

@@ -12,6 +12,7 @@ import { OpenFileMessage, ChatMessage } from "./types";
 import SearchTab from "./SearchTab";
 import ChatTab from "./ChatTab";
 import { TranslationPair } from "../../../../types";
+import { WebviewHeader } from "../components/WebviewHeader";
 
 const vscode = acquireVsCodeApi();
 
@@ -155,7 +156,7 @@ function ParallelView() {
                         });
 
                         setIsStreaming(true);
-                        
+
                         // Auto-switch to chat tab when receiving a message
                         setActiveTab("chat");
 
@@ -260,7 +261,7 @@ function ParallelView() {
         sendMessage(chatInput);
         setChatInput("");
         setIsSessionMenuOpen(false);
-        
+
         // Auto-switch to chat tab when sending a message
         setActiveTab("chat");
     };
@@ -268,28 +269,34 @@ function ParallelView() {
     // Helper function to strip HTML tags from content
     const stripHtmlTags = (html: string) => {
         // Use a simple regex to remove HTML tags
-        return html.replace(/<[^>]*>/g, '');
+        return html.replace(/<[^>]*>/g, "");
     };
 
     const handleUnpinVerse = (cellId: string) => {
         // Remove the verse from pinned verses
-        setPinnedVerses(prev => prev.filter(verse => verse.cellId !== cellId));
+        setPinnedVerses((prev) => prev.filter((verse) => verse.cellId !== cellId));
     };
 
     const sendMessage = (messageContent: string) => {
         // Format pinned verses to include in the message using the PinnedVerse component
         let fullMessage = messageContent;
-        
+
         // Only add the pinned verses if there are any and the message is not a feedback message
-        if (pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback')) {
+        if (pinnedVerses.length > 0 && !messageContent.includes("<UserFeedback")) {
             // Convert pinned verses to PinnedVerse components in the message
-            const pinnedVersesComponents = pinnedVerses.map(verse => {
-                const sourceText = stripHtmlTags(verse.sourceCell?.content || "No source text available");
-                const targetText = stripHtmlTags(verse.targetCell?.content || "");
-                
-                return `<PinnedVerse cellId="${verse.cellId}" sourceText="${encodeURIComponent(sourceText)}" targetText="${encodeURIComponent(targetText)}" />`;
-            }).join("\n");
-            
+            const pinnedVersesComponents = pinnedVerses
+                .map((verse) => {
+                    const sourceText = stripHtmlTags(
+                        verse.sourceCell?.content || "No source text available"
+                    );
+                    const targetText = stripHtmlTags(verse.targetCell?.content || "");
+
+                    return `<PinnedVerse cellId="${verse.cellId}" sourceText="${encodeURIComponent(
+                        sourceText
+                    )}" targetText="${encodeURIComponent(targetText)}" />`;
+                })
+                .join("\n");
+
             // Add the PinnedVerse components to the user's message
             fullMessage = `${messageContent}\n\n${pinnedVersesComponents}`;
         }
@@ -305,28 +312,36 @@ function ParallelView() {
         setChatHistory(newHistory);
 
         // Also add the plain text version for the API
-        const plainTextPinnedVerses = pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback') 
-            ? pinnedVerses.map(verse => {
-                const sourceText = stripHtmlTags(verse.sourceCell?.content || "No source text available");
-                const targetText = stripHtmlTags(verse.targetCell?.content || "");
-                
-                return `\n---\nVerse: ${verse.cellId}\nSource: ${sourceText}\nTarget: ${targetText ? `${targetText}` : ""}`;
-              }).join('\n')
-            : '';
+        const plainTextPinnedVerses =
+            pinnedVerses.length > 0 && !messageContent.includes("<UserFeedback")
+                ? pinnedVerses
+                      .map((verse) => {
+                          const sourceText = stripHtmlTags(
+                              verse.sourceCell?.content || "No source text available"
+                          );
+                          const targetText = stripHtmlTags(verse.targetCell?.content || "");
 
-        const apiMessage = pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback')
-            ? `${messageContent}\n\nCONTEXT (PINNED VERSES):${plainTextPinnedVerses}\n---`
-            : messageContent;
+                          return `\n---\nVerse: ${verse.cellId}\nSource: ${sourceText}\nTarget: ${
+                              targetText ? `${targetText}` : ""
+                          }`;
+                      })
+                      .join("\n")
+                : "";
+
+        const apiMessage =
+            pinnedVerses.length > 0 && !messageContent.includes("<UserFeedback")
+                ? `${messageContent}\n\nCONTEXT (PINNED VERSES):${plainTextPinnedVerses}\n---`
+                : messageContent;
 
         vscode.postMessage({
             command: "chatStream",
             query: apiMessage,
-            context: [],  // Empty context as we're now including verses directly in the message
+            context: [], // Empty context as we're now including verses directly in the message
         });
-        
+
         // Automatically unpin all verses after they've been included in a message
         // but only if this is not a feedback message
-        if (pinnedVerses.length > 0 && !messageContent.includes('<UserFeedback')) {
+        if (pinnedVerses.length > 0 && !messageContent.includes("<UserFeedback")) {
             setPinnedVerses([]);
         }
     };
@@ -348,7 +363,7 @@ function ParallelView() {
             feedback: feedback,
         });
     };
-    
+
     const handlePinAll = () => {
         const unpinnedVerses = verses.filter(
             (verse) => !pinnedVerses.some((pinned) => pinned.cellId === verse.cellId)
@@ -399,17 +414,18 @@ function ParallelView() {
 
     return (
         <div className="parallel-view-container">
+            <WebviewHeader title="Parallel Passages" vscode={vscode} />
             <div className="tab-navigation">
-                <div 
-                    className={`tab-button ${activeTab === 'search' ? 'active' : ''}`}
-                    onClick={() => handleChangeTab('search')}
+                <div
+                    className={`tab-button ${activeTab === "search" ? "active" : ""}`}
+                    onClick={() => handleChangeTab("search")}
                 >
                     <span className="codicon codicon-search"></span>
                     <span className="tab-label">Search</span>
                 </div>
-                <div 
-                    className={`tab-button ${activeTab === 'chat' ? 'active' : ''}`}
-                    onClick={() => handleChangeTab('chat')}
+                <div
+                    className={`tab-button ${activeTab === "chat" ? "active" : ""}`}
+                    onClick={() => handleChangeTab("chat")}
                 >
                     <span className="codicon codicon-comment"></span>
                     <span className="tab-label">Chat</span>
@@ -420,11 +436,11 @@ function ParallelView() {
                     {pinnedCount > 0 && <VSCodeBadge>{pinnedCount}</VSCodeBadge>}
                 </div>
             </div>
-            
+
             <VSCodeDivider />
-            
+
             <div className="tab-content">
-                <div className={`tab-panel ${activeTab === 'search' ? 'active' : ''}`}>
+                <div className={`tab-panel ${activeTab === "search" ? "active" : ""}`}>
                     <SearchTab
                         verses={verses}
                         pinnedVerses={pinnedVerses}
@@ -438,8 +454,8 @@ function ParallelView() {
                         onPinAll={handlePinAll}
                     />
                 </div>
-                
-                <div className={`tab-panel ${activeTab === 'chat' ? 'active' : ''}`}>
+
+                <div className={`tab-panel ${activeTab === "chat" ? "active" : ""}`}>
                     <ChatTab
                         chatHistory={chatHistory}
                         chatInput={chatInput}

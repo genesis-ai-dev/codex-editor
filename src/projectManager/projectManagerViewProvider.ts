@@ -676,6 +676,14 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await syncManager.executeSync("Manual sync triggered from project view");
                 break;
             }
+            case "navigateToMainMenu": {
+                try {
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                } catch (error) {
+                    console.error("Error navigating to main menu:", error);
+                }
+                break;
+            }
             default:
                 console.error(`Unknown command: ${message.command}`, { message });
         }

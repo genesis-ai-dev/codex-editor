@@ -26,47 +26,51 @@ interface State {
 // Refined styles with better whitespace and typography
 const styles = {
     container: {
-        padding: "28px 24px",
+        padding: "16px 8px",
         height: "100vh",
         overflow: "auto",
         display: "flex",
         flexDirection: "column" as const,
-        gap: "32px",
+        gap: "16px",
         maxWidth: "800px",
         margin: "0 auto",
     },
     header: {
         display: "flex",
         alignItems: "center",
-        gap: "12px",
-        marginBottom: "6px",
+        gap: "8px",
+        marginBottom: "4px",
         borderBottom: "1px solid var(--vscode-tab-inactiveBackground)",
-        paddingBottom: "16px",
+        paddingBottom: "12px",
+        flexWrap: "wrap" as const,
     },
     headerTitle: {
-        fontSize: "20px",
+        fontSize: "16px",
         fontWeight: 300,
         color: "var(--vscode-foreground)",
         letterSpacing: "0.2px",
         lineHeight: 1.4,
+        whiteSpace: "nowrap" as const,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
     },
     sectionTitle: {
-        fontSize: "13px",
+        fontSize: "12px",
         fontWeight: 600,
         color: "var(--vscode-descriptionForeground)",
         textTransform: "uppercase" as const,
         letterSpacing: "0.8px",
-        marginBottom: "12px",
+        marginBottom: "8px",
     },
     sectionContainer: {
         display: "flex",
         flexDirection: "column" as const,
-        gap: "14px",
+        gap: "10px",
     },
     buttonsContainer: {
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
-        gap: "10px",
+        gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+        gap: "6px",
     },
     button: {
         height: "auto",
@@ -74,7 +78,6 @@ const styles = {
         display: "flex",
         flexDirection: "row" as const,
         alignItems: "center",
-        gap: "12px",
         textAlign: "left" as const,
         borderRadius: "4px",
         transition: "all 0.2s ease",
@@ -84,29 +87,35 @@ const styles = {
         overflow: "hidden",
         cursor: "pointer",
         width: "100%",
+        minWidth: "0",
     },
     buttonContent: {
         display: "flex",
         alignItems: "center",
-        padding: "10px 12px",
+        padding: "8px 6px",
         width: "100%",
         height: "100%",
         borderRadius: "4px",
-        gap: "12px",
+        gap: "6px",
     },
     iconContainer: {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "32px",
-        height: "32px",
-        borderRadius: "6px",
+        minWidth: "24px",
+        height: "24px",
+        borderRadius: "4px",
         backgroundColor: "var(--vscode-button-background)",
+        flexShrink: 0,
     },
     buttonLabel: {
         fontWeight: 400,
-        fontSize: "14px",
+        fontSize: "13px",
         flex: 1,
+        whiteSpace: "nowrap" as const,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        minWidth: "0",
     },
     activeIndicator: {
         width: "3px",
@@ -117,20 +126,20 @@ const styles = {
         backgroundColor: "var(--vscode-terminal-ansiGreen)",
     },
     icon: {
-        fontSize: "16px",
+        fontSize: "14px",
         color: "var(--vscode-button-foreground)",
     },
     divider: {
-        margin: "8px 0",
+        margin: "4px 0",
         opacity: 0.4,
     },
     version: {
-        fontSize: "11px",
+        fontSize: "10px",
         color: "var(--vscode-descriptionForeground)",
         marginTop: "auto",
         textAlign: "center" as const,
         opacity: 0.7,
-        paddingTop: "24px",
+        paddingTop: "16px",
     },
 };
 
@@ -189,18 +198,22 @@ function MainMenu() {
     };
 
     return (
-        <div style={styles.container}>
-            <div style={styles.header}>
+        <div className="container" style={styles.container}>
+            {/* <div style={styles.header}>
                 <i
-                    className="codicon codicon-book"
-                    style={{ ...styles.icon, fontSize: "24px" }}
+                    className="codicon codicon-book icon"
+                    style={{ ...styles.icon, fontSize: "18px" }}
                 ></i>
-                <span style={styles.headerTitle}>Codex Translation Editor</span>
-            </div>
+                <span className="header-title" style={styles.headerTitle}>
+                    Codex Translation Editor
+                </span>
+            </div> */}
 
             {state.menuConfig.map((section, index) => (
                 <div key={section.title} style={styles.sectionContainer}>
-                    <span style={styles.sectionTitle}>{section.title}</span>
+                    <span className="section-title" style={styles.sectionTitle}>
+                        {section.title}
+                    </span>
                     <div style={styles.buttonsContainer}>
                         {section.buttons.map((button) => (
                             <button
@@ -213,6 +226,7 @@ function MainMenu() {
                                     <div style={styles.activeIndicator}></div>
                                 )}
                                 <div
+                                    className="button-content"
                                     style={{
                                         ...styles.buttonContent,
                                         backgroundColor:
@@ -221,13 +235,14 @@ function MainMenu() {
                                                 : "transparent",
                                     }}
                                 >
-                                    <div style={styles.iconContainer}>
+                                    <div className="icon-container" style={styles.iconContainer}>
                                         <i
-                                            className={`codicon codicon-${button.icon}`}
+                                            className={`codicon codicon-${button.icon} icon`}
                                             style={styles.icon}
                                         ></i>
                                     </div>
                                     <span
+                                        className="button-label"
                                         style={{
                                             ...styles.buttonLabel,
                                             color:
@@ -252,9 +267,60 @@ function MainMenu() {
                 button:hover {
                     background-color: var(--vscode-list-hoverBackground);
                 }
+                /* Add responsive media queries */
+                @media (max-width: 200px) {
+                    .header-title {
+                        display: none;
+                    }
+                    .container {
+                        padding: 12px 4px;
+                    }
+                }
+                @media (max-width: 140px) {
+                    .button-label {
+                        display: none;
+                    }
+                    .button-content {
+                        padding: 8px 0;
+                        justify-content: center;
+                    }
+                    .icon-container {
+                        margin: 0 auto;
+                    }
+                    .section-title {
+                        text-align: center;
+                        font-size: 10px;
+                    }
+                    .container {
+                        padding: 8px 2px;
+                        gap: 12px;
+                    }
+                }
+                @media (max-width: 100px) {
+                    .version {
+                        display: none;
+                    }
+                    .section-title {
+                        font-size: 9px;
+                        letter-spacing: 0.5px;
+                    }
+                    .icon-container {
+                        min-width: 20px;
+                        height: 20px;
+                    }
+                    .icon {
+                        font-size: 12px;
+                    }
+                    .container {
+                        padding: 6px 1px;
+                        gap: 8px;
+                    }
+                }
             `}</style>
 
-            <div style={styles.version}>Codex Translation Editor v0.3.12</div>
+            <div className="version" style={styles.version}>
+                Codex Translation Editor v0.3.12
+            </div>
         </div>
     );
 }

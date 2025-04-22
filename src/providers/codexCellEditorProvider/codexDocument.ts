@@ -161,7 +161,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             const authApi = await getAuthApi();
             if (authApi) {
                 try {
-                    console.log("RYDER 2");
                     const userInfo = await authApi.getUserInfo();
                     if (userInfo && userInfo.username) {
                         this._author = userInfo.username;
@@ -553,7 +552,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
         let username = "anonymous";
         const currentTimestamp = Date.now();
         try {
-            console.log("RYDER 3");
             const authApi = await getAuthApi();
             const userInfo = await authApi?.getUserInfo();
             username = userInfo?.username || "anonymous";

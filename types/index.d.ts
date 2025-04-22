@@ -166,7 +166,8 @@ type CommentPostMessages =
     | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string } }
     | { command: "getCurrentCellId" }
     | { command: "fetchComments" }
-    | { command: "updateUserInfo"; userInfo?: { username: string; email: string } };
+    | { command: "updateUserInfo"; userInfo?: { username: string; email: string } }
+    | { command: "navigateToMainMenu" };
 
 interface SelectedTextDataWithContext {
     selection: string;
@@ -1197,7 +1198,8 @@ type ProjectManagerMessageFromWebview =
           command: "updateSyncSettings";
           data: { autoSyncEnabled: boolean; syncDelayMinutes: number };
       }
-    | { command: "triggerSync" };
+    | { command: "triggerSync" }
+    | { command: "navigateToMainMenu" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1496,4 +1498,21 @@ export type ImportType = "source" | "translation" | "bible-download" | "translat
 export interface Footnote {
     id: string;
     content: string;
+}
+
+export type ParallelViewPostMessages =
+    | { command: "openFileAtLocation"; uri: string; word: string }
+    | { command: "requestPinning"; content: { cellId: string } }
+    | { command: "chatStream"; context: string[]; query: string; editIndex?: number }
+    | { command: "navigateToMainMenu" }
+    | { command: "addedFeedback"; feedback: string; cellId: string }
+    | { command: "search"; query: string; completeOnly: boolean }
+    | { command: "deleteChatSession"; sessionId: string }
+    | { command: "startNewChatSession" }
+    | { command: "getCurrentChatSessionInfo" }
+    | { command: "getAllChatSessions" }
+    | { command: "loadChatSession"; sessionId: string };
+
+interface DictionaryMetadata {
+    // ... existing code ...
 }

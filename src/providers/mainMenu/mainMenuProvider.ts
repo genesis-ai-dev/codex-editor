@@ -26,7 +26,7 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
             buttons: [
                 {
                     id: "navigation",
-                    label: "Files & Navigation",
+                    label: "Your Translations",
                     icon: "compass",
                     viewId: "codex-editor.navigation",
                     description: "Browse and open files in your project",
@@ -37,38 +37,38 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
             title: "Tools",
             buttons: [
                 {
+                    id: "project-manager",
+                    label: "Project Settings",
+                    icon: "settings",
+                    viewId: "project-manager-sidebar",
+                    description: "Manage your translation project",
+                },
+                {
                     id: "parallel-passages",
                     label: "Parallel Passages",
                     icon: "eye",
                     viewId: "parallel-passages-sidebar",
                     description: "Compare passages across texts",
                 },
-                {
-                    id: "project-manager",
-                    label: "Project Manager",
-                    icon: "tools",
-                    viewId: "project-manager-sidebar",
-                    description: "Manage your translation project",
-                },
-                {
-                    id: "semantic-view",
-                    label: "Semantic View",
-                    icon: "unfold",
-                    viewId: "semantic-view-sidebar",
-                    description: "View semantic structure of text",
-                },
+                // { // FIXME: we should re-implement this dynamic thesaurus view
+                //     id: "semantic-view",
+                //     label: "Semantic View",
+                //     icon: "unfold",
+                //     viewId: "semantic-view-sidebar",
+                //     description: "View semantic structure of text",
+                // },
             ],
         },
         {
             title: "Communication",
             buttons: [
-                {
-                    id: "translator-copilot",
-                    label: "Translator's Copilot",
-                    icon: "comment-discussion",
-                    viewId: "genesis-translator-sidebar",
-                    description: "AI assistance for translation",
-                },
+                // {
+                //     id: "translator-copilot",
+                //     label: "Translator's Copilot",
+                //     icon: "comment-discussion",
+                //     viewId: "genesis-translator-sidebar",
+                //     description: "AI assistance for translation",
+                // },
                 {
                     id: "comments",
                     label: "Comments",
@@ -95,7 +95,6 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
 
         // Handle messages from the webview
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            console.log("RYDER 1", { message });
             switch (message.command) {
                 case "focusView":
                     try {
@@ -114,6 +113,9 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
 
         // Send the menu configuration to the webview
         this.sendMenuConfigToWebview();
+
+        // Register a command to navigate back to the main menu
+        this.registerNavigateToMainMenuCommand();
     }
 
     private sendMenuConfigToWebview(): void {
@@ -123,6 +125,25 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
                 menuConfig: this.menuConfig,
             });
         }
+    }
+
+    private registerNavigateToMainMenuCommand(): void {
+        const disposable = vscode.commands.registerCommand(
+            "codex-editor.navigateToMainMenu",
+            async () => {
+                if (this._view) {
+                    try {
+                        // Focus the main menu view
+                        await vscode.commands.executeCommand(`${MainMenuProvider.viewType}.focus`);
+                    } catch (error) {
+                        console.error("Error focusing main menu view:", error);
+                        vscode.window.showErrorMessage(`Error focusing main menu view: ${error}`);
+                    }
+                }
+            }
+        );
+
+        this.disposables.push(disposable);
     }
 
     private async getHtmlForWebview(webviewView: vscode.WebviewView): Promise<string> {

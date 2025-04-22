@@ -110,6 +110,13 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                 case "webviewReady":
                     await this.buildInitialData();
                     break;
+                case "navigateToMainMenu":
+                    try {
+                        await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    } catch (error) {
+                        console.error("Error navigating to main menu:", error);
+                    }
+                    break;
             }
         });
 

@@ -1,16 +1,27 @@
 import React from "react";
+import { BackToMenuButton } from "./BackToMenuButton";
 
 interface WebviewHeaderProps {
     title?: string;
     children?: React.ReactNode;
+    showBackButton?: boolean;
+    vscode?: {
+        postMessage: (message: any) => void;
+    };
 }
 
 export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
     title,
     children,
+    showBackButton = true,
+    vscode,
 }: {
     title?: string;
     children?: React.ReactNode;
+    showBackButton?: boolean;
+    vscode?: {
+        postMessage: (message: any) => void;
+    };
 }) => (
     <div
         className="webview-header"
@@ -22,12 +33,12 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
             padding: "0.25em 1em",
             gap: "0.25em",
             borderBottom: "2px solid var(--vscode-editorGroupHeader-tabsBorder)",
-            backgroundColor: "var(--vscode-sideBar-background)",
-            color: "var(--vscode-sideBar-foreground)",
             minHeight: "2em",
         }}
     >
-        {title && (
+        {showBackButton && vscode && <BackToMenuButton vscode={vscode} />}
+
+        {/* {title && (
             <h2
                 style={{
                     margin: 0,
@@ -37,7 +48,7 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
             >
                 {title}
             </h2>
-        )}
-        {children}
+        )} */}
+        {/* {children} */}
     </div>
 );

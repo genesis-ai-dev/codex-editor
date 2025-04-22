@@ -106,7 +106,6 @@ export const handleMessages = async (
     updateWebview: () => void,
     provider: CodexCellEditorProvider
 ) => {
-    console.log("RYDER", { event });
     switch (event.command) {
         case "webviewReady":
             // The webview is ready to receive messages
@@ -797,6 +796,7 @@ export const handleMessages = async (
         case "togglePrimarySidebar": {
             try {
                 await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+                await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
             } catch (error) {
                 console.error("Error toggling primary sidebar:", error);
                 vscode.window.showErrorMessage("Failed to toggle primary sidebar");

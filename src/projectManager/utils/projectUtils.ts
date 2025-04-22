@@ -596,7 +596,6 @@ export async function getProjectOverview(): Promise<ProjectOverview | undefined>
 
         const currentWorkspaceFolderName = workspaceFolder.name;
 
-        console.log("RYDER 5");
         const userInfo = await authApi?.getUserInfo();
         return {
             format: metadata.format || "Unknown Format",
