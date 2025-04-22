@@ -363,7 +363,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 message.type === "providerSendsUpdatedBacktranslation" ||
                 message.type === "providerConfirmsBacktranslationSet"
             ) {
-                setBacktranslation(message.content?.backtranslation || null);
+                setBacktranslation(message.content || null);
                 setEditedBacktranslation(message.content?.backtranslation || null);
             }
         };
@@ -752,52 +752,72 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 )}
                 {activeTab === "backtranslation" && (
                     <div className="backtranslation-section">
-                        {backtranslation ? (
-                            <>
-                                {isEditingBacktranslation ? (
-                                    <>
-                                        <textarea
-                                            value={editedBacktranslation || ""}
-                                            onChange={(e) =>
-                                                setEditedBacktranslation(e.target.value)
-                                            }
-                                            className="backtranslation-editor"
-                                        />
-                                        <VSCodeButton
-                                            onClick={handleSaveBacktranslation}
-                                            appearance="icon"
-                                            title="Save Backtranslation"
-                                        >
-                                            <i className="codicon codicon-save"></i>
-                                        </VSCodeButton>
-                                    </>
-                                ) : (
-                                    <>
+                        <div className="backtranslation-header">
+                            <h3>Backtranslation</h3>
+                            <div className="backtranslation-actions">
+                                {backtranslation && !isEditingBacktranslation && (
+                                    <VSCodeButton
+                                        onClick={() => setIsEditingBacktranslation(true)}
+                                        appearance="icon"
+                                        title="Edit Backtranslation"
+                                    >
+                                        <i className="codicon codicon-edit"></i>
+                                    </VSCodeButton>
+                                )}
+                                <VSCodeButton
+                                    onClick={handleGenerateBacktranslation}
+                                    appearance="icon"
+                                    title="Generate Backtranslation"
+                                >
+                                    <i className="codicon codicon-refresh"></i>
+                                </VSCodeButton>
+                            </div>
+                        </div>
+
+                        <div className="backtranslation-body">
+                            {backtranslation ? (
+                                <>
+                                    {isEditingBacktranslation ? (
+                                        <div className="backtranslation-edit-container">
+                                            <textarea
+                                                value={editedBacktranslation || ""}
+                                                onChange={(e) =>
+                                                    setEditedBacktranslation(e.target.value)
+                                                }
+                                                className="backtranslation-editor"
+                                                placeholder="Enter backtranslation text..."
+                                            />
+                                            <div className="backtranslation-edit-actions">
+                                                <VSCodeButton
+                                                    onClick={handleSaveBacktranslation}
+                                                    title="Save Backtranslation"
+                                                >
+                                                    Save
+                                                </VSCodeButton>
+                                                <VSCodeButton
+                                                    onClick={() => setIsEditingBacktranslation(false)}
+                                                    appearance="secondary"
+                                                    title="Cancel Editing"
+                                                >
+                                                    Cancel
+                                                </VSCodeButton>
+                                            </div>
+                                        </div>
+                                    ) : (
                                         <div className="backtranslation-content">
                                             <ReactMarkdown>
                                                 {backtranslation.backtranslation}
                                             </ReactMarkdown>
                                         </div>
-                                        <VSCodeButton
-                                            onClick={() => setIsEditingBacktranslation(true)}
-                                            appearance="icon"
-                                            title="Edit Backtranslation"
-                                        >
-                                            <i className="codicon codicon-edit"></i>
-                                        </VSCodeButton>
-                                    </>
-                                )}
-                            </>
-                        ) : (
-                            <p>No backtranslation available.</p>
-                        )}
-                        <VSCodeButton
-                            onClick={handleGenerateBacktranslation}
-                            appearance="icon"
-                            title="Generate Backtranslation"
-                        >
-                            <i className="codicon codicon-refresh"></i>
-                        </VSCodeButton>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="backtranslation-empty">
+                                    <p>No backtranslation available for this text.</p>
+                                    <p>Click the refresh button to generate a backtranslation.</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
                 {activeTab === "footnotes" && (

@@ -256,47 +256,88 @@
 .backtranslation-section {
     display: flex;
     flex-direction: column;
-    width: 100%;
-    max-width: 100%;
+    height: 100%;
+    padding: 8px 12px;
+    overflow: auto;
+}
+
+.backtranslation-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    padding-bottom: 8px;
+}
+
+.backtranslation-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+}
+
+.backtranslation-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.backtranslation-body {
+    flex: 1;
+    overflow: auto;
 }
 
 .backtranslation-content {
-    max-width: 100%;
-    overflow-wrap: break-word;
-    word-wrap: break-word;
-    word-break: normal;
-    hyphens: auto;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 16px;
+    overflow: auto;
+    line-height: 1.5;
+    font-size: 14px;
 }
 
-.backtranslation-content * {
-    max-width: 100%;
-    overflow-x: auto;
-}
-
-.backtranslation-content p {
-    white-space: pre-wrap;
-}
-
-.backtranslation-content pre,
-.backtranslation-content code {
-    white-space: pre-wrap;
-    word-break: break-all;
-}
-
-.backtranslation-content img,
-.backtranslation-content table {
-    max-width: 100%;
-    height: auto;
-}
-
-.backtranslation-content table {
-    display: block;
-    overflow-x: auto;
+.backtranslation-edit-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .backtranslation-editor {
+    min-height: 150px;
     width: 100%;
-    min-height: 100px;
+    padding: 12px;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    font-family: var(--vscode-editor-font-family);
+    font-size: 14px;
     resize: vertical;
-    box-sizing: border-box;
+}
+
+.backtranslation-edit-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.backtranslation-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    min-height: 150px;
+    text-align: center;
+    color: var(--vscode-descriptionForeground);
+    background-color: var(--vscode-editor-background);
+    border: 1px dashed var(--vscode-panel-border);
+    border-radius: 4px;
+    padding: 20px;
+}
+
+.backtranslation-empty p {
+    margin: 4px 0;
 }

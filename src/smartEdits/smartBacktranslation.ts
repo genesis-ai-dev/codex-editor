@@ -3,25 +3,16 @@ import * as path from "path";
 import Chatbot from "./chat";
 import { TranslationPair, MinimalCellResult } from "../../types";
 
-const SYSTEM_MESSAGE = `You are a helpful assistant translation assistant.
-You will be given texts in rare languages. 
-Then you will be asked to create a backtranslation of that text back into a larger language like English etc.
-The texts you will be given are mostly Bible texts. A backtranslation is a word-for-word, literal translation
-that tries to represent the exact words and structure of the original text, even if it sounds unnatural in English.
-For example, if the original says "house of him" instead of "his house", the backtranslation should preserve this structure.
+// Helper to get the user's source language (with fallback)
+function getSourceLanguageName(): string {
+    const config = vscode.workspace.getConfiguration("codex-project-manager");
+    const sourceLanguage = config.get<{ refName?: string }>("sourceLanguage");
+    return sourceLanguage?.refName || "English";
+}
 
-The purpose of these literal backtranslations is to help ensure quality of the translation by showing exactly what
-the translated text is saying at a word and meaninglevel. This helps translators verify their work and helps others who don't
-know the source language understand the precise meaning and structure of the translation.
-
-Your response should be only the backtranslation text.
-The backtranslation should be in markdown format, and include notes that may be relevant for the translator.
-
-For example, given this text in a rare language:
-"Yesu i tok, 'Yu mas laikim ol arapela man wankain olsem yu laikim yu yet.'"
-
-Your response should be only the backtranslation text.
-`;
+function buildSystemMessage(targetLanguage: string): string {
+    return `You are a helpful assistant translation assistant.\nYou will be given texts in rare languages. \nThen you will be asked to create a backtranslation of that text back into ${targetLanguage}.\nThe texts you will be given are mostly Bible texts. A backtranslation is a word-for-word, literal translation\nthat tries to represent the exact words and structure of the original text, even if it sounds unnatural in ${targetLanguage}.\nFor example, if the original says \"house of him\" instead of \"his house\", the backtranslation should preserve this structure.\n\nThe purpose of these literal backtranslations is to help ensure quality of the translation by showing exactly what\nthe translated text is saying at a word and meaninglevel. This helps translators verify their work and helps others who don't\nknow the source language understand the precise meaning and structure of the translation.\n\nYour response should be only the backtranslation text.\nThe backtranslation should be in markdown format, and include notes that may be relevant for the translator.\n\nFor example, given this text in a rare language:\n\"Yesu i tok, 'Yu mas laikim ol arapela man wankain olsem yu laikim yu yet.'\"\n\nYour response should be only the backtranslation text.`;
+}
 
 export interface SavedBacktranslation {
     cellId: string;
@@ -31,29 +22,22 @@ export interface SavedBacktranslation {
 }
 
 export class SmartBacktranslation {
-    private chatbot: Chatbot;
     private backtranslationPath: string;
 
     constructor(workspaceUri: vscode.Uri) {
-        this.chatbot = new Chatbot(SYSTEM_MESSAGE);
         this.backtranslationPath = path.join(workspaceUri.fsPath, "files", "backtranslations.json");
     }
 
     async generateBacktranslation(text: string, cellId: string): Promise<SavedBacktranslation> {
         const similarBacktranslations = await this.findSimilarBacktranslations(text);
         const context = this.formatSimilarBacktranslations(similarBacktranslations);
+        const targetLanguage = getSourceLanguageName();
+        const systemMessage = buildSystemMessage(targetLanguage);
+        const chatbot = new Chatbot(systemMessage);
 
-        const message = `
-Similar backtranslations:
-${context}
+        const message = `\nSimilar backtranslations:\n${context}\n\nPlease provide a backtranslation for the following text into ${targetLanguage}:\n${text}\n\nRespond with only the backtranslation text/markdown.\n`;
 
-Please provide a backtranslation for the following text:
-${text}
-
-Respond with only the backtranslation text/markdown.
-`;
-
-        const response = await this.chatbot.getCompletion(message);
+        const response = await chatbot.getCompletion(message);
         const cleanedResponse = this.removeMarkdownFormatting(response);
 
         const backtranslation: SavedBacktranslation = {
@@ -72,15 +56,13 @@ Respond with only the backtranslation text/markdown.
         newText: string,
         existingBacktranslation: string
     ): Promise<SavedBacktranslation> {
-        const message = `
-Existing backtranslation:
-${existingBacktranslation}
+        const targetLanguage = getSourceLanguageName();
+        const systemMessage = buildSystemMessage(targetLanguage);
+        const chatbot = new Chatbot(systemMessage);
 
-The original text has been updated. Please update the backtranslation accordingly:
-${newText}
-`;
+        const message = `\nExisting backtranslation:\n${existingBacktranslation}\n\nThe original text has been updated. Please update the backtranslation into ${targetLanguage} accordingly:\n${newText}\n`;
 
-        const response = await this.chatbot.getCompletion(message);
+        const response = await chatbot.getCompletion(message);
         const cleanedResponse = this.removeMarkdownFormatting(response);
 
         const updatedBacktranslation: SavedBacktranslation = {
