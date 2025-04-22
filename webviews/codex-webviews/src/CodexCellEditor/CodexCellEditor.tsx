@@ -1083,6 +1083,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
+        console.log("togglePrimarySidebar");
         vscode.postMessage({ command: "toggleSidebar" });
         setPrimarySidebarVisible(!primarySidebarVisible);
     };
@@ -1146,7 +1147,9 @@ const CodexCellEditor: React.FC = () => {
                 }}
             >
                 <span
-                    className="codicon codicon-menu"
+                    className={`codicon ${
+                        primarySidebarVisible ? "codicon-chevron-left" : "codicon-chevron-right"
+                    }`}
                     style={{
                         color: "var(--vscode-button-foreground)",
                         opacity: 0,
