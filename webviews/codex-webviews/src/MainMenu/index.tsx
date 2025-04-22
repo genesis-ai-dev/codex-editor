@@ -23,102 +23,106 @@ interface State {
     activeViewId: string | null;
 }
 
-// Styles object to keep things organized
+// Refined styles with better whitespace and typography
 const styles = {
     container: {
-        padding: "16px",
+        padding: "28px 24px",
         height: "100vh",
         overflow: "auto",
         display: "flex",
         flexDirection: "column" as const,
-        gap: "20px",
+        gap: "32px",
+        maxWidth: "800px",
+        margin: "0 auto",
     },
     header: {
         display: "flex",
         alignItems: "center",
-        gap: "8px",
-        marginBottom: "8px",
+        gap: "12px",
+        marginBottom: "6px",
+        borderBottom: "1px solid var(--vscode-tab-inactiveBackground)",
+        paddingBottom: "16px",
     },
     headerTitle: {
-        fontSize: "16px",
-        fontWeight: 600,
+        fontSize: "20px",
+        fontWeight: 300,
         color: "var(--vscode-foreground)",
+        letterSpacing: "0.2px",
+        lineHeight: 1.4,
     },
     sectionTitle: {
-        fontSize: "14px",
+        fontSize: "13px",
         fontWeight: 600,
-        color: "var(--vscode-foreground)",
-        marginBottom: "8px",
+        color: "var(--vscode-descriptionForeground)",
+        textTransform: "uppercase" as const,
+        letterSpacing: "0.8px",
+        marginBottom: "12px",
     },
     sectionContainer: {
         display: "flex",
         flexDirection: "column" as const,
-        gap: "12px",
+        gap: "14px",
     },
     buttonsContainer: {
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-        gap: "8px",
+        gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+        gap: "10px",
     },
     button: {
         height: "auto",
-        padding: "10px",
+        padding: "0",
         display: "flex",
-        flexDirection: "column" as const,
-        alignItems: "flex-start",
-        gap: "6px",
+        flexDirection: "row" as const,
+        alignItems: "center",
+        gap: "12px",
         textAlign: "left" as const,
         borderRadius: "4px",
         transition: "all 0.2s ease",
         position: "relative" as const,
-    },
-    buttonTop: {
-        display: "flex",
-        gap: "8px",
-        alignItems: "center",
+        border: "none",
+        background: "transparent",
+        overflow: "hidden",
+        cursor: "pointer",
         width: "100%",
     },
-    buttonLabel: {
-        fontWeight: 500,
-        fontSize: "13px",
-        flex: 1,
+    buttonContent: {
+        display: "flex",
+        alignItems: "center",
+        padding: "10px 12px",
+        width: "100%",
+        height: "100%",
+        borderRadius: "4px",
+        gap: "12px",
     },
-    buttonDescription: {
-        fontSize: "11px",
-        lineHeight: 1.3,
-        color: "var(--vscode-descriptionForeground)",
-    },
-    activeIndicator: {
-        position: "absolute" as const,
-        top: "10px",
-        right: "10px",
-        width: "8px",
-        height: "8px",
-        borderRadius: "50%",
-        backgroundColor: "var(--vscode-terminal-ansiGreen)",
-    },
-    icon: {
-        fontSize: "18px",
-        color: "var(--vscode-button-foreground)",
+    iconContainer: {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        width: "32px",
+        height: "32px",
+        borderRadius: "6px",
+        backgroundColor: "var(--vscode-button-background)",
     },
-    backButton: {
-        display: "flex",
-        gap: "6px",
-        alignItems: "center",
-        padding: "4px 8px",
-        fontSize: "12px",
-        backgroundColor: "transparent",
-        border: "none",
-        cursor: "pointer",
-        color: "var(--vscode-foreground)",
-        borderRadius: "4px",
-        transition: "all 0.2s ease",
-        "&:hover": {
-            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
-        },
+    buttonLabel: {
+        fontWeight: 400,
+        fontSize: "14px",
+        flex: 1,
+    },
+    activeIndicator: {
+        width: "3px",
+        height: "100%",
+        position: "absolute" as const,
+        left: 0,
+        top: 0,
+        backgroundColor: "var(--vscode-terminal-ansiGreen)",
+    },
+    icon: {
+        fontSize: "16px",
+        color: "var(--vscode-button-foreground)",
+    },
+    divider: {
+        margin: "8px 0",
+        opacity: 0.4,
     },
     version: {
         fontSize: "11px",
@@ -126,6 +130,7 @@ const styles = {
         marginTop: "auto",
         textAlign: "center" as const,
         opacity: 0.7,
+        paddingTop: "24px",
     },
 };
 
@@ -183,22 +188,13 @@ function MainMenu() {
         }
     };
 
-    // Function to return to main menu
-    const returnToMainMenu = () => {
-        try {
-            vscode.postMessage({
-                command: "focusView",
-                viewId: "codex-editor.mainMenu",
-            });
-        } catch (error) {
-            console.error("Could not return to main menu:", error);
-        }
-    };
-
     return (
         <div style={styles.container}>
             <div style={styles.header}>
-                <i className="codicon codicon-menu" style={styles.icon}></i>
+                <i
+                    className="codicon codicon-book"
+                    style={{ ...styles.icon, fontSize: "24px" }}
+                ></i>
                 <span style={styles.headerTitle}>Codex Translation Editor</span>
             </div>
 
@@ -207,30 +203,56 @@ function MainMenu() {
                     <span style={styles.sectionTitle}>{section.title}</span>
                     <div style={styles.buttonsContainer}>
                         {section.buttons.map((button) => (
-                            <VSCodeButton
+                            <button
                                 key={button.id}
                                 onClick={() => focusView(button.viewId)}
                                 style={styles.button}
+                                title={button.description || ""}
                             >
                                 {state.activeViewId === button.viewId && (
                                     <div style={styles.activeIndicator}></div>
                                 )}
-                                <div style={styles.buttonTop}>
-                                    <i
-                                        className={`codicon codicon-${button.icon}`}
-                                        style={styles.icon}
-                                    ></i>
-                                    <span style={styles.buttonLabel}>{button.label}</span>
+                                <div
+                                    style={{
+                                        ...styles.buttonContent,
+                                        backgroundColor:
+                                            state.activeViewId === button.viewId
+                                                ? "var(--vscode-list-activeSelectionBackground)"
+                                                : "transparent",
+                                    }}
+                                >
+                                    <div style={styles.iconContainer}>
+                                        <i
+                                            className={`codicon codicon-${button.icon}`}
+                                            style={styles.icon}
+                                        ></i>
+                                    </div>
+                                    <span
+                                        style={{
+                                            ...styles.buttonLabel,
+                                            color:
+                                                state.activeViewId === button.viewId
+                                                    ? "var(--vscode-list-activeSelectionForeground)"
+                                                    : "var(--vscode-foreground)",
+                                        }}
+                                    >
+                                        {button.label}
+                                    </span>
                                 </div>
-                                {button.description && (
-                                    <div style={styles.buttonDescription}>{button.description}</div>
-                                )}
-                            </VSCodeButton>
+                            </button>
                         ))}
                     </div>
-                    {index < state.menuConfig.length - 1 && <VSCodeDivider />}
+                    {index < state.menuConfig.length - 1 && (
+                        <VSCodeDivider style={styles.divider} />
+                    )}
                 </div>
             ))}
+
+            <style>{`
+                button:hover {
+                    background-color: var(--vscode-list-hoverBackground);
+                }
+            `}</style>
 
             <div style={styles.version}>Codex Translation Editor v0.3.12</div>
         </div>
