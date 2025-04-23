@@ -161,16 +161,15 @@ const CodexCellEditor: React.FC = () => {
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
 
-<<<<<<< HEAD
     // Add a state for bible book map
     const [bibleBookMap, setBibleBookMap] = useState<Map<string, BibleBookInfo> | undefined>(undefined);
-=======
+
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
+    const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
->>>>>>> a11f3007c21994c7ad08e2a81a86d5aa982385c9
 
     // Initialize state store after webview is ready
     useEffect(() => {
@@ -207,6 +206,11 @@ const CodexCellEditor: React.FC = () => {
             // Also listen for validation completion message
             if (message.type === "validationsApplied") {
                 setIsApplyingValidations(false);
+            }
+
+            // Handle file status updates
+            if (message.type === "updateFileStatus") {
+                setFileStatus(message.status);
             }
         };
         window.addEventListener("message", handleMessage);
@@ -1114,7 +1118,7 @@ const CodexCellEditor: React.FC = () => {
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
     }, []);
-=======
+
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
         console.log("togglePrimarySidebar");
@@ -1142,6 +1146,18 @@ const CodexCellEditor: React.FC = () => {
         borderRadius: "0 3px 3px 0", // Round only the right corners
     };
 >>>>>>> a11f3007c21994c7ad08e2a81a86d5aa982385c9
+
+    const handleCloseCurrentDocument = () => {
+        vscode.postMessage({
+            command: "closeCurrentDocument",
+        } as EditorPostMessages);
+    };
+
+    const handleTriggerSync = () => {
+        vscode.postMessage({
+            command: "triggerSync",
+        } as EditorPostMessages);
+    };
 
     if (duplicateCellsExist) {
         return (
@@ -1307,6 +1323,9 @@ const CodexCellEditor: React.FC = () => {
                             isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
                             onStopSingleCellTranslation={handleStopSingleCellTranslation}
                             vscode={vscode}
+                            fileStatus={fileStatus}
+                            onClose={handleCloseCurrentDocument}
+                            onTriggerSync={handleTriggerSync}
                         />
                     </div>
                     {shouldShowVideoPlayer && videoUrl && (
@@ -1394,42 +1413,6 @@ const CodexCellEditor: React.FC = () => {
                         <span className="button-text">Applying...</span>
                     </div>
                 )}
-            </div>
-            <div
-                className="scrollable-content"
-                style={{ height: `calc(100vh - ${headerHeight}px)` }}
-            >
-                <div className="editor-container">
-                    <CellList
-                        spellCheckResponse={spellCheckResponse}
-                        translationUnits={translationUnitsForSection}
-                        contentBeingUpdated={contentBeingUpdated}
-                        setContentBeingUpdated={handleSetContentBeingUpdated}
-                        handleCloseEditor={handleCloseEditor}
-                        handleSaveHtml={handleSaveHtml}
-                        vscode={vscode}
-                        textDirection={textDirection}
-                        cellDisplayMode={cellDisplayMode}
-                        isSourceText={isSourceText}
-                        windowHeight={windowHeight}
-                        headerHeight={headerHeight}
-                        alertColorCodes={alertColorCodes}
-                        highlightedCellId={highlightedCellId}
-                        scrollSyncEnabled={scrollSyncEnabled}
-                        translationQueue={translationQueue}
-                        currentProcessingCellId={
-                            singleCellQueueProcessingId || autocompletionState.currentCellId
-                        }
-                        cellsInAutocompleteQueue={
-                            autocompletionState.isProcessing
-                                ? autocompletionState.cellsToProcess
-                                : // Keep showing spinner for current processing cell even if autocomplete was canceled
-                                autocompletionState.currentCellId
-                                ? [autocompletionState.currentCellId]
-                                : []
-                        }
-                    />
-                </div>
             </div>
 
             {/* Floating button to apply pending validations */}

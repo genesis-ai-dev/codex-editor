@@ -5,25 +5,33 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
 const toggleWorkspaceUICommand = vscode.commands.registerCommand(
     "codex-editor-extension.toggleWorkspaceUI",
     async () => {
+        console.log("Toggling workspace UI...");
         const config = vscode.workspace.getConfiguration();
 
         // Get current states to determine if we're hiding or showing
         const sidebarVisible = config.get("workbench.sideBar.visible", true);
+        console.log("Current sidebar visibility:", sidebarVisible);
 
         if (sidebarVisible) {
+            console.log("Hiding workspace UI elements...");
             // We're currently in normal mode, so hide everything
 
             // Hide sidebars using commands
+            console.log("Hiding sidebar...");
             await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+            console.log("Hiding auxiliary bar...");
             await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
+            console.log("Hiding activity bar...");
             await vscode.commands.executeCommand(
                 "workbench.action.toggleActivityBarVisibility"
             );
+            console.log("Hiding status bar...");
             await vscode.commands.executeCommand(
                 "workbench.action.toggleStatusbarVisibility"
             );
 
             // Update settings to hide other UI elements
+            console.log("Updating workspace settings for minimal UI...");
             await config.update("workbench.statusBar.visible", false, true);
             await config.update("breadcrumbs.filePath", "last", true);
             await config.update("workbench.editor.editorActionsLocation", "hidden", true);
@@ -34,20 +42,27 @@ const toggleWorkspaceUICommand = vscode.commands.registerCommand(
                 "Workspace UI hidden for distraction-free mode",
                 2000
             );
+            console.log("Workspace UI hidden successfully");
         } else {
+            console.log("Restoring workspace UI elements...");
             // We're in minimal mode, so restore everything
 
             // Show sidebars using commands
+            console.log("Showing sidebar...");
             await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+            console.log("Showing auxiliary bar...");
             await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
+            console.log("Showing activity bar...");
             await vscode.commands.executeCommand(
                 "workbench.action.toggleActivityBarVisibility"
             );
+            console.log("Showing status bar...");
             await vscode.commands.executeCommand(
                 "workbench.action.toggleStatusbarVisibility"
             );
 
             // Restore default settings
+            console.log("Restoring default workspace settings...");
             await config.update("workbench.statusBar.visible", true, true);
             await config.update("breadcrumbs.filePath", "full", true);
             await config.update("workbench.editor.editorActionsLocation", "default", true);
@@ -55,6 +70,7 @@ const toggleWorkspaceUICommand = vscode.commands.registerCommand(
             await config.update("window.autoDetectColorScheme", false, true);
 
             vscode.window.setStatusBarMessage("Workspace UI restored", 2000);
+            console.log("Workspace UI restored successfully");
         }
     }
 );

@@ -671,7 +671,10 @@ export type EditorPostMessages =
               deleteFootnote?: string;
           };
       }
-    | { command: "openBookNameEditor" };
+    | { command: "openBookNameEditor" }
+    | { command: "closeCurrentDocument" }
+    | { command: "triggerSync" }
+
 type EditorReceiveMessages =
     | {
           type: "providerSendsInitialContent";
@@ -832,6 +835,14 @@ type EditorReceiveMessages =
               position?: number;
               deleteFootnote?: string;
           };
+      }
+    | {
+          type: "updateFileStatus";
+          status: "dirty" | "syncing" | "synced" | "none";
+      }
+    | {
+          type: "editorPosition";
+          position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
       };
 
 type AlertCodesServerResponse = {

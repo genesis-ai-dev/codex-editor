@@ -244,6 +244,9 @@ export const handleMessages = async (
                         oldText,
                         newText
                     );
+
+                    // Mark file as dirty
+                    provider.updateFileStatus("dirty");
                 }
 
                 document.updateCellContent(
@@ -903,68 +906,25 @@ export const handleMessages = async (
             break;
         case "jumpToChapter":
             try {
-                const chapterNumber = event.chapterNumber;
-
-                // Get the current document URI
-                const currentUri = document.uri;
-
-                // Determine if this is a source or codex file
-                const isSourceFile = currentUri.fsPath.endsWith(".source");
-                const isCodexFile = currentUri.fsPath.endsWith(".codex");
-
-                if (!isSourceFile && !isCodexFile) {
-                    console.warn("Cannot jump to chapter in non-source/codex file");
-                    return;
-                }
-
-                // Get the corresponding file (source if we're in codex, codex if we're in source)
-                const correspondingPath = isSourceFile
-                    ? currentUri.fsPath.replace(".source", ".codex")
-                    : currentUri.fsPath.replace(".codex", ".source");
-
-                const correspondingUri = vscode.Uri.file(correspondingPath);
-
-                // Register a command that can be called to handle chapter synchronization
-                if (!provider.syncChapterCommandRegistered) {
-                    provider.syncChapterCommandRegistered = true;
-                    const disposable = vscode.commands.registerCommand(
-                        "codex.syncChapterBetweenEditors",
-                        (uriString: string, chapter: number) => {
-                            const panels = provider.getWebviewPanels();
-                            for (const [uri, panel] of panels.entries()) {
-                                if (uri === uriString) {
-                                    provider.postMessageToWebview(panel, {
-                                        type: "setChapterNumber",
-                                        content: chapter,
-                                    });
-                                    break;
-                                }
-                            }
-                        }
-                    );
-                    // Add the command to the context subscriptions
-                    vscode.window
-                        .createOutputChannel("Codex")
-                        .appendLine("Registered codex.syncChapterBetweenEditors command");
-                    // Register the command as a global command
-                    vscode.commands.getCommands().then((commands) => {
-                        if (!commands.includes("codex.syncChapterBetweenEditors")) {
-                            vscode.Disposable.from(disposable);
-                        }
-                    });
-                }
-
-                // Use the command to sync the chapter
-                vscode.commands.executeCommand(
-                    "codex.syncChapterBetweenEditors",
-                    correspondingUri.toString(),
-                    chapterNumber
-                );
+                provider.updateCachedChapter(document.uri.toString(), event.chapterNumber);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "setChapterNumber",
+                    content: event.chapterNumber,
+                });
             } catch (error) {
-                console.error("Error handling jumpToChapter command:", error);
-                vscode.window.showErrorMessage("Failed to jump to chapter");
+                console.error("Error jumping to chapter:", error);
+                vscode.window.showErrorMessage("Failed to jump to chapter.");
             }
-            break;
+            return;
+        case "closeCurrentDocument":
+            try {
+                // Close the current editor tab
+                vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+            } catch (error) {
+                console.error("Error closing document:", error);
+                vscode.window.showErrorMessage("Failed to close document.");
+            }
+            return;
         case "toggleSidebar": {
             console.log("toggleSidebar message received");
             try {
@@ -973,6 +933,17 @@ export const handleMessages = async (
             } catch (error) {
                 console.error("Error toggling main menu visibility:", error);
                 vscode.window.showErrorMessage("Failed to toggle sidebar visibility.");
+            }
+            return;
+        }
+        case "triggerSync": {
+            console.log("triggerSync message received");
+            try {
+                // Trigger an immediate sync using the provider's method
+                provider.triggerSync();
+            } catch (error) {
+                console.error("Error triggering sync:", error);
+                vscode.window.showErrorMessage("Failed to trigger sync.");
             }
             return;
         }

@@ -776,11 +776,11 @@ interface ChapterNavigationProps {
     currentSectionId?: number;
     setCurrentSectionId?: React.Dispatch<React.SetStateAction<number>>;
     totalSections?: number;
-<<<<<<< HEAD
     bibleBookMap?: Map<string, { name: string; [key: string]: any }>;
-=======
     vscode: any;
->>>>>>> a11f3007c21994c7ad08e2a81a86d5aa982385c9
+    fileStatus?: "dirty" | "syncing" | "synced" | "none";
+    onClose?: () => void;
+    onTriggerSync?: () => void;
 }
 
 const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
@@ -817,11 +817,11 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     currentSectionId = 1,
     setCurrentSectionId = () => {},
     totalSections = 1,
-<<<<<<< HEAD
     bibleBookMap,
-=======
     vscode,
->>>>>>> a11f3007c21994c7ad08e2a81a86d5aa982385c9
+    fileStatus = "none",
+    onClose,
+    onTriggerSync,
 }) => {
     const [showConfirm, setShowConfirm] = useState(false);
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -931,7 +931,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         }
     };
 
-<<<<<<< HEAD
     // Determine the display name using the map
     const getDisplayTitle = () => {
         const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
@@ -948,7 +947,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         const displayBookName = localizedName || bookAbbr;
 
         return `${displayBookName}\u00A0${chapterNum}`;
-=======
+    };
+
     // Update this function to use the passed vscode prop
     const handleToggleWorkspaceUI = () => {
         if (vscode) {
@@ -966,7 +966,76 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         if (vscode) {
             vscode.postMessage({ command: "toggleSecondarySidebar" });
         }
->>>>>>> a11f3007c21994c7ad08e2a81a86d5aa982385c9
+    };
+
+    // Function to get file status icon and color
+    const getFileStatusButton = () => {
+        if (fileStatus === "none") return null;
+
+        let icon: string;
+        let color: string;
+        let title: string;
+        let clickHandler: (() => void) | undefined = undefined;
+
+        switch (fileStatus) {
+            case "dirty":
+                icon = "codicon-cloud";
+                color = "var(--vscode-editorWarning-foreground)"; // Yellow warning color
+                title = "Unsaved changes - Click to sync";
+                clickHandler = onTriggerSync;
+                break;
+            case "syncing":
+                icon = "codicon-sync";
+                color = "var(--vscode-descriptionForeground)"; // Gray for syncing
+                title = "Syncing changes";
+                break;
+            case "synced":
+                icon = "codicon-check-all";
+                color = "var(--vscode-terminal-ansiGreen)"; // Green for synced
+                title = "All changes saved";
+                break;
+            default:
+                return null;
+        }
+
+        return (
+            <VSCodeButton
+                appearance="icon"
+                title={title}
+                style={{ color }}
+                onClick={clickHandler}
+                disabled={fileStatus === "syncing"}
+            >
+                <i
+                    className={`codicon ${icon}`}
+                    style={{
+                        animation: fileStatus === "syncing" ? "rotate 2s linear infinite" : "none",
+                    }}
+                />
+            </VSCodeButton>
+        );
+    };
+
+    // Add CSS for rotation animation
+    useEffect(() => {
+        if (!document.getElementById("codex-animation-styles")) {
+            const styleElement = document.createElement("style");
+            styleElement.id = "codex-animation-styles";
+            styleElement.textContent = `
+                @keyframes rotate {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+            `;
+            document.head.appendChild(styleElement);
+        }
+    }, []);
+
+    // Handle close button click
+    const handleClose = () => {
+        if (onClose) {
+            onClose();
+        }
     };
 
     return (
@@ -1137,6 +1206,9 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             </div>
 
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
+                {/* File status indicator */}
+                {getFileStatusButton()}
+
                 <VSCodeButton
                     appearance="icon"
                     onClick={handleToggleWorkspaceUI}
@@ -1281,10 +1353,27 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 >
                     <i
                         className={`codicon ${
-                            showAdvancedSettings ? "codicon-close" : "codicon-menu"
+                            showAdvancedSettings ? "codicon-chevron-right" : "codicon-chevron-left"
                         }`}
                     ></i>
                 </VSCodeButton>
+
+                {/* Close button */}
+                {onClose && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={handleClose}
+                        title="Close"
+                        style={{
+                            marginLeft: "0.5rem",
+                            backgroundColor: "var(--vscode-button-secondaryBackground)",
+                            border: "1px solid var(--vscode-button-border)",
+                            borderRadius: "4px",
+                        }}
+                    >
+                        <i className="codicon codicon-close"></i>
+                    </VSCodeButton>
+                )}
             </div>
 
             {metadata && (
