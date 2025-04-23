@@ -1098,7 +1098,6 @@ const CodexCellEditor: React.FC = () => {
         });
     };
 
-<<<<<<< HEAD
     // Listen for the bible book map from the provider
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -1145,7 +1144,6 @@ const CodexCellEditor: React.FC = () => {
         boxShadow: "0 1px 3px rgba(0, 0, 0, 0.2)",
         borderRadius: "0 3px 3px 0", // Round only the right corners
     };
->>>>>>> a11f3007c21994c7ad08e2a81a86d5aa982385c9
 
     const handleCloseCurrentDocument = () => {
         vscode.postMessage({
@@ -1226,12 +1224,8 @@ const CodexCellEditor: React.FC = () => {
                             setChapterNumber={setChapterNumber}
                             totalChapters={totalChapters}
                             totalUntranslatedCells={untranslatedCellsForSection.length}
-                            totalCellsToAutocomplete={
-                                untranslatedOrUnvalidatedUnitsForSection.length
-                            }
-                            totalCellsWithCurrentUserOption={
-                                untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
-                            }
+                            totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
+                            totalCellsWithCurrentUserOption={untranslatedOrNotValidatedByCurrentUserUnitsForSection.length}
                             setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             unsavedChanges={!!contentBeingUpdated.cellContent}
@@ -1239,56 +1233,13 @@ const CodexCellEditor: React.FC = () => {
                                 numberOfCells,
                                 includeNotValidatedByAnyUser,
                                 includeNotValidatedByCurrentUser
-                            );
-                        }}
-                        onStopAutocomplete={handleStopAutocomplete}
-                        isAutocompletingChapter={isAutocompletingChapter}
-                        onSetTextDirection={(direction) => {
-                            setTextDirection(direction);
-                            vscode.postMessage({
-                                command: "updateTextDirection",
-                                direction,
-                            } as EditorPostMessages);
-                        }}
-                        textDirection={textDirection}
-                        onSetCellDisplayMode={setCellDisplayMode}
-                        cellDisplayMode={cellDisplayMode}
-                        isSourceText={isSourceText}
-                        openSourceText={openSourceText}
-                        documentHasVideoAvailable={documentHasVideoAvailable}
-                        metadata={metadata}
-                        tempVideoUrl={tempVideoUrl}
-                        onMetadataChange={handleMetadataChange}
-                        onSaveMetadata={handleSaveMetadata}
-                        onPickFile={handlePickFile}
-                        onUpdateVideoUrl={handleUpdateVideoUrl}
-                        toggleScrollSync={() => setScrollSyncEnabled(!scrollSyncEnabled)}
-                        scrollSyncEnabled={scrollSyncEnabled}
-                        translationUnitsForSection={translationUnitsWithCurrentEditorContent}
-                        isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
-                        onStopSingleCellTranslation={handleStopSingleCellTranslation}
-                        bibleBookMap={bibleBookMap}
-                    />
-                </div>
-                {shouldShowVideoPlayer && videoUrl && (
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                        }}
-                        ref={videoPlayerRef}
-                    >
-                        <VideoTimelineEditor
-                            videoUrl={videoUrl}
                             ) => {
                                 debug("autocomplete", "Autocomplete requested with:", {
                                     numberOfCells,
                                     includeNotValidatedByAnyUser,
                                     includeNotValidatedByCurrentUser,
-                                    countNoValidators:
-                                        untranslatedOrUnvalidatedUnitsForSection.length,
-                                    countWithCurrentUser:
-                                        untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
+                                    countNoValidators: untranslatedOrUnvalidatedUnitsForSection.length,
+                                    countWithCurrentUser: untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
                                 });
                                 handleAutocompleteChapter(
                                     numberOfCells,
@@ -1322,31 +1273,28 @@ const CodexCellEditor: React.FC = () => {
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
                             onStopSingleCellTranslation={handleStopSingleCellTranslation}
-                            vscode={vscode}
-                            fileStatus={fileStatus}
-                            onClose={handleCloseCurrentDocument}
-                            onTriggerSync={handleTriggerSync}
+                            bibleBookMap={bibleBookMap}
                         />
                     </div>
-                    {shouldShowVideoPlayer && videoUrl && (
-                        <div
-                            style={{
-                                display: "flex",
-                                flexDirection: "column",
-                            }}
-                            ref={videoPlayerRef}
-                        >
-                            <VideoTimelineEditor
-                                videoUrl={videoUrl}
-                                translationUnitsForSection={
-                                    translationUnitsWithCurrentEditorContent
-                                }
-                                vscode={vscode}
-                                playerRef={playerRef}
-                            />
-                        </div>
-                    )}
                 </div>
+                {shouldShowVideoPlayer && videoUrl && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <VideoTimelineEditor
+                            videoUrl={videoUrl}
+                            translationUnitsForSection={
+                                translationUnitsWithCurrentEditorContent
+                            }
+                            vscode={vscode}
+                            playerRef={playerRef}
+                        />
+                    </div>
+                )}
                 <div
                     className="scrollable-content"
                     style={{ height: `calc(100vh - ${headerHeight}px)` }}
