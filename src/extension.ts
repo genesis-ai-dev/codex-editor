@@ -42,6 +42,10 @@ import { waitForExtensionActivation } from "./utils/vscode";
 import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
 import { registerCommandsBefore } from "./activationHelpers/contextAware/commandsBefore";
+import {
+    registerWelcomeViewProvider,
+    showWelcomeViewIfNeeded,
+} from "./providers/WelcomeView/register";
 
 interface ActivationTiming {
     step: string;
@@ -96,6 +100,10 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register project manager first to ensure it's available
         stepStart = trackTiming("Register Project Manager", stepStart);
         registerProjectManager(context);
+
+        // Register welcome view provider
+        stepStart = trackTiming("Register Welcome View", stepStart);
+        registerWelcomeViewProvider(context);
 
         // // Show project manager view immediately
         // await vscode.commands.executeCommand("workbench.view.extension.project-manager");
@@ -220,21 +228,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         console.info(summaryMessage);
 
-        // Show notification with details
-        // vscode.window
-        //     .showInformationMessage(summaryMessage, "Show All Timings")
-        //     .then((selection) => {
-        //         if (selection === "Show All Timings") {
-        //             // Create and show output channel with complete timing information
-        //             const channel = vscode.window.createOutputChannel("Codex Editor Activation");
-        //             channel.appendLine("Complete activation timing breakdown:");
-        //             sortedTimings.forEach((t) => {
-        //                 channel.appendLine(`${t.step}: ${t.duration.toFixed(2)}ms`);
-        //             });
-        //             channel.show();
-        //         }
-        //     });
-
         // Register Words View Provider
         wordsViewProvider = new WordsViewProvider(context.extensionUri);
 
@@ -246,6 +239,9 @@ export async function activate(context: vscode.ExtensionContext) {
         );
 
         context.subscriptions.push(showWordsViewCommand);
+
+        // Check if we need to show the welcome view
+        showWelcomeViewIfNeeded();
     } catch (error) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
@@ -420,6 +416,9 @@ async function executeCommandsAfter() {
     await vscode.workspace
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
+
+    // Check if we need to show the welcome view after initialization
+    showWelcomeViewIfNeeded();
 }
 
 export function deactivate() {
