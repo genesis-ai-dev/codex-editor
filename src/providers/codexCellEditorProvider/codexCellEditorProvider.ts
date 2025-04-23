@@ -639,7 +639,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <div id="root"></div>
                 <script nonce="${nonce}" src="${scriptUri}"></script>
                 
-                {/* Add CSS for the floating button and loader */}
                 <style>
                     .floating-apply-validations-button {
                         position: fixed;
