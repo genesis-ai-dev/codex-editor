@@ -27,13 +27,17 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
         className="webview-header"
         style={{
             display: "flex",
-            justifyContent: "stretch",
+            justifyContent: "flex-start",
             width: "100%",
             alignItems: "center",
-            padding: "0.25em 1em",
-            gap: "0.25em",
-            borderBottom: "2px solid var(--vscode-editorGroupHeader-tabsBorder)",
-            minHeight: "2em",
+            padding: "0.5em 1em",
+            gap: "0.5em",
+            minHeight: "2.5em",
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            backgroundColor: "var(--vscode-editor-background)",
+            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)"
         }}
     >
         {showBackButton && vscode && <BackToMenuButton vscode={vscode} />}
