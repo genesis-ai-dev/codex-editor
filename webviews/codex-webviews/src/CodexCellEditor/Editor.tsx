@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo, useState, useContext } from "react";
+import React, { useRef, useEffect, useMemo, useState, useContext, forwardRef, useImperativeHandle } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, {
@@ -8,10 +8,9 @@ import registerQuillSpellChecker, {
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
 import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
-import React from "react";
-import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import ReactPlayer from "react-player";
 import { diffWords } from "diff";
+import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -19,24 +18,9 @@ const vscode: any = (window as any).vscodeApi;
 
 // Register the QuillSpellChecker with the VSCode API
 registerQuillSpellChecker(Quill, vscode);
-// Use VSCode icon for autocomplete
-icons[
-    "autocomplete"
-] = `<i class="codicon codicon-sparkle quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
-icons[
-    "openLibrary"
-] = `<i class="codicon codicon-book quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
+// Removed custom icon registrations for non-native buttons
 
-// Add icon for edit history button
-icons[
-    "showEditHistory"
-] = `<i class="codicon codicon-history quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
-
-// Add icon for footnote button
-icons[
-    "footnote"
-] = `<i class="codicon codicon-note quill-toolbar-icon" style="color: var(--vscode-editor-foreground)"></i>`;
-
+// Define the shape of content change callback
 export interface EditorContentChanged {
     html: string;
 }
@@ -105,8 +89,18 @@ function debug(message: string, ...args: any[]): void {
     }
 }
 
-export default function Editor(props: EditorProps) {
+// Export interface for imperative handle
+export interface EditorHandles {
+    autocomplete: () => void;
+    openLibrary: () => void;
+    showEditHistory: () => void;
+    addFootnote: () => void;
+}
+
+// Wrap the Editor component in forwardRef instead of default export
+const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
+    const [isToolbarVisible, setIsToolbarVisible] = useState(false);
     const [showModal, setShowModal] = useState(false);
     const [wordsToAdd, setWordsToAdd] = useState<string[]>([]);
     const [isEditorEmpty, setIsEditorEmpty] = useState(true);
@@ -144,34 +138,6 @@ export default function Editor(props: EditorProps) {
                             headerStyleLeft: () => handleHeaderChange("prev"),
                             headerStyleRight: () => handleHeaderChange("next"),
                             headerStyleLabel: () => {}, // No-op handler for the label
-                            autocomplete: () => {
-                                window.vscodeApi.postMessage({
-                                    command: "llmCompletion",
-                                    content: {
-                                        currentLineId: props.currentLineId,
-                                    },
-                                });
-                            },
-                            openLibrary: () => {
-                                const content = quill.getText();
-                                const words = content
-                                    .split(/[\s\n.,!?]+/)
-                                    .filter((word) => word.length > 0)
-                                    .filter((word, index, self) => self.indexOf(word) === index);
-                                setWordsToAdd(words);
-                                setShowModal(true);
-                            },
-                            showEditHistory: () => {
-                                if (quillRef.current) {
-                                    setEditHistoryForCell(props.editHistory);
-                                    setShowHistoryModal(true);
-                                }
-                            },
-                            footnote: () => {
-                                if (quillRef.current) {
-                                    handleAddFootnote();
-                                }
-                            },
                         },
                     },
                     keyboard: {
@@ -508,9 +474,41 @@ export default function Editor(props: EditorProps) {
         }
     };
 
+    // Expose imperative methods
+    useImperativeHandle(ref, () => ({
+        autocomplete: () => {
+            window.vscodeApi.postMessage({ command: "llmCompletion", content: { currentLineId: props.currentLineId } });
+        },
+        openLibrary: () => {
+            const quill = quillRef.current!;
+            const words = quill
+                .getText()
+                .split(/[\s\n.,!?]+/)
+                .filter((w) => w.length > 0)
+                .filter((w, i, self) => self.indexOf(w) === i);
+            setWordsToAdd(words);
+            setShowModal(true);
+        },
+        showEditHistory: () => {
+            setEditHistoryForCell(props.editHistory);
+            setShowHistoryModal(true);
+        },
+        addFootnote: () => {
+            handleAddFootnote();
+        },
+    }));
+
     return (
         <>
-            <div className="text-editor-container">
+            <div className={`text-editor-container ${isToolbarVisible ? 'toolbar-visible' : 'toolbar-hidden'}`}>
+                <VSCodeButton 
+                    appearance="icon" 
+                    onClick={() => setIsToolbarVisible(!isToolbarVisible)}
+                    title={isToolbarVisible ? "Hide Formatting Toolbar" : "Show Formatting Toolbar"}
+                    style={{ marginBottom: '5px' }} // Add some space below the button
+                >
+                    <i className={`codicon ${isToolbarVisible ? 'codicon-chevron-up' : 'codicon-tools'}`}></i>
+                </VSCodeButton>
                 <div ref={editorRef}></div>
             </div>
             {showHistoryModal && (
@@ -803,11 +801,10 @@ export default function Editor(props: EditorProps) {
             )}
         </>
     );
-}
+});
 
 // Existing constants and interfaces
 const TOOLBAR_OPTIONS = [
-    ["openLibrary", "autocomplete", "showEditHistory", "footnote"],
     ["headerStyleLeft", "headerStyleLabel", "headerStyleRight"],
     ["bold", "italic", "underline", "strike", "blockquote", "link"],
     [{ list: "ordered" }, { list: "bullet" }],
@@ -822,3 +819,5 @@ interface EditHistoryEntry {
     timestamp: number;
     author?: string;
 }
+
+export default Editor;
