@@ -22,7 +22,6 @@ enum StartupFlowStates {
     ALREADY_WORKING = "alreadyWorking",
 }
 
-
 const vscode = acquireVsCodeApi();
 
 export const StartupFlowView: React.FC = () => {
@@ -148,20 +147,99 @@ export const StartupFlowView: React.FC = () => {
         return () => window.removeEventListener("message", messageHandler);
     }, []);
 
-    const handleLogin = (username: string, password: string) => {
+    // Try to sync project after successful authentication
+    const triggerSyncAfterAuth = (isAuthenticated: boolean) => {
+        if (isAuthenticated) {
+            console.log("Authentication successful, checking if we can sync project");
+            // Check if there's an open workspace, then trigger sync
+            vscode.postMessage({
+                command: "workspace.checkStatus",
+                callback: (workspaceStatus: { isOpen: boolean }) => {
+                    if (workspaceStatus.isOpen) {
+                        console.log("Workspace is open, triggering sync");
+                        vscode.postMessage({
+                            command: "project.triggerSync",
+                            message: "Initial sync after login",
+                        });
+                    } else {
+                        console.log("No workspace open, skipping initial sync");
+                    }
+                },
+            });
+        }
+    };
+
+    const handleLogin = async (username: string, password: string) => {
+        console.log("Login attempt with:", username);
         vscode.postMessage({
             command: "auth.login",
             username,
             password,
         });
+
+        // The login is asynchronous, but we need to keep the loading state until
+        // we get a response from the extension about auth state update
+        return new Promise<boolean>((resolve) => {
+            const messageHandler = (event: MessageEvent<any>) => {
+                const message = event.data;
+                if (message.command === "updateAuthState") {
+                    console.log("Auth state updated during login:", message.authState);
+                    window.removeEventListener("message", messageHandler);
+
+                    const isAuthenticated = message.authState?.isAuthenticated || false;
+
+                    // If login was successful, trigger project sync
+                    triggerSyncAfterAuth(isAuthenticated);
+
+                    // Resolve with success status based on auth state
+                    resolve(isAuthenticated);
+                }
+            };
+
+            // Add temporary listener for auth state update
+            window.addEventListener("message", messageHandler);
+
+            // Fallback timeout in case we don't get a response
+            setTimeout(() => {
+                window.removeEventListener("message", messageHandler);
+                resolve(false);
+            }, 10000); // 10 second fallback
+        });
     };
 
-    const handleRegister = (username: string, email: string, password: string) => {
+    const handleRegister = async (username: string, email: string, password: string) => {
+        console.log("Register attempt with:", username, email);
         vscode.postMessage({
             command: "auth.signup",
             username,
             email,
             password,
+        });
+
+        // Similar to login, keep loading state until auth response
+        return new Promise<boolean>((resolve) => {
+            const messageHandler = (event: MessageEvent<any>) => {
+                const message = event.data;
+                if (message.command === "updateAuthState") {
+                    console.log("Auth state updated during registration:", message.authState);
+                    window.removeEventListener("message", messageHandler);
+
+                    const isAuthenticated = message.authState?.isAuthenticated || false;
+
+                    // If registration was successful, trigger project sync
+                    triggerSyncAfterAuth(isAuthenticated);
+
+                    resolve(isAuthenticated);
+                }
+            };
+
+            window.addEventListener("message", messageHandler);
+
+            // Fallback timeout
+            setTimeout(() => {
+                window.removeEventListener("message", messageHandler);
+                resolve(false);
+            }, 15000); // 15 second fallback for registration
         });
     };
 
@@ -259,7 +337,7 @@ export const StartupFlowView: React.FC = () => {
                                     setIsInitializing(true);
                                     vscode.postMessage({
                                         command: "project.initialize",
-                                        waitForStateUpdate: true
+                                        waitForStateUpdate: true,
                                     } as MessagesToStartupFlowProvider);
                                 }
                             }}
@@ -275,50 +353,55 @@ export const StartupFlowView: React.FC = () => {
     );
 };
 
-const InitializeProjectButton = ({ 
+const InitializeProjectButton = ({
     onClick,
-    isInitializing 
-}: { 
+    isInitializing,
+}: {
     onClick: () => void;
     isInitializing: boolean;
 }) => {
-    const [dots, setDots] = useState('');
-    
+    const [dots, setDots] = useState("");
+
     useEffect(() => {
         if (!isInitializing) return;
-        
+
         const interval = setInterval(() => {
-            setDots(prev => prev.length >= 3 ? '' : prev + '.');
+            setDots((prev) => (prev.length >= 3 ? "" : prev + "."));
         }, 500);
-        
+
         return () => clearInterval(interval);
     }, [isInitializing]);
-    
+
     return (
         <VSCodeButton
             onClick={onClick}
             style={{
-                width: '200px',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                gap: '4px'
+                width: "200px",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: "4px",
             }}
         >
-            <div style={{ 
-                minWidth: '140px',
-                display: 'flex',
-                justifyContent: 'center'
-            }}>
+            <div
+                style={{
+                    minWidth: "140px",
+                    display: "flex",
+                    justifyContent: "center",
+                }}
+            >
                 {isInitializing ? (
                     <>
                         Initializing Project
-                        <span style={{ width: '18px', textAlign: 'left' }}>{dots}</span>
+                        <span style={{ width: "18px", textAlign: "left" }}>{dots}</span>
                     </>
                 ) : (
                     <>
                         Initialize Project
-                        <i className="codicon codicon-arrow-right" style={{ marginLeft: '4px' }}></i>
+                        <i
+                            className="codicon codicon-arrow-right"
+                            style={{ marginLeft: "4px" }}
+                        ></i>
                     </>
                 )}
             </div>

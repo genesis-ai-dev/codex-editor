@@ -198,49 +198,7 @@ export class WelcomeViewProvider {
                     break;
 
                 case "openLoginFlow":
-                    // Open the StartupFlow which handles login
-                    try {
-                        // Show loading indicator in the welcome view
-                        if (this._panel) {
-                            this._panel.webview.postMessage({
-                                command: "showLoginLoading",
-                                loading: true,
-                            });
-                        }
-
-                        // First initiate opening the startup flow
-                        const startupFlowUri = vscode.Uri.parse("untitled:startupflow.codex");
-
-                        // Use setTimeout to ensure the loading animation has time to appear
-                        setTimeout(async () => {
-                            try {
-                                // Open the startup flow
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    startupFlowUri,
-                                    "startupFlowProvider"
-                                );
-
-                                // Only dispose the welcome view after startup flow begins to open
-                                setTimeout(() => {
-                                    this._panel?.dispose();
-                                }, 300);
-                            } catch (error) {
-                                // If opening fails, hide the loading indicator and show error
-                                if (this._panel) {
-                                    this._panel.webview.postMessage({
-                                        command: "showLoginLoading",
-                                        loading: false,
-                                    });
-                                }
-                                console.error("Error opening login flow:", error);
-                                vscode.window.showErrorMessage("Failed to open login screen");
-                            }
-                        }, 200);
-                    } catch (error) {
-                        console.error("Error initiating login flow:", error);
-                        vscode.window.showErrorMessage("Failed to open login screen");
-                    }
+                    this.openLoginFlowWithEditorCheck();
                     break;
             }
         });
@@ -680,5 +638,53 @@ export class WelcomeViewProvider {
                     <div class="card-description">Open or create a translation project</div>
                 </div>
             </div>`;
+    }
+
+    private async openLoginFlowWithEditorCheck() {
+        console.log("[WelcomeView] Opening login flow with editor check");
+
+        try {
+            // Show loading indicator in the welcome view
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    command: "showLoginLoading",
+                    loading: true,
+                });
+            }
+
+            // Get current editor count before opening login flow
+            const initialEditorCount = vscode.window.visibleTextEditors.length;
+            console.log(
+                `[WelcomeView] Current editor count before opening login: ${initialEditorCount}`
+            );
+
+            // Open the startup flow without closing the welcome view
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                vscode.Uri.parse("untitled:startupflow.codex"),
+                "startupFlowProvider"
+            );
+
+            // Hide loading indicator after startup flow is opened
+            if (this._panel) {
+                // Short delay to ensure the flow has time to initialize
+                setTimeout(() => {
+                    this._panel?.webview.postMessage({
+                        command: "showLoginLoading",
+                        loading: false,
+                    });
+                }, 1000);
+            }
+        } catch (error) {
+            // If opening fails, hide the loading indicator and show error
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    command: "showLoginLoading",
+                    loading: false,
+                });
+            }
+            console.error("Error opening login flow:", error);
+            vscode.window.showErrorMessage("Failed to open login screen");
+        }
     }
 }

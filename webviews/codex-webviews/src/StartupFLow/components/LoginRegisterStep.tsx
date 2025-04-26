@@ -72,17 +72,21 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 }
                 setPasswordError("");
 
-                // Await the promise resolution from the register API call
-                const success = await onRegister(trimmedUsername, trimmedEmail, trimmedPassword);
-                // Keep loading until promise resolves
+                // Wait for the Promise to resolve from register
+                console.log("Registering user...");
+                await onRegister(trimmedUsername, trimmedEmail, trimmedPassword);
+                console.log("Register API call completed");
             } else {
-                // Await the promise resolution from the login API call
-                const success = await onLogin(trimmedUsername, trimmedPassword);
-                // Keep loading until promise resolves
+                console.log("Logging in user...");
+                // Wait for the Promise to resolve from login
+                await onLogin(trimmedUsername, trimmedPassword);
+                console.log("Login API call completed");
             }
+
+            // Keep loading state on if successful - we'll likely navigate away
+            // Only reset loading state on error
         } catch (error) {
             console.error("Authentication error:", error);
-        } finally {
             setIsLoading(false);
         }
     };

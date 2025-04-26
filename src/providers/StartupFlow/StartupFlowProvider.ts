@@ -297,7 +297,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             debugLog("WebviewPanel is no longer available, skipping sendList");
             return;
         }
-        
+
         try {
             const projectList: ProjectWithSyncStatus[] = [];
 
@@ -306,7 +306,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             if (this.frontierApi) {
                 try {
                     remoteProjects = await this.frontierApi.listProjects(false);
-                    
+
                     // Clean up project names - remove unique IDs
                     remoteProjects.forEach((project) => {
                         if (project.name[project.name.length - 23] === "-") {
@@ -318,7 +318,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // Continue with empty remote projects list
                 }
             }
-            
+
             // Fetch local projects
             let localProject: LocalProject[] = [];
             try {
@@ -352,12 +352,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                     continue;
                 }
-                
+
                 // Check if this local project matches a remote one
                 const matchInRemoteIndex = projectList.findIndex(
                     (p) => p.gitOriginUrl === project.gitOriginUrl
                 );
-                
+
                 if (matchInRemoteIndex !== -1) {
                     // Update the remote entry with local data
                     projectList[matchInRemoteIndex] = {
@@ -382,7 +382,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
-            
+
             // Send error response only if webview is still available
             if (webviewPanel.visible) {
                 webviewPanel.webview.postMessage({
@@ -871,59 +871,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
-            // case "project.initialize": {
-            //     debugLog("Initializing project");
-            //     // Set canInitializeProject to true when initialization starts
-            //     webviewPanel.webview.postMessage({
-            //         command: "metadata.checkResponse",
-            //         data: {
-            //             exists: false,
-            //             hasCriticalData: false,
-            //             isInitializing: true
-            //         }
-            //     });
-
-            //     await createNewProject();
-
-            //     // Wait for metadata.json to be created
-            //     const workspaceFolders = vscode.workspace.workspaceFolders;
-            //     if (workspaceFolders) {
-            //         try {
-            //             const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
-            //             // Wait for metadata.json to exist
-            //             await vscode.workspace.fs.stat(metadataUri);
-
-            //             // Show Project Manager view first
-            //             await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-
-            //             // Send initialization status to webview
-            //             webviewPanel.webview.postMessage({
-            //                 command: "project.initializationStatus",
-            //                 isInitialized: true
-            //             });
-
-            //             this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
-            //         } catch (error) {
-            //             console.error("Error checking metadata.json:", error);
-            //             // If metadata.json doesn't exist yet, don't transition state
-            //             webviewPanel.webview.postMessage({
-            //                 command: "project.initializationStatus",
-            //                 isInitialized: false
-            //             });
-
-            //             // Reset initialization state
-            //             webviewPanel.webview.postMessage({
-            //                 command: "metadata.checkResponse",
-            //                 data: {
-            //                     exists: false,
-            //                     hasCriticalData: false,
-            //                     isInitializing: false
-            //                 }
-            //             });
-            //         }
-            //     }
-            //     break;
-            // }
         }
     }
 
@@ -1135,6 +1082,22 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     debugLog("Handling authentication message", message.command);
                     await this.handleAuthenticationMessage(webviewPanel, message);
                     break;
+                case "project.triggerSync":
+                    // Trigger a sync operation via the SyncManager
+                    try {
+                        debugLog("Triggering sync after login");
+                        // Destructure message for type safety
+                        const { message: commitMessage = "Sync after login" } = message;
+
+                        // Execute the sync command which is registered in syncManager.ts
+                        await vscode.commands.executeCommand(
+                            "codex-editor-extension.triggerSync",
+                            commitMessage
+                        );
+                    } catch (error) {
+                        console.error("Error triggering sync:", error);
+                    }
+                    break;
                 case "workspace.status":
                 case "workspace.open":
                 case "workspace.create":
@@ -1310,23 +1273,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 case "project.delete": {
                     debugLog("Deleting project", message.projectPath);
-                    
+
                     // Ensure the path exists
                     try {
                         const projectUri = vscode.Uri.file(message.projectPath);
                         await vscode.workspace.fs.stat(projectUri);
-                        
+
                         // Show confirmation dialog
-                        const projectName = message.projectPath.split("/").pop() || message.projectPath;
-                        
+                        const projectName =
+                            message.projectPath.split("/").pop() || message.projectPath;
+
                         // Determine if this is a cloud-synced project
                         let isCloudSynced = false;
                         try {
                             const localProjects = await findAllCodexProjects();
-                            const project = localProjects.find(p => p.path === message.projectPath);
+                            const project = localProjects.find(
+                                (p) => p.path === message.projectPath
+                            );
                             // If the project has a git origin URL, it might be synced with cloud
                             isCloudSynced = !!project?.gitOriginUrl;
-                            
+
                             // If we have sync status info from the message, use that
                             if (message.syncStatus === "downloadedAndSynced") {
                                 isCloudSynced = true;
@@ -1336,44 +1302,48 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Fall back to local-only message if we can't determine
                             isCloudSynced = false;
                         }
-                        
+
                         const confirmMessage = isCloudSynced
                             ? `Are you sure you want to delete project \n"${projectName}" locally?\n\nPlease ensure the project is synced before deleting.`
                             : `Are you sure you want to delete project \n"${projectName}"?\n\nThis action cannot be undone.`;
-                            
+
                         const confirmResult = await vscode.window.showWarningMessage(
                             confirmMessage,
                             { modal: true },
                             "Delete"
                         );
-                        
+
                         if (confirmResult === "Delete") {
                             // Delete the project directory
                             try {
                                 // Use vscode.workspace.fs.delete with the recursive flag
                                 await vscode.workspace.fs.delete(projectUri, { recursive: true });
-                                vscode.window.showInformationMessage(`Project "${projectName}" has been deleted.`);
-                                
+                                vscode.window.showInformationMessage(
+                                    `Project "${projectName}" has been deleted.`
+                                );
+
                                 // Send success response to webview
                                 webviewPanel.webview.postMessage({
                                     command: "project.deleteResponse",
                                     success: true,
-                                    projectPath: message.projectPath
+                                    projectPath: message.projectPath,
                                 });
-                                
+
                                 // Refresh the projects list
                                 await this.sendList(webviewPanel);
                             } catch (error) {
                                 console.error("Error deleting project:", error);
-                                vscode.window.showErrorMessage(`Failed to delete project: ${error instanceof Error ? error.message : String(error)}`);
-                                
+                                vscode.window.showErrorMessage(
+                                    `Failed to delete project: ${error instanceof Error ? error.message : String(error)}`
+                                );
+
                                 // Send error response to webview
                                 webviewPanel.webview.postMessage({
                                     command: "project.deleteResponse",
                                     success: false,
-                                    error: error instanceof Error ? error.message : String(error)
+                                    error: error instanceof Error ? error.message : String(error),
                                 });
-                                
+
                                 // Still attempt to refresh the list to ensure UI is in sync
                                 await this.sendList(webviewPanel);
                             }
@@ -1382,24 +1352,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             webviewPanel.webview.postMessage({
                                 command: "project.deleteResponse",
                                 success: false,
-                                error: "Deletion cancelled by user"
+                                error: "Deletion cancelled by user",
                             });
                         }
                     } catch (error) {
                         console.error("Project not found:", error);
                         vscode.window.showErrorMessage("The specified project could not be found.");
-                        
+
                         // Send error response to webview
                         webviewPanel.webview.postMessage({
                             command: "project.deleteResponse",
                             success: false,
-                            error: "The specified project could not be found."
+                            error: "The specified project could not be found.",
                         });
-                        
+
                         // Still attempt to refresh the list to ensure UI is in sync
                         await this.sendList(webviewPanel);
                     }
-                    
+
                     break;
                 }
             }

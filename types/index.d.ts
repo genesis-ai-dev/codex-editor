@@ -344,7 +344,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus }
     | { command: "project.createEmpty" }
     | { command: "project.initialize"; waitForStateUpdate?: boolean }
-    | { command: "metadata.check" };
+    | { command: "metadata.check" }
+    | { command: "project.triggerSync"; message?: string }
+    | { command: "webview.ready" };
 
 export type GitLabProject = {
     id: number;
