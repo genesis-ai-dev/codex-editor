@@ -1,5 +1,10 @@
-import React, { useState } from "react";
-import { VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
+import React, { useState, useEffect } from "react";
+import {
+    VSCodeButton,
+    VSCodeTextField,
+    VSCodeProgressRing,
+    VSCodeBadge,
+} from "@vscode/webview-ui-toolkit/react";
 import { LoginRegisterStepProps } from "../types";
 
 export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
@@ -18,6 +23,22 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [showPassword, setShowPassword] = useState(false);
     const [passwordStrength, setPasswordStrength] = useState(0);
     const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+    useEffect(() => {
+        const handleOnlineStatusChange = () => {
+            setIsOffline(!navigator.onLine);
+        };
+
+        window.addEventListener("online", handleOnlineStatusChange);
+        window.addEventListener("offline", handleOnlineStatusChange);
+
+        return () => {
+            window.removeEventListener("online", handleOnlineStatusChange);
+            window.removeEventListener("offline", handleOnlineStatusChange);
+        };
+    }, []);
 
     const validatePassword = (pass: string) => {
         if (pass.length < 16) {
@@ -30,20 +51,39 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         return true;
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (isRegistering) {
-            if (!validatePassword(password)) {
-                return;
+        setIsLoading(true);
+
+        const trimmedUsername = username.trim();
+        const trimmedPassword = password;
+        const trimmedEmail = email.trim();
+
+        try {
+            if (isRegistering) {
+                if (!validatePassword(trimmedPassword)) {
+                    setIsLoading(false);
+                    return;
+                }
+                if (trimmedPassword !== confirmPassword) {
+                    setPasswordError("Passwords do not match");
+                    setIsLoading(false);
+                    return;
+                }
+                setPasswordError("");
+
+                // Await the promise resolution from the register API call
+                const success = await onRegister(trimmedUsername, trimmedEmail, trimmedPassword);
+                // Keep loading until promise resolves
+            } else {
+                // Await the promise resolution from the login API call
+                const success = await onLogin(trimmedUsername, trimmedPassword);
+                // Keep loading until promise resolves
             }
-            if (password !== confirmPassword) {
-                setPasswordError("Passwords do not match");
-                return;
-            }
-            setPasswordError("");
-            onRegister(username, email, password);
-        } else {
-            onLogin(username, password);
+        } catch (error) {
+            console.error("Authentication error:", error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -52,6 +92,14 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         setPassword(newPassword);
         const strength = Math.min((newPassword.length / 16) * 100, 100);
         setPasswordStrength(strength);
+    };
+
+    const handleUsernameChange = (e: React.FormEvent<HTMLElement>) => {
+        setUsername((e.target as HTMLInputElement).value);
+    };
+
+    const handleEmailChange = (e: React.FormEvent<HTMLElement>) => {
+        setEmail((e.target as HTMLInputElement).value);
     };
 
     // if (authState.isAuthenticated) {
@@ -78,8 +126,32 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
 
     return (
         <div className="login-register-step">
+            {isOffline && (
+                <div
+                    style={{
+                        position: "absolute",
+                        top: "10px",
+                        right: "10px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        backgroundColor: "var(--vscode-badge-background)",
+                        color: "var(--vscode-badge-foreground)",
+                        padding: "4px 8px",
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                    }}
+                >
+                    <i className="codicon codicon-error"></i>
+                    <span>Offline</span>
+                </div>
+            )}
             <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
-                <VSCodeButton onClick={() => setIsRegistering(!isRegistering)} appearance="icon">
+                <VSCodeButton
+                    onClick={() => setIsRegistering(!isRegistering)}
+                    appearance="icon"
+                    disabled={isLoading}
+                >
                     <span style={{ textDecoration: "underline", width: "auto", height: "auto" }}>
                         {isRegistering ? "Back to Login" : "Create Account"}
                     </span>
@@ -107,19 +179,21 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 >
                     <VSCodeTextField
                         value={username}
-                        onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
+                        onInput={(e) => setUsername((e.target as HTMLInputElement).value)}
                         placeholder="Username"
                         required
                         style={{ width: "100%" }}
+                        disabled={isLoading}
                     />
                     {isRegistering && (
                         <VSCodeTextField
                             type="email"
                             value={email}
-                            onChange={(e) => setEmail((e.target as HTMLInputElement).value)}
+                            onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
                             placeholder="Email"
                             required
                             style={{ width: "100%" }}
+                            disabled={isLoading}
                         />
                     )}
                     <div
@@ -149,10 +223,12 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 placeholder="Password"
                                 required
                                 style={{ width: "100%" }}
+                                disabled={isLoading}
                             />
                             <VSCodeButton
                                 appearance="icon"
                                 onClick={() => setShowPassword(!showPassword)}
+                                disabled={isLoading}
                             >
                                 <i
                                     className={`codicon ${
@@ -233,6 +309,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 placeholder="Confirm Password"
                                 required
                                 style={{ width: "100%" }}
+                                disabled={isLoading}
                             />
                             {passwordError && (
                                 <span style={{ color: "var(--vscode-errorForeground)" }}>
@@ -242,23 +319,22 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         </>
                     )}
                 </div>
-                <div className="button-group">
-                    <VSCodeButton type="submit">
-                        {isRegistering ? "Register" : "Login"}
+                <div
+                    className="button-group"
+                    style={{ display: "flex", alignItems: "center", gap: "1rem" }}
+                >
+                    <VSCodeButton type="submit" disabled={isLoading}>
+                        {isLoading ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                <VSCodeProgressRing />
+                                <span>{isRegistering ? "Registering..." : "Logging in..."}</span>
+                            </div>
+                        ) : isRegistering ? (
+                            "Register"
+                        ) : (
+                            "Login"
+                        )}
                     </VSCodeButton>
-                    {/* {!isRegistering && (
-                        <VSCodeButton onClick={onSkip} appearance="icon">
-                            <span
-                                style={{
-                                    textDecoration: "underline",
-                                    width: "auto",
-                                    height: "auto",
-                                }}
-                            >
-                                Skip
-                            </span>
-                        </VSCodeButton>
-                    )} */}
                 </div>
             </form>
         </div>

@@ -234,8 +234,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
         console.info(summaryMessage);
 
-        // Check if we need to show the welcome view
-        showWelcomeViewIfNeeded();
+        // // Check if we need to show the welcome view
+        // showWelcomeViewIfNeeded();
     } catch (error) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
@@ -249,12 +249,6 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
     console.log("Initializing extension");
 
     if (metadataExists) {
-        stepStart = trackTiming("• Show Project Overview", stepStart);
-        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-
-        stepStart = trackTiming("• Register CodeLens Providers", stepStart);
-        registerCodeLensProviders(context);
-
         stepStart = trackTiming("• Register Text Selection Handler", stepStart);
         registerTextSelectionHandler(context, () => undefined);
 

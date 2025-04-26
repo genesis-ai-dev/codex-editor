@@ -2,6 +2,7 @@
 
 import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import { formatDistanceToNow } from "date-fns";
+import { useState, useEffect } from "react";
 
 interface ProjectListItem {
     name: string;
@@ -36,6 +37,22 @@ export function ProjectList({
     onRefreshProjects,
     showBackButton,
 }: ProjectListProps) {
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+    useEffect(() => {
+        const handleOnlineStatusChange = () => {
+            setIsOffline(!navigator.onLine);
+        };
+
+        window.addEventListener("online", handleOnlineStatusChange);
+        window.addEventListener("offline", handleOnlineStatusChange);
+
+        return () => {
+            window.removeEventListener("online", handleOnlineStatusChange);
+            window.removeEventListener("offline", handleOnlineStatusChange);
+        };
+    }, []);
+
     const sortedProjects = projects
         ? [...projects].sort((a, b) => {
               const dateA = a?.lastOpened ? new Date(a.lastOpened) : null;
@@ -81,8 +98,31 @@ export function ProjectList({
                 gap: "1rem",
                 padding: "1rem",
                 minWidth: 0,
+                position: "relative",
             }}
         >
+            {isOffline && (
+                <div
+                    style={{
+                        position: "absolute",
+                        top: "10px",
+                        right: "10px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        backgroundColor: "var(--vscode-badge-background)",
+                        color: "var(--vscode-badge-foreground)",
+                        padding: "4px 8px",
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                        zIndex: 10,
+                    }}
+                >
+                    <i className="codicon codicon-error"></i>
+                    <span>Offline</span>
+                </div>
+            )}
+
             <div
                 style={{
                     display: "flex",
