@@ -1049,7 +1049,7 @@
                     "translators-copilot.debugMode": {
                         "title": "Debugging Mode",
                         "type": "boolean",
-                        "default": "false",
+                        "default": false,
                         "description": "If activated, inline completion LLM prompts will be saved to the `copilot-messages.log` file in the project."
                     },
                     "translators-copilot.wordFrequencyThreshold": {

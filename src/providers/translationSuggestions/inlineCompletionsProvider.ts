@@ -246,7 +246,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
                 config.get("chatSystemMessage") ||
                 "This is a chat between a helpful Bible translation assistant and a Bible translator...",
             numberOfFewShotExamples: config.get("numberOfFewShotExamples") || 30,
-            debugMode: config.get("debugMode") || false,
+            debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
         };
     } catch (error) {
         console.error("Error getting completion configuration", error);
