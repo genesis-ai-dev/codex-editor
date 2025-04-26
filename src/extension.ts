@@ -75,7 +75,6 @@ let commitTimeout: any;
 const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
-let wordsViewProvider: WordsViewProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
@@ -84,7 +83,6 @@ export async function activate(context: vscode.ExtensionContext) {
     stepStart = trackTiming("Maximize Editor Hide Sidebar", stepStart);
     // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
     // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
-    await showWelcomeViewIfNeeded();
     await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
     stepStart = trackTiming("Execute Commands Before", stepStart);
     await executeCommandsBefore(context);
@@ -112,8 +110,8 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Register Welcome View", stepStart);
         registerWelcomeViewProvider(context);
 
-        // // Show project manager view immediately
-        // await vscode.commands.executeCommand("workbench.view.extension.project-manager");
+        // Now we can safely check if we need to show the welcome view
+        await showWelcomeViewIfNeeded();
 
         // Register startup flow commands
         stepStart = trackTiming("Register Startup Flow", stepStart);
@@ -234,18 +232,6 @@ export async function activate(context: vscode.ExtensionContext) {
         ].join("\n");
 
         console.info(summaryMessage);
-
-        // Register Words View Provider
-        wordsViewProvider = new WordsViewProvider(context.extensionUri);
-
-        const showWordsViewCommand = vscode.commands.registerCommand(
-            "frontier.showWordsView",
-            () => {
-                wordsViewProvider?.show();
-            }
-        );
-
-        context.subscriptions.push(showWordsViewCommand);
 
         // Check if we need to show the welcome view
         showWelcomeViewIfNeeded();

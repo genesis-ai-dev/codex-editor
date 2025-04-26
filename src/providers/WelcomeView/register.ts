@@ -51,6 +51,12 @@ export function getWelcomeViewProvider(): WelcomeViewProvider {
 
 // Check if there are no visible editors and show welcome view if needed
 export async function showWelcomeViewIfNeeded() {
+    // Safety check - if provider is not initialized, log and return
+    if (!provider) {
+        console.warn("[WelcomeView] Provider not initialized yet, skipping welcome view");
+        return;
+    }
+
     // Only show welcome view when there are no visible editors
     const visibleEditors = vscode.window.visibleTextEditors;
 

@@ -4,6 +4,7 @@ import { NextGenCodexTreeViewProvider } from "./treeViews/nextGenCodexTreeViewPr
 import { openCodexFile } from "./treeViews/nextGenCodexTreeViewProvider";
 import { createEditAnalysisProvider } from "./EditAnalysisView/EditAnalysisViewProvider";
 import { registerMainMenuProvider } from "./mainMenu/register";
+import { WordsViewProvider } from "./WordsView/WordsViewProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];
@@ -13,6 +14,15 @@ export function registerProviders(context: vscode.ExtensionContext) {
 
     // Register MainMenuProvider
     registerMainMenuProvider(context);
+
+    // Register Words View Provider
+    const wordsViewProvider = new WordsViewProvider(context.extensionUri);
+
+    const showWordsViewCommand = vscode.commands.registerCommand("frontier.showWordsView", () => {
+        wordsViewProvider?.show();
+    });
+
+    context.subscriptions.push(showWordsViewCommand);
 
     // Register SourceControlProvider
     // const sourceControlProvider = registerSourceControl(context);
