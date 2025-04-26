@@ -285,6 +285,24 @@ export const StartupFlowView: React.FC = () => {
 
     return (
         <div className="startup-flow-container">
+            <div
+                className="close-button-container"
+                style={{
+                    position: "absolute",
+                    top: "10px",
+                    right: "10px",
+                    zIndex: 1000,
+                }}
+            >
+                <VSCodeButton
+                    appearance="icon"
+                    onClick={() => vscode.postMessage({ command: "startup.dismiss" })}
+                    title="Close"
+                >
+                    <i className="codicon codicon-close"></i>
+                </VSCodeButton>
+            </div>
+
             {value === StartupFlowStates.LOGIN_REGISTER && (
                 <LoginRegisterStep
                     // authState={value.context.authState}

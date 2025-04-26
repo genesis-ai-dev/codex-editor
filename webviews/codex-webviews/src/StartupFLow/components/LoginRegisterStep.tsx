@@ -130,26 +130,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
 
     return (
         <div className="login-register-step">
-            {isOffline && (
-                <div
-                    style={{
-                        position: "absolute",
-                        top: "10px",
-                        right: "10px",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        backgroundColor: "var(--vscode-badge-background)",
-                        color: "var(--vscode-badge-foreground)",
-                        padding: "4px 8px",
-                        borderRadius: "4px",
-                        fontSize: "12px",
-                    }}
-                >
-                    <i className="codicon codicon-error"></i>
-                    <span>Offline</span>
-                </div>
-            )}
             <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
                 <VSCodeButton
                     onClick={() => setIsRegistering(!isRegistering)}
@@ -327,20 +307,60 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     className="button-group"
                     style={{ display: "flex", alignItems: "center", gap: "1rem" }}
                 >
-                    <VSCodeButton type="submit" disabled={isLoading}>
+                    <VSCodeButton
+                        type="submit"
+                        disabled={isLoading}
+                        style={{
+                            width: "160px",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                        }}
+                    >
                         {isLoading ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                <VSCodeProgressRing />
-                                <span>{isRegistering ? "Registering..." : "Logging in..."}</span>
-                            </div>
+                            <>
+                                <i className="codicon codicon-sync codicon-modifier-spin"></i>
+                                <span>{isRegistering ? "Registering" : "Logging in"}</span>
+                            </>
                         ) : isRegistering ? (
                             "Register"
                         ) : (
                             "Login"
                         )}
                     </VSCodeButton>
+                    {isLoading && (
+                        <VSCodeButton
+                            appearance="icon"
+                            onClick={() => setIsLoading(false)}
+                            title="Cancel"
+                        >
+                            <i className="codicon codicon-close"></i>
+                        </VSCodeButton>
+                    )}
                 </div>
             </form>
+            {isOffline && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginTop: "1rem",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                        border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                        borderRadius: "4px",
+                        width: "min(100%, 400px)",
+                    }}
+                >
+                    <i className="codicon codicon-warning"></i>
+                    <span>
+                        You appear to be offline. Login and registration require an internet
+                        connection.
+                    </span>
+                </div>
+            )}
         </div>
     );
 };

@@ -346,6 +346,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.initialize"; waitForStateUpdate?: boolean }
     | { command: "metadata.check" }
     | { command: "project.triggerSync"; message?: string }
+    | { command: "startup.dismiss" }
     | { command: "webview.ready" };
 
 export type GitLabProject = {

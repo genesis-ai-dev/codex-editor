@@ -732,6 +732,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 break;
             }
+            case "startup.dismiss":
+                debugLog("Dismissing startup flow");
+                webviewPanel.dispose();
+                break;
         }
     }
 
@@ -1081,6 +1085,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 case "auth.logout":
                     debugLog("Handling authentication message", message.command);
                     await this.handleAuthenticationMessage(webviewPanel, message);
+                    break;
+                case "startup.dismiss":
+                    debugLog("Dismissing startup flow");
+                    webviewPanel.dispose();
                     break;
                 case "project.triggerSync":
                     // Trigger a sync operation via the SyncManager
