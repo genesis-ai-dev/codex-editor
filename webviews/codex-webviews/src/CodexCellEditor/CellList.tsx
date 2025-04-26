@@ -335,7 +335,7 @@ const CellList: React.FC<CellListProps> = ({
                     const parentLabel =
                         parentCell.cellLabel ||
                         (parentCell.cellType !== CodexCellTypes.PARATEXT
-                            ? translationUnits.indexOf(parentCell).toString()
+                            ? translationUnits.indexOf(parentCell) + 1
                             : "");
 
                     // Find all siblings (cells with the same parent)
@@ -357,8 +357,8 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Default fallback for regular cells
-            return index.toString();
+            // Default fallback for regular cells - count from 1 instead of 0
+            return (index + 1).toString();
         },
         [translationUnits]
     );
@@ -377,6 +377,7 @@ const CellList: React.FC<CellListProps> = ({
                 {group.map((cell, index) => {
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
+                    // Note: generateCellLabel adds 1 internally to convert to one-based indexing
                     const generatedCellLabel = generateCellLabel(group[index], startIndex + index);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
@@ -507,6 +508,7 @@ const CellList: React.FC<CellListProps> = ({
                     currentGroup = [];
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
+                // Note: generateCellLabel adds 1 internally to convert to one-based indexing
                 const generatedCellLabel = generateCellLabel(translationUnits[i], i);
 
                 result.push(
@@ -547,6 +549,7 @@ const CellList: React.FC<CellListProps> = ({
                     translationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
                     i === 0
                 ) {
+                    // Note: generateCellLabel adds 1 internally to convert to one-based indexing
                     const generatedCellLabel = generateCellLabel(translationUnits[i], i);
                     const cellIdForTranslation = cellMarkers[0];
                     const isInProcess = isCellInTranslationProcess(cellIdForTranslation);
