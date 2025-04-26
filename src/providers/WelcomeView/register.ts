@@ -28,6 +28,17 @@ export function registerWelcomeViewProvider(context: vscode.ExtensionContext): W
         })
     );
 
+    // Add watcher for text document close events - this helps catch editor closures
+    context.subscriptions.push(
+        vscode.workspace.onDidCloseTextDocument(async (document) => {
+            console.log(`[WelcomeView] Document closed: ${document.uri.toString()}`);
+            // After a short delay, check if all editors are now closed and show welcome view if needed
+            setTimeout(() => {
+                showWelcomeViewIfNeeded();
+            }, 100); // Small delay to ensure editors array is updated
+        })
+    );
+
     // Always dispose the provider when extension is deactivated
     context.subscriptions.push(provider);
 

@@ -8,7 +8,7 @@ export class WelcomeViewProvider {
     private _panel?: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
-    private _debugMode = true; // Set to true to enable debug UI/logging
+    private _debugMode = false; // Set to true to enable debug UI/logging
     private _isMenuVisible = false; // Track menu visibility state
     private _hasWorkspaceOpen = false; // Track if a workspace is open
 
