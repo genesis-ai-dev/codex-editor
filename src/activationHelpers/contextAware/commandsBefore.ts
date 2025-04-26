@@ -10,7 +10,7 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
             const config = vscode.workspace.getConfiguration();
 
             // Get current states to determine if we're hiding or showing
-            const sidebarVisible = config.get("workbench.sideBar.visible", true);
+            const sidebarVisible = config.get("workbench.sideBar.visible", false);
             console.log("Current sidebar visibility:", sidebarVisible);
 
             if (sidebarVisible) {

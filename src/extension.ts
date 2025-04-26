@@ -83,6 +83,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
     stepStart = trackTiming("Maximize Editor Hide Sidebar", stepStart);
     // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
+    // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
+    await showWelcomeViewIfNeeded();
     await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
     stepStart = trackTiming("Execute Commands Before", stepStart);
     await executeCommandsBefore(context);
@@ -392,9 +394,6 @@ async function watchForInitialization(context: vscode.ExtensionContext, metadata
     watcher.onDidDelete(checkInitialization);
 
     context.subscriptions.push(watcher);
-
-    // Show project overview immediately, don't wait for metadata
-    vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
 }
 
 function registerCodeLensProviders(context: vscode.ExtensionContext) {
@@ -435,6 +434,7 @@ async function executeCommandsAfter() {
 
     // Check if we need to show the welcome view after initialization
     showWelcomeViewIfNeeded();
+    await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
 }
 
 export function deactivate() {
