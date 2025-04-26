@@ -1,11 +1,14 @@
 import * as vscode from "vscode";
 import { stageAndCommitAllAndSync } from "./utils/merge";
+import { getAuthApi } from "../extension";
 
 // Singleton to manage sync operations across the application
 export class SyncManager {
     private static instance: SyncManager;
     private pendingSyncTimeout: NodeJS.Timeout | number | null = null;
     private isSyncInProgress: boolean = false;
+    private lastConnectionErrorTime: number = 0;
+    private CONNECTION_ERROR_COOLDOWN = 60000; // 1 minute cooldown for connection messages
 
     private constructor() {
         // Initialize with configuration values
@@ -46,9 +49,45 @@ export class SyncManager {
     }
 
     // Execute the sync operation immediately
-    public async executeSync(commitMessage: string = "Manual sync"): Promise<void> {
+    public async executeSync(
+        commitMessage: string = "Manual sync",
+        showInfoOnConnectionIssues: boolean = true
+    ): Promise<void> {
         if (this.isSyncInProgress) {
             console.log("Sync already in progress, skipping");
+            return;
+        }
+
+        // Check authentication status first
+        const authApi = getAuthApi();
+        if (!authApi) {
+            console.log("Auth API not available, cannot sync");
+            if (showInfoOnConnectionIssues) {
+                this.showConnectionIssueMessage(
+                    "Unable to sync: Authentication service not available"
+                );
+            }
+            return;
+        }
+
+        try {
+            const authStatus = authApi.getAuthStatus();
+            if (!authStatus.isAuthenticated) {
+                console.log("User is not authenticated, cannot sync");
+                if (showInfoOnConnectionIssues) {
+                    this.showConnectionIssueMessage(
+                        "Unable to sync: Please log in to sync your changes"
+                    );
+                }
+                return;
+            }
+        } catch (error) {
+            console.error("Error checking authentication status:", error);
+            if (showInfoOnConnectionIssues) {
+                this.showConnectionIssueMessage(
+                    "Unable to sync: Could not verify authentication status"
+                );
+            }
             return;
         }
 
@@ -59,11 +98,38 @@ export class SyncManager {
             await stageAndCommitAllAndSync(commitMessage);
         } catch (error) {
             console.error("Error during sync operation:", error);
-            vscode.window.showErrorMessage(
-                `Sync failed: ${error instanceof Error ? error.message : String(error)}`
-            );
+            const errorMessage = error instanceof Error ? error.message : String(error);
+
+            // Check if this is a connection-related error
+            if (
+                errorMessage.includes("No active session") ||
+                errorMessage.includes("network") ||
+                errorMessage.includes("connect") ||
+                errorMessage.includes("offline")
+            ) {
+                if (showInfoOnConnectionIssues) {
+                    this.showConnectionIssueMessage(
+                        "Unable to sync: Please check your internet connection or login status"
+                    );
+                }
+            } else {
+                // For other errors, show an error message
+                vscode.window.showErrorMessage(`Sync failed: ${errorMessage}`);
+            }
         } finally {
             this.isSyncInProgress = false;
+        }
+    }
+
+    // Show connection issue message with cooldown
+    private showConnectionIssueMessage(message: string): void {
+        // Only show one message per minute to avoid spamming
+        const now = Date.now();
+        if (now - this.lastConnectionErrorTime > this.CONNECTION_ERROR_COOLDOWN) {
+            this.lastConnectionErrorTime = now;
+            vscode.window.showInformationMessage(message);
+        } else {
+            console.log("Suppressing connection error notification due to cooldown");
         }
     }
 

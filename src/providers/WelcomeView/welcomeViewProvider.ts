@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
+import { getAuthApi } from "../../extension";
 
 export class WelcomeViewProvider {
     public static readonly viewType = "codex-welcome-view";
@@ -11,9 +12,28 @@ export class WelcomeViewProvider {
     private _debugMode = false; // Set to true to enable debug UI/logging
     private _isMenuVisible = false; // Track menu visibility state
     private _hasWorkspaceOpen = false; // Track if a workspace is open
+    private _isAuthenticated = false; // Track authentication status
 
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
+        // Check authentication status
+        this._checkAuthStatus();
+    }
+
+    // Check if user is authenticated
+    private _checkAuthStatus(): void {
+        const authApi = getAuthApi();
+        if (authApi) {
+            try {
+                const authStatus = authApi.getAuthStatus();
+                this._isAuthenticated = authStatus.isAuthenticated;
+            } catch (error) {
+                console.error("Error checking auth status:", error);
+                this._isAuthenticated = false;
+            }
+        } else {
+            this._isAuthenticated = false;
+        }
     }
 
     public dispose() {
@@ -114,11 +134,15 @@ export class WelcomeViewProvider {
     public show() {
         // Check if a workspace is open
         this._hasWorkspaceOpen = this.hasWorkspaceOpen();
-        console.log(`[WelcomeView] Showing with workspace open: ${this._hasWorkspaceOpen}`);
+        // Update authentication status
+        this._checkAuthStatus();
+        console.log(
+            `[WelcomeView] Showing with workspace open: ${this._hasWorkspaceOpen}, authenticated: ${this._isAuthenticated}`
+        );
 
         // If the panel is already showing, just reveal it
         if (this._panel) {
-            // Update the HTML in case workspace status changed
+            // Update the HTML in case workspace or auth status changed
             this._panel.webview.html = this._getHtmlForWebview();
             this._panel.reveal(vscode.ViewColumn.One);
             return;
@@ -172,6 +196,52 @@ export class WelcomeViewProvider {
                 case "viewProjects":
                     vscode.commands.executeCommand("workbench.action.closeActiveEditor");
                     break;
+
+                case "openLoginFlow":
+                    // Open the StartupFlow which handles login
+                    try {
+                        // Show loading indicator in the welcome view
+                        if (this._panel) {
+                            this._panel.webview.postMessage({
+                                command: "showLoginLoading",
+                                loading: true,
+                            });
+                        }
+
+                        // First initiate opening the startup flow
+                        const startupFlowUri = vscode.Uri.parse("untitled:startupflow.codex");
+
+                        // Use setTimeout to ensure the loading animation has time to appear
+                        setTimeout(async () => {
+                            try {
+                                // Open the startup flow
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    startupFlowUri,
+                                    "startupFlowProvider"
+                                );
+
+                                // Only dispose the welcome view after startup flow begins to open
+                                setTimeout(() => {
+                                    this._panel?.dispose();
+                                }, 300);
+                            } catch (error) {
+                                // If opening fails, hide the loading indicator and show error
+                                if (this._panel) {
+                                    this._panel.webview.postMessage({
+                                        command: "showLoginLoading",
+                                        loading: false,
+                                    });
+                                }
+                                console.error("Error opening login flow:", error);
+                                vscode.window.showErrorMessage("Failed to open login screen");
+                            }
+                        }, 200);
+                    } catch (error) {
+                        console.error("Error initiating login flow:", error);
+                        vscode.window.showErrorMessage("Failed to open login screen");
+                    }
+                    break;
             }
         });
 
@@ -214,6 +284,20 @@ export class WelcomeViewProvider {
         const contentHtml = this._hasWorkspaceOpen
             ? this._getWorkspaceOpenHtml()
             : this._getNoWorkspaceHtml();
+
+        // Add login notification if user is not authenticated
+        const loginNotification = !this._isAuthenticated
+            ? `
+            <div class="login-notification">
+                <i class="codicon codicon-warning"></i>
+                <span id="login-text">You are not logged in. <a id="login-link" href="#">Log in</a> to sync your changes.</span>
+                <div id="login-loading" class="login-loading" style="display: none;">
+                    <i class="codicon codicon-loading codicon-modifier-spin"></i>
+                    <span>Opening login...</span>
+                </div>
+            </div>
+            `
+            : "";
 
         return `<!DOCTYPE html>
         <html lang="en">
@@ -319,12 +403,58 @@ export class WelcomeViewProvider {
                     font-size: 20px;
                     line-height: 20px;
                 }
+                .login-notification {
+                    background-color: var(--vscode-inputValidation-infoBackground);
+                    border: 1px solid var(--vscode-inputValidation-infoBorder);
+                    color: var(--vscode-inputValidation-infoForeground);
+                    padding: 8px 16px;
+                    margin-bottom: 20px;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    width: 100%;
+                    max-width: 600px;
+                    text-align: left;
+                }
+                .login-notification a {
+                    color: var(--vscode-textLink-foreground);
+                    text-decoration: none;
+                    cursor: pointer;
+                }
+                .login-notification a:hover {
+                    text-decoration: underline;
+                }
+                .login-notification .codicon {
+                    font-size: 16px;
+                    color: var(--vscode-notificationsInfoIcon-foreground);
+                }
+                .login-loading {
+                    margin-left: auto;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    color: var(--vscode-descriptionForeground);
+                    font-size: 12px;
+                }
+                @keyframes spin {
+                    from {
+                        transform: rotate(0deg);
+                    }
+                    to {
+                        transform: rotate(360deg);
+                    }
+                }
+                .codicon-modifier-spin {
+                    animation: spin 1.5s linear infinite;
+                }
             </style>
         </head>
         <body>
             ${debugPanel}
             
             <div class="container">
+                ${loginNotification}
                 <h1>Welcome to Codex Editor</h1>
                 ${contentHtml}
                 
@@ -404,6 +534,28 @@ export class WelcomeViewProvider {
                     });
                 }
                 
+                // Login link handler
+                const loginLink = document.getElementById('login-link');
+                if (loginLink) {
+                    loginLink.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        
+                        // Show loading indicator
+                        const loadingIndicator = document.getElementById('login-loading');
+                        if (loadingIndicator) {
+                            loadingIndicator.style.display = 'flex';
+                        }
+                        
+                        // Hide the login text
+                        const loginText = document.getElementById('login-text');
+                        if (loginText) {
+                            loginText.style.display = 'none';
+                        }
+                        
+                        vscode.postMessage({ command: 'openLoginFlow' });
+                    });
+                }
+                
                 // Debug buttons if available
                 if (${this._debugMode}) {
                     document.getElementById('debug-show-menu').addEventListener('click', () => {
@@ -441,6 +593,20 @@ export class WelcomeViewProvider {
                             setTimeout(() => {
                                 lastActionElement.style.color = 'var(--vscode-terminal-ansiGreen)';
                             }, 300);
+                        }
+                    } else if (message.command === 'showLoginLoading') {
+                        // If loading is complete and we got an error, reset the UI
+                        if (!message.loading) {
+                            const loadingIndicator = document.getElementById('login-loading');
+                            if (loadingIndicator) {
+                                loadingIndicator.style.display = 'none';
+                            }
+                            
+                            // Show the login text again
+                            const loginText = document.getElementById('login-text');
+                            if (loginText) {
+                                loginText.style.display = 'inline';
+                            }
                         }
                     }
                 });

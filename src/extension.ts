@@ -46,6 +46,7 @@ import {
     registerWelcomeViewProvider,
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
+import { SyncManager } from "./projectManager/syncManager";
 
 interface ActivationTiming {
     step: string;
@@ -417,6 +418,25 @@ async function executeCommandsAfter() {
     await vscode.workspace
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
+
+    // Perform initial sync if auth API is available and user is authenticated
+    if (authApi) {
+        try {
+            const authStatus = authApi.getAuthStatus();
+            if (authStatus.isAuthenticated) {
+                console.log("User is authenticated, performing initial sync");
+                const syncManager = SyncManager.getInstance();
+                // During startup, don't show info messages for connection issues
+                await syncManager.executeSync("Initial workspace sync", false);
+            } else {
+                console.log("User is not authenticated, skipping initial sync");
+            }
+        } catch (error) {
+            console.error("Error checking auth status:", error);
+        }
+    } else {
+        console.log("Auth API not available, skipping initial sync");
+    }
 
     // Check if we need to show the welcome view after initialization
     showWelcomeViewIfNeeded();
