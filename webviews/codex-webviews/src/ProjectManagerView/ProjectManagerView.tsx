@@ -654,6 +654,20 @@ function ProjectManagerView() {
                                 </VSCodeButton>
 
                                 <VSCodeButton
+                                    onClick={() => handleAction({ command: "openBookNameEditor" })}
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-book"></i> Edit Book Names
+                                    </div>
+                                </VSCodeButton>
+
+                                <VSCodeButton
                                     onClick={() => handleAction({ command: "openExportView" })}
                                 >
                                     <div

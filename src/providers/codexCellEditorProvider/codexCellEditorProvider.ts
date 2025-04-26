@@ -23,6 +23,8 @@ import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
 import path from "path";
 import { SyncManager } from "../../projectManager/syncManager";
+import * as fs from "fs";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -112,6 +114,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     // Class property to track if we've registered the command already
     public syncChapterCommandRegistered = false;
+
+    // Add bibleBookMap state to the provider
+    private bibleBookMap: Map<string, { name: string; [key: string]: any }> | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -259,6 +264,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const isSourceText = document.uri.fsPath.endsWith(".source");
         debug("Text direction:", textDirection, "Is source text:", isSourceText);
 
+        // Load bible book map
+        await this.loadBibleBookMap(document);
+
         // Set up the HTML content for the webview
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
@@ -266,6 +274,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             textDirection,
             isSourceText
         );
+
+        // Send initial bible book map to webview
+        if (this.bibleBookMap) {
+            this.postMessageToWebview(webviewPanel, {
+                type: "setBibleBookMap" as any, // Use type assertion for custom message
+                data: Array.from(this.bibleBookMap.entries()),
+            });
+        }
 
         // Set up file system watcher
         const watcher = vscode.workspace.createFileSystemWatcher(
@@ -623,7 +639,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <div id="root"></div>
                 <script nonce="${nonce}" src="${scriptUri}"></script>
                 
-                {/* Add CSS for the floating button and loader */}
                 <style>
                     .floating-apply-validations-button {
                         position: fixed;
@@ -1857,6 +1872,38 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add a method to expose webviewPanels in a controlled way
     public getWebviewPanels(): Map<string, vscode.WebviewPanel> {
         return this.webviewPanels;
+    }
+
+    // Add method to load bible book map
+    private async loadBibleBookMap(document: CodexCellDocument): Promise<void> {
+        debug("Loading bible book map");
+        let bookData: any[] = bibleData; // Default data
+        try {
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (workspaceFolder) {
+                const workspaceRoot = workspaceFolder.uri.fsPath;
+                const localizedPath = path.join(workspaceRoot, "localized-books.json");
+                if (fs.existsSync(localizedPath)) {
+                    debug("Found localized-books.json, loading...");
+                    const raw = fs.readFileSync(localizedPath, "utf8");
+                    bookData = JSON.parse(raw);
+                    debug("Localized books loaded successfully");
+                }
+            }
+        } catch (err) {
+            console.error("Error loading localized-books.json:", err);
+            // Fallback to default if error occurs
+            bookData = bibleData;
+        }
+
+        // Create the map
+        this.bibleBookMap = new Map<string, { name: string; [key: string]: any }>();
+        bookData.forEach((book) => {
+            if (book.abbr) { // Ensure abbreviation exists
+                this.bibleBookMap?.set(book.abbr, book);
+            }
+        });
+        debug("Bible book map created with size:", this.bibleBookMap.size);
     }
 
     /**

@@ -7,7 +7,7 @@ import {
     SpellCheckResponse,
     Timestamps,
 } from "../../../../types";
-import Editor, { EditorContentChanged } from "./Editor";
+import Editor, { EditorContentChanged, EditorHandles } from "./Editor";
 import { getCleanedHtml } from "./react-quill-spellcheck";
 import createQuillDeltaOpsFromHtml from "./react-quill-spellcheck";
 import createQuillDeltaFromDeltaOps from "./react-quill-spellcheck";
@@ -146,6 +146,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
     const editorRef = useRef<HTMLDivElement>(null);
+    const editorHandlesRef = useRef<EditorHandles | null>(null);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -586,6 +587,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     )}
                 </div>
                 <div className="action-buttons">
+                    <VSCodeButton onClick={() => editorHandlesRef.current?.openLibrary()} appearance="icon" title="Add All Words to Dictionary">
+                        <i className="codicon codicon-book"></i>
+                    </VSCodeButton>
+                    <VSCodeButton onClick={() => editorHandlesRef.current?.autocomplete()} appearance="icon" title="Autocomplete with AI">
+                        <i className="codicon codicon-sparkle"></i>
+                    </VSCodeButton>
+                    <VSCodeButton onClick={() => editorHandlesRef.current?.showEditHistory()} appearance="icon" title="Show Edit History">
+                        <i className="codicon codicon-history"></i>
+                    </VSCodeButton>
+                    <VSCodeButton onClick={() => editorHandlesRef.current?.addFootnote()} appearance="icon" title="Add Footnote">
+                        <i className="codicon codicon-note"></i>
+                    </VSCodeButton>
                     {showAdvancedControls ? (
                         <div>
                             <AddParatextButton
@@ -715,6 +728,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         });
                     }}
                     textDirection={textDirection}
+                    ref={editorHandlesRef}
                 />
             </div>
 

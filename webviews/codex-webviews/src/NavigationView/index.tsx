@@ -1,10 +1,11 @@
-import React, { useState, useEffect, FormEventHandler } from "react";
+import React, { useState, useEffect, useMemo, FormEventHandler } from "react";
 import { createRoot } from "react-dom/client";
 import {
     VSCodeButton,
     VSCodeDivider,
     VSCodeBadge,
     VSCodeTextField,
+    VSCodeProgressRing,
 } from "@vscode/webview-ui-toolkit/react";
 import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
@@ -20,10 +21,11 @@ interface BibleBookInfo {
     ord: string;
     testament: string;
     osisId: string;
+    [key: string]: any;
 }
 
 interface CodexItem {
-    uri: { toString: () => string };
+    uri: string;
     label: string;
     type: "corpus" | "codexDocument" | "dictionary";
     children?: CodexItem[];
@@ -37,7 +39,7 @@ interface State {
     dictionaryItems: CodexItem[];
     expandedGroups: Set<string>;
     searchQuery: string;
-    bibleBookMap: Map<string, BibleBookInfo>;
+    bibleBookMap: Map<string, BibleBookInfo> | undefined;
 }
 
 // Styles object to keep things organized
@@ -237,7 +239,7 @@ function NavigationView() {
         dictionaryItems: [],
         expandedGroups: new Set(),
         searchQuery: "",
-        bibleBookMap: new Map(),
+        bibleBookMap: undefined,
     });
 
     // Initialize Bible book map on component mount
@@ -271,7 +273,7 @@ function NavigationView() {
                                 const fileName = item.label.replace(/ Codex$/, "");
 
                                 // Check if it's a Bible book
-                                if (prevState.bibleBookMap.has(fileName)) {
+                                if (prevState.bibleBookMap?.has(fileName)) {
                                     const bookInfo = prevState.bibleBookMap.get(fileName)!;
                                     return {
                                         ...item,
@@ -289,7 +291,7 @@ function NavigationView() {
                                                 ""
                                             );
 
-                                            if (prevState.bibleBookMap.has(childFileName)) {
+                                            if (prevState.bibleBookMap?.has(childFileName)) {
                                                 const bookInfo =
                                                     prevState.bibleBookMap.get(childFileName)!;
                                                 return {
@@ -319,6 +321,19 @@ function NavigationView() {
                             dictionaryItems: message.dictionaryItems || [],
                         };
                     });
+                    break;
+                case "setBibleBookMap":
+                    if (message.data) {
+                        try {
+                            const newMap = new Map<string, BibleBookInfo>(message.data);
+                            setState((prevState) => ({
+                                ...prevState,
+                                bibleBookMap: newMap,
+                            }));
+                        } catch (error) {
+                            console.error("Error processing bible book map data:", error);
+                        }
+                    }
                     break;
             }
         };
@@ -354,7 +369,7 @@ function NavigationView() {
 
     const openFile = (item: CodexItem) => {
         // Get the file system path from the URI
-        const uri = item.uri.toString();
+        const uri = item.uri;
         // Extract just the path part from the URI
         const fsPath = uri.replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1");
 
@@ -375,7 +390,7 @@ function NavigationView() {
                 if (item.type === "corpus" && item.children) {
                     const filteredChildren = item.children
                         .filter((child) => {
-                            const displayName = formatLabel(child.label, state.bibleBookMap);
+                            const displayName = formatLabel(child.label, state.bibleBookMap || new Map());
                             return displayName.toLowerCase().includes(searchLower);
                         })
                         .sort(sortItems);
@@ -389,7 +404,7 @@ function NavigationView() {
                     return null;
                 }
 
-                const displayName = formatLabel(item.label, state.bibleBookMap);
+                const displayName = formatLabel(item.label, state.bibleBookMap || new Map());
                 return displayName.toLowerCase().includes(searchLower) ? item : null;
             })
             .filter((item): item is CodexItem => item !== null);
@@ -424,10 +439,10 @@ function NavigationView() {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
-        const displayLabel = formatLabel(item.label, state.bibleBookMap);
+        const displayLabel = formatLabel(item.label, state.bibleBookMap || new Map());
 
         return (
-            <div key={item.label + (item.uri?.toString() || "")}>
+            <div key={item.label + item.uri}>
                 <div
                     style={isGroup ? styles.groupItem : styles.item}
                     onClick={() => (isGroup ? toggleGroup(item.label) : openFile(item))}

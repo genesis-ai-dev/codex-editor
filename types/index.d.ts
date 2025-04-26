@@ -671,8 +671,9 @@ export type EditorPostMessages =
               deleteFootnote?: string;
           };
       }
+    | { command: "openBookNameEditor" }
     | { command: "closeCurrentDocument" }
-    | { command: "triggerSync" };
+    | { command: "triggerSync" }
 
 type EditorReceiveMessages =
     | {
@@ -1210,6 +1211,7 @@ type ProjectManagerMessageFromWebview =
           data: { autoSyncEnabled: boolean; syncDelayMinutes: number };
       }
     | { command: "triggerSync" }
+    | { command: "openBookNameEditor" }
     | { command: "navigateToMainMenu" };
 
 interface ProjectManagerState {

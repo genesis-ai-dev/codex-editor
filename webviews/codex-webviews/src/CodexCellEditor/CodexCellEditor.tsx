@@ -57,6 +57,14 @@ function debug(category: string, message: string | object, ...args: any[]): void
     }
 }
 
+// Define the structure for BibleBookInfo if it's not already globally available
+interface BibleBookInfo {
+    name: string;
+    abbr: string;
+    // Add other properties as needed based on your bible-books-lookup.json
+    [key: string]: any;
+}
+
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
     const [alertColorCodes, setAlertColorCodes] = useState<{
@@ -152,6 +160,9 @@ const CodexCellEditor: React.FC = () => {
 
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
+
+    // Add a state for bible book map
+    const [bibleBookMap, setBibleBookMap] = useState<Map<string, BibleBookInfo> | undefined>(undefined);
 
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
@@ -1087,6 +1098,26 @@ const CodexCellEditor: React.FC = () => {
         });
     };
 
+    // Listen for the bible book map from the provider
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "setBibleBookMap" && message.data) {
+                debug("map", "Received Bible Book Map from provider", message.data);
+                try {
+                    // Convert the array of entries back into a Map
+                    const newMap = new Map<string, BibleBookInfo>(message.data);
+                    setBibleBookMap(newMap);
+                    debug("map", "Successfully set Bible Book Map in state", newMap);
+                } catch (error) {
+                    console.error("Error processing bible book map data:", error);
+                }
+            }
+        };
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
+
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
         console.log("togglePrimarySidebar");
@@ -1193,12 +1224,8 @@ const CodexCellEditor: React.FC = () => {
                             setChapterNumber={setChapterNumber}
                             totalChapters={totalChapters}
                             totalUntranslatedCells={untranslatedCellsForSection.length}
-                            totalCellsToAutocomplete={
-                                untranslatedOrUnvalidatedUnitsForSection.length
-                            }
-                            totalCellsWithCurrentUserOption={
-                                untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
-                            }
+                            totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
+                            totalCellsWithCurrentUserOption={untranslatedOrNotValidatedByCurrentUserUnitsForSection.length}
                             setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             unsavedChanges={!!contentBeingUpdated.cellContent}
@@ -1211,10 +1238,8 @@ const CodexCellEditor: React.FC = () => {
                                     numberOfCells,
                                     includeNotValidatedByAnyUser,
                                     includeNotValidatedByCurrentUser,
-                                    countNoValidators:
-                                        untranslatedOrUnvalidatedUnitsForSection.length,
-                                    countWithCurrentUser:
-                                        untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
+                                    countNoValidators: untranslatedOrUnvalidatedUnitsForSection.length,
+                                    countWithCurrentUser: untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
                                 });
                                 handleAutocompleteChapter(
                                     numberOfCells,
@@ -1248,31 +1273,28 @@ const CodexCellEditor: React.FC = () => {
                             translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
                             onStopSingleCellTranslation={handleStopSingleCellTranslation}
-                            vscode={vscode}
-                            fileStatus={fileStatus}
-                            onClose={handleCloseCurrentDocument}
-                            onTriggerSync={handleTriggerSync}
+                            bibleBookMap={bibleBookMap}
                         />
                     </div>
-                    {shouldShowVideoPlayer && videoUrl && (
-                        <div
-                            style={{
-                                display: "flex",
-                                flexDirection: "column",
-                            }}
-                            ref={videoPlayerRef}
-                        >
-                            <VideoTimelineEditor
-                                videoUrl={videoUrl}
-                                translationUnitsForSection={
-                                    translationUnitsWithCurrentEditorContent
-                                }
-                                vscode={vscode}
-                                playerRef={playerRef}
-                            />
-                        </div>
-                    )}
                 </div>
+                {shouldShowVideoPlayer && videoUrl && (
+                    <div
+                        style={{
+                            display: "flex",
+                            flexDirection: "column",
+                        }}
+                        ref={videoPlayerRef}
+                    >
+                        <VideoTimelineEditor
+                            videoUrl={videoUrl}
+                            translationUnitsForSection={
+                                translationUnitsWithCurrentEditorContent
+                            }
+                            vscode={vscode}
+                            playerRef={playerRef}
+                        />
+                    </div>
+                )}
                 <div
                     className="scrollable-content"
                     style={{ height: `calc(100vh - ${headerHeight}px)` }}

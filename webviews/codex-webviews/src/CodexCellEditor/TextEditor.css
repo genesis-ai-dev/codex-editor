@@ -120,3 +120,17 @@
     color: var(--vscode-editor-foreground);
     padding: 4px;
 }
+
+/* Styles for collapsible toolbar */
+.text-editor-container.toolbar-hidden .ql-toolbar {
+    display: none;
+}
+
+.text-editor-container.toolbar-visible .ql-toolbar {
+    display: block; /* Or flex, grid, etc., depending on Quill's default */
+}
+
+/* Optional: Style the toggle button */
+.text-editor-container > vscode-button {
+    /* Add custom styles if needed */
+}
