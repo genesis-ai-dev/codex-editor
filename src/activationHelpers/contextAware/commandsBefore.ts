@@ -55,7 +55,7 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
                 await config.update("workbench.editor.editorActionsLocation", "default", true);
                 await config.update("workbench.editor.showTabs", "multiple", true);
                 await config.update("window.autoDetectColorScheme", false, true);
-
+                await config.update("workbench.layoutControl.enabled", true, true);
                 vscode.window.setStatusBarMessage("Workspace UI restored", 2000);
                 console.log("Workspace UI restored successfully");
             }

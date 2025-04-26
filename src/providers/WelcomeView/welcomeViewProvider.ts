@@ -372,7 +372,7 @@ export class WelcomeViewProvider {
                     align-items: center;
                     gap: 8px;
                     width: 100%;
-                    max-width: 600px;
+                    justify-content: center;
                     text-align: left;
                 }
                 .login-notification a {

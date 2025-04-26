@@ -395,7 +395,7 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     await config.update("workbench.editor.showTabs", "none", true);
     await config.update("window.autoDetectColorScheme", true, true);
     await config.update("workbench.editor.revealIfOpen", true, true);
-    await config.update("workbench.layoutControl.enabled", false, true);
+    await config.update("workbench.layoutControl.enabled", true, true);
     await config.update("workbench.tips.enabled", false, true);
     await config.update("workbench.editor.limit.perEditorGroup", false, true);
     await config.update("workbench.editor.limit.value", 4, true);
