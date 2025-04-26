@@ -8,7 +8,7 @@ export class WelcomeViewProvider {
     private _panel?: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
-    private _debugMode = true; // Set to true to enable debug UI/logging
+    private _debugMode = false; // Set to true to enable debug UI/logging
     private _isMenuVisible = false; // Track menu visibility state
 
     constructor(extensionUri: vscode.Uri) {
@@ -291,7 +291,7 @@ export class WelcomeViewProvider {
                         <div class="card-description" id="menu-button-desc">View tools and project options</div>
                     </div>
                     
-                    <div class="action-card" id="createNewProject">
+                    <div class="action-card" id="createNewProject" style="display:none;">
                         <div class="icon-container">
                             <i class="codicon codicon-add"></i>
                         </div>
@@ -308,14 +308,14 @@ export class WelcomeViewProvider {
                     </div>
                 </div>
                 
-                <div class="secondary-actions">
+                <div class="secondary-actions" style="display:none;">
                     <button class="secondary-button" id="openExistingProject">
                         <i class="codicon codicon-folder-opened"></i>
                         Open Existing Project
                     </button>
                 </div>
                 
-                <div class="status">
+                <div class="status" style="display:none;">
                     Waiting for your next action...
                 </div>
             </div>
