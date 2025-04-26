@@ -40,6 +40,13 @@ export function getWelcomeViewProvider(): WelcomeViewProvider {
 
 // Check if there are no visible editors and show welcome view if needed
 export async function showWelcomeViewIfNeeded() {
-    // Only attempt to show the welcome view if we should show it
-    await provider.show(); // The provider's show method includes the shouldShow check
+    // Only show welcome view when there are no visible editors
+    const visibleEditors = vscode.window.visibleTextEditors;
+
+    if (visibleEditors.length === 0) {
+        console.log("[WelcomeView] No editors open, showing welcome view");
+        await provider.show();
+    } else {
+        console.log(`[WelcomeView] ${visibleEditors.length} editor(s) open, skipping welcome view`);
+    }
 }

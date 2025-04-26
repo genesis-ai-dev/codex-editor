@@ -8,7 +8,7 @@ export class WelcomeViewProvider {
     private _panel?: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
     private _disposables: vscode.Disposable[] = [];
-    private _debugMode = false; // Set to true to enable debug UI/logging
+    private _debugMode = true; // Set to true to enable debug UI/logging
     private _isMenuVisible = false; // Track menu visibility state
     private _hasWorkspaceOpen = false; // Track if a workspace is open
 
@@ -82,6 +82,35 @@ export class WelcomeViewProvider {
         }
     }
 
+    /**
+     * Handle opening translation file with navigation view focus
+     */
+    private async handleOpenTranslationFile() {
+        console.log("[WelcomeView] Opening and focusing navigation view");
+
+        try {
+            // Make sure sidebar is visible
+            if (!this._isMenuVisible) {
+                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+                this._isMenuVisible = true;
+            }
+
+            // Focus the navigation view (explorer) instead of the main menu
+            await vscode.commands.executeCommand("codex-editor.navigation.focus");
+
+            // Notify the webview of the state change
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    command: "menuStateChanged",
+                    isVisible: true,
+                    actionPerformed: "show-navigator",
+                });
+            }
+        } catch (error) {
+            console.error(`[WelcomeView] Error in handleOpenTranslationFile():`, error);
+        }
+    }
+
     public show() {
         // Check if a workspace is open
         this._hasWorkspaceOpen = this.hasWorkspaceOpen();
@@ -130,11 +159,9 @@ export class WelcomeViewProvider {
                     await this.handleMainMenu(requestedAction);
                     break;
 
-                case "reopenLastEditedFile":
-                    // Use VS Code's built-in command to reopen the last edited file
-                    await vscode.commands.executeCommand(
-                        "workbench.action.openPreviousRecentlyUsedEditor"
-                    );
+                case "openTranslationFile":
+                    // Show the sidebar with explorer view
+                    await this.handleOpenTranslationFile();
                     break;
 
                 case "createNewProject":
@@ -356,10 +383,10 @@ export class WelcomeViewProvider {
                     });
                 }
                 
-                const reopenLastEditedFile = document.getElementById('reopenLastEditedFile');
-                if (reopenLastEditedFile) {
-                    reopenLastEditedFile.addEventListener('click', () => {
-                        vscode.postMessage({ command: 'reopenLastEditedFile' });
+                const openTranslationFile = document.getElementById('openTranslationFile');
+                if (openTranslationFile) {
+                    openTranslationFile.addEventListener('click', () => {
+                        vscode.postMessage({ command: 'openTranslationFile' });
                     });
                 }
                 
@@ -452,12 +479,12 @@ export class WelcomeViewProvider {
                     <div class="card-description">Start a new translation project</div>
                 </div>
                 
-                <div class="action-card" id="reopenLastEditedFile">
+                <div class="action-card" id="openTranslationFile">
                     <div class="icon-container">
-                        <i class="codicon codicon-history"></i>
+                        <i class="codicon codicon-file-code"></i>
                     </div>
-                    <div class="card-title">Reopen Last File</div>
-                    <div class="card-description">Go back to last edited file</div>
+                    <div class="card-title">Open Translation File</div>
+                    <div class="card-description">Browse and select a file to edit</div>
                 </div>
             </div>
             
