@@ -162,7 +162,9 @@ const CodexCellEditor: React.FC = () => {
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
 
     // Add a state for bible book map
-    const [bibleBookMap, setBibleBookMap] = useState<Map<string, BibleBookInfo> | undefined>(undefined);
+    const [bibleBookMap, setBibleBookMap] = useState<Map<string, BibleBookInfo> | undefined>(
+        undefined
+    );
 
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
@@ -1121,7 +1123,11 @@ const CodexCellEditor: React.FC = () => {
     // Update toggle functions to use the shared VS Code API instance
     const togglePrimarySidebar = () => {
         console.log("togglePrimarySidebar");
-        vscode.postMessage({ command: "toggleSidebar" });
+        // Send the opposite of the current state as we're about to toggle it
+        vscode.postMessage({
+            command: "toggleSidebar",
+            content: { isOpening: !primarySidebarVisible },
+        });
         setPrimarySidebarVisible(!primarySidebarVisible);
     };
 
@@ -1224,8 +1230,12 @@ const CodexCellEditor: React.FC = () => {
                             setChapterNumber={setChapterNumber}
                             totalChapters={totalChapters}
                             totalUntranslatedCells={untranslatedCellsForSection.length}
-                            totalCellsToAutocomplete={untranslatedOrUnvalidatedUnitsForSection.length}
-                            totalCellsWithCurrentUserOption={untranslatedOrNotValidatedByCurrentUserUnitsForSection.length}
+                            totalCellsToAutocomplete={
+                                untranslatedOrUnvalidatedUnitsForSection.length
+                            }
+                            totalCellsWithCurrentUserOption={
+                                untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
+                            }
                             setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             unsavedChanges={!!contentBeingUpdated.cellContent}
@@ -1238,8 +1248,10 @@ const CodexCellEditor: React.FC = () => {
                                     numberOfCells,
                                     includeNotValidatedByAnyUser,
                                     includeNotValidatedByCurrentUser,
-                                    countNoValidators: untranslatedOrUnvalidatedUnitsForSection.length,
-                                    countWithCurrentUser: untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
+                                    countNoValidators:
+                                        untranslatedOrUnvalidatedUnitsForSection.length,
+                                    countWithCurrentUser:
+                                        untranslatedOrNotValidatedByCurrentUserUnitsForSection.length,
                                 });
                                 handleAutocompleteChapter(
                                     numberOfCells,
@@ -1287,9 +1299,7 @@ const CodexCellEditor: React.FC = () => {
                     >
                         <VideoTimelineEditor
                             videoUrl={videoUrl}
-                            translationUnitsForSection={
-                                translationUnitsWithCurrentEditorContent
-                            }
+                            translationUnitsForSection={translationUnitsWithCurrentEditorContent}
                             vscode={vscode}
                             playerRef={playerRef}
                         />

@@ -797,6 +797,7 @@ export const handleMessages = async (
             return;
         }
         case "togglePrimarySidebar": {
+            vscode.window.showInformationMessage("togglePrimarySidebar");
             try {
                 await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
                 await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
@@ -928,8 +929,13 @@ export const handleMessages = async (
         case "toggleSidebar": {
             console.log("toggleSidebar message received");
             try {
-                // Toggle main menu visibility by executing the toggle command instead of just focusing
+                // Toggle main menu visibility
                 await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+
+                // Only focus the main menu if we're opening the sidebar (not closing it)
+                if (event.content?.isOpening) {
+                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                }
             } catch (error) {
                 console.error("Error toggling main menu visibility:", error);
                 vscode.window.showErrorMessage("Failed to toggle sidebar visibility.");

@@ -8,22 +8,22 @@ export function registerWelcomeViewProvider(context: vscode.ExtensionContext): W
 
     // Register a command to show the welcome panel
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-editor.showWelcomeView", () => {
-            provider.show();
+        vscode.commands.registerCommand("codex-editor.showWelcomeView", async () => {
+            await provider.show();
             return true;
         })
     );
 
-    // Add a function to determine if editors are open
-    const checkNoEditorsOpen = (): boolean => {
-        return vscode.window.visibleTextEditors.length === 0;
-    };
-
     // Show welcome view when all editors are closed
     context.subscriptions.push(
-        vscode.window.onDidChangeVisibleTextEditors((editors) => {
-            if (editors.length === 0) {
-                provider.show();
+        vscode.window.onDidChangeVisibleTextEditors(async (editors) => {
+            // Only show welcome view when all editors are closed and we have a workspace
+            if (
+                editors.length === 0 &&
+                vscode.workspace.workspaceFolders &&
+                vscode.workspace.workspaceFolders.length > 0
+            ) {
+                await provider.show();
             }
         })
     );
@@ -39,8 +39,7 @@ export function getWelcomeViewProvider(): WelcomeViewProvider {
 }
 
 // Check if there are no visible editors and show welcome view if needed
-export function showWelcomeViewIfNeeded() {
-    if (vscode.window.visibleTextEditors.length === 0) {
-        provider.show();
-    }
+export async function showWelcomeViewIfNeeded() {
+    // Only attempt to show the welcome view if we should show it
+    await provider.show(); // The provider's show method includes the shouldShow check
 }

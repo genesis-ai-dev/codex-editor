@@ -17,15 +17,10 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
                 console.log("Hiding workspace UI elements...");
                 // We're currently in normal mode, so hide everything
 
-                // Hide sidebars using commands
-                console.log("Hiding sidebar...");
-                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
-                console.log("Hiding auxiliary bar...");
-                await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
-                console.log("Hiding activity bar...");
-                await vscode.commands.executeCommand(
-                    "workbench.action.toggleActivityBarVisibility"
-                );
+                // Use maximizeEditorHideSidebar command to hide both activity bar and sidebar in one call
+                console.log("Maximizing editor and hiding sidebar...");
+                await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+
                 console.log("Hiding status bar...");
                 await vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
 
@@ -46,15 +41,10 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
                 console.log("Restoring workspace UI elements...");
                 // We're in minimal mode, so restore everything
 
-                // Show sidebars using commands
-                console.log("Showing sidebar...");
-                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
-                console.log("Showing auxiliary bar...");
-                await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
-                console.log("Showing activity bar...");
-                await vscode.commands.executeCommand(
-                    "workbench.action.toggleActivityBarVisibility"
-                );
+                // Restore sidebar using single command
+                console.log("Restoring sidebar and activity bar...");
+                await vscode.commands.executeCommand("workbench.action.restoreSidebar");
+
                 console.log("Showing status bar...");
                 await vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
 
@@ -69,12 +59,7 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
                 vscode.window.setStatusBarMessage("Workspace UI restored", 2000);
                 console.log("Workspace UI restored successfully");
             }
-
-            // After toggling UI, check if we need to show the welcome view
-            // This is useful when the user has closed all editors and toggled UI
-            setTimeout(() => {
-                showWelcomeViewIfNeeded();
-            }, 300); // Short delay to let UI settle
+            showWelcomeViewIfNeeded();
         }
     );
 

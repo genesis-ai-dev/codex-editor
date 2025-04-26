@@ -507,9 +507,6 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const showProjectOverviewCommand = vscode.commands.registerCommand(
         "codex-project-manager.showProjectOverview",
         async () => {
-            // await vscode.commands.executeCommand("workbench.view.extension.project-manager");
-            await vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-
             // Get the provider instance
             const provider = (vscode.window as any).activeCustomEditorWebviewPanel;
             if (provider && provider.ensureWebviewReady) {

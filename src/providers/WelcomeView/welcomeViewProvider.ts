@@ -7,23 +7,12 @@ export class WelcomeViewProvider {
 
     private _panel?: vscode.WebviewPanel;
     private readonly _extensionUri: vscode.Uri;
-    private _lastOpenedCodexFile?: string;
     private _disposables: vscode.Disposable[] = [];
+    private _debugMode = true; // Set to true to enable debug UI/logging
+    private _isMenuVisible = false; // Track menu visibility state
 
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
-
-        // Find the most recently opened .codex file
-        this.findMostRecentCodexFile();
-
-        // Track document opening/closing to update last opened file
-        this._disposables.push(
-            vscode.workspace.onDidOpenTextDocument((doc) => {
-                if (doc.uri.fsPath.endsWith(".codex")) {
-                    this._lastOpenedCodexFile = doc.uri.fsPath;
-                }
-            })
-        );
     }
 
     public dispose() {
@@ -31,39 +20,55 @@ export class WelcomeViewProvider {
         this._disposables.forEach((d) => d.dispose());
     }
 
-    private async findMostRecentCodexFile() {
-        // Try project history first
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
-
-        // Sort projects by last opened time (descending)
-        const sortedProjects = Object.entries(projectHistory).sort(
-            (a, b) => new Date(b[1]).getTime() - new Date(a[1]).getTime()
+    /**
+     * Handle main menu actions with ping-pong messaging to track state
+     */
+    private async handleMainMenu(action: "show" | "hide" | "toggle") {
+        console.log(
+            `[WelcomeView] Main menu action: ${action}, current state: ${this._isMenuVisible ? "visible" : "hidden"}`
         );
 
-        for (const [projectPath, _] of sortedProjects) {
-            if (fs.existsSync(projectPath)) {
-                // Look for .codex files in this project
-                try {
-                    const workspaceFiles = await vscode.workspace.findFiles("**/*.codex", null, 10);
-                    if (workspaceFiles.length > 0) {
-                        this._lastOpenedCodexFile = workspaceFiles[0].fsPath;
-                        return;
-                    }
-                } catch (error) {
-                    console.error("Error finding .codex files:", error);
-                }
-            }
-        }
-
-        // As a fallback, look for any .codex files in the current workspace
         try {
-            const workspaceFiles = await vscode.workspace.findFiles("**/*.codex", null, 1);
-            if (workspaceFiles.length > 0) {
-                this._lastOpenedCodexFile = workspaceFiles[0].fsPath;
+            let newAction = action;
+
+            // If toggle is requested, determine whether to show or hide
+            if (action === "toggle") {
+                newAction = this._isMenuVisible ? "hide" : "show";
+                console.log(`[WelcomeView] Toggle resolved to: ${newAction}`);
+            }
+
+            // Execute the appropriate action
+            switch (newAction) {
+                case "show":
+                    // First make sure sidebar is visible, then focus the main menu
+                    console.log("[WelcomeView] Showing and focusing main menu");
+                    await vscode.commands.executeCommand(
+                        "workbench.action.toggleSidebarVisibility"
+                    );
+                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                    this._isMenuVisible = true;
+                    break;
+
+                case "hide":
+                    // Just hide the sidebar
+                    console.log("[WelcomeView] Hiding sidebar");
+                    await vscode.commands.executeCommand(
+                        "workbench.action.toggleSidebarVisibility"
+                    );
+                    this._isMenuVisible = false;
+                    break;
+            }
+
+            // Notify the webview of the new state
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    command: "menuStateChanged",
+                    isVisible: this._isMenuVisible,
+                    actionPerformed: newAction,
+                });
             }
         } catch (error) {
-            console.error("Error finding fallback .codex files:", error);
+            console.error(`[WelcomeView] Error in handleMainMenu(${action}):`, error);
         }
     }
 
@@ -91,22 +96,29 @@ export class WelcomeViewProvider {
 
         // Handle messages from the webview
         this._panel.webview.onDidReceiveMessage(async (message) => {
+            // Extract action before the switch statement to avoid lexical declaration in case block
+            let requestedAction: "show" | "hide" | "toggle" = "toggle";
+            if (message.command === "menuAction" && message.action) {
+                if (
+                    message.action === "show" ||
+                    message.action === "hide" ||
+                    message.action === "toggle"
+                ) {
+                    requestedAction = message.action;
+                }
+            }
+
             switch (message.command) {
-                case "openMainMenu":
-                    // Show sidebar and focus main menu
-                    await vscode.commands.executeCommand(
-                        "workbench.action.toggleSidebarVisibility"
-                    );
-                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                case "menuAction":
+                    // Process the appropriate action based on current state
+                    await this.handleMainMenu(requestedAction);
                     break;
 
-                case "openLastFile":
-                    if (this._lastOpenedCodexFile) {
-                        const uri = vscode.Uri.file(this._lastOpenedCodexFile);
-                        vscode.commands.executeCommand("vscode.openWith", uri, "codex.cellEditor");
-                    } else {
-                        vscode.window.showWarningMessage("No recently opened .codex files found");
-                    }
+                case "reopenLastEditedFile":
+                    // Use VS Code's built-in command to reopen the last edited file
+                    await vscode.commands.executeCommand(
+                        "workbench.action.openPreviousRecentlyUsedEditor"
+                    );
                     break;
 
                 case "createNewProject":
@@ -115,15 +127,6 @@ export class WelcomeViewProvider {
 
                 case "openExistingProject":
                     vscode.commands.executeCommand("codex-project-manager.openExistingProject");
-                    break;
-
-                case "webviewReady":
-                    // Refresh our state when the webview is ready
-                    await this.findMostRecentCodexFile();
-                    // Update the UI if we found a file
-                    if (this._lastOpenedCodexFile && this._panel) {
-                        this._panel.webview.html = this._getHtmlForWebview();
-                    }
                     break;
             }
         });
@@ -148,9 +151,19 @@ export class WelcomeViewProvider {
             )
         );
 
-        const hasLastOpenedFile = !!this._lastOpenedCodexFile;
-        const lastOpenedFileName = hasLastOpenedFile
-            ? path.basename(this._lastOpenedCodexFile!)
+        // Add debug UI elements if in debug mode
+        const debugPanel = this._debugMode
+            ? `
+        <div style="position: fixed; top: 10px; right: 10px; padding: 10px; background-color: var(--vscode-editor-inactiveSelectionBackground); border-radius: 4px; z-index: 1000;">
+            <div>Menu State: <span id="menu-state">Hidden</span></div>
+            <div>Last Action: <span id="last-action">None</span></div>
+            <div style="margin-top: 8px;">
+                <button id="debug-show-menu" style="padding: 4px 8px; margin-right: 4px;">Show Menu</button>
+                <button id="debug-hide-menu" style="padding: 4px 8px; margin-right: 4px;">Hide Menu</button>
+                <button id="debug-toggle-menu" style="padding: 4px 8px;">Toggle Menu</button>
+            </div>
+        </div>
+        `
             : "";
 
         return `<!DOCTYPE html>
@@ -260,6 +273,8 @@ export class WelcomeViewProvider {
             </style>
         </head>
         <body>
+            ${debugPanel}
+            
             <div class="container">
                 <h1>Welcome to Codex Editor</h1>
                 <p class="description">
@@ -268,26 +283,14 @@ export class WelcomeViewProvider {
                 </p>
                 
                 <div class="actions">
-                    <div class="action-card" id="openMainMenu">
+                    <div class="action-card" id="menuToggleButton">
                         <div class="icon-container">
                             <i class="codicon codicon-menu"></i>
                         </div>
-                        <div class="card-title">Open Main Menu</div>
-                        <div class="card-description">Navigate to your projects and tools</div>
+                        <div class="card-title" id="menu-button-text">Open Main Menu</div>
+                        <div class="card-description" id="menu-button-desc">View tools and project options</div>
                     </div>
                     
-                    ${
-                        hasLastOpenedFile
-                            ? `
-                    <div class="action-card" id="openLastFile">
-                        <div class="icon-container">
-                            <i class="codicon codicon-file"></i>
-                        </div>
-                        <div class="card-title">Resume Recent Work</div>
-                        <div class="card-description">Open "${lastOpenedFileName}"</div>
-                    </div>
-                    `
-                            : `
                     <div class="action-card" id="createNewProject">
                         <div class="icon-container">
                             <i class="codicon codicon-add"></i>
@@ -295,8 +298,14 @@ export class WelcomeViewProvider {
                         <div class="card-title">Create New Project</div>
                         <div class="card-description">Start a new translation project</div>
                     </div>
-                    `
-                    }
+                    
+                    <div class="action-card" id="reopenLastEditedFile">
+                        <div class="icon-container">
+                            <i class="codicon codicon-history"></i>
+                        </div>
+                        <div class="card-title">Reopen Last File</div>
+                        <div class="card-description">Go back to last edited file</div>
+                    </div>
                 </div>
                 
                 <div class="secondary-actions">
@@ -314,33 +323,95 @@ export class WelcomeViewProvider {
             <script>
                 const vscode = acquireVsCodeApi();
                 
+                // Initialize menu state
+                let isMenuVisible = false;
+                
+                // Update UI based on menu state
+                function updateMenuButtonUI() {
+                    const buttonText = document.getElementById('menu-button-text');
+                    const buttonDesc = document.getElementById('menu-button-desc');
+                    
+                    if (isMenuVisible) {
+                        buttonText.textContent = 'Close Main Menu';
+                        buttonDesc.textContent = 'Hide tools and project options';
+                    } else {
+                        buttonText.textContent = 'Open Main Menu';
+                        buttonDesc.textContent = 'View tools and project options';
+                    }
+                    
+                    // Update debug panel if it exists
+                    const menuStateEl = document.getElementById('menu-state');
+                    if (menuStateEl) {
+                        menuStateEl.textContent = isMenuVisible ? 'Visible' : 'Hidden';
+                        menuStateEl.style.color = isMenuVisible ? 'var(--vscode-terminal-ansiGreen)' : 'var(--vscode-terminal-ansiRed)';
+                    }
+                }
+                
                 // Add event listeners to buttons
-                document.getElementById('openMainMenu').addEventListener('click', () => {
-                    vscode.postMessage({ command: 'openMainMenu' });
+                document.getElementById('menuToggleButton').addEventListener('click', () => {
+                    // Send the appropriate action based on current state
+                    const action = isMenuVisible ? 'hide' : 'show';
+                    vscode.postMessage({ 
+                        command: 'menuAction',
+                        action: action
+                    });
                 });
                 
-                ${
-                    hasLastOpenedFile
-                        ? `
-                document.getElementById('openLastFile').addEventListener('click', () => {
-                    vscode.postMessage({ command: 'openLastFile' });
-                });
-                `
-                        : `
                 document.getElementById('createNewProject').addEventListener('click', () => {
                     vscode.postMessage({ command: 'createNewProject' });
                 });
-                `
-                }
+                
+                document.getElementById('reopenLastEditedFile').addEventListener('click', () => {
+                    vscode.postMessage({ command: 'reopenLastEditedFile' });
+                });
                 
                 document.getElementById('openExistingProject').addEventListener('click', () => {
                     vscode.postMessage({ command: 'openExistingProject' });
                 });
                 
-                // Notify the extension that the webview is ready
-                window.addEventListener('load', () => {
-                    vscode.postMessage({ command: 'webviewReady' });
+                // Debug buttons if available
+                if (${this._debugMode}) {
+                    document.getElementById('debug-show-menu').addEventListener('click', () => {
+                        vscode.postMessage({ command: 'menuAction', action: 'show' });
+                    });
+                    
+                    document.getElementById('debug-hide-menu').addEventListener('click', () => {
+                        vscode.postMessage({ command: 'menuAction', action: 'hide' });
+                    });
+                    
+                    document.getElementById('debug-toggle-menu').addEventListener('click', () => {
+                        vscode.postMessage({ command: 'menuAction', action: 'toggle' });
+                    });
+                }
+                
+                // Handle messages from extension
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    
+                    if (message.command === 'menuStateChanged') {
+                        // Update our tracked state
+                        isMenuVisible = message.isVisible;
+                        
+                        // Update the UI
+                        updateMenuButtonUI();
+                        
+                        // Update debug info
+                        const lastActionElement = document.getElementById('last-action');
+                        if (lastActionElement) {
+                            lastActionElement.textContent = message.actionPerformed;
+                            lastActionElement.style.color = 'var(--vscode-terminal-ansiYellow)';
+                            
+                            // Flash the element
+                            lastActionElement.style.transition = 'color 0.3s';
+                            setTimeout(() => {
+                                lastActionElement.style.color = 'var(--vscode-terminal-ansiGreen)';
+                            }, 300);
+                        }
+                    }
                 });
+                
+                // Initialize UI on load
+                updateMenuButtonUI();
             </script>
         </body>
         </html>`;

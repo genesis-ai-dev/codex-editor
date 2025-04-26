@@ -81,6 +81,12 @@ export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
     let stepStart = activationStart;
 
+    stepStart = trackTiming("Maximize Editor Hide Sidebar", stepStart);
+    // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
+    await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+    stepStart = trackTiming("Execute Commands Before", stepStart);
+    await executeCommandsBefore(context);
+
     try {
         // Initialize Frontier API
         stepStart = trackTiming("Initialize Frontier API", stepStart);
@@ -90,7 +96,6 @@ export async function activate(context: vscode.ExtensionContext) {
         }
 
         stepStart = trackTiming("Execute Commands Before", stepStart);
-        await executeCommandsBefore(context);
 
         // Initialize metadata manager
         stepStart = trackTiming("Initialize Metadata Manager", stepStart);
@@ -400,14 +405,20 @@ function registerCodeLensProviders(context: vscode.ExtensionContext) {
 
 async function executeCommandsBefore(context: vscode.ExtensionContext) {
     registerCommandsBefore(context);
-    await vscode.commands.executeCommand("codex-editor-extension.toggleWorkspaceUI");
+
+    // Hide status bar
+    await vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
+
+    // Update settings for minimal UI
+    const config = vscode.workspace.getConfiguration();
+    await config.update("workbench.statusBar.visible", false, true);
+    await config.update("breadcrumbs.filePath", "last", true);
+    await config.update("workbench.editor.editorActionsLocation", "hidden", true);
+    await config.update("workbench.editor.showTabs", "none", true);
+    await config.update("window.autoDetectColorScheme", true, true);
 }
 
 async function executeCommandsAfter() {
-    // vscode.commands.executeCommand("workbench.action.focusAuxiliaryBar");
-    // vscode.commands.executeCommand("workbench.action.focusActivityBar");
-    // Focus our main menu instead of the navigation view
-    vscode.commands.executeCommand("codex-editor.mainMenu.focus");
     vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
     // Configure auto-save in settings
     await vscode.workspace

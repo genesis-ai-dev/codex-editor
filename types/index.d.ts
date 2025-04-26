@@ -581,7 +581,7 @@ export type EditorPostMessages =
     | { command: "togglePrimarySidebar" }
     | { command: "toggleSecondarySidebar" }
     | { command: "focusMainMenu" }
-    | { command: "toggleSidebar" }
+    | { command: "toggleSidebar"; content?: { isOpening: boolean } }
     | { command: "getEditorPosition" }
     | { command: "validateCell"; content: { cellId: string; validate: boolean } }
     | {
@@ -673,7 +673,7 @@ export type EditorPostMessages =
       }
     | { command: "openBookNameEditor" }
     | { command: "closeCurrentDocument" }
-    | { command: "triggerSync" }
+    | { command: "triggerSync" };
 
 type EditorReceiveMessages =
     | {
