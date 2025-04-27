@@ -223,7 +223,8 @@ type ChatPostMessages =
     | {
           command: "updateSourceCellMap";
           sourceCellMap: { [k: string]: { content: string; versions: string[] } };
-      };
+      }
+    | { command: "navigateToMainMenu" };
 
 export type SourceUploadPostMessages =
     | {
@@ -254,7 +255,8 @@ export type SourceUploadPostMessages =
     | { command: "importLocalTranslation" }
     | { command: "closePanel" }
     | { command: "previewSourceText"; fileContent: string; fileName: string }
-    | { command: "extension.check"; extensionId: string };
+    | { command: "extension.check"; extensionId: string }
+    | { command: "navigateToMainMenu" };
 
 export type SourceUploadResponseMessages =
     | {
@@ -347,7 +349,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "metadata.check" }
     | { command: "project.triggerSync"; message?: string }
     | { command: "startup.dismiss" }
-    | { command: "webview.ready" };
+    | { command: "webview.ready" }
+    | { command: "navigateToMainMenu" };
 
 export type GitLabProject = {
     id: number;
@@ -1536,3 +1539,17 @@ export type ParallelViewPostMessages =
 interface DictionaryMetadata {
     // ... existing code ...
 }
+
+// Add after other message type definitions
+export type WelcomeViewPostMessages =
+    | { command: "menuAction"; action: "show" | "hide" | "toggle" }
+    | { command: "openTranslationFile" }
+    | { command: "createNewProject" }
+    | { command: "openExistingProject" }
+    | { command: "viewProjects" }
+    | { command: "openLoginFlow" }
+    | { command: "navigateToMainMenu" };
+
+export type WelcomeViewReceiveMessages =
+    | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string }
+    | { command: "showLoginLoading"; loading: boolean };

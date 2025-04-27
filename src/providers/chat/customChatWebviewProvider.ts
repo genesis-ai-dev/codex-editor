@@ -733,6 +733,10 @@ export class CustomWebviewProvider {
                         });
                         break;
                     }
+                    case "navigateToMainMenu": {
+                        await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                        break;
+                    }
                     default:
                         break;
                 }

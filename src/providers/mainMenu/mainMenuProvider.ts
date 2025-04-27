@@ -113,9 +113,6 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
 
         // Send the menu configuration to the webview
         this.sendMenuConfigToWebview();
-
-        // Register a command to navigate back to the main menu
-        this.registerNavigateToMainMenuCommand();
     }
 
     private sendMenuConfigToWebview(): void {
@@ -125,25 +122,6 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
                 menuConfig: this.menuConfig,
             });
         }
-    }
-
-    private registerNavigateToMainMenuCommand(): void {
-        const disposable = vscode.commands.registerCommand(
-            "codex-editor.navigateToMainMenu",
-            async () => {
-                if (this._view) {
-                    try {
-                        // Focus the main menu view
-                        await vscode.commands.executeCommand(`${MainMenuProvider.viewType}.focus`);
-                    } catch (error) {
-                        console.error("Error focusing main menu view:", error);
-                        vscode.window.showErrorMessage(`Error focusing main menu view: ${error}`);
-                    }
-                }
-            }
-        );
-
-        this.disposables.push(disposable);
     }
 
     private async getHtmlForWebview(webviewView: vscode.WebviewView): Promise<string> {

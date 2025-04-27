@@ -200,6 +200,11 @@ export class WelcomeViewProvider {
                 case "openLoginFlow":
                     this.openLoginFlowWithEditorCheck();
                     break;
+
+                case "navigateToMainMenu":
+                    // Navigate to main menu using the registered command
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    break;
             }
         });
 

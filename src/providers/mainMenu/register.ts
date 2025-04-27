@@ -8,7 +8,7 @@ export function registerMainMenuProvider(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider(MainMenuProvider.viewType, provider)
     );
 
-    // Don't register the focus command - VS Code does this automatically
+    // No need to register the command here - it's now registered in commands.ts
 
     return provider;
 }

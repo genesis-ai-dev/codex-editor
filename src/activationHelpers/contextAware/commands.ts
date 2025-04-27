@@ -24,10 +24,25 @@ import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebibl
 import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
 import { registerSyncCommands } from "../../projectManager/syncManager";
+import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
     // Register the centralized sync commands
     registerSyncCommands(context);
+
+    // Register command to navigate to main menu
+    const navigateToMainMenuCommand = vscode.commands.registerCommand(
+        "codex-editor.navigateToMainMenu",
+        async () => {
+            try {
+                // Focus the main menu view
+                await vscode.commands.executeCommand(`${MainMenuProvider.viewType}.focus`);
+            } catch (error) {
+                console.error("Error focusing main menu view:", error);
+                vscode.window.showErrorMessage(`Error focusing main menu view: ${error}`);
+            }
+        }
+    );
 
     const indexVrefsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.indexVrefs",
@@ -316,6 +331,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         uploadSourceFolderCommand,
         uploadTranslationFolderCommand,
         downloadSourceBibleCommand,
-        analyzeEditsCommand
+        analyzeEditsCommand,
+        navigateToMainMenuCommand
     );
 }

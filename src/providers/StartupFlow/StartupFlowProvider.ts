@@ -1123,6 +1123,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                     break;
                 }
+                case "navigateToMainMenu": {
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    break;
+                }
                 case "metadata.check": {
                     const workspaceFolders = vscode.workspace.workspaceFolders;
                     if (workspaceFolders) {
