@@ -89,20 +89,29 @@ let authApi: FrontierAPI | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
+
+    // Register and show splash screen immediately before anything else
+    try {
+        // Register splash screen as the very first action
+        const splashStart = activationStart;
+        registerSplashScreenProvider(context);
+        showSplashScreen(activationStart);
+        trackTiming("Initialize Splash Screen", splashStart);
+    } catch (error) {
+        console.error("Error showing splash screen:", error);
+        // Continue with activation even if splash screen fails
+    }
+
     let stepStart = activationStart;
 
-    // Register and show splash screen immediately
-    registerSplashScreenProvider(context);
-    showSplashScreen(activationStart);
-
-    stepStart = trackTiming("Maximize Editor Hide Sidebar", stepStart);
-    // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
-    // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
-    await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-    stepStart = trackTiming("Execute Commands Before", stepStart);
-    await executeCommandsBefore(context);
-
     try {
+        stepStart = trackTiming("Maximize Editor Hide Sidebar", stepStart);
+        // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
+        // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
+        await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+        stepStart = trackTiming("Execute Commands Before", stepStart);
+        await executeCommandsBefore(context);
+
         // Initialize Frontier API
         stepStart = trackTiming("Initialize Frontier API", stepStart);
         const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
@@ -248,10 +257,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
         console.info(summaryMessage);
 
-        // Close splash screen now that we're done
-        closeSplashScreen();
+        // Close splash screen and then check if we need to show the welcome view
+        closeSplashScreen(async () => {
+            console.log(
+                "[Extension] Splash screen closed, checking if welcome view needs to be shown"
+            );
+            // Check if we need to show the welcome view after initialization
+            await showWelcomeViewIfNeeded();
+        });
 
-        // // Check if we need to show the welcome view
+        // Instead of calling showWelcomeViewIfNeeded directly, it will be called by the splash screen callback
         // showWelcomeViewIfNeeded();
     } catch (error) {
         console.error("Error during extension activation:", error);

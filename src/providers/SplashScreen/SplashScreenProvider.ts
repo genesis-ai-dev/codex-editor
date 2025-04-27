@@ -79,6 +79,10 @@ export class SplashScreenProvider {
         this._panel?.dispose();
     }
 
+    public get panel(): vscode.WebviewPanel | undefined {
+        return this._panel;
+    }
+
     private _updateWebview() {
         if (!this._panel) return;
         this._panel.webview.html = this._getHtmlForWebview();
