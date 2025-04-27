@@ -21,7 +21,8 @@
         "onCustomEditor:sourceUploadProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
         "onStartupFinished",
-        "onView:codex-editor.navigation"
+        "onView:codex-editor.navigation",
+        "*"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -1254,7 +1255,8 @@
         "vscode-uri": "^3.0.8",
         "webvtt-parser": "^2.2.0",
         "xml2js": "^0.6.2",
-        "xstate": "^5.19.2"
+        "xstate": "^5.19.2",
+        "animejs": "^3.2.1"
     },
     "overrides": {
         "minimatch": "5.1.2"

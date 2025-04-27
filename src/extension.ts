@@ -47,8 +47,14 @@ import {
     showWelcomeViewIfNeeded,
 } from "./providers/WelcomeView/register";
 import { SyncManager } from "./projectManager/syncManager";
+import {
+    registerSplashScreenProvider,
+    showSplashScreen,
+    updateSplashScreenTimings,
+    closeSplashScreen,
+} from "./providers/SplashScreen/register";
 
-interface ActivationTiming {
+export interface ActivationTiming {
     step: string;
     duration: number;
     startTime: number;
@@ -60,6 +66,10 @@ function trackTiming(step: string, startTime: number) {
     const duration = globalThis.performance.now() - startTime;
     activationTimings.push({ step, duration, startTime });
     console.log(`[Activation] ${step}: ${duration.toFixed(2)}ms`);
+
+    // Update splash screen with latest timing information
+    updateSplashScreenTimings(activationTimings);
+
     return globalThis.performance.now();
 }
 
@@ -80,6 +90,10 @@ let authApi: FrontierAPI | undefined;
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
     let stepStart = activationStart;
+
+    // Register and show splash screen immediately
+    registerSplashScreenProvider(context);
+    showSplashScreen(activationStart);
 
     stepStart = trackTiming("Maximize Editor Hide Sidebar", stepStart);
     // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
@@ -233,6 +247,9 @@ export async function activate(context: vscode.ExtensionContext) {
         ].join("\n");
 
         console.info(summaryMessage);
+
+        // Close splash screen now that we're done
+        closeSplashScreen();
 
         // // Check if we need to show the welcome view
         // showWelcomeViewIfNeeded();
