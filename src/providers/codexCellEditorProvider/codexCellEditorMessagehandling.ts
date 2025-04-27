@@ -789,7 +789,7 @@ export const handleMessages = async (
         }
         case "toggleWorkspaceUI": {
             try {
-                await vscode.commands.executeCommand("codex-editor-extension.toggleWorkspaceUI");
+                await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
             } catch (error) {
                 console.error("Error toggling workspace UI:", error);
                 vscode.window.showErrorMessage("Failed to toggle workspace UI");

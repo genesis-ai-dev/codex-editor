@@ -846,6 +846,10 @@ type EditorReceiveMessages =
     | {
           type: "editorPosition";
           position: "leftmost" | "rightmost" | "center" | "single" | "unknown";
+      }
+    | {
+          type: "setBibleBookMap";
+          data: [string, { [key: string]: any; name: string }][];
       };
 
 type AlertCodesServerResponse = {

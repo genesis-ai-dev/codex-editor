@@ -1226,6 +1226,7 @@ const CodexCellEditor: React.FC = () => {
                 <div className="static-header" ref={headerRef}>
                     <div ref={navigationRef}>
                         <ChapterNavigation
+                            vscode={vscode}
                             chapterNumber={chapterNumber}
                             setChapterNumber={setChapterNumber}
                             totalChapters={totalChapters}

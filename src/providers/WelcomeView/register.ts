@@ -57,13 +57,35 @@ export async function showWelcomeViewIfNeeded() {
         return;
     }
 
-    // Only show welcome view when there are no visible editors
-    const visibleEditors = vscode.window.visibleTextEditors;
+    // Check for both text editors and notebook editors
+    const visibleTextEditors = vscode.window.visibleTextEditors;
+    const hasVisibleEditors = visibleTextEditors.length > 0;
 
-    if (visibleEditors.length === 0) {
+    // Check for open notebook editors
+    const hasOpenNotebooks =
+        vscode.window.visibleNotebookEditors && vscode.window.visibleNotebookEditors.length > 0;
+
+    // Also check for any active editor (including diff editors, custom editors)
+    const hasActiveEditor = !!vscode.window.activeTextEditor;
+
+    // Check all open tabs in all tab groups (this should catch all editors of any type)
+    const hasOpenTabs = vscode.window.tabGroups.all.some((group) => group.tabs.length > 0);
+
+    console.log("[WelcomeView]", {
+        hasVisibleEditors,
+        hasOpenNotebooks,
+        hasActiveEditor,
+        hasOpenTabs,
+        tabsCount: vscode.window.tabGroups.all.reduce(
+            (count, group) => count + group.tabs.length,
+            0
+        ),
+    });
+
+    if (!hasVisibleEditors && !hasOpenNotebooks && !hasActiveEditor && !hasOpenTabs) {
         console.log("[WelcomeView] No editors open, showing welcome view");
         await provider.show();
     } else {
-        console.log(`[WelcomeView] ${visibleEditors.length} editor(s) open, skipping welcome view`);
+        console.log(`[WelcomeView] Editors found, skipping welcome view`);
     }
 }
