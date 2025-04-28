@@ -193,6 +193,7 @@ const testConfig = {
             vm: require.resolve("vm-browserify"),
             readline: require.resolve("readline-browserify"),
             process: require.resolve("process/browser"),
+            timers: require.resolve("timers-browserify"),
         },
     },
     module: {
