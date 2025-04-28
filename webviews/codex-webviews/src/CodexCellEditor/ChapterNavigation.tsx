@@ -942,7 +942,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
 
         // Look up the localized name
         const localizedName = bibleBookMap?.get(bookAbbr)?.name;
-        
+
         // Use localized name if found, otherwise use the abbreviation
         const displayBookName = localizedName || bookAbbr;
 
@@ -1084,6 +1084,26 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     flexGrow: 2,
                 }}
             >
+                <VSCodeButton
+                    appearance="icon"
+                    disabled={unsavedChanges}
+                    onClick={() => {
+                        if (!unsavedChanges) {
+                            const newChapter =
+                                chapterNumber === 1 ? totalChapters : chapterNumber - 1;
+                            (window as any).vscodeApi.postMessage({
+                                command: "jumpToChapter",
+                                chapterNumber: newChapter,
+                            });
+                            setChapterNumber(newChapter);
+                        }
+                    }}
+                    title={
+                        unsavedChanges ? "Save changes first to change chapter" : "Previous Chapter"
+                    }
+                >
+                    <i className="codicon codicon-chevron-left"></i>
+                </VSCodeButton>
                 <div
                     className="chapter-title-container"
                     style={{
@@ -1187,6 +1207,24 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         ))}
                     </select>
                 </div>
+                <VSCodeButton
+                    appearance="icon"
+                    disabled={unsavedChanges}
+                    onClick={() => {
+                        if (!unsavedChanges) {
+                            const newChapter =
+                                chapterNumber === totalChapters ? 1 : chapterNumber + 1;
+                            (window as any).vscodeApi.postMessage({
+                                command: "jumpToChapter",
+                                chapterNumber: newChapter,
+                            });
+                            setChapterNumber(newChapter);
+                        }
+                    }}
+                    title={unsavedChanges ? "Save changes first to change chapter" : "Next Chapter"}
+                >
+                    <i className="codicon codicon-chevron-right"></i>
+                </VSCodeButton>
 
                 {totalSections > 1 && (
                     <div style={{ display: "flex", alignItems: "center", marginLeft: "1rem" }}>
