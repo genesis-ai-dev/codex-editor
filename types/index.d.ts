@@ -678,7 +678,7 @@ export type EditorPostMessages =
           };
       }
     | { command: "openBookNameEditor" }
-    | { command: "closeCurrentDocument" }
+    | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string } }
     | { command: "triggerSync" };
 
 type EditorReceiveMessages =

@@ -85,7 +85,10 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                 });
             }
         });
-        console.log("Navigation: Bible book map created/updated with size:", this.bibleBookMap.size);
+        console.log(
+            "Navigation: Bible book map created/updated with size:",
+            this.bibleBookMap.size
+        );
     }
 
     public async resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -110,11 +113,54 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                         const uri = vscode.Uri.file(normalizedPath);
 
                         if (message.type === "codexDocument") {
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                uri,
-                                "codex.cellEditor"
-                            );
+                            // First, find and open the corresponding source file
+                            try {
+                                const workspaceFolderUri =
+                                    vscode.workspace.workspaceFolders?.[0].uri;
+                                if (workspaceFolderUri) {
+                                    const baseFileName = path.basename(normalizedPath);
+                                    const sourceFileName = baseFileName.replace(
+                                        ".codex",
+                                        ".source"
+                                    );
+                                    const sourceUri = vscode.Uri.joinPath(
+                                        workspaceFolderUri,
+                                        ".project",
+                                        "sourceTexts",
+                                        sourceFileName
+                                    );
+
+                                    // Open the source file first
+                                    await vscode.commands.executeCommand(
+                                        "vscode.openWith",
+                                        sourceUri,
+                                        "codex.cellEditor"
+                                    );
+
+                                    // Then open the codex file beside it
+                                    await vscode.commands.executeCommand(
+                                        "vscode.openWith",
+                                        uri,
+                                        "codex.cellEditor",
+                                        { viewColumn: vscode.ViewColumn.Beside }
+                                    );
+                                } else {
+                                    // Fallback if no workspace folder is found
+                                    await vscode.commands.executeCommand(
+                                        "vscode.openWith",
+                                        uri,
+                                        "codex.cellEditor"
+                                    );
+                                }
+                            } catch (sourceError) {
+                                console.warn("Could not open source file:", sourceError);
+                                // If source file opening fails, just open the codex file
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    uri,
+                                    "codex.cellEditor"
+                                );
+                            }
                         } else if (message.type === "dictionary") {
                             await vscode.commands.executeCommand(
                                 "vscode.openWith",
@@ -461,9 +507,10 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         const groupedItems: CodexItem[] = [];
         corpusGroups.forEach((itemsInGroup, corpusMarker) => {
             const totalProgress = itemsInGroup.reduce((sum, item) => sum + (item.progress || 0), 0);
-            const averageProgress = itemsInGroup.length > 0 ? totalProgress / itemsInGroup.length : 0;
+            const averageProgress =
+                itemsInGroup.length > 0 ? totalProgress / itemsInGroup.length : 0;
 
-            let sortedItems = itemsInGroup.sort((a, b) => {
+            const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
                     return a.sortOrder.localeCompare(b.sortOrder);
                 }

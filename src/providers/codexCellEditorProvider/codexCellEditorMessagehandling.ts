@@ -919,8 +919,80 @@ export const handleMessages = async (
             return;
         case "closeCurrentDocument":
             try {
-                // Close the current editor tab
-                vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                console.log("Close document request received:", event.content);
+                // Get the URI from the content if available
+                const fileUri = event.content?.uri;
+                const isSourceDocument = event.content?.isSource === true;
+
+                if (fileUri) {
+                    // We have a specific URI to close
+                    const urisToCheck = [
+                        // Check as-is
+                        vscode.Uri.file(fileUri),
+                        // Also check with file:// prefix if not already present
+                        !fileUri.startsWith("file://") ? vscode.Uri.file(fileUri) : undefined,
+                    ].filter((uri): uri is vscode.Uri => uri !== undefined);
+
+                    // Get all visible editors
+                    const visibleEditors = vscode.window.visibleTextEditors;
+                    let found = false;
+
+                    // Try to find the editor with the matching URI
+                    for (const uri of urisToCheck) {
+                        if (found) break;
+
+                        for (const editor of visibleEditors) {
+                            // Compare file system paths to account for different URI formats
+                            if (editor.document.uri.fsPath === uri.fsPath) {
+                                // Found the editor we want to close
+                                await vscode.window.showTextDocument(
+                                    editor.document,
+                                    editor.viewColumn
+                                );
+                                await vscode.commands.executeCommand(
+                                    "workbench.action.closeActiveEditor"
+                                );
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!found) {
+                        // Fallback to just closing the active editor
+                        console.log(
+                            "Could not find the specific editor to close, closing active editor"
+                        );
+                        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                    }
+                } else if (isSourceDocument) {
+                    // For source documents without specific URI, try to find by extension
+                    const visibleEditors = vscode.window.visibleTextEditors;
+                    let found = false;
+
+                    for (const editor of visibleEditors) {
+                        if (editor.document.uri.fsPath.endsWith(".source")) {
+                            // Found a source editor to close
+                            await vscode.window.showTextDocument(
+                                editor.document,
+                                editor.viewColumn
+                            );
+                            await vscode.commands.executeCommand(
+                                "workbench.action.closeActiveEditor"
+                            );
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        // Fallback to just closing the active editor
+                        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                    }
+                } else {
+                    // No URI and not source, just close the active editor
+                    await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                }
             } catch (error) {
                 console.error("Error closing document:", error);
                 vscode.window.showErrorMessage("Failed to close document.");

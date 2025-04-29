@@ -1102,7 +1102,13 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         unsavedChanges ? "Save changes first to change chapter" : "Previous Chapter"
                     }
                 >
-                    <i className="codicon codicon-chevron-left"></i>
+                    <i
+                        className={`codicon ${
+                            textDirection === "rtl"
+                                ? "codicon-chevron-right"
+                                : "codicon-chevron-left"
+                        }`}
+                    ></i>
                 </VSCodeButton>
                 <div
                     className="chapter-title-container"
@@ -1223,7 +1229,13 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     }}
                     title={unsavedChanges ? "Save changes first to change chapter" : "Next Chapter"}
                 >
-                    <i className="codicon codicon-chevron-right"></i>
+                    <i
+                        className={`codicon ${
+                            textDirection === "rtl"
+                                ? "codicon-chevron-left"
+                                : "codicon-chevron-right"
+                        }`}
+                    ></i>
                 </VSCodeButton>
 
                 {totalSections > 1 && (
@@ -1326,19 +1338,43 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 )}
 
                 {showAdvancedSettings && (
-                    <div className="advanced-settings-container">
+                    <div
+                        className="advanced-settings-container"
+                        style={{
+                            position: "absolute",
+                            top: "100%",
+                            right: "0",
+                            backgroundColor: "var(--vscode-menu-background)",
+                            border: "1px solid var(--vscode-menu-border)",
+                            borderRadius: "4px",
+                            padding: "0.5rem",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "0.5rem",
+                            zIndex: 100,
+                            boxShadow: "0 2px 8px var(--vscode-widget-shadow)",
+                            minWidth: "200px",
+                        }}
+                    >
                         <VSCodeButton
-                            appearance="icon"
+                            appearance="secondary"
                             onClick={() =>
                                 onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")
                             }
                             disabled={unsavedChanges}
                             title="Set Text Direction"
+                            style={{
+                                display: "flex",
+                                justifyContent: "flex-start",
+                                padding: "0.5rem",
+                                width: "100%",
+                            }}
                         >
                             <i className="codicon codicon-arrow-swap"></i>
+                            <span style={{ marginLeft: "0.5rem" }}>Text Direction</span>
                         </VSCodeButton>
                         <VSCodeButton
-                            appearance="icon"
+                            appearance="secondary"
                             onClick={() => {
                                 const newMode =
                                     cellDisplayMode === CELL_DISPLAY_MODES.INLINE
@@ -1353,65 +1389,102 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             }}
                             disabled={unsavedChanges}
                             title="Toggle Cell Display Mode"
+                            style={{
+                                display: "flex",
+                                justifyContent: "flex-start",
+                                padding: "0.5rem",
+                                width: "100%",
+                            }}
                         >
                             {cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? (
                                 <i className="codicon codicon-symbol-enum"></i>
                             ) : (
                                 <i className="codicon codicon-symbol-constant"></i>
                             )}
+                            <span style={{ marginLeft: "0.5rem" }}>Display Mode</span>
                         </VSCodeButton>
-                        <div
-                            data-force-break-before="this div is simply here to force a break so we don't have widowed buttons"
-                            style={{ display: "flex", flexDirection: "row", gap: buttonGap }}
-                        >
-                            {documentHasVideoAvailable && (
-                                <VSCodeButton appearance="icon" onClick={handleToggleVideoPlayer}>
-                                    {shouldShowVideoPlayer ? (
-                                        <i className="codicon codicon-close"></i>
-                                    ) : (
-                                        <i className="codicon codicon-device-camera-video"></i>
-                                    )}
-                                </VSCodeButton>
-                            )}
-                            {metadata && (
-                                <VSCodeButton
-                                    appearance="icon"
-                                    onClick={handleOpenMetadataModal}
-                                    title="Edit Notebook Metadata"
-                                >
-                                    <i className="codicon codicon-notebook"></i>
-                                </VSCodeButton>
-                            )}
-                        </div>
+                        {documentHasVideoAvailable && (
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={handleToggleVideoPlayer}
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "flex-start",
+                                    padding: "0.5rem",
+                                    width: "100%",
+                                }}
+                            >
+                                {shouldShowVideoPlayer ? (
+                                    <i className="codicon codicon-close"></i>
+                                ) : (
+                                    <i className="codicon codicon-device-camera-video"></i>
+                                )}
+                                <span style={{ marginLeft: "0.5rem" }}>Toggle Video</span>
+                            </VSCodeButton>
+                        )}
+                        {metadata && (
+                            <VSCodeButton
+                                appearance="secondary"
+                                onClick={handleOpenMetadataModal}
+                                title="Edit Notebook Metadata"
+                                style={{
+                                    display: "flex",
+                                    justifyContent: "flex-start",
+                                    padding: "0.5rem",
+                                    width: "100%",
+                                }}
+                            >
+                                <i className="codicon codicon-notebook"></i>
+                                <span style={{ marginLeft: "0.5rem" }}>Edit Metadata</span>
+                            </VSCodeButton>
+                        )}
                     </div>
                 )}
                 <VSCodeButton
                     appearance={"icon"}
                     onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                    style={{
+                        backgroundColor: "var(--vscode-button-secondaryBackground)",
+                        borderRadius: "4px",
+                        border: "1px solid var(--vscode-button-border, transparent)",
+                    }}
                 >
                     <i
                         className={`codicon ${
-                            showAdvancedSettings ? "codicon-chevron-right" : "codicon-chevron-left"
+                            showAdvancedSettings ? "codicon-chevron-up" : "codicon-chevron-down"
                         }`}
                     ></i>
                 </VSCodeButton>
 
                 {/* Close button */}
-                {onClose && (
-                    <VSCodeButton
-                        appearance="icon"
-                        onClick={handleClose}
-                        title="Close"
-                        style={{
-                            marginLeft: "0.5rem",
-                            backgroundColor: "var(--vscode-button-secondaryBackground)",
-                            border: "1px solid var(--vscode-button-border)",
-                            borderRadius: "4px",
-                        }}
-                    >
-                        <i className="codicon codicon-close"></i>
-                    </VSCodeButton>
-                )}
+                <VSCodeButton
+                    appearance="icon"
+                    onClick={() => {
+                        if (vscode) {
+                            const message = {
+                                command: "closeCurrentDocument",
+                                content: {
+                                    isSource: isSourceText,
+                                    uri:
+                                        (window as any).initialData?.metadata?.sourceFsPath ||
+                                        (window as any).initialData?.metadata?.codexFsPath,
+                                },
+                            };
+                            console.log("Sending close message:", message);
+                            vscode.postMessage(message);
+                        }
+                    }}
+                    title="Close Editor"
+                    style={{
+                        marginLeft: "0.5rem",
+                        backgroundColor:
+                            "var(--vscode-editorError-background, rgba(255, 0, 0, 0.1))",
+                        border: "1px solid var(--vscode-editorError-border, rgba(255, 0, 0, 0.3))",
+                        borderRadius: "4px",
+                    }}
+                >
+                    <i className="codicon codicon-close"></i>
+                </VSCodeButton>
             </div>
 
             {metadata && (
