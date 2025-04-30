@@ -29,7 +29,7 @@ export async function registerCommandsBefore(context: vscode.ExtensionContext) {
                 await config.update("workbench.statusBar.visible", false, true);
                 await config.update("breadcrumbs.filePath", "last", true);
                 await config.update("workbench.editor.editorActionsLocation", "default", true);
-                await config.update("workbench.editor.showTabs", "none", true);
+                await config.update("workbench.editor.showTabs", "multiple", true);
                 await config.update("window.autoDetectColorScheme", true, true);
                 await config.update("workbench.layoutControl.enabled", true, true);
                 vscode.window.setStatusBarMessage(

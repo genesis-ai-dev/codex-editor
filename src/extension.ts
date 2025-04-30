@@ -425,7 +425,7 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     await config.update("breadcrumbs.filePath", "last", true);
     await config.update("breadcrumbs.enabled", false, true); // hide breadcrumbs for now... it shows the file name which cannot be localized
     await config.update("workbench.editor.editorActionsLocation", "hidden", true);
-    await config.update("workbench.editor.showTabs", "none", true);
+    await config.update("workbench.editor.showTabs", "multiple", true);
     await config.update("window.autoDetectColorScheme", true, true);
     await config.update("workbench.editor.revealIfOpen", true, true);
     await config.update("workbench.layoutControl.enabled", true, true);
