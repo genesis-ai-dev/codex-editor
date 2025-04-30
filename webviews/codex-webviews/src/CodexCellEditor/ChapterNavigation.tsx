@@ -1372,8 +1372,11 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                 width: "100%",
                             }}
                         >
-                            <i className="codicon codicon-arrow-swap"></i>
-                            <span style={{ marginLeft: "0.5rem" }}>Text Direction</span>
+                            <i
+                                className="codicon codicon-arrow-swap"
+                                style={{ marginInlineEnd: "0.5rem" }}
+                            ></i>
+                            Text Direction
                         </VSCodeButton>
                         <VSCodeButton
                             appearance="secondary"
@@ -1399,11 +1402,17 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             }}
                         >
                             {cellDisplayMode === CELL_DISPLAY_MODES.INLINE ? (
-                                <i className="codicon codicon-symbol-enum"></i>
+                                <i
+                                    className="codicon codicon-symbol-enum"
+                                    style={{ marginInlineEnd: "0.5rem" }}
+                                ></i>
                             ) : (
-                                <i className="codicon codicon-symbol-constant"></i>
+                                <i
+                                    className="codicon codicon-symbol-constant"
+                                    style={{ marginInlineEnd: "0.5rem" }}
+                                ></i>
                             )}
-                            <span style={{ marginLeft: "0.5rem" }}>Display Mode</span>
+                            Display Mode
                         </VSCodeButton>
                         {documentHasVideoAvailable && (
                             <VSCodeButton
@@ -1417,11 +1426,17 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                 }}
                             >
                                 {shouldShowVideoPlayer ? (
-                                    <i className="codicon codicon-close"></i>
+                                    <i
+                                        className="codicon codicon-close"
+                                        style={{ marginInlineEnd: "0.5rem" }}
+                                    ></i>
                                 ) : (
-                                    <i className="codicon codicon-device-camera-video"></i>
+                                    <i
+                                        className="codicon codicon-device-camera-video"
+                                        style={{ marginInlineEnd: "0.5rem" }}
+                                    ></i>
                                 )}
-                                <span style={{ marginLeft: "0.5rem" }}>Toggle Video</span>
+                                Toggle Video
                             </VSCodeButton>
                         )}
                         {metadata && (
@@ -1436,8 +1451,11 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                                     width: "100%",
                                 }}
                             >
-                                <i className="codicon codicon-notebook"></i>
-                                <span style={{ marginLeft: "0.5rem" }}>Edit Metadata</span>
+                                <i
+                                    className="codicon codicon-notebook"
+                                    style={{ marginInlineEnd: "0.5rem" }}
+                                ></i>
+                                Edit Metadata
                             </VSCodeButton>
                         )}
                     </div>
@@ -1463,7 +1481,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 </VSCodeButton>
 
                 {/* Close button */}
-                <VSCodeButton
+                {/* <VSCodeButton
                     appearance="icon"
                     onClick={() => {
                         if (vscode) {
@@ -1490,7 +1508,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     }}
                 >
                     <i className="codicon codicon-close"></i>
-                </VSCodeButton>
+                </VSCodeButton> */}
             </div>
 
             {metadata && (
