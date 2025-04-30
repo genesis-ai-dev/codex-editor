@@ -335,7 +335,7 @@ const CellList: React.FC<CellListProps> = ({
                     const parentLabel =
                         parentCell.cellLabel ||
                         (parentCell.cellType !== CodexCellTypes.PARATEXT
-                            ? translationUnits.indexOf(parentCell) + 1
+                            ? getVisibleCellNumber(parentCell, translationUnits)
                             : "");
 
                     // Find all siblings (cells with the same parent)
@@ -357,10 +357,32 @@ const CellList: React.FC<CellListProps> = ({
                 }
             }
 
-            // Default fallback for regular cells - count from 1 instead of 0
-            return (index + 1).toString();
+            // Get visible cell number (skipping paratext cells)
+            return getVisibleCellNumber(cell, translationUnits).toString();
         },
         [translationUnits]
+    );
+
+    // Helper function to get the visible cell number (skipping paratext cells)
+    const getVisibleCellNumber = useCallback(
+        (cell: QuillCellContent, cells: QuillCellContent[]): number => {
+            const cellIndex = cells.findIndex(
+                (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
+            );
+
+            if (cellIndex === -1) return 1; // Fallback if not found
+
+            // Count non-paratext cells up to and including this one
+            let visibleCellCount = 0;
+            for (let i = 0; i <= cellIndex; i++) {
+                if (cells[i].cellType !== CodexCellTypes.PARATEXT) {
+                    visibleCellCount++;
+                }
+            }
+
+            return visibleCellCount;
+        },
+        []
     );
 
     const renderCellGroup = useCallback(
