@@ -1120,8 +1120,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         borderRadius: "4px",
                         transition: "background-color 0.2s ease, box-shadow 0.2s ease",
                         position: "relative",
-                        backgroundColor: "var(--vscode-button-secondaryBackground, transparent)",
-                        border: "1px solid transparent",
+                        backgroundColor: "var(--vscode-button-background, #0e639c)",
+                        border: "1px solid var(--vscode-contrastBorder, transparent)",
                         minWidth: "150px",
                         justifyContent: "center",
                     }}
@@ -1145,14 +1145,14 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     onMouseEnter={(e) => {
                         if (!unsavedChanges) {
                             e.currentTarget.style.backgroundColor =
-                                "var(--vscode-button-secondaryHoverBackground, rgba(90, 93, 94, 0.31))";
+                                "var(--vscode-button-hoverBackground, #1177bb)";
                             e.currentTarget.style.boxShadow =
                                 "0 0 0 1px var(--vscode-focusBorder, rgba(0, 122, 204, 0.4))";
                         }
                     }}
                     onMouseLeave={(e) => {
                         e.currentTarget.style.backgroundColor =
-                            "var(--vscode-button-secondaryBackground, transparent)";
+                            "var(--vscode-button-background, #0e639c)";
                         e.currentTarget.style.boxShadow = "none";
                     }}
                     title={
@@ -1168,6 +1168,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             display: "flex",
                             alignItems: "center",
                             opacity: unsavedChanges ? 0.6 : 1,
+                            color: "var(--vscode-button-foreground, #ffffff)",
                         }}
                     >
                         {getDisplayTitle()}
@@ -1176,7 +1177,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             style={{
                                 fontSize: "0.85rem",
                                 marginLeft: "0.5rem",
-                                opacity: 0.7,
+                                opacity: 0.9,
+                                color: "var(--vscode-button-foreground, #ffffff)",
                             }}
                         />
                     </h1>
@@ -1444,15 +1446,19 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     appearance={"icon"}
                     onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
                     style={{
-                        backgroundColor: "var(--vscode-button-secondaryBackground)",
+                        backgroundColor: "var(--vscode-button-background, #0e639c)",
                         borderRadius: "4px",
-                        border: "1px solid var(--vscode-button-border, transparent)",
+                        border: "1px solid var(--vscode-contrastBorder, transparent)",
+                        color: "var(--vscode-button-foreground, #ffffff)",
                     }}
                 >
                     <i
                         className={`codicon ${
                             showAdvancedSettings ? "codicon-chevron-up" : "codicon-chevron-down"
                         }`}
+                        style={{
+                            color: "var(--vscode-button-foreground, #ffffff)",
+                        }}
                     ></i>
                 </VSCodeButton>
 
