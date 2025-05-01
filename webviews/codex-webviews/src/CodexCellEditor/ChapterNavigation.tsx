@@ -318,10 +318,8 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     defaultValue = Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5),
 }) => {
     // State for number of cells to autocomplete
-    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(
-        totalUntranslatedCells > 0 ? defaultValue : 0
-    );
-    const [customValue, setCustomValue] = useState(totalUntranslatedCells > 0 ? defaultValue : 0);
+    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(0);
+    const [customValue, setCustomValue] = useState<number | null>(null);
     
     // Individual states for each cell type
     const [includeEmptyCells, setIncludeEmptyCells] = useState(true);
@@ -329,8 +327,9 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
     const [includeFullyValidatedByOthers, setIncludeFullyValidatedByOthers] = useState(false);
     
-    // Show warning dialog for fully validated cells
+    // Show warning dialogs
     const [showValidationWarning, setShowValidationWarning] = useState(false);
+    const [showNotValidatedByCurrentUserWarning, setShowNotValidatedByCurrentUserWarning] = useState(false);
     
     // Start with base total - only cells with no content
     const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalUntranslatedCells);
@@ -378,7 +377,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             // Add cells with content but no validation
             total += totalCellsToAutocomplete - totalUntranslatedCells;
         }
-        
+
         if (includeNotValidatedByCurrentUser) {
             // Add cells validated by others but not by current user
             // Avoid double-counting
@@ -391,20 +390,13 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             // Add fully validated cells by others
             total += totalFullyValidatedByOthers;
         }
-        
+
         setEffectiveTotalCells(total);
-        
+
         // Adjust numberOfCellsToAutocomplete if needed
-        if (total === 0) {
-            setNumberOfCellsToAutocomplete(0);
-            setCustomValue(0);
-        } else if (numberOfCellsToAutocomplete > total) {
-            setNumberOfCellsToAutocomplete(total);
-            setCustomValue(total);
-        } else if (numberOfCellsToAutocomplete === 0 && total > 0) {
-            const newValue = Math.min(5, total);
-            setNumberOfCellsToAutocomplete(newValue);
-            setCustomValue(newValue);
+        if (numberOfCellsToAutocomplete > total) {
+            setNumberOfCellsToAutocomplete(total > 0 ? total : 0);
+            setCustomValue(total > 0 ? total : 0);
         }
     }, [
         includeEmptyCells,
@@ -417,7 +409,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         numberOfCellsToAutocomplete,
         totalFullyValidatedByOthers
     ]);
-    
+
     // Handle selection toggle for cell type cards
     const toggleCellTypeSelection = (type: 'empty' | 'no-validator' | 'not-current-user' | 'fully-validated') => {
         switch (type) {
@@ -428,7 +420,12 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 setIncludeNotValidatedByAnyUser(!includeNotValidatedByAnyUser);
                 break;
             case 'not-current-user':
-                setIncludeNotValidatedByCurrentUser(!includeNotValidatedByCurrentUser);
+                if (!includeNotValidatedByCurrentUser) {
+                    // Show warning before enabling
+                    setShowNotValidatedByCurrentUserWarning(true);
+                } else {
+                    setIncludeNotValidatedByCurrentUser(!includeNotValidatedByCurrentUser);
+                }
                 break;
             case 'fully-validated':
                 if (!includeFullyValidatedByOthers) {
@@ -438,7 +435,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                     setIncludeFullyValidatedByOthers(!includeFullyValidatedByOthers);
                 }
                 break;
-        }
+            }
     };
     
     // Confirmation handler
@@ -450,11 +447,16 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
             includeFullyValidatedByOthers
         );
     };
-    
-    // Warning dialog confirmation handler
+
+    // Warning dialog confirmation handlers
     const handleConfirmWarning = () => {
         setShowValidationWarning(false);
         setIncludeFullyValidatedByOthers(true);
+    };
+    
+    const handleConfirmNotValidatedByCurrentUserWarning = () => {
+        setShowNotValidatedByCurrentUserWarning(false);
+        setIncludeNotValidatedByCurrentUser(true);
     };
 
     if (!isOpen || !modalContainer) return null;
@@ -479,7 +481,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         ? "var(--vscode-button-background, #0e639c)" 
                         : "var(--vscode-editor-background)",
                     border: `1px solid ${isSelected 
-                        ? "var(--vscode-focusBorder, #007fd4)" 
+                        ? "var(--vscode-focusBorder, #007fd4)"
                         : "var(--vscode-widget-border)"}`,
                     borderRadius: "6px",
                     padding: "14px",
@@ -498,7 +500,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 }}
             >
                 <div style={{ 
-                    position: "absolute", 
+                            position: "absolute",
                     top: "10px", 
                     right: "10px", 
                     width: "16px", 
@@ -520,10 +522,10 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             style={{ 
                                 fontSize: "12px", 
                                 color: "var(--vscode-button-background, #0e639c)"
-                            }}
-                        />
-                    )}
-                </div>
+                        }}
+                    />
+                )}
+            </div>
                 <div style={{ 
                     display: "flex", 
                     alignItems: "center", 
@@ -585,14 +587,14 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     // Use a portal to render the modal at the document body level
     return ReactDOM.createPortal(
         <>
-            <div
-                className="modal-overlay"
-                onClick={(e) => {
-                    // Close when clicking the overlay (outside the modal)
-                    if (e.target === e.currentTarget) {
-                        onClose();
-                    }
-                }}
+        <div
+            className="modal-overlay"
+            onClick={(e) => {
+                // Close when clicking the overlay (outside the modal)
+                if (e.target === e.currentTarget) {
+                    onClose();
+                }
+            }}
                 style={{
                     position: "fixed",
                     top: 0,
@@ -605,7 +607,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                     justifyContent: "center",
                     zIndex: 9999
                 }}
-            >
+        >
                 <div 
                     className="modal-content" 
                     ref={modalRef} 
@@ -630,8 +632,8 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         justifyContent: "space-between" 
                     }}>
                         <h2 style={{ margin: 0, fontSize: "18px", fontWeight: "600" }}>Autocomplete Cells</h2>
-                        <ValidationLegend position="right" showToSide={true} />
-                    </div>
+                    <ValidationLegend position="right" showToSide={true} />
+                </div>
                     
                     <div style={{ 
                         display: "grid", 
@@ -703,7 +705,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             totalFullyValidatedByOthers,
                             includeFullyValidatedByOthers
                         )}
-                    </div>
+                </div>
                     
                     <div style={{ marginBottom: "20px" }}>
                         <div style={{ 
@@ -722,47 +724,156 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 gap: "8px",
                                 marginLeft: "auto" 
                             }}>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    max={effectiveTotalCells}
-                                    value={customValue === 0 && effectiveTotalCells === 0 ? "0" : Math.min(customValue || 0, effectiveTotalCells)}
-                                    onChange={(e) => {
-                                        const value = parseInt(e.target.value);
-                                        if (!isNaN(value) && value >= 0) {
-                                            const cappedValue = Math.min(value, effectiveTotalCells);
-                                            setCustomValue(cappedValue);
-                                            setNumberOfCellsToAutocomplete(cappedValue);
-                                        } else {
-                                            setCustomValue(0);
-                                            setNumberOfCellsToAutocomplete(0);
-                                        }
-                                    }}
-                                    className="autocomplete-number-input"
-                                    style={{
-                                        width: "80px",
+                                <div 
+                                    className={`input-container ${effectiveTotalCells === 0 ? 'disabled' : ''}`}
+                                    style={{ 
+                                        position: "relative", 
+                                        width: "150px",
                                         border: "1px solid var(--vscode-input-border, var(--vscode-widget-border))",
                                         borderRadius: "4px",
-                                        padding: "4px 8px",
-                                        outline: "none",
-                                        height: "28px", /* Match VSCodeButton height */
                                         backgroundColor: "var(--vscode-input-background)",
-                                        color: "var(--vscode-input-foreground)",
-                                        fontSize: "13px",
-                                        boxSizing: "border-box"
-                                    }}
-                                    disabled={effectiveTotalCells === 0}
-                                />
+                                        transition: "box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out",
+                                        opacity: effectiveTotalCells === 0 ? 0.6 : 1
+                                    }}>
+                        <input
+                            type="number"
+                            max={effectiveTotalCells || undefined}
+                            value={customValue !== null ? customValue.toString() : ""}
+                            onChange={(e) => {
+                                const inputValue = e.target.value;
+                                if (inputValue === "") {
+                                    setCustomValue(null);
+                                    setNumberOfCellsToAutocomplete(0);
+                                    return;
+                                }
                                 
-                                <VSCodeButton 
-                                    onClick={() => {
-                                        setNumberOfCellsToAutocomplete(effectiveTotalCells);
-                                        setCustomValue(effectiveTotalCells);
-                                    }}
-                                    disabled={effectiveTotalCells === 0}
-                                >
-                                    All ({effectiveTotalCells})
-                                </VSCodeButton>
+                                const value = parseInt(inputValue);
+                                if (!isNaN(value)) {
+                                    setCustomValue(value);
+                                    // Only set the actual number of cells if the value is valid (> 0)
+                                    if (value > 0) {
+                                        setNumberOfCellsToAutocomplete(
+                                            value > effectiveTotalCells && effectiveTotalCells > 0 ? 
+                                                effectiveTotalCells : value
+                                        );
+                                    } else {
+                                        setNumberOfCellsToAutocomplete(0);
+                                    }
+                                }
+                            }}
+                            placeholder="Enter a value"
+                            id="autocomplete-cell-count"
+                            className="autocomplete-number-input"
+                            style={{
+                                width: "100%",
+                                border: "none",
+                                borderRadius: "4px",
+                                padding: "4px 8px",
+                                outline: "none",
+                                height: "28px", /* Match VSCodeButton height */
+                                backgroundColor: "transparent",
+                                color: "var(--vscode-input-foreground)",
+                                fontSize: "13px",
+                                boxSizing: "border-box",
+                                transition: "border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
+                            }}
+                            disabled={effectiveTotalCells === 0}
+                        />
+                        {/* Error tooltip for values exceeding maximum */}
+                        {customValue !== null && customValue > effectiveTotalCells && effectiveTotalCells > 0 && (
+                            <div style={{
+                                position: "absolute",
+                                top: "-40px",
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                                backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                color: "var(--vscode-editorError-foreground, #a41515)",
+                                fontSize: "12px",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                                whiteSpace: "nowrap",
+                                zIndex: 10,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                fontWeight: "500"
+                            }}>
+                                <i className="codicon codicon-warning" style={{ 
+                                    fontSize: "14px", 
+                                    color: "var(--vscode-editorError-foreground, #a41515)"
+                                }} />
+                                Value must be less than or equal to {effectiveTotalCells}
+                                {/* Arrow pointing down */}
+                                <div style={{
+                                    position: "absolute",
+                                    bottom: "-5px",
+                                    left: "50%",
+                                    transform: "translateX(-50%) rotate(45deg)",
+                                    width: "10px",
+                                    height: "10px",
+                                    backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                    border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                    borderTop: "none",
+                                    borderLeft: "none"
+                                }}></div>
+                            </div>
+                        )}
+                        
+                        {/* Error tooltip for zero or negative values */}
+                        {customValue !== null && customValue <= 0 && (
+                            <div style={{
+                                position: "absolute",
+                                top: "-40px",
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                                backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                color: "var(--vscode-editorError-foreground, #a41515)",
+                                fontSize: "12px",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                                whiteSpace: "nowrap",
+                                zIndex: 10,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                fontWeight: "500"
+                            }}>
+                                <i className="codicon codicon-warning" style={{ 
+                                    fontSize: "14px", 
+                                    color: "var(--vscode-editorError-foreground, #a41515)"
+                                }} />
+                                Value must be greater than 0
+                                {/* Arrow pointing down */}
+                                <div style={{
+                                    position: "absolute",
+                                    bottom: "-5px",
+                                    left: "50%",
+                                    transform: "translateX(-50%) rotate(45deg)",
+                                    width: "10px",
+                                    height: "10px",
+                                    backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                    border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                    borderTop: "none",
+                                    borderLeft: "none"
+                                }}></div>
+                            </div>
+                        )}
+                                </div>
+                                
+                                {effectiveTotalCells > 0 && (
+                                    <VSCodeButton 
+                                        onClick={() => {
+                                            setNumberOfCellsToAutocomplete(effectiveTotalCells);
+                                            setCustomValue(effectiveTotalCells);
+                                        }}
+                                    >
+                        All ({effectiveTotalCells})
+                                    </VSCodeButton>
+                                )}
                             </div>
                         </div>
                         
@@ -804,6 +915,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 )}
                             </div>
                         </div>
+                        
                     </div>
 
                     <div className="modal-actions" style={{ 
@@ -820,16 +932,21 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         </VSCodeButton>
                         <VSCodeButton
                             onClick={handleConfirm}
-                            disabled={numberOfCellsToAutocomplete === 0 || 
-                                    (!includeEmptyCells && !includeNotValidatedByAnyUser && 
-                                    !includeNotValidatedByCurrentUser && !includeFullyValidatedByOthers)}
+                            disabled={
+                                (!includeEmptyCells && !includeNotValidatedByAnyUser && 
+                                !includeNotValidatedByCurrentUser && !includeFullyValidatedByOthers) || 
+                                effectiveTotalCells === 0 ||
+                                customValue === null || 
+                                customValue <= 0 ||
+                                (customValue > effectiveTotalCells && effectiveTotalCells > 0)
+                            }
                         >
                             Autocomplete {numberOfCellsToAutocomplete} Cells
                         </VSCodeButton>
-                    </div>
+                            </div>
                 </div>
-            </div>
-            
+                </div>
+
             {/* Warning dialog for fully validated cells */}
             {showValidationWarning && (
                 <div className="warning-dialog-overlay" style={{
@@ -894,8 +1011,82 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             >
                                 Cancel
                             </VSCodeButton>
-                            <VSCodeButton 
+                            <VSCodeButton
                                 onClick={handleConfirmWarning}
+                            >
+                                Include Anyway
+                            </VSCodeButton>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Warning dialog for cells not validated by current user */}
+            {showNotValidatedByCurrentUserWarning && (
+                <div className="warning-dialog-overlay" style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 10000
+                }}>
+                    <div className="warning-dialog" style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        border: "1px solid var(--vscode-editorWarning-border, #cca700)",
+                        borderRadius: "6px",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+                        padding: "20px",
+                        width: "400px",
+                        maxWidth: "90vw"
+                    }}>
+                        <div style={{ 
+                            display: "flex", 
+                            alignItems: "flex-start", 
+                            gap: "12px", 
+                            marginBottom: "16px" 
+                        }}>
+                            <i 
+                                className="codicon codicon-warning" 
+                                style={{ 
+                                    fontSize: "20px", 
+                                    color: "var(--vscode-editorWarning-foreground, #cca700)",
+                                    marginTop: "2px"
+                                }}
+                            />
+                            <div>
+                                <h3 style={{ 
+                                    margin: "0 0 8px 0", 
+                                    color: "var(--vscode-editorWarning-foreground, #cca700)" 
+                                }}>
+                                    Warning: Selecting Cells Validated by Others
+                                </h3>
+                                <p style={{ margin: "0 0 8px 0" }}>
+                                    These cells already have content and have been validated by other users, 
+                                    but not by you.
+                                </p>
+                                <p style={{ margin: "0" }}>
+                                    Are you sure you want to include them for autocomplete?
+                                </p>
+                            </div>
+                        </div>
+                        <div style={{ 
+                            display: "flex", 
+                            justifyContent: "flex-end", 
+                            gap: "8px" 
+                        }}>
+                            <VSCodeButton 
+                                appearance="secondary" 
+                                onClick={() => setShowNotValidatedByCurrentUserWarning(false)}
+                            >
+                                Cancel
+                            </VSCodeButton>
+                            <VSCodeButton
+                                onClick={handleConfirmNotValidatedByCurrentUserWarning}
                             >
                                 Include Anyway
                             </VSCodeButton>
@@ -1211,10 +1402,38 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             const styleElement = document.createElement("style");
             styleElement.id = "autocomplete-custom-styles";
             styleElement.textContent = `
-                .autocomplete-number-input:focus {
+                .input-container {
+                    position: relative;
+                }
+                
+                .input-container:focus-within {
+                    box-shadow: 0 0 0 1px var(--vscode-focusBorder) !important;
                     border-color: var(--vscode-focusBorder) !important;
+                }
+                
+                .autocomplete-number-input:focus {
                     outline: none;
-                    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+                }
+                
+                .autocomplete-number-input::placeholder {
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.7;
+                }
+                
+                .input-container:not(.disabled):hover {
+                    border-color: var(--vscode-inputOption-hoverBorder, var(--vscode-focusBorder)) !important;
+                }
+                
+                /* Remove spinner buttons from number input */
+                .autocomplete-number-input::-webkit-outer-spin-button,
+                .autocomplete-number-input::-webkit-inner-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+                
+                /* Firefox */
+                .autocomplete-number-input[type=number] {
+                    -moz-appearance: textfield;
                 }
             `;
             document.head.appendChild(styleElement);
