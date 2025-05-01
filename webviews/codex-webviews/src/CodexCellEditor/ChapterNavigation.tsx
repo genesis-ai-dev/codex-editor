@@ -276,7 +276,7 @@ const ValidationLegend: React.FC<{
                                 className="codicon codicon-check-all"
                                 style={{
                                     fontSize: "12px",
-                                    color: "var(--vscode-descriptionForeground)",
+                                    color: "var(--vscode-terminal-ansiGreen)",
                                 }}
                             ></i>
                         </div>
@@ -423,15 +423,15 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 if (!includeNotValidatedByCurrentUser) {
                     // Show warning before enabling
                     setShowNotValidatedByCurrentUserWarning(true);
-                } else {
+            } else {
                     setIncludeNotValidatedByCurrentUser(!includeNotValidatedByCurrentUser);
-                }
+            }
                 break;
             case 'fully-validated':
                 if (!includeFullyValidatedByOthers) {
                     // Show warning before enabling
                     setShowValidationWarning(true);
-                } else {
+        } else {
                     setIncludeFullyValidatedByOthers(!includeFullyValidatedByOthers);
                 }
                 break;
@@ -453,7 +453,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         setShowValidationWarning(false);
         setIncludeFullyValidatedByOthers(true);
     };
-    
+
     const handleConfirmNotValidatedByCurrentUserWarning = () => {
         setShowNotValidatedByCurrentUserWarning(false);
         setIncludeNotValidatedByCurrentUser(true);
@@ -916,7 +916,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                             </div>
                         </div>
                         
-                    </div>
+                            </div>
 
                     <div className="modal-actions" style={{ 
                         display: "flex", 
@@ -998,7 +998,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 <p style={{ margin: "0" }}>
                                     Are you sure you want to include them for autocomplete?
                                 </p>
-                            </div>
+                </div>
                         </div>
                         <div style={{ 
                             display: "flex", 
@@ -1083,9 +1083,9 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                                 appearance="secondary" 
                                 onClick={() => setShowNotValidatedByCurrentUserWarning(false)}
                             >
-                                Cancel
-                            </VSCodeButton>
-                            <VSCodeButton
+                        Cancel
+                    </VSCodeButton>
+                    <VSCodeButton
                                 onClick={handleConfirmNotValidatedByCurrentUserWarning}
                             >
                                 Include Anyway
@@ -1095,6 +1095,329 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                 </div>
             )}
         </>,
+        modalContainer
+    );
+};
+
+interface ChapterSelectorModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSelectChapter: (chapter: number) => void;
+    currentChapter: number;
+    totalChapters: number;
+    bookTitle: string;
+    unsavedChanges: boolean;
+    anchorRef: React.RefObject<HTMLDivElement>;
+}
+
+const ChapterSelectorModal: React.FC<ChapterSelectorModalProps> = ({
+    isOpen,
+    onClose,
+    onSelectChapter,
+    currentChapter,
+    totalChapters,
+    bookTitle,
+    unsavedChanges,
+    anchorRef
+}) => {
+    // Create a reference to the modal container
+    const [modalContainer, setModalContainer] = useState<HTMLElement | null>(null);
+    const modalRef = React.useRef<HTMLDivElement>(null);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+    const [columns, setColumns] = useState(10);
+    const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
+    
+    // Initialize the modal container on component mount
+    useEffect(() => {
+        if (typeof document !== "undefined") {
+            setModalContainer(document.body);
+        }
+    }, []);
+    
+    // Focus trap and ESC key handling
+    useEffect(() => {
+        if (isOpen && modalRef.current) {
+            // Auto-focus the modal when opened
+            modalRef.current.focus();
+            
+            // Handle ESC key press
+            const handleKeyDown = (e: KeyboardEvent) => {
+                if (e.key === "Escape") {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener("keydown", handleKeyDown);
+            
+            // Close when clicking outside
+            const handleClickOutside = (e: MouseEvent) => {
+                if (modalRef.current && !modalRef.current.contains(e.target as Node) && 
+                    anchorRef.current && !anchorRef.current.contains(e.target as Node)) {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener("mousedown", handleClickOutside);
+            
+            return () => {
+                document.removeEventListener("keydown", handleKeyDown);
+                document.removeEventListener("mousedown", handleClickOutside);
+            };
+        }
+    }, [isOpen, onClose, anchorRef]);
+    
+    // Function to calculate position and dimensions
+    const calculatePositionAndDimensions = useCallback(() => {
+        if (isOpen && anchorRef.current && modalContainer) {
+            const rect = anchorRef.current.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // Determine available width
+            const idealWidth = 600; // Our ideal width
+            const availableWidth = Math.min(viewportWidth - 40, idealWidth); // 20px padding on each side
+            
+            // Calculate columns based on available width
+            // Ensure each cell is at least 32px with 8px gap (40px total per cell)
+            const maxColumns = Math.floor(availableWidth / 40);
+            setColumns(Math.min(10, Math.max(5, maxColumns))); // Between 5 and 10 columns
+            
+            // Calculate centered position
+            const left = rect.left + (rect.width / 2);
+            const centeredLeft = left - (availableWidth / 2);
+            
+            // Avoid going off screen to the left
+            const adjustedLeft = Math.max(20, centeredLeft);
+            
+            // Avoid going off screen to the right
+            const rightEdge = adjustedLeft + availableWidth;
+            const finalLeft = rightEdge > viewportWidth - 20 
+                ? (viewportWidth - 20 - availableWidth) 
+                : adjustedLeft;
+            
+            // Determine if dropdown should appear above or below
+            const spaceBelow = viewportHeight - rect.bottom;
+            const spaceAbove = rect.top;
+            const maxHeight = Math.min(500, viewportHeight - 80); // Maximum height with 40px padding top and bottom
+            
+            let topPosition;
+            const arrowPos: "top" | "bottom" = (spaceBelow >= maxHeight || spaceBelow >= spaceAbove) ? "top" : "bottom";
+            
+            if (arrowPos === "top") {
+                // Place below the button
+                topPosition = rect.bottom + window.scrollY;
+            } else {
+                // Place above the button
+                topPosition = rect.top + window.scrollY - maxHeight - 16; // 16px for the arrow
+            }
+            
+            setDropdownPosition({
+                top: topPosition,
+                left: finalLeft,
+                width: availableWidth
+            });
+            
+            // Update arrow position
+            setArrowPosition(arrowPos);
+        }
+    }, [isOpen, anchorRef, modalContainer]);
+    
+    // Calculate position and size based on the anchor element and viewport
+    useEffect(() => {
+        calculatePositionAndDimensions();
+    }, [calculatePositionAndDimensions]);
+    
+    // Add resize listener to handle window size changes while dropdown is open
+    useEffect(() => {
+        if (isOpen) {
+            const handleResize = () => {
+                calculatePositionAndDimensions();
+            };
+            
+            window.addEventListener('resize', handleResize);
+            
+            return () => {
+                window.removeEventListener('resize', handleResize);
+            };
+        }
+    }, [isOpen, calculatePositionAndDimensions]);
+    
+    if (!isOpen || !modalContainer) return null;
+    
+    // Calculate where to display the arrow relative to button center
+    const buttonCenterX = anchorRef.current ? 
+        anchorRef.current.getBoundingClientRect().left + (anchorRef.current.getBoundingClientRect().width / 2) : 0;
+    
+    const arrowLeft = buttonCenterX - dropdownPosition.left;
+    const arrowLeftPercent = Math.min(Math.max((arrowLeft / dropdownPosition.width) * 100, 10), 90); // Keep between 10% and 90%
+    
+    return ReactDOM.createPortal(
+        <div 
+            className="chapter-selector-dropdown" 
+            ref={modalRef}
+            tabIndex={-1}
+            style={{
+                position: "absolute",
+                top: `${dropdownPosition.top}px`,
+                left: `${dropdownPosition.left}px`,
+                width: `${dropdownPosition.width}px`,
+                backgroundColor: "var(--vscode-editor-background)",
+                border: "1px solid var(--vscode-widget-border)",
+                borderRadius: "6px",
+                boxShadow: "0 6px 16px rgba(0, 0, 0, 0.15)",
+                padding: "16px",
+                zIndex: 9999,
+                overflowY: "auto",
+                maxHeight: "min(60vh, 500px)",
+                marginTop: arrowPosition === "top" ? "8px" : "0",
+                marginBottom: arrowPosition === "bottom" ? "8px" : "0",
+                transformOrigin: arrowPosition === "top" ? "top center" : "bottom center"
+            }}
+                    >
+            {/* Dropdown arrow pointing to the chapter button */}
+            {arrowPosition === "top" && (
+                <div style={{
+                    position: "absolute",
+                    top: "-8px",
+                    left: `${arrowLeftPercent}%`,
+                    transform: "translateX(-50%) rotate(45deg)",
+                    width: "16px",
+                    height: "16px",
+                    backgroundColor: "var(--vscode-editor-background)",
+                    border: "1px solid var(--vscode-widget-border)",
+                    borderBottom: "none",
+                    borderRight: "none",
+                    zIndex: 9998
+                }}></div>
+            )}
+            
+            {arrowPosition === "bottom" && (
+                <div style={{
+                    position: "absolute",
+                    bottom: "-8px",
+                    left: `${arrowLeftPercent}%`,
+                    transform: "translateX(-50%) rotate(45deg)",
+                    width: "16px",
+                    height: "16px",
+                    backgroundColor: "var(--vscode-editor-background)",
+                    border: "1px solid var(--vscode-widget-border)",
+                    borderTop: "none",
+                    borderLeft: "none",
+                    zIndex: 9998
+                }}></div>
+            )}
+            
+            <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "16px"
+            }}>
+                <h2 style={{
+                    margin: 0,
+                    fontSize: "18px",
+                    fontWeight: "600"
+                }}>
+                    {bookTitle}
+                </h2>
+                <VSCodeButton 
+                    appearance="icon"
+                    onClick={onClose}
+                >
+                    <i className="codicon codicon-close"></i>
+                    </VSCodeButton>
+                </div>
+            
+            <div style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                gap: "8px",
+                marginBottom: "16px"
+            }}>
+                {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
+                    <div
+                        key={chapter}
+                        onClick={() => {
+                            if (!unsavedChanges) {
+                                onSelectChapter(chapter);
+                                onClose();
+                            }
+                        }}
+                        style={{
+                            width: "100%",
+                            aspectRatio: "1 / 1",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: currentChapter === chapter 
+                                ? "var(--vscode-button-background)" 
+                                : "var(--vscode-editorWidget-background)",
+                            color: currentChapter === chapter 
+                                ? "var(--vscode-button-foreground)" 
+                                : "var(--vscode-foreground)",
+                            borderRadius: "4px",
+                            cursor: unsavedChanges ? "not-allowed" : "pointer",
+                            fontSize: "14px",
+                            fontWeight: currentChapter === chapter ? "600" : "normal",
+                            border: currentChapter === chapter 
+                                ? "1px solid var(--vscode-focusBorder)"
+                                : "1px solid var(--vscode-widget-border)",
+                            opacity: unsavedChanges ? 0.6 : 1,
+                            transition: "all 0.2s ease",
+                            position: "relative",
+                            overflow: "hidden",
+                            minWidth: "32px",
+                            minHeight: "32px"
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!unsavedChanges && currentChapter !== chapter) {
+                                e.currentTarget.style.backgroundColor = "var(--vscode-button-hoverBackground)";
+                                e.currentTarget.style.color = "var(--vscode-button-foreground)";
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!unsavedChanges && currentChapter !== chapter) {
+                                e.currentTarget.style.backgroundColor = "var(--vscode-editorWidget-background)";
+                                e.currentTarget.style.color = "var(--vscode-foreground)";
+                            }
+                        }}
+                    >
+                        {currentChapter === chapter && (
+                            <div style={{
+                                position: "absolute",
+                                top: "2px",
+                                right: "2px",
+                                width: "10px",
+                                height: "10px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center"
+                            }}>
+                                <i className="codicon codicon-check" style={{ fontSize: "8px" }} />
+            </div>
+                        )}
+                        {chapter}
+                    </div>
+                ))}
+            </div>
+            
+            {unsavedChanges && (
+                <div style={{
+                    backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                    color: "var(--vscode-inputValidation-warningForeground)",
+                    border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                    borderRadius: "4px",
+                    padding: "8px 12px",
+                    fontSize: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                }}>
+                    <i className="codicon codicon-warning" />
+                    <span>Save changes first to change chapter</span>
+                </div>
+            )}
+        </div>,
         modalContainer
     );
 };
@@ -1191,6 +1514,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     const [editorPosition, setEditorPosition] = useState<
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
+    const [showChapterSelector, setShowChapterSelector] = useState(false);
+    const chapterTitleRef = useRef<HTMLDivElement>(null);
 
     // Request editor position when component mounts
     useEffect(() => {
@@ -1451,6 +1776,17 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         }
     };
 
+    // Update the jumpToChapter function to be reusable
+    const jumpToChapter = (newChapter: number) => {
+        if (!unsavedChanges && newChapter !== chapterNumber) {
+            (window as any).vscodeApi.postMessage({
+                command: "jumpToChapter",
+                chapterNumber: newChapter,
+            });
+            setChapterNumber(newChapter);
+        }
+    };
+
     return (
         <div className="chapter-navigation" style={{ gap: buttonGap }}>
             <div
@@ -1504,11 +1840,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         if (!unsavedChanges) {
                             const newChapter =
                                 chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                            (window as any).vscodeApi.postMessage({
-                                command: "jumpToChapter",
-                                chapterNumber: newChapter,
-                            });
-                            setChapterNumber(newChapter);
+                            jumpToChapter(newChapter);
                         }
                     }}
                     title={
@@ -1525,6 +1857,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 </VSCodeButton>
                 <div
                     className="chapter-title-container"
+                    ref={chapterTitleRef}
                     style={{
                         display: "flex",
                         alignItems: "center",
@@ -1540,19 +1873,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     }}
                     onClick={() => {
                         if (!unsavedChanges) {
-                            // Directly use the HTMLSelectElement click to open native dropdown
-                            const dropdown = document.getElementById(
-                                "chapter-dropdown"
-                            ) as HTMLSelectElement;
-                            if (dropdown) {
-                                // Create and dispatch a mouse event to trigger the dropdown
-                                const event = new MouseEvent("mousedown", {
-                                    view: window,
-                                    bubbles: true,
-                                    cancelable: true,
-                                });
-                                dropdown.dispatchEvent(event);
-                            }
+                            setShowChapterSelector(!showChapterSelector);
                         }
                     }}
                     onMouseEnter={(e) => {
@@ -1586,7 +1907,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     >
                         {getDisplayTitle()}
                         <i
-                            className="codicon codicon-chevron-down"
+                            className={`codicon ${showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"}`}
                             style={{
                                 fontSize: "0.85rem",
                                 marginLeft: "0.5rem",
@@ -1595,38 +1916,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             }}
                         />
                     </h1>
-                    <select
-                        id="chapter-dropdown"
-                        style={{
-                            position: "absolute",
-                            opacity: 0,
-                            pointerEvents: unsavedChanges ? "none" : "auto",
-                            height: "100%",
-                            width: "100%",
-                            left: 0,
-                            top: 0,
-                            cursor: "pointer",
-                        }}
-                        onChange={(e) => {
-                            const newChapter = parseInt(e.target.value);
-                            if (newChapter && newChapter !== chapterNumber && !unsavedChanges) {
-                                // Send a message to synchronize source/codex views
-                                (window as any).vscodeApi.postMessage({
-                                    command: "jumpToChapter",
-                                    chapterNumber: newChapter,
-                                });
-                                setChapterNumber(newChapter);
-                            }
-                        }}
-                        value={chapterNumber.toString()}
-                        disabled={unsavedChanges}
-                    >
-                        {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
-                            <option key={chapter} value={chapter.toString()}>
-                                {chapter} of {totalChapters}
-                            </option>
-                        ))}
-                    </select>
                 </div>
                 <VSCodeButton
                     appearance="icon"
@@ -1635,11 +1924,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         if (!unsavedChanges) {
                             const newChapter =
                                 chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                            (window as any).vscodeApi.postMessage({
-                                command: "jumpToChapter",
-                                chapterNumber: newChapter,
-                            });
-                            setChapterNumber(newChapter);
+                            jumpToChapter(newChapter);
                         }
                     }}
                     title={unsavedChanges ? "Save changes first to change chapter" : "Next Chapter"}
@@ -1936,6 +2221,18 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     tempVideoUrl={tempVideoUrl}
                 />
             )}
+
+            {/* Chapter selector modal */}
+            <ChapterSelectorModal
+                isOpen={showChapterSelector}
+                onClose={() => setShowChapterSelector(false)}
+                onSelectChapter={jumpToChapter}
+                currentChapter={chapterNumber}
+                totalChapters={totalChapters}
+                bookTitle={getDisplayTitle().split("\u00A0")[0]}
+                unsavedChanges={unsavedChanges}
+                anchorRef={chapterTitleRef}
+            />
         </div>
     );
 };
