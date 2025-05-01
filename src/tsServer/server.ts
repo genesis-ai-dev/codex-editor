@@ -207,7 +207,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
                     })),
                 offset: offset,
                 length: word.length,
-                color: "purple" as const,
                 cellId: params.cellId,
             });
         }
