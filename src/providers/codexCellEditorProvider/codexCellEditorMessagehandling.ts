@@ -251,7 +251,7 @@ export const handleMessages = async (
 
                 document.updateCellContent(
                     event.content.cellMarkers[0],
-                    event.content.cellContent,
+                    event.content.cellContent === "<span></span>" ? "" : event.content.cellContent,
                     EditType.USER_EDIT
                 );
             } catch (error) {
