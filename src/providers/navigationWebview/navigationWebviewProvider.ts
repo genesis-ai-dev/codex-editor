@@ -459,7 +459,8 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             // Calculate progress based on cells with values
             const totalCells = notebookData.cells.length;
             const cellsWithValues = notebookData.cells.filter(
-                (cell) => cell.value && cell.value.trim().length > 0
+                (cell) =>
+                    cell.value && cell.value.trim().length > 0 && cell.value !== "<span></span>"
             ).length;
             const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
