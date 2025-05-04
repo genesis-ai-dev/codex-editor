@@ -214,7 +214,7 @@ export const bulkAddWords = async (db: Database, entries: DictionaryEntry[]) => 
             stmt.reset();
         });
         db.run("COMMIT");
-        await exportUserEntries(db);
+        await saveDatabase(db);
     } catch (error) {
         db.run("ROLLBACK");
         throw error;
@@ -484,4 +484,22 @@ export const ingestJsonlDictionaryEntries = (db: Database) => {
     console.log({ entries });
 
     bulkAddWords(db, entries);
+};
+
+// Function to save the database to file
+export const saveDatabase = async (db: Database) => {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        console.error("Cannot save database: No workspace folder found.");
+        return;
+    }
+    const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...dictionaryDbPath);
+    try {
+        const fileBuffer = db.export();
+        await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
+        console.log("Database saved successfully to:", dbPath.fsPath);
+    } catch (error) {
+        console.error("Error saving database:", error);
+        vscode.window.showErrorMessage(`Failed to save dictionary database: ${error}`);
+    }
 };
