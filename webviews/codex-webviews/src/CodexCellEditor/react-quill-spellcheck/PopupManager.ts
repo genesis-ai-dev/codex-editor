@@ -103,28 +103,35 @@ export default class PopupManager {
         const popupContent = document.createElement("div");
         popupContent.className = "quill-spck-match-popup";
 
-        const actionsDiv = document.createElement("div");
-        actionsDiv.className = "quill-spck-match-popup-actions";
+        // Create a scrollable container for suggestion buttons
+        const suggestionsDiv = document.createElement("div");
+        suggestionsDiv.className = "quill-spck-match-popup-suggestions";
 
-        // Only add replacement suggestions if they exist
+        // Add up to 5 replacement suggestions into the scrollable list
         match.replacements?.slice(0, 5).forEach((replacement, index) => {
-            const button = this.createActionButton(this.formatReplacementLabel(replacement), () =>
-                this.applySuggestion(match, replacement.value, index)
+            const button = this.createActionButton(
+                this.formatReplacementLabel(replacement),
+                () => this.applySuggestion(match, replacement.value, index)
             );
-            actionsDiv.appendChild(button);
+            suggestionsDiv.appendChild(button);
             this.activeButtons.push(button);
         });
 
-        // Add "Add to dictionary" button only if the match is not a special phrase
+        // Create a footer for dictionary and reject actions
+        const footerDiv = document.createElement("div");
+        footerDiv.className = "quill-spck-match-popup-footer";
+        
+        // Add "Add to dictionary" button only if it's a dictionary error
         if (match.color !== "purple" && match.color !== "blue") {
-            const addToDictionaryButton = this.createActionButton(`${match.text} → 📖`, () =>
-                this.addWordToDictionary(match.text)
+            const addToDictionaryButton = this.createActionButton(
+                `${match.text} → 📖`,
+                () => this.addWordToDictionary(match.text)
             );
-            actionsDiv.appendChild(addToDictionaryButton);
+            footerDiv.appendChild(addToDictionaryButton);
             this.activeButtons.push(addToDictionaryButton);
         }
 
-        // Add reject button for smart edits (purple) and ice edits (blue)
+        // Add reject button for LLM (purple) and ICE (blue) suggestions
         if (match.color === "purple" || match.color === "blue") {
             const rejectButton = document.createElement("button");
             rejectButton.className = "quill-spck-match-popup-action reject-action";
@@ -134,11 +141,13 @@ export default class PopupManager {
                 this.rejectSuggestion({ match, suggestion });
                 this.closePopup();
             });
-            actionsDiv.appendChild(rejectButton);
+            footerDiv.appendChild(rejectButton);
             this.activeButtons.push(rejectButton);
         }
 
-        popupContent.appendChild(actionsDiv);
+        // Append the suggestions list and the footer
+        popupContent.appendChild(suggestionsDiv);
+        popupContent.appendChild(footerDiv);
 
         // Add source and confidence information
         const reasonLabel = document.createElement("div");

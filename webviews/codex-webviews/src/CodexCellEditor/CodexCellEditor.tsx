@@ -428,7 +428,7 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-        debug("editor", "Saving HTML content:", { cellId: content.cellMarkers?.[0] });
+        debug("editor", "Saving HTML content:", { cellId: content.cellMarkers?.[0], content });
         vscode.postMessage({
             command: "saveHtml",
             content: content,

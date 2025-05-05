@@ -43,4 +43,13 @@ export function registerDictionaryTableProvider(context: vscode.ExtensionContext
 
     // Add the command to the extension context
     context.subscriptions.push(openDictionaryEditorCommand);
+
+    // Register the 'dictionaryTable.dictionaryUpdated' command so the LSP callback won't fail
+    const dictionaryUpdatedCommand = vscode.commands.registerCommand(
+        "dictionaryTable.dictionaryUpdated",
+        () => {
+            // No-op; the file system watcher on project.dictionary will handle refreshes
+        }
+    );
+    context.subscriptions.push(dictionaryUpdatedCommand);
 }

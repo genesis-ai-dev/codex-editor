@@ -251,7 +251,7 @@ export const handleMessages = async (
 
                 document.updateCellContent(
                     event.content.cellMarkers[0],
-                    event.content.cellContent,
+                    event.content.cellContent === "<span></span>" ? "" : event.content.cellContent,
                     EditType.USER_EDIT
                 );
             } catch (error) {
@@ -784,15 +784,6 @@ export const handleMessages = async (
             } catch (error) {
                 console.error("Error getting current username:", error);
                 // vscode.window.showErrorMessage("Failed to get current username.");
-            }
-            return;
-        }
-        case "toggleWorkspaceUI": {
-            try {
-                await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-            } catch (error) {
-                console.error("Error toggling workspace UI:", error);
-                vscode.window.showErrorMessage("Failed to toggle workspace UI");
             }
             return;
         }

@@ -11,7 +11,7 @@ import { diffWords } from "diff";
 import { ICEEdits } from "./iceEdits";
 import { tokenizeText } from "@/utils/nlpUtils";
 
-const DEBUG_ENABLED = false;
+const DEBUG_ENABLED = true;
 function debug(...args: any[]): void {
     if (DEBUG_ENABLED) {
         console.log(`[SmartEdits]`, ...args);
@@ -114,28 +114,28 @@ export class SmartEdits {
         // If we have high-confidence ICE suggestions, return them immediately
         const highConfidenceIceSuggestions = iceSuggestions.filter((s) => s.confidence === "high");
         if (highConfidenceIceSuggestions.length > 0) {
+            debug("[SmartEdits] Exiting early: Found high-confidence ICE suggestions.");
             this.lastProcessedCellId = cellId;
             this.lastSuggestions = highConfidenceIceSuggestions;
             return highConfidenceIceSuggestions;
         }
 
-        // Continue with LLM suggestions if no high-confidence ICE suggestions
-        if (similarEntries.length === 0) {
-            this.lastProcessedCellId = cellId;
-            // Include low-confidence ICE suggestions if available
-            this.lastSuggestions = iceSuggestions;
-            return iceSuggestions;
+        // Determine the reference cellId for saved suggestions and context (fallback to current if none found)
+        let firstResultCellId = cellId;
+        if (similarEntries.length > 0) {
+            firstResultCellId = similarEntries[0].cellId;
         }
-
-        const firstResultCellId = similarEntries[0].cellId;
+        debug("[SmartEdits] Using firstResultCellId:", firstResultCellId);
 
         if (firstResultCellId === this.lastProcessedCellId) {
+            debug("[SmartEdits] Exiting early: firstResultCellId matches lastProcessedCellId. Returning cached suggestions:", this.lastSuggestions);
             return this.lastSuggestions;
         }
 
         const savedSuggestions = await this.loadSavedSuggestions(firstResultCellId);
 
         if (savedSuggestions && savedSuggestions.lastCellValue === text) {
+            debug("[SmartEdits] Exiting early: Found saved suggestions for unchanged text. Returning saved suggestions:", savedSuggestions);
             // Filter out rejected suggestions
             const filteredSuggestions = savedSuggestions.suggestions.filter(
                 (suggestion) =>
@@ -155,7 +155,10 @@ export class SmartEdits {
         const similarTextsString = this.formatSimilarTexts(similarTexts);
         const message = this.createEditMessage(similarTextsString, text, cellHistory);
 
+        debug(`[SmartEdits] Sending LLM prompt for cell ${cellId}:`);
+        debug(message);
         const jsonResponse = await this.chatbot.getJsonCompletion(message);
+        debug(`[SmartEdits] Received LLM response for cell ${cellId}:`, jsonResponse);
 
         let llmSuggestions: SmartSuggestion[] = [];
         if (Array.isArray(jsonResponse.suggestions)) {

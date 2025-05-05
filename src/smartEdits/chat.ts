@@ -15,6 +15,12 @@ class Chatbot {
     constructor(private systemMessage: string) {
         this.config = vscode.workspace.getConfiguration("translators-copilot");
         this.language = this.config.get("main_chat_language") || "en";
+        // Warn if API key is not set
+        if (!this.getApiKey()) {
+            vscode.window.showWarningMessage(
+                "Smart Edits LLM API key is not set (translators-copilot.api_key). LLM suggestions will be disabled."
+            );
+        }
         this.initializeOpenAI(); // Initialize OpenAI in constructor
         this.messages = [
             {

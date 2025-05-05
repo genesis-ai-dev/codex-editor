@@ -86,9 +86,74 @@ let commitTimeout: any;
 const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
 let authApi: FrontierAPI | undefined;
+let savedTabLayout: any[] = [];
+const TAB_LAYOUT_KEY = "codexEditor.tabLayout";
+
+// Helper to save tab layout and persist to globalState
+async function saveTabLayout(context: vscode.ExtensionContext) {
+    const layout = vscode.window.tabGroups.all.map((group, groupIndex) => ({
+        isActive: group.isActive,
+        tabs: group.tabs.map(tab => {
+            // Try to get URI and viewType for all tab types
+            let uri: string | undefined = undefined;
+            let viewType: string | undefined = undefined;
+            if ((tab as any).input) {
+                uri = (tab as any).input?.uri?.toString?.() || (tab as any).input?.resource?.toString?.();
+                viewType = (tab as any).input?.viewType;
+            }
+            return {
+                label: tab.label,
+                uri,
+                viewType,
+                isActive: tab.isActive,
+                isPinned: tab.isPinned,
+                groupIndex,
+            };
+        })
+    }));
+    savedTabLayout = layout;
+    await context.globalState.update(TAB_LAYOUT_KEY, layout);
+}
+
+// Helper to restore tab layout from globalState
+async function restoreTabLayout(context: vscode.ExtensionContext) {
+    const layout = context.globalState.get<any[]>(TAB_LAYOUT_KEY) || [];
+    for (const group of layout) {
+        for (const tab of group.tabs) {
+            if (tab.uri) {
+                try {
+                    if (tab.viewType && tab.viewType !== 'default') {
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            vscode.Uri.parse(tab.uri),
+                            tab.viewType,
+                            { viewColumn: tab.groupIndex + 1 }
+                        );
+                    } else {
+                        const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(tab.uri));
+                        await vscode.window.showTextDocument(doc, tab.groupIndex + 1);
+                    }
+                } catch (e) {
+                    // File may not exist, ignore
+                }
+            }
+        }
+    }
+    // Optionally, focus the previously active tab/group
+    // Clear the saved layout after restore
+    await context.globalState.update(TAB_LAYOUT_KEY, undefined);
+}
 
 export async function activate(context: vscode.ExtensionContext) {
     const activationStart = globalThis.performance.now();
+
+    // Save tab layout and close all editors before showing splash screen
+    try {
+        await saveTabLayout(context);
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    } catch (e) {
+        console.error("Error saving/closing tabs before splash screen:", e);
+    }
 
     // Register and show splash screen immediately before anything else
     try {
@@ -262,6 +327,8 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log(
                 "[Extension] Splash screen closed, checking if welcome view needs to be shown"
             );
+            // Restore tab layout after splash screen closes
+            await restoreTabLayout(context);
             // Check if we need to show the welcome view after initialization
             await showWelcomeViewIfNeeded();
         });

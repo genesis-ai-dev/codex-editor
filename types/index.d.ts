@@ -583,7 +583,6 @@ export type EditorPostMessages =
     | { command: "addWord"; words: string[] }
     | { command: "getAlertCodes"; content: GetAlertCodes }
     | { command: "executeCommand"; content: { command: string; args: any[] } }
-    | { command: "toggleWorkspaceUI" }
     | { command: "togglePrimarySidebar" }
     | { command: "toggleSecondarySidebar" }
     | { command: "focusMainMenu" }

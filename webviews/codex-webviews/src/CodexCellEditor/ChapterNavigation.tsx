@@ -1,4 +1,4 @@
-import React, { useState, useEffect, CSSProperties, useRef } from "react";
+import React, { useState, useEffect, CSSProperties, useRef, useCallback } from "react";
 import ReactDOM from "react-dom";
 import {
     VSCodeBadge,
@@ -20,11 +20,13 @@ interface AutocompleteModalProps {
     onConfirm: (
         numberOfCells: number,
         includeNotValidatedByAnyUser: boolean,
-        includeNotValidatedByCurrentUser: boolean
+        includeNotValidatedByCurrentUser: boolean,
+        includeFullyValidatedByOthers: boolean
     ) => void;
     totalUntranslatedCells: number;
     totalCellsToAutocomplete: number;
     totalCellsWithCurrentUserOption: number;
+    totalFullyValidatedByOthers?: number;
     defaultValue?: number;
 }
 
@@ -274,7 +276,7 @@ const ValidationLegend: React.FC<{
                                 className="codicon codicon-check-all"
                                 style={{
                                     fontSize: "12px",
-                                    color: "var(--vscode-descriptionForeground)",
+                                    color: "var(--vscode-terminal-ansiGreen)",
                                 }}
                             ></i>
                         </div>
@@ -312,17 +314,24 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     totalUntranslatedCells,
     totalCellsToAutocomplete,
     totalCellsWithCurrentUserOption,
+    totalFullyValidatedByOthers = 0,
     defaultValue = Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5),
 }) => {
-    // Initialize with the correct value for non-user-validated cells
-    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(
-        totalUntranslatedCells > 0 ? defaultValue : 0
-    );
-    const [customValue, setCustomValue] = useState(totalUntranslatedCells > 0 ? defaultValue : 0);
-    // Both checkboxes start unchecked, so we only select empty cells by default
+    // State for number of cells to autocomplete
+    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(0);
+    const [customValue, setCustomValue] = useState<number | null>(null);
+    
+    // Individual states for each cell type
+    const [includeEmptyCells, setIncludeEmptyCells] = useState(true);
     const [includeNotValidatedByAnyUser, setIncludeNotValidatedByAnyUser] = useState(false);
     const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
-    // Start with the base total - only cells with no content
+    const [includeFullyValidatedByOthers, setIncludeFullyValidatedByOthers] = useState(false);
+    
+    // Show warning dialogs
+    const [showValidationWarning, setShowValidationWarning] = useState(false);
+    const [showNotValidatedByCurrentUserWarning, setShowNotValidatedByCurrentUserWarning] = useState(false);
+    
+    // Start with base total - only cells with no content
     const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalUntranslatedCells);
 
     // Create a reference to the modal container
@@ -356,219 +365,228 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
         }
     }, [isOpen, onClose]);
 
-    // Log initial values to debug
+    // Calculate the effective total cells based on selected options
     useEffect(() => {
-        console.log("Modal initialized with:", {
-            totalUntranslatedCells,
-            totalCellsToAutocomplete,
-            totalCellsWithCurrentUserOption,
-            defaultValue,
-            effectiveTotalCells,
-        });
-    }, []);
-
-    // Update effective total cells when props or checkbox states change
-    useEffect(() => {
-        console.log("Props or checkbox state changed:", {
-            totalUntranslatedCells,
-            totalCellsToAutocomplete,
-            totalCellsWithCurrentUserOption,
-            includeNotValidatedByAnyUser,
-            includeNotValidatedByCurrentUser,
-        });
-
-        // Calculate the effective total based on checkboxes
-        let newEffectiveTotal = 0;
+        let total = 0;
+        
+        if (includeEmptyCells) {
+            total += totalUntranslatedCells;
+        }
+        
+        if (includeNotValidatedByAnyUser) {
+            // Add cells with content but no validation
+            total += totalCellsToAutocomplete - totalUntranslatedCells;
+        }
 
         if (includeNotValidatedByCurrentUser) {
-            // Include all cells not validated by current user
-            newEffectiveTotal = totalCellsWithCurrentUserOption;
-        } else if (includeNotValidatedByAnyUser) {
-            // Include cells not validated by any user
-            newEffectiveTotal = totalCellsToAutocomplete;
-        } else {
-            // Only include cells with no content
-            newEffectiveTotal = totalUntranslatedCells;
+            // Add cells validated by others but not by current user
+            // Avoid double-counting
+            const additionalCells = totalCellsWithCurrentUserOption - 
+                (includeNotValidatedByAnyUser ? totalCellsToAutocomplete : totalUntranslatedCells);
+            total += Math.max(0, additionalCells);
+        }
+        
+        if (includeFullyValidatedByOthers) {
+            // Add fully validated cells by others
+            total += totalFullyValidatedByOthers;
         }
 
-        setEffectiveTotalCells(newEffectiveTotal);
+        setEffectiveTotalCells(total);
 
-        // If number of cells is less than 5, automatically set to min(5, effectiveTotalCells)
-        if (numberOfCellsToAutocomplete < 5 && newEffectiveTotal > numberOfCellsToAutocomplete) {
-            const newValue = Math.min(5, newEffectiveTotal);
-            setNumberOfCellsToAutocomplete(newValue);
-            setCustomValue(newValue);
-        }
-        // If number of cells exceeds the new total, cap it
-        else if (numberOfCellsToAutocomplete > newEffectiveTotal) {
-            const newValue = Math.min(5, newEffectiveTotal > 0 ? newEffectiveTotal : 0);
-            setNumberOfCellsToAutocomplete(newValue);
-            setCustomValue(newValue);
+        // Adjust numberOfCellsToAutocomplete if needed
+        if (numberOfCellsToAutocomplete > total) {
+            setNumberOfCellsToAutocomplete(total > 0 ? total : 0);
+            setCustomValue(total > 0 ? total : 0);
         }
     }, [
+        includeEmptyCells,
+        includeNotValidatedByAnyUser,
+        includeNotValidatedByCurrentUser,
+        includeFullyValidatedByOthers,
         totalUntranslatedCells,
         totalCellsToAutocomplete,
         totalCellsWithCurrentUserOption,
-        includeNotValidatedByAnyUser,
-        includeNotValidatedByCurrentUser,
+        numberOfCellsToAutocomplete,
+        totalFullyValidatedByOthers
     ]);
 
-    // Handler for "Include cells not validated by any user" checkbox
-    const handleAnyUserCheckboxChange = (newValue: boolean) => {
-        console.log("ANY USER CHECKBOX CHANGED TO:", newValue);
-
-        // Calculate what the new effective total will be
-        let newEffectiveTotal;
-        if (newValue) {
-            if (includeNotValidatedByCurrentUser) {
-                // If "current user" is already checked, value won't change
-                newEffectiveTotal = totalCellsWithCurrentUserOption;
+    // Handle selection toggle for cell type cards
+    const toggleCellTypeSelection = (type: 'empty' | 'no-validator' | 'not-current-user' | 'fully-validated') => {
+        switch (type) {
+            case 'empty':
+                setIncludeEmptyCells(!includeEmptyCells);
+                break;
+            case 'no-validator':
+                setIncludeNotValidatedByAnyUser(!includeNotValidatedByAnyUser);
+                break;
+            case 'not-current-user':
+                if (!includeNotValidatedByCurrentUser) {
+                    // Show warning before enabling
+                    setShowNotValidatedByCurrentUserWarning(true);
             } else {
-                // Moving from empty cells to cells not validated by any user
-                newEffectiveTotal = totalCellsToAutocomplete;
+                    setIncludeNotValidatedByCurrentUser(!includeNotValidatedByCurrentUser);
             }
+                break;
+            case 'fully-validated':
+                if (!includeFullyValidatedByOthers) {
+                    // Show warning before enabling
+                    setShowValidationWarning(true);
         } else {
-            if (includeNotValidatedByCurrentUser) {
-                // If "current user" is still checked, value won't change
-                newEffectiveTotal = totalCellsWithCurrentUserOption;
-            } else {
-                // Moving back to only empty cells
-                newEffectiveTotal = totalUntranslatedCells;
+                    setIncludeFullyValidatedByOthers(!includeFullyValidatedByOthers);
+                }
+                break;
             }
-        }
-
-        // Only update to 5 if current value is 0, otherwise preserve the custom value
-        if (customValue === 0 && newEffectiveTotal > 0) {
-            const newDefaultValue = Math.min(5, newEffectiveTotal);
-            setNumberOfCellsToAutocomplete(newDefaultValue);
-            setCustomValue(newDefaultValue);
-        }
-        // If current value exceeds new maximum, cap it
-        else if (customValue > newEffectiveTotal) {
-            const cappedValue = newEffectiveTotal;
-            setNumberOfCellsToAutocomplete(cappedValue);
-            setCustomValue(cappedValue);
-        }
-
-        setIncludeNotValidatedByAnyUser(newValue);
+    };
+    
+    // Confirmation handler
+    const handleConfirm = () => {
+        onConfirm(
+            numberOfCellsToAutocomplete,
+            includeNotValidatedByAnyUser,
+            includeNotValidatedByCurrentUser,
+            includeFullyValidatedByOthers
+        );
     };
 
-    // Handler for "Include cells not validated by current user" checkbox
-    const handleCurrentUserCheckboxChange = (newValue: boolean) => {
-        console.log("CURRENT USER CHECKBOX CHANGED TO:", newValue);
-
-        // Calculate what the new effective total will be
-        let newEffectiveTotal;
-        if (newValue) {
-            // Moving to cells not validated by current user (most inclusive)
-            newEffectiveTotal = totalCellsWithCurrentUserOption;
-        } else {
-            if (includeNotValidatedByAnyUser) {
-                // Moving back to cells not validated by any user
-                newEffectiveTotal = totalCellsToAutocomplete;
-            } else {
-                // Moving back to only empty cells
-                newEffectiveTotal = totalUntranslatedCells;
-            }
-        }
-
-        // Only update to 5 if current value is 0, otherwise preserve the custom value
-        if (customValue === 0 && newEffectiveTotal > 0) {
-            const newDefaultValue = Math.min(5, newEffectiveTotal);
-            setNumberOfCellsToAutocomplete(newDefaultValue);
-            setCustomValue(newDefaultValue);
-        }
-        // If current value exceeds new maximum, cap it
-        else if (customValue > newEffectiveTotal) {
-            const cappedValue = newEffectiveTotal;
-            setNumberOfCellsToAutocomplete(cappedValue);
-            setCustomValue(cappedValue);
-        }
-
-        setIncludeNotValidatedByCurrentUser(newValue);
+    // Warning dialog confirmation handlers
+    const handleConfirmWarning = () => {
+        setShowValidationWarning(false);
+        setIncludeFullyValidatedByOthers(true);
     };
 
-    // Render a custom checkbox component
-    const CustomCheckbox: React.FC<{
-        checked: boolean;
-        onChange: (checked: boolean) => void;
-        label: React.ReactNode;
-    }> = ({ checked, onChange, label }) => (
-        <label
-            className="checkbox-container"
-            style={{
-                display: "flex",
-                alignItems: "center",
-                cursor: "pointer",
-                marginBottom: "8px",
-            }}
-        >
+    const handleConfirmNotValidatedByCurrentUserWarning = () => {
+        setShowNotValidatedByCurrentUserWarning(false);
+        setIncludeNotValidatedByCurrentUser(true);
+    };
+
+    if (!isOpen || !modalContainer) return null;
+
+    // Render the selection card for a cell type
+    const renderCellTypeCard = (
+        type: 'empty' | 'no-validator' | 'not-current-user' | 'fully-validated',
+        title: string,
+        description: string,
+        icon: React.ReactNode,
+        count: number,
+        isSelected: boolean
+    ) => {
+        const isDisabled = count === 0;
+        
+        return (
             <div
-                className="custom-checkbox"
+                className="cell-type-card"
+                onClick={() => !isDisabled && toggleCellTypeSelection(type)}
                 style={{
-                    width: "18px",
-                    height: "18px",
-                    border: "2px solid var(--vscode-checkbox-border, #6c757d)",
-                    borderRadius: "3px",
-                    backgroundColor: checked
+                    backgroundColor: isSelected 
+                        ? "var(--vscode-button-background, #0e639c)" 
+                        : "var(--vscode-editor-background)",
+                    border: `1px solid ${isSelected 
                         ? "var(--vscode-focusBorder, #007fd4)"
-                        : "var(--vscode-checkbox-background, #252526)",
+                        : "var(--vscode-widget-border)"}`,
+                    borderRadius: "6px",
+                    padding: "14px",
+                    cursor: isDisabled ? "not-allowed" : "pointer",
+                    opacity: isDisabled ? 0.5 : 1,
+                    transition: "all 0.2s ease",
                     display: "flex",
-                    justifyContent: "center",
-                    alignItems: "center",
-                    marginRight: "8px",
+                    flexDirection: "column",
+                    gap: "8px",
+                    boxShadow: isSelected 
+                        ? "0 0 0 1px var(--vscode-focusBorder)"
+                        : "none",
                     position: "relative",
-                    cursor: "pointer",
-                    boxShadow: checked ? "0 0 2px 1px var(--vscode-focusBorder, #007fd4)" : "none",
+                    overflow: "hidden",
+                    height: "100%"
                 }}
-                onClick={() => onChange(!checked)}
             >
-                {checked && (
-                    <div
-                        style={{
-                            width: "6px",
-                            height: "10px",
-                            borderRight: "2px solid white",
-                            borderBottom: "2px solid white",
-                            transform: "rotate(45deg) translate(-1px, -1px)",
+                <div style={{ 
                             position: "absolute",
+                    top: "10px", 
+                    right: "10px", 
+                    width: "16px", 
+                    height: "16px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: isSelected 
+                        ? "var(--vscode-button-foreground, #ffffff)"
+                        : "transparent",
+                    borderRadius: "50%",
+                    border: isSelected
+                        ? "none"
+                        : "1px solid var(--vscode-descriptionForeground)",
+                }}>
+                    {isSelected && (
+                        <i 
+                            className="codicon codicon-check" 
+                            style={{ 
+                                fontSize: "12px", 
+                                color: "var(--vscode-button-background, #0e639c)"
                         }}
                     />
                 )}
             </div>
-            <span onClick={() => onChange(!checked)}>{label}</span>
-        </label>
-    );
-
-    // Determine which icons to show based on checkbox states
-    const getIconsToShow = () => {
-        if (includeNotValidatedByCurrentUser) {
-            return {
-                showEmptyCells: true,
-                showNoValidatorCells: true,
-                showNotCurrentUserCells: true,
-            };
-        } else if (includeNotValidatedByAnyUser) {
-            return {
-                showEmptyCells: true,
-                showNoValidatorCells: true,
-                showNotCurrentUserCells: false,
-            };
-        } else {
-            return {
-                showEmptyCells: true,
-                showNoValidatorCells: false,
-                showNotCurrentUserCells: false,
-            };
-        }
+                <div style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "8px",
+                    color: isSelected 
+                        ? "var(--vscode-button-foreground, #ffffff)" 
+                        : "var(--vscode-foreground)"
+                }}>
+                    <div style={{
+                        width: "24px", 
+                        height: "24px", 
+                        display: "flex", 
+                        alignItems: "center", 
+                        justifyContent: "center",
+                        backgroundColor: isSelected ? 
+                            "rgba(255, 255, 255, 0.15)" : 
+                            "var(--vscode-editorWidget-background)",
+                        borderRadius: "4px"
+                    }}>
+                        {icon}
+                    </div>
+                    <div style={{ fontWeight: "600" }}>{title}</div>
+                </div>
+                <div style={{ 
+                    fontSize: "12px", 
+                    color: isSelected 
+                        ? "var(--vscode-button-foreground, #ffffff)" 
+                        : "var(--vscode-descriptionForeground)",
+                    flex: 1
+                }}>
+                    {description}
+                </div>
+                <div style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "flex-start",
+                    marginTop: "4px"
+                }}>
+                    <div style={{
+                        backgroundColor: isSelected 
+                            ? "rgba(255, 255, 255, 0.2)" 
+                            : "var(--vscode-badge-background)",
+                        color: isSelected 
+                            ? "var(--vscode-button-foreground, #ffffff)" 
+                            : "var(--vscode-badge-foreground)",
+                        borderRadius: "10px",
+                        padding: "2px 8px",
+                        fontSize: "11px",
+                        fontWeight: "600",
+                        display: "inline-block"
+                    }}>
+                        {count} cells
+                    </div>
+                </div>
+            </div>
+        );
     };
-
-    const { showEmptyCells, showNoValidatorCells, showNotCurrentUserCells } = getIconsToShow();
-
-    if (!isOpen || !modalContainer) return null;
 
     // Use a portal to render the modal at the document body level
     return ReactDOM.createPortal(
+        <>
         <div
             className="modal-overlay"
             onClick={(e) => {
@@ -577,162 +595,828 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                     onClose();
                 }
             }}
+                style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.5)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 9999
+                }}
         >
-            <div className="modal-content" ref={modalRef} tabIndex={-1}>
-                <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
-                    <h2 style={{ margin: 0 }}>Autocomplete Cells</h2>
-                    <ValidationLegend position="right" showToSide={true} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", marginBottom: "1rem" }}>
-                    <VSCodeTag>Autocomplete {numberOfCellsToAutocomplete || 0} Cells</VSCodeTag>
-                    <ValidationIconSet
-                        showEmptyCells={showEmptyCells}
-                        showNoValidatorCells={showNoValidatorCells}
-                        showNotCurrentUserCells={showNotCurrentUserCells}
-                    />
-                </div>
-                <VSCodeRadioGroup
-                    value={
-                        numberOfCellsToAutocomplete === effectiveTotalCells
-                            ? effectiveTotalCells.toString()
-                            : "custom"
-                    }
-                    onChange={(e) => {
-                        const target = e.target as HTMLInputElement;
-                        if (target.value === "custom") {
-                            if (effectiveTotalCells === 0) {
-                                setCustomValue(0);
-                                setNumberOfCellsToAutocomplete(0);
-                            } else if (!customValue) {
-                                const defaultValue = Math.min(5, effectiveTotalCells);
-                                setCustomValue(defaultValue);
-                                setNumberOfCellsToAutocomplete(defaultValue);
-                            } else {
-                                // Use the existing custom value rather than resetting to default
-                                setNumberOfCellsToAutocomplete(customValue);
-                            }
-                        } else if (target.value === effectiveTotalCells.toString()) {
-                            setNumberOfCellsToAutocomplete(effectiveTotalCells);
-                            // Don't update customValue here to preserve it for when user switches back
-                        }
+                <div 
+                    className="modal-content" 
+                    ref={modalRef} 
+                    tabIndex={-1}
+                    style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        border: "1px solid var(--vscode-widget-border)",
+                        borderRadius: "6px",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                        padding: "20px",
+                        width: "580px",
+                        maxWidth: "90vw",
+                        maxHeight: "90vh",
+                        overflow: "auto",
+                        position: "relative"
                     }}
                 >
-                    <label slot="label">Autocomplete</label>
-                    <VSCodeRadio value="custom">
+                    <div style={{ 
+                        display: "flex", 
+                        alignItems: "center", 
+                        marginBottom: "20px",
+                        justifyContent: "space-between" 
+                    }}>
+                        <h2 style={{ margin: 0, fontSize: "18px", fontWeight: "600" }}>Autocomplete Cells</h2>
+                    <ValidationLegend position="right" showToSide={true} />
+                </div>
+                    
+                    <div style={{ 
+                        display: "grid", 
+                        gridTemplateColumns: "repeat(2, 1fr)", 
+                        gap: "16px", 
+                        marginBottom: "20px" 
+                    }}>
+                        {/* Empty/Untranslated Cells Card */}
+                        {renderCellTypeCard(
+                            'empty',
+                            'Empty Cells',
+                            'Cells with no content',
+                            <span style={{ 
+                                fontWeight: "bold", 
+                                width: "16px", 
+                                height: "16px", 
+                                display: "inline-flex", 
+                                alignItems: "center", 
+                                justifyContent: "center",
+                                color: includeEmptyCells 
+                                    ? "var(--vscode-button-foreground, #ffffff)" 
+                                    : "var(--vscode-descriptionForeground)"
+                            }}>—</span>,
+                            totalUntranslatedCells,
+                            includeEmptyCells
+                        )}
+                        
+                        {/* Cells without any validator Card */}
+                        {renderCellTypeCard(
+                            'no-validator',
+                            'No Validator',
+                            'Cells with content but no validator',
+                            <i className="codicon codicon-circle-outline" style={{ 
+                                fontSize: "16px",
+                                color: includeNotValidatedByAnyUser 
+                                    ? "var(--vscode-button-foreground, #ffffff)" 
+                                    : "var(--vscode-descriptionForeground)"
+                            }}></i>,
+                            totalCellsToAutocomplete - totalUntranslatedCells,
+                            includeNotValidatedByAnyUser
+                        )}
+                        
+                        {/* Cells not validated by current user Card */}
+                        {renderCellTypeCard(
+                            'not-current-user',
+                            'Not Validated by You',
+                            'Cells validated by others but not by you',
+                            <i className="codicon codicon-circle-filled" style={{ 
+                                fontSize: "16px",
+                                color: includeNotValidatedByCurrentUser 
+                                    ? "var(--vscode-button-foreground, #ffffff)" 
+                                    : "var(--vscode-descriptionForeground)"
+                            }}></i>,
+                            totalCellsWithCurrentUserOption - totalCellsToAutocomplete,
+                            includeNotValidatedByCurrentUser
+                        )}
+                        
+                        {/* Fully validated by others Card */}
+                        {renderCellTypeCard(
+                            'fully-validated',
+                            'Fully Validated',
+                            'Cells already fully validated by other users',
+                            <i className="codicon codicon-check-all" style={{ 
+                                fontSize: "16px",
+                                color: includeFullyValidatedByOthers 
+                                    ? "var(--vscode-button-foreground, #ffffff)" 
+                                    : "var(--vscode-descriptionForeground)"
+                            }}></i>,
+                            totalFullyValidatedByOthers,
+                            includeFullyValidatedByOthers
+                        )}
+                </div>
+                    
+                    <div style={{ marginBottom: "20px" }}>
+                        <div style={{ 
+                            display: "flex", 
+                            alignItems: "center", 
+                            marginBottom: "10px",
+                            gap: "8px" 
+                        }}>
+                            <label style={{ fontWeight: 600 }}>
+                                Number of cells to autocomplete:
+                            </label>
+                            
+                            <div style={{ 
+                                display: "flex",
+                                alignItems: "center", 
+                                gap: "8px",
+                                marginLeft: "auto" 
+                            }}>
+                                <div 
+                                    className={`input-container ${effectiveTotalCells === 0 ? 'disabled' : ''}`}
+                                    style={{ 
+                                        position: "relative", 
+                                        width: "150px",
+                                        border: "1px solid var(--vscode-input-border, var(--vscode-widget-border))",
+                                        borderRadius: "4px",
+                                        backgroundColor: "var(--vscode-input-background)",
+                                        transition: "box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out",
+                                        opacity: effectiveTotalCells === 0 ? 0.6 : 1
+                                    }}>
                         <input
                             type="number"
-                            min="1"
-                            max={effectiveTotalCells}
-                            defaultValue={Math.min(5, effectiveTotalCells)}
-                            value={
-                                customValue === 0 ? "0" : Math.min(customValue, effectiveTotalCells)
-                            }
-                            onFocus={(e) => {
-                                const defaultValue = Math.min(5, effectiveTotalCells);
-                                if (!customValue) {
-                                    setCustomValue(defaultValue);
-                                }
-                                setNumberOfCellsToAutocomplete(customValue || defaultValue);
-
-                                // Select the custom radio button
-                                const radioGroup = e.currentTarget.closest("vscode-radio-group");
-                                if (radioGroup) {
-                                    const event = new Event("change", {
-                                        bubbles: true,
-                                    });
-                                    Object.defineProperty(event, "target", {
-                                        value: { value: "custom" },
-                                        enumerable: true,
-                                    });
-                                    radioGroup.dispatchEvent(event);
-                                }
-                            }}
+                            max={effectiveTotalCells || undefined}
+                            value={customValue !== null ? customValue.toString() : ""}
                             onChange={(e) => {
                                 const inputValue = e.target.value;
                                 if (inputValue === "") {
-                                    // Allow empty input without converting to 0
-                                    setCustomValue(NaN);
+                                    setCustomValue(null);
                                     setNumberOfCellsToAutocomplete(0);
                                     return;
                                 }
+                                
                                 const value = parseInt(inputValue);
-                                if (!isNaN(value) && value >= 0) {
-                                    const cappedValue = Math.min(value, effectiveTotalCells);
-                                    setCustomValue(cappedValue);
-                                    setNumberOfCellsToAutocomplete(cappedValue);
+                                if (!isNaN(value)) {
+                                    setCustomValue(value);
+                                    // Only set the actual number of cells if the value is valid (> 0)
+                                    if (value > 0) {
+                                        setNumberOfCellsToAutocomplete(
+                                            value > effectiveTotalCells && effectiveTotalCells > 0 ? 
+                                                effectiveTotalCells : value
+                                        );
+                                    } else {
+                                        setNumberOfCellsToAutocomplete(0);
+                                    }
                                 }
                             }}
-                            style={{
-                                width: "60px",
-                                marginLeft: "8px",
-                                border: "2px solid var(--vscode-focusBorder)",
-                                borderRadius: "4px",
-                                padding: "4px",
-                                outline: "none",
-                                boxShadow: "0 0 0 1px var(--vscode-focusBorder)",
-                                backgroundColor: "var(--vscode-input-background)",
-                                color: "var(--vscode-input-foreground)",
-                            }}
+                            placeholder="Enter a value"
+                            id="autocomplete-cell-count"
                             className="autocomplete-number-input"
+                            style={{
+                                width: "100%",
+                                border: "none",
+                                borderRadius: "4px",
+                                padding: "4px 8px",
+                                outline: "none",
+                                height: "28px", /* Match VSCodeButton height */
+                                backgroundColor: "transparent",
+                                color: "var(--vscode-input-foreground)",
+                                fontSize: "13px",
+                                boxSizing: "border-box",
+                                transition: "border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out",
+                            }}
+                            disabled={effectiveTotalCells === 0}
                         />
-                    </VSCodeRadio>
-                    <VSCodeRadio value={effectiveTotalCells.toString()}>
+                        {/* Error tooltip for values exceeding maximum */}
+                        {customValue !== null && customValue > effectiveTotalCells && effectiveTotalCells > 0 && (
+                            <div style={{
+                                position: "absolute",
+                                top: "-40px",
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                                backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                color: "var(--vscode-editorError-foreground, #a41515)",
+                                fontSize: "12px",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                                whiteSpace: "nowrap",
+                                zIndex: 10,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                fontWeight: "500"
+                            }}>
+                                <i className="codicon codicon-warning" style={{ 
+                                    fontSize: "14px", 
+                                    color: "var(--vscode-editorError-foreground, #a41515)"
+                                }} />
+                                Value must be less than or equal to {effectiveTotalCells}
+                                {/* Arrow pointing down */}
+                                <div style={{
+                                    position: "absolute",
+                                    bottom: "-5px",
+                                    left: "50%",
+                                    transform: "translateX(-50%) rotate(45deg)",
+                                    width: "10px",
+                                    height: "10px",
+                                    backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                    border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                    borderTop: "none",
+                                    borderLeft: "none"
+                                }}></div>
+                            </div>
+                        )}
+                        
+                        {/* Error tooltip for zero or negative values */}
+                        {customValue !== null && customValue <= 0 && (
+                            <div style={{
+                                position: "absolute",
+                                top: "-40px",
+                                left: "50%",
+                                transform: "translateX(-50%)",
+                                backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                color: "var(--vscode-editorError-foreground, #a41515)",
+                                fontSize: "12px",
+                                padding: "6px 10px",
+                                borderRadius: "4px",
+                                boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+                                whiteSpace: "nowrap",
+                                zIndex: 10,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                fontWeight: "500"
+                            }}>
+                                <i className="codicon codicon-warning" style={{ 
+                                    fontSize: "14px", 
+                                    color: "var(--vscode-editorError-foreground, #a41515)"
+                                }} />
+                                Value must be greater than 0
+                                {/* Arrow pointing down */}
+                                <div style={{
+                                    position: "absolute",
+                                    bottom: "-5px",
+                                    left: "50%",
+                                    transform: "translateX(-50%) rotate(45deg)",
+                                    width: "10px",
+                                    height: "10px",
+                                    backgroundColor: "var(--vscode-editorError-background, #f2dede)",
+                                    border: "1px solid var(--vscode-editorError-border, #be1100)",
+                                    borderTop: "none",
+                                    borderLeft: "none"
+                                }}></div>
+                            </div>
+                        )}
+                                </div>
+                                
+                                {effectiveTotalCells > 0 && (
+                                    <VSCodeButton 
+                                        onClick={() => {
+                                            setNumberOfCellsToAutocomplete(effectiveTotalCells);
+                                            setCustomValue(effectiveTotalCells);
+                                        }}
+                                    >
                         All ({effectiveTotalCells})
-                    </VSCodeRadio>
-                </VSCodeRadioGroup>
-
-                <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
-                    <CustomCheckbox
-                        checked={includeNotValidatedByAnyUser}
-                        onChange={handleAnyUserCheckboxChange}
-                        label={
-                            <div style={{ display: "flex", alignItems: "center" }}>
-                                Include cells not validated by any user
-                                <ValidationIconSet
-                                    showEmptyCells={true}
-                                    showNoValidatorCells={true}
-                                    showNotCurrentUserCells={false}
-                                    style={{ marginLeft: "4px" }}
-                                />
+                                    </VSCodeButton>
+                                )}
                             </div>
-                        }
-                    />
-
-                    <CustomCheckbox
-                        checked={includeNotValidatedByCurrentUser}
-                        onChange={handleCurrentUserCheckboxChange}
-                        label={
-                            <div style={{ display: "flex", alignItems: "center" }}>
-                                Include cells not validated by the current user
-                                <ValidationIconSet
-                                    showEmptyCells={true}
-                                    showNoValidatorCells={true}
-                                    showNotCurrentUserCells={true}
-                                    style={{ marginLeft: "4px" }}
-                                />
+                        </div>
+                        
+                        {/* Selected cell types summary */}
+                        <div style={{
+                            padding: "10px",
+                            backgroundColor: "var(--vscode-editorWidget-background)",
+                            borderRadius: "4px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: "6px"
+                        }}>
+                            <div style={{ fontWeight: "600", fontSize: "13px" }}>Selected cell types:</div>
+                            <div style={{ 
+                                display: "flex", 
+                                gap: "8px",
+                                flexWrap: "wrap" 
+                            }}>
+                                {includeEmptyCells && (
+                                    <VSCodeTag>Empty Cells</VSCodeTag>
+                                )}
+                                {includeNotValidatedByAnyUser && (
+                                    <VSCodeTag>No Validator</VSCodeTag>
+                                )}
+                                {includeNotValidatedByCurrentUser && (
+                                    <VSCodeTag>Not Validated by You</VSCodeTag>
+                                )}
+                                {includeFullyValidatedByOthers && (
+                                    <VSCodeTag>Fully Validated</VSCodeTag>
+                                )}
+                                {!includeEmptyCells && !includeNotValidatedByAnyUser && 
+                                 !includeNotValidatedByCurrentUser && !includeFullyValidatedByOthers && (
+                                    <span style={{ 
+                                        color: "var(--vscode-errorForeground)", 
+                                        fontSize: "13px" 
+                                    }}>
+                                        No cell types selected
+                                    </span>
+                                )}
                             </div>
-                        }
-                    />
+                        </div>
+                        
+                            </div>
+
+                    <div className="modal-actions" style={{ 
+                        display: "flex", 
+                        justifyContent: "flex-end",
+                        gap: "8px",
+                        marginTop: "20px" 
+                    }}>
+                        <VSCodeButton 
+                            onClick={onClose} 
+                            appearance="secondary"
+                        >
+                            Cancel
+                        </VSCodeButton>
+                        <VSCodeButton
+                            onClick={handleConfirm}
+                            disabled={
+                                (!includeEmptyCells && !includeNotValidatedByAnyUser && 
+                                !includeNotValidatedByCurrentUser && !includeFullyValidatedByOthers) || 
+                                effectiveTotalCells === 0 ||
+                                customValue === null || 
+                                customValue <= 0 ||
+                                (customValue > effectiveTotalCells && effectiveTotalCells > 0)
+                            }
+                        >
+                            Autocomplete {numberOfCellsToAutocomplete} Cells
+                        </VSCodeButton>
+                            </div>
+                </div>
                 </div>
 
-                <div className="modal-actions">
-                    <VSCodeButton onClick={onClose} appearance="secondary">
+            {/* Warning dialog for fully validated cells */}
+            {showValidationWarning && (
+                <div className="warning-dialog-overlay" style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 10000
+                }}>
+                    <div className="warning-dialog" style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        border: "1px solid var(--vscode-editorWarning-border, #cca700)",
+                        borderRadius: "6px",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+                        padding: "20px",
+                        width: "400px",
+                        maxWidth: "90vw"
+                    }}>
+                        <div style={{ 
+                            display: "flex", 
+                            alignItems: "flex-start", 
+                            gap: "12px", 
+                            marginBottom: "16px" 
+                        }}>
+                            <i 
+                                className="codicon codicon-warning" 
+                                style={{ 
+                                    fontSize: "20px", 
+                                    color: "var(--vscode-editorWarning-foreground, #cca700)",
+                                    marginTop: "2px"
+                                }}
+                            />
+                            <div>
+                                <h3 style={{ 
+                                    margin: "0 0 8px 0", 
+                                    color: "var(--vscode-editorWarning-foreground, #cca700)" 
+                                }}>
+                                    Warning: Selecting Fully Validated Cells
+                                </h3>
+                                <p style={{ margin: "0 0 8px 0" }}>
+                                    These cells have already been fully validated by other users, 
+                                    meaning they've gone through multiple validation passes.
+                                </p>
+                                <p style={{ margin: "0" }}>
+                                    Are you sure you want to include them for autocomplete?
+                                </p>
+                </div>
+                        </div>
+                        <div style={{ 
+                            display: "flex", 
+                            justifyContent: "flex-end", 
+                            gap: "8px" 
+                        }}>
+                            <VSCodeButton 
+                                appearance="secondary" 
+                                onClick={() => setShowValidationWarning(false)}
+                            >
+                                Cancel
+                            </VSCodeButton>
+                            <VSCodeButton
+                                onClick={handleConfirmWarning}
+                            >
+                                Include Anyway
+                            </VSCodeButton>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Warning dialog for cells not validated by current user */}
+            {showNotValidatedByCurrentUserWarning && (
+                <div className="warning-dialog-overlay" style={{
+                    position: "fixed",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: "rgba(0, 0, 0, 0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    zIndex: 10000
+                }}>
+                    <div className="warning-dialog" style={{
+                        backgroundColor: "var(--vscode-editor-background)",
+                        border: "1px solid var(--vscode-editorWarning-border, #cca700)",
+                        borderRadius: "6px",
+                        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+                        padding: "20px",
+                        width: "400px",
+                        maxWidth: "90vw"
+                    }}>
+                        <div style={{ 
+                            display: "flex", 
+                            alignItems: "flex-start", 
+                            gap: "12px", 
+                            marginBottom: "16px" 
+                        }}>
+                            <i 
+                                className="codicon codicon-warning" 
+                                style={{ 
+                                    fontSize: "20px", 
+                                    color: "var(--vscode-editorWarning-foreground, #cca700)",
+                                    marginTop: "2px"
+                                }}
+                            />
+                            <div>
+                                <h3 style={{ 
+                                    margin: "0 0 8px 0", 
+                                    color: "var(--vscode-editorWarning-foreground, #cca700)" 
+                                }}>
+                                    Warning: Selecting Cells Validated by Others
+                                </h3>
+                                <p style={{ margin: "0 0 8px 0" }}>
+                                    These cells already have content and have been validated by other users, 
+                                    but not by you.
+                                </p>
+                                <p style={{ margin: "0" }}>
+                                    Are you sure you want to include them for autocomplete?
+                                </p>
+                            </div>
+                        </div>
+                        <div style={{ 
+                            display: "flex", 
+                            justifyContent: "flex-end", 
+                            gap: "8px" 
+                        }}>
+                            <VSCodeButton 
+                                appearance="secondary" 
+                                onClick={() => setShowNotValidatedByCurrentUserWarning(false)}
+                            >
                         Cancel
                     </VSCodeButton>
                     <VSCodeButton
-                        onClick={() =>
-                            onConfirm(
-                                numberOfCellsToAutocomplete,
-                                includeNotValidatedByAnyUser,
-                                includeNotValidatedByCurrentUser
-                            )
-                        }
-                        disabled={numberOfCellsToAutocomplete === 0}
+                                onClick={handleConfirmNotValidatedByCurrentUserWarning}
+                            >
+                                Include Anyway
+                            </VSCodeButton>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>,
+        modalContainer
+    );
+};
+
+interface ChapterSelectorModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSelectChapter: (chapter: number) => void;
+    currentChapter: number;
+    totalChapters: number;
+    bookTitle: string;
+    unsavedChanges: boolean;
+    anchorRef: React.RefObject<HTMLDivElement>;
+}
+
+const ChapterSelectorModal: React.FC<ChapterSelectorModalProps> = ({
+    isOpen,
+    onClose,
+    onSelectChapter,
+    currentChapter,
+    totalChapters,
+    bookTitle,
+    unsavedChanges,
+    anchorRef
+}) => {
+    // Create a reference to the modal container
+    const [modalContainer, setModalContainer] = useState<HTMLElement | null>(null);
+    const modalRef = React.useRef<HTMLDivElement>(null);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+    const [columns, setColumns] = useState(10);
+    const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
+    
+    // Initialize the modal container on component mount
+    useEffect(() => {
+        if (typeof document !== "undefined") {
+            setModalContainer(document.body);
+        }
+    }, []);
+    
+    // Focus trap and ESC key handling
+    useEffect(() => {
+        if (isOpen && modalRef.current) {
+            // Auto-focus the modal when opened
+            modalRef.current.focus();
+            
+            // Handle ESC key press
+            const handleKeyDown = (e: KeyboardEvent) => {
+                if (e.key === "Escape") {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener("keydown", handleKeyDown);
+            
+            // Close when clicking outside
+            const handleClickOutside = (e: MouseEvent) => {
+                if (modalRef.current && !modalRef.current.contains(e.target as Node) && 
+                    anchorRef.current && !anchorRef.current.contains(e.target as Node)) {
+                    onClose();
+                }
+            };
+            
+            document.addEventListener("mousedown", handleClickOutside);
+            
+            return () => {
+                document.removeEventListener("keydown", handleKeyDown);
+                document.removeEventListener("mousedown", handleClickOutside);
+            };
+        }
+    }, [isOpen, onClose, anchorRef]);
+    
+    // Function to calculate position and dimensions
+    const calculatePositionAndDimensions = useCallback(() => {
+        if (isOpen && anchorRef.current && modalContainer) {
+            const rect = anchorRef.current.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            // Determine available width
+            const idealWidth = 600; // Our ideal width
+            const availableWidth = Math.min(viewportWidth - 40, idealWidth); // 20px padding on each side
+            
+            // Calculate columns based on available width
+            // Ensure each cell is at least 32px with 8px gap (40px total per cell)
+            const maxColumns = Math.floor(availableWidth / 40);
+            setColumns(Math.min(10, Math.max(5, maxColumns))); // Between 5 and 10 columns
+            
+            // Calculate centered position
+            const left = rect.left + (rect.width / 2);
+            const centeredLeft = left - (availableWidth / 2);
+            
+            // Avoid going off screen to the left
+            const adjustedLeft = Math.max(20, centeredLeft);
+            
+            // Avoid going off screen to the right
+            const rightEdge = adjustedLeft + availableWidth;
+            const finalLeft = rightEdge > viewportWidth - 20 
+                ? (viewportWidth - 20 - availableWidth) 
+                : adjustedLeft;
+            
+            // Determine if dropdown should appear above or below
+            const spaceBelow = viewportHeight - rect.bottom;
+            const spaceAbove = rect.top;
+            const maxHeight = Math.min(500, viewportHeight - 80); // Maximum height with 40px padding top and bottom
+            
+            let topPosition;
+            const arrowPos: "top" | "bottom" = (spaceBelow >= maxHeight || spaceBelow >= spaceAbove) ? "top" : "bottom";
+            
+            if (arrowPos === "top") {
+                // Place below the button
+                topPosition = rect.bottom + window.scrollY;
+            } else {
+                // Place above the button
+                topPosition = rect.top + window.scrollY - maxHeight - 16; // 16px for the arrow
+            }
+            
+            setDropdownPosition({
+                top: topPosition,
+                left: finalLeft,
+                width: availableWidth
+            });
+            
+            // Update arrow position
+            setArrowPosition(arrowPos);
+        }
+    }, [isOpen, anchorRef, modalContainer]);
+    
+    // Calculate position and size based on the anchor element and viewport
+    useEffect(() => {
+        calculatePositionAndDimensions();
+    }, [calculatePositionAndDimensions]);
+    
+    // Add resize listener to handle window size changes while dropdown is open
+    useEffect(() => {
+        if (isOpen) {
+            const handleResize = () => {
+                calculatePositionAndDimensions();
+            };
+            
+            window.addEventListener('resize', handleResize);
+            
+            return () => {
+                window.removeEventListener('resize', handleResize);
+            };
+        }
+    }, [isOpen, calculatePositionAndDimensions]);
+    
+    if (!isOpen || !modalContainer) return null;
+    
+    // Calculate where to display the arrow relative to button center
+    const buttonCenterX = anchorRef.current ? 
+        anchorRef.current.getBoundingClientRect().left + (anchorRef.current.getBoundingClientRect().width / 2) : 0;
+    
+    const arrowLeft = buttonCenterX - dropdownPosition.left;
+    const arrowLeftPercent = Math.min(Math.max((arrowLeft / dropdownPosition.width) * 100, 10), 90); // Keep between 10% and 90%
+    
+    return ReactDOM.createPortal(
+        <div 
+            className="chapter-selector-dropdown" 
+            ref={modalRef}
+            tabIndex={-1}
+            style={{
+                position: "absolute",
+                top: `${dropdownPosition.top}px`,
+                left: `${dropdownPosition.left}px`,
+                width: `${dropdownPosition.width}px`,
+                backgroundColor: "var(--vscode-editor-background)",
+                border: "1px solid var(--vscode-widget-border)",
+                borderRadius: "6px",
+                boxShadow: "0 6px 16px rgba(0, 0, 0, 0.15)",
+                padding: "16px",
+                zIndex: 9999,
+                overflowY: "auto",
+                maxHeight: "min(60vh, 500px)",
+                marginTop: arrowPosition === "top" ? "8px" : "0",
+                marginBottom: arrowPosition === "bottom" ? "8px" : "0",
+                transformOrigin: arrowPosition === "top" ? "top center" : "bottom center"
+            }}
                     >
-                        Confirm
+            {/* Dropdown arrow pointing to the chapter button */}
+            {arrowPosition === "top" && (
+                <div style={{
+                    position: "absolute",
+                    top: "-8px",
+                    left: `${arrowLeftPercent}%`,
+                    transform: "translateX(-50%) rotate(45deg)",
+                    width: "16px",
+                    height: "16px",
+                    backgroundColor: "var(--vscode-editor-background)",
+                    border: "1px solid var(--vscode-widget-border)",
+                    borderBottom: "none",
+                    borderRight: "none",
+                    zIndex: 9998
+                }}></div>
+            )}
+            
+            {arrowPosition === "bottom" && (
+                <div style={{
+                    position: "absolute",
+                    bottom: "-8px",
+                    left: `${arrowLeftPercent}%`,
+                    transform: "translateX(-50%) rotate(45deg)",
+                    width: "16px",
+                    height: "16px",
+                    backgroundColor: "var(--vscode-editor-background)",
+                    border: "1px solid var(--vscode-widget-border)",
+                    borderTop: "none",
+                    borderLeft: "none",
+                    zIndex: 9998
+                }}></div>
+            )}
+            
+            <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "16px"
+            }}>
+                <h2 style={{
+                    margin: 0,
+                    fontSize: "18px",
+                    fontWeight: "600"
+                }}>
+                    {bookTitle}
+                </h2>
+                <VSCodeButton 
+                    appearance="icon"
+                    onClick={onClose}
+                >
+                    <i className="codicon codicon-close"></i>
                     </VSCodeButton>
                 </div>
+            
+            <div style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                gap: "8px",
+                marginBottom: "16px"
+            }}>
+                {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
+                    <div
+                        key={chapter}
+                        onClick={() => {
+                            if (!unsavedChanges) {
+                                onSelectChapter(chapter);
+                                onClose();
+                            }
+                        }}
+                        style={{
+                            width: "100%",
+                            aspectRatio: "1 / 1",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: currentChapter === chapter 
+                                ? "var(--vscode-button-background)" 
+                                : "var(--vscode-editorWidget-background)",
+                            color: currentChapter === chapter 
+                                ? "var(--vscode-button-foreground)" 
+                                : "var(--vscode-foreground)",
+                            borderRadius: "4px",
+                            cursor: unsavedChanges ? "not-allowed" : "pointer",
+                            fontSize: "14px",
+                            fontWeight: currentChapter === chapter ? "600" : "normal",
+                            border: currentChapter === chapter 
+                                ? "1px solid var(--vscode-focusBorder)"
+                                : "1px solid var(--vscode-widget-border)",
+                            opacity: unsavedChanges ? 0.6 : 1,
+                            transition: "all 0.2s ease",
+                            position: "relative",
+                            overflow: "hidden",
+                            minWidth: "32px",
+                            minHeight: "32px"
+                        }}
+                        onMouseEnter={(e) => {
+                            if (!unsavedChanges && currentChapter !== chapter) {
+                                e.currentTarget.style.backgroundColor = "var(--vscode-button-hoverBackground)";
+                                e.currentTarget.style.color = "var(--vscode-button-foreground)";
+                            }
+                        }}
+                        onMouseLeave={(e) => {
+                            if (!unsavedChanges && currentChapter !== chapter) {
+                                e.currentTarget.style.backgroundColor = "var(--vscode-editorWidget-background)";
+                                e.currentTarget.style.color = "var(--vscode-foreground)";
+                            }
+                        }}
+                    >
+                        {currentChapter === chapter && (
+                            <div style={{
+                                position: "absolute",
+                                top: "2px",
+                                right: "2px",
+                                width: "10px",
+                                height: "10px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center"
+                            }}>
+                                <i className="codicon codicon-check" style={{ fontSize: "8px" }} />
             </div>
+                        )}
+                        {chapter}
+                    </div>
+                ))}
+            </div>
+            
+            {unsavedChanges && (
+                <div style={{
+                    backgroundColor: "var(--vscode-inputValidation-warningBackground)",
+                    color: "var(--vscode-inputValidation-warningForeground)",
+                    border: "1px solid var(--vscode-inputValidation-warningBorder)",
+                    borderRadius: "4px",
+                    padding: "8px 12px",
+                    fontSize: "12px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px"
+                }}>
+                    <i className="codicon codicon-warning" />
+                    <span>Save changes first to change chapter</span>
+                </div>
+            )}
         </div>,
         modalContainer
     );
@@ -745,7 +1429,8 @@ interface ChapterNavigationProps {
     onAutocompleteChapter: (
         numberOfCells: number,
         includeNotValidatedByAnyUser: boolean,
-        includeNotValidatedByCurrentUser: boolean
+        includeNotValidatedByCurrentUser: boolean,
+        includeFullyValidatedByOthers: boolean
     ) => void;
     onStopAutocomplete: () => void;
     isAutocompletingChapter: boolean;
@@ -829,6 +1514,8 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     const [editorPosition, setEditorPosition] = useState<
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
+    const [showChapterSelector, setShowChapterSelector] = useState(false);
+    const chapterTitleRef = useRef<HTMLDivElement>(null);
 
     // Request editor position when component mounts
     useEffect(() => {
@@ -862,19 +1549,22 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     const handleConfirmAutocomplete = (
         numberOfCells: number,
         includeNotValidatedByAnyUser: boolean,
-        includeNotValidatedByCurrentUser: boolean
+        includeNotValidatedByCurrentUser: boolean,
+        includeFullyValidatedByOthers = false
     ) => {
         console.log("Confirm autocomplete:", {
             numberOfCells,
             includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser,
+            includeFullyValidatedByOthers,
             totalCellsToAutocomplete,
             totalCellsWithCurrentUserOption,
         });
         onAutocompleteChapter(
             numberOfCells,
             includeNotValidatedByAnyUser,
-            includeNotValidatedByCurrentUser
+            includeNotValidatedByCurrentUser,
+            includeFullyValidatedByOthers
         );
         setShowConfirm(false);
     };
@@ -950,12 +1640,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     };
 
     // Update this function to use the passed vscode prop
-    const handleToggleWorkspaceUI = () => {
-        if (vscode) {
-            vscode.postMessage({ command: "toggleWorkspaceUI" });
-        }
-    };
-
     const handleTogglePrimarySidebar = () => {
         if (vscode) {
             vscode.postMessage({ command: "togglePrimarySidebar" });
@@ -1031,10 +1715,69 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         }
     }, []);
 
+    // Add this style to the component to handle input focus state
+    useEffect(() => {
+        if (!document.getElementById("autocomplete-custom-styles")) {
+            const styleElement = document.createElement("style");
+            styleElement.id = "autocomplete-custom-styles";
+            styleElement.textContent = `
+                .input-container {
+                    position: relative;
+                }
+                
+                .input-container:focus-within {
+                    box-shadow: 0 0 0 1px var(--vscode-focusBorder) !important;
+                    border-color: var(--vscode-focusBorder) !important;
+                }
+                
+                .autocomplete-number-input:focus {
+                    outline: none;
+                }
+                
+                .autocomplete-number-input::placeholder {
+                    color: var(--vscode-descriptionForeground);
+                    opacity: 0.7;
+                }
+                
+                .input-container:not(.disabled):hover {
+                    border-color: var(--vscode-inputOption-hoverBorder, var(--vscode-focusBorder)) !important;
+                }
+                
+                /* Remove spinner buttons from number input */
+                .autocomplete-number-input::-webkit-outer-spin-button,
+                .autocomplete-number-input::-webkit-inner-spin-button {
+                    -webkit-appearance: none;
+                    margin: 0;
+                }
+                
+                /* Firefox */
+                .autocomplete-number-input[type=number] {
+                    -moz-appearance: textfield;
+                }
+            `;
+            document.head.appendChild(styleElement);
+        }
+        return () => {
+            const style = document.getElementById("autocomplete-custom-styles");
+            if (style) style.remove();
+        };
+    }, []);
+
     // Handle close button click
     const handleClose = () => {
         if (onClose) {
             onClose();
+        }
+    };
+
+    // Update the jumpToChapter function to be reusable
+    const jumpToChapter = (newChapter: number) => {
+        if (!unsavedChanges && newChapter !== chapterNumber) {
+            (window as any).vscodeApi.postMessage({
+                command: "jumpToChapter",
+                chapterNumber: newChapter,
+            });
+            setChapterNumber(newChapter);
         }
     };
 
@@ -1091,11 +1834,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         if (!unsavedChanges) {
                             const newChapter =
                                 chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                            (window as any).vscodeApi.postMessage({
-                                command: "jumpToChapter",
-                                chapterNumber: newChapter,
-                            });
-                            setChapterNumber(newChapter);
+                            jumpToChapter(newChapter);
                         }
                     }}
                     title={
@@ -1112,6 +1851,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                 </VSCodeButton>
                 <div
                     className="chapter-title-container"
+                    ref={chapterTitleRef}
                     style={{
                         display: "flex",
                         alignItems: "center",
@@ -1127,19 +1867,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     }}
                     onClick={() => {
                         if (!unsavedChanges) {
-                            // Directly use the HTMLSelectElement click to open native dropdown
-                            const dropdown = document.getElementById(
-                                "chapter-dropdown"
-                            ) as HTMLSelectElement;
-                            if (dropdown) {
-                                // Create and dispatch a mouse event to trigger the dropdown
-                                const event = new MouseEvent("mousedown", {
-                                    view: window,
-                                    bubbles: true,
-                                    cancelable: true,
-                                });
-                                dropdown.dispatchEvent(event);
-                            }
+                            setShowChapterSelector(!showChapterSelector);
                         }
                     }}
                     onMouseEnter={(e) => {
@@ -1173,7 +1901,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     >
                         {getDisplayTitle()}
                         <i
-                            className="codicon codicon-chevron-down"
+                            className={`codicon ${showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"}`}
                             style={{
                                 fontSize: "0.85rem",
                                 marginLeft: "0.5rem",
@@ -1182,38 +1910,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             }}
                         />
                     </h1>
-                    <select
-                        id="chapter-dropdown"
-                        style={{
-                            position: "absolute",
-                            opacity: 0,
-                            pointerEvents: unsavedChanges ? "none" : "auto",
-                            height: "100%",
-                            width: "100%",
-                            left: 0,
-                            top: 0,
-                            cursor: "pointer",
-                        }}
-                        onChange={(e) => {
-                            const newChapter = parseInt(e.target.value);
-                            if (newChapter && newChapter !== chapterNumber && !unsavedChanges) {
-                                // Send a message to synchronize source/codex views
-                                (window as any).vscodeApi.postMessage({
-                                    command: "jumpToChapter",
-                                    chapterNumber: newChapter,
-                                });
-                                setChapterNumber(newChapter);
-                            }
-                        }}
-                        value={chapterNumber.toString()}
-                        disabled={unsavedChanges}
-                    >
-                        {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
-                            <option key={chapter} value={chapter.toString()}>
-                                {chapter} of {totalChapters}
-                            </option>
-                        ))}
-                    </select>
                 </div>
                 <VSCodeButton
                     appearance="icon"
@@ -1222,11 +1918,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         if (!unsavedChanges) {
                             const newChapter =
                                 chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                            (window as any).vscodeApi.postMessage({
-                                command: "jumpToChapter",
-                                chapterNumber: newChapter,
-                            });
-                            setChapterNumber(newChapter);
+                            jumpToChapter(newChapter);
                         }
                     }}
                     title={unsavedChanges ? "Save changes first to change chapter" : "Next Chapter"}
@@ -1260,14 +1952,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
                 {/* File status indicator */}
                 {getFileStatusButton()}
-
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={handleToggleWorkspaceUI}
-                    title="Toggle Distraction-Free Mode"
-                >
-                    <i className="codicon codicon-layout"></i>
-                </VSCodeButton>
 
                 {/* Show left sidebar toggle only when editor is not leftmost */}
                 {(editorPosition === "rightmost" ||
@@ -1331,6 +2015,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             totalUntranslatedCells={totalUntranslatedCells}
                             totalCellsToAutocomplete={totalCellsToAutocomplete}
                             totalCellsWithCurrentUserOption={totalCellsWithCurrentUserOption}
+                            totalFullyValidatedByOthers={Math.round(totalCellsWithCurrentUserOption * 0.2)}
                             defaultValue={Math.min(
                                 5,
                                 totalUntranslatedCells > 0 ? totalUntranslatedCells : 5
@@ -1522,6 +2207,18 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                     tempVideoUrl={tempVideoUrl}
                 />
             )}
+
+            {/* Chapter selector modal */}
+            <ChapterSelectorModal
+                isOpen={showChapterSelector}
+                onClose={() => setShowChapterSelector(false)}
+                onSelectChapter={jumpToChapter}
+                currentChapter={chapterNumber}
+                totalChapters={totalChapters}
+                bookTitle={getDisplayTitle().split("\u00A0")[0]}
+                unsavedChanges={unsavedChanges}
+                anchorRef={chapterTitleRef}
+            />
         </div>
     );
 };

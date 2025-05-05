@@ -51,15 +51,42 @@ quill-spck-match.blue.low-confidence {
     overflow: hidden;
 }
 
-.quill-spck-match-popup-actions {
+.quill-spck-match-popup-suggestions {
     display: flex;
-    flex-direction: row;
+    flex-direction: column;
+    max-height: 200px;
+    overflow-y: auto;
+    gap: 4px;
+    padding: 0.5rem 16px;
+}
+
+/* Separator between suggestion items */
+.quill-spck-match-popup-suggestions > .quill-spck-match-popup-action:not(:last-child) {
+    border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+
+/* Custom scrollbar for suggestions list */
+.quill-spck-match-popup-suggestions::-webkit-scrollbar {
+    width: 8px;
+}
+.quill-spck-match-popup-suggestions::-webkit-scrollbar-track {
+    background: transparent;
+}
+.quill-spck-match-popup-suggestions::-webkit-scrollbar-thumb {
+    background-color: var(--vscode-scrollbarSlider-background);
+    border-radius: 4px;
+}
+
+.quill-spck-match-popup-footer {
+    display: flex;
     justify-content: space-between;
-    margin-right: 0.0625rem solid var(--vscode-editorWidget-border);
+    gap: 8px;
+    border-top: 1px solid var(--vscode-editorWidget-border);
+    padding: 0.5rem 16px 0 16px;
 }
 
 .quill-spck-match-popup-action {
-    flex: 1;
+    flex: none;
     padding: 8px 16px;
     border: none;
     background: none;
@@ -67,9 +94,10 @@ quill-spck-match.blue.low-confidence {
     color: var(--vscode-editor-foreground);
     font-size: 0.875rem;
     text-align: left;
-    white-space: nowrap;
+    white-space: normal;
     overflow: hidden;
     text-overflow: ellipsis;
+    width: 100%;
 }
 
 .quill-spck-match-popup-action:hover {

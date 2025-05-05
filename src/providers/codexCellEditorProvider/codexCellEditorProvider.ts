@@ -1057,10 +1057,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 forwardIndex++;
                 nextCell = translationUnits[index + forwardIndex];
             }
+            // Check if cell content is an empty span and convert to empty string
+            const processedCellContent =
+                verse.cellContent?.trim() === "<span></span>" ? "" : verse.cellContent;
 
             translationUnitsWithMergedRanges.push({
                 cellMarkers,
-                cellContent: verse.cellContent,
+                cellContent: processedCellContent,
                 cellType: verse.cellType,
                 editHistory: verse.editHistory,
                 timestamps: verse.timestamps,
@@ -1899,7 +1902,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Create the map
         this.bibleBookMap = new Map<string, { name: string; [key: string]: any }>();
         bookData.forEach((book) => {
-            if (book.abbr) { // Ensure abbreviation exists
+            if (book.abbr) {
+                // Ensure abbreviation exists
                 this.bibleBookMap?.set(book.abbr, book);
             }
         });
