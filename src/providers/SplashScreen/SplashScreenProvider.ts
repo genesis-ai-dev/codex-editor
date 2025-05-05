@@ -19,7 +19,7 @@ export class SplashScreenProvider {
         this._disposables.forEach((d) => d.dispose());
     }
 
-    public show(activationStart: number) {
+    public async show(activationStart: number) {
         this._activationStart = activationStart;
 
         // If the panel is already showing, just reveal it
@@ -51,6 +51,9 @@ export class SplashScreenProvider {
 
         // Make the panel stay on top
         this._panel.reveal(vscode.ViewColumn.One, true);
+
+        // Maximize editor and hide tab bar after splash is shown
+        await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
 
         // Set the initial HTML content
         this._updateWebview();
