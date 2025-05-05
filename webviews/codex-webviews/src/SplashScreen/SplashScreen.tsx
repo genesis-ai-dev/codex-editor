@@ -14,6 +14,7 @@ export const SplashScreen: React.FC = () => {
     const mainTimelineRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const [syncInProgress, setSyncInProgress] = useState(false);
 
     // Set up main timeline for coordinated animations
     useEffect(() => {
@@ -62,13 +63,29 @@ export const SplashScreen: React.FC = () => {
     useEffect(() => {
         if (timings.length === 0) return;
 
+        // Check if sync operation is in progress
+        const syncStarted = timings.some((t) =>
+            t.step.includes("Starting Project Synchronization")
+        );
+        const syncCompleted = timings.some(
+            (t) =>
+                t.step.includes("Project Synchronization Complete") ||
+                t.step.includes("Project Synchronization Skipped") ||
+                t.step.includes("Project Synchronization Failed")
+        );
+
+        setSyncInProgress(syncStarted && !syncCompleted);
+
         // Calculate total elapsed time
         const totalDuration = timings.reduce((sum, stage) => sum + stage.duration, 0);
 
         // Calculate overall progress percentage (cap at 99% until complete)
-        const newProgress = Math.min(99, Math.floor((totalDuration / 5000) * 100));
+        // Reserve the last 10% for sync operation if in progress
+        const syncReservedPercentage = syncInProgress ? 10 : 0;
+        const maxProgress = 99 - syncReservedPercentage;
+        const newProgress = Math.min(maxProgress, Math.floor((totalDuration / 5000) * 100));
         setProgress(newProgress);
-    }, [timings]);
+    }, [timings, syncInProgress]);
 
     useEffect(() => {
         if (isComplete) {
@@ -101,13 +118,16 @@ export const SplashScreen: React.FC = () => {
     }, [isComplete, sendMessage, prefersReducedMotion]);
 
     const latestTiming = timings.length > 0 ? timings[timings.length - 1] : null;
+    const isSyncStep = latestTiming && latestTiming.step.includes("Project Synchronization");
 
     return (
         <div className="splash-screen-container">
             <div aria-live="polite" className="accessibility-info" id="a11y-status">
                 {isComplete
                     ? "Codex Editor has finished loading."
-                    : `Codex Editor is loading. Current progress: ${progress}%`}
+                    : `Codex Editor is loading. Current progress: ${progress}%${
+                          syncInProgress ? " - Syncing project files..." : ""
+                      }`}
             </div>
 
             <SideElements />
@@ -119,7 +139,13 @@ export const SplashScreen: React.FC = () => {
                 <div className="current-step" id="current-step" aria-live="polite">
                     {latestTiming ? (
                         <>
-                            <span>Loading: {latestTiming.step}</span>
+                            <span>
+                                {isSyncStep ? (
+                                    <strong>{latestTiming.step}</strong>
+                                ) : (
+                                    `Loading: ${latestTiming.step}`
+                                )}
+                            </span>
                             <span className="stage-time">{latestTiming.duration.toFixed(0)}ms</span>
                         </>
                     ) : (

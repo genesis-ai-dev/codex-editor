@@ -43,6 +43,7 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
                     {stages.slice(0, MAX_VISIBLE_STAGES).map((stage, index) => {
                         const isLatestStage = index === stages.length - 1;
                         const isCompleted = !isLatestStage;
+                        const isSyncStep = stage.step.includes("Project Synchronization");
 
                         return (
                             <div
@@ -50,7 +51,9 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
                                 id={`stage-${index}`}
                                 className={`loading-stage visible ${
                                     isLatestStage ? "active" : ""
-                                } ${isCompleted ? "completed" : ""}`}
+                                } ${isCompleted ? "completed" : ""} ${
+                                    isSyncStep ? "sync-step" : ""
+                                }`}
                             >
                                 <div className="loading-indicator" aria-hidden="true">
                                     <svg viewBox="0 0 16 16">
@@ -67,7 +70,9 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
                                     </svg>
                                 </div>
                                 <div className="loading-stage-content">
-                                    <span className="stage-name">{stage.step}</span>
+                                    <span className={`stage-name ${isSyncStep ? "sync-text" : ""}`}>
+                                        {stage.step}
+                                    </span>
                                     <span className="stage-time">
                                         {stage.duration.toFixed(0)}ms
                                     </span>

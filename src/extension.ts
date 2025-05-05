@@ -225,13 +225,6 @@ export async function activate(context: vscode.ExtensionContext) {
         // Track total time for core components
         trackTiming("Total Core Components", stepStart);
 
-        // Execute post-activation tasks
-        stepStart = trackTiming("Post-activation Tasks", stepStart);
-        await executeCommandsAfter();
-        await temporaryMigrationScript_checkMatthewNotebook();
-        await migration_changeDraftFolderToFilesFolder();
-        await migrateSourceFiles();
-
         // Initialize status bar
         stepStart = trackTiming("Initialize Status Bar", stepStart);
         autoCompleteStatusBarItem = vscode.window.createStatusBarItem(
@@ -256,6 +249,13 @@ export async function activate(context: vscode.ExtensionContext) {
         ].join("\n");
 
         console.info(summaryMessage);
+
+        // Execute post-activation tasks
+        stepStart = trackTiming("Post-activation Tasks", stepStart);
+        await executeCommandsAfter();
+        await temporaryMigrationScript_checkMatthewNotebook();
+        await migration_changeDraftFolderToFilesFolder();
+        await migrateSourceFiles();
 
         // Close splash screen and then check if we need to show the welcome view
         closeSplashScreen(async () => {
@@ -452,22 +452,36 @@ async function executeCommandsAfter() {
             const authStatus = authApi.getAuthStatus();
             if (authStatus.isAuthenticated) {
                 console.log("User is authenticated, performing initial sync");
+                const syncStart = globalThis.performance.now();
+                trackTiming("Starting Project Synchronization", syncStart);
+
                 const syncManager = SyncManager.getInstance();
                 // During startup, don't show info messages for connection issues
                 await syncManager.executeSync("Initial workspace sync", false);
+
+                trackTiming("Project Synchronization Complete", syncStart);
             } else {
                 console.log("User is not authenticated, skipping initial sync");
+                trackTiming(
+                    "Project Synchronization Skipped (Not Authenticated)",
+                    globalThis.performance.now()
+                );
             }
         } catch (error) {
             console.error("Error checking auth status:", error);
+            trackTiming("Project Synchronization Failed", globalThis.performance.now());
         }
     } else {
         console.log("Auth API not available, skipping initial sync");
+        trackTiming(
+            "Project Synchronization Skipped (Auth API Unavailable)",
+            globalThis.performance.now()
+        );
     }
 
     // Check if we need to show the welcome view after initialization
     showWelcomeViewIfNeeded();
-    await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+    await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
 }
 
 export function deactivate() {

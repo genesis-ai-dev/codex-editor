@@ -285,15 +285,36 @@ h1 {
 }
 
 .loading-stage.completed .loading-check {
-    display: inline;
+    opacity: 1;
 }
 
 .loading-stage.completed .loading-circle {
-    display: none;
+    fill: var(--progress-color);
 }
 
+/* Sync process styling */
+.loading-stage.sync-step {
+    border-left: 2px solid var(--progress-color);
+    background-color: color-mix(in srgb, var(--progress-color-muted), transparent 90%);
+}
+
+.loading-stage.sync-step .loading-circle {
+    stroke: var(--progress-color);
+    stroke-width: 2px;
+}
+
+.sync-text {
+    font-weight: 600;
+    color: var(--progress-color);
+}
+
+/* End sync process styling */
+
 .loading-stage-content {
+    display: flex;
+    justify-content: space-between;
     flex: 1;
+    margin-left: 10px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
