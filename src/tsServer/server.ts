@@ -165,11 +165,10 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
 
     // Start parallel requests for both smart edits and ICE suggestions
     const [smartEditsPromise, iceEditsPromise] = [
-        // Existing smart edits request
         !pendingSmartEditsPromise || lastSmartEditsText !== text
             ? connection.sendRequest(ExecuteCommandRequest, {
                   command: "codex-smart-edits.getEdits",
-                  args: [text],
+                  args: [text, params.cellId],
               })
             : Promise.resolve(lastSmartEditResults),
 
@@ -240,7 +239,10 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
 
         specialPhrases.forEach(({ phrase, replacement, color, source }, index) => {
             let startIndex = 0;
-            const phraseLower = phrase?.toLowerCase();
+            const phraseToSearch = phrase?.trim(); // Trim whitespace before searching
+            if (!phraseToSearch) return; // Skip if phrase is empty after trimming
+            
+            const phraseLower = phraseToSearch.toLowerCase();
 
             while ((startIndex = text?.toLowerCase()?.indexOf(phraseLower, startIndex)) !== -1) {
                 // Get context tokens for ICE suggestions
@@ -263,21 +265,21 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
 
                 matches.push({
                     id: `SPECIAL_PHRASE_${index}_${matches.length}`,
-                    text: phrase,
+                    text: phrase, // Display original phrase in popup
                     replacements: [
                         {
                             value: replacement,
                             source: source as "llm" | "ice",
                         },
                     ],
-                    offset: startIndex,
-                    length: phrase.length,
+                    offset: startIndex,                // Use the found index
+                    length: phraseToSearch.length,    // Use the *trimmed* length for the underline
                     color: color as "purple" | "blue",
                     leftToken: source === "ice" ? leftToken : "",
                     rightToken: source === "ice" ? rightToken : "",
                     cellId: params.cellId,
                 });
-                startIndex += phrase.length;
+                startIndex += phraseToSearch.length; // Advance by the *trimmed* length
             }
         });
     }
