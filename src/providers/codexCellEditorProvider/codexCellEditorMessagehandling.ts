@@ -787,15 +787,6 @@ export const handleMessages = async (
             }
             return;
         }
-        case "toggleWorkspaceUI": {
-            try {
-                await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-            } catch (error) {
-                console.error("Error toggling workspace UI:", error);
-                vscode.window.showErrorMessage("Failed to toggle workspace UI");
-            }
-            return;
-        }
         case "togglePrimarySidebar": {
             vscode.window.showInformationMessage("togglePrimarySidebar");
             try {

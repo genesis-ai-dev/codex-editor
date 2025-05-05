@@ -1640,12 +1640,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     };
 
     // Update this function to use the passed vscode prop
-    const handleToggleWorkspaceUI = () => {
-        if (vscode) {
-            vscode.postMessage({ command: "toggleWorkspaceUI" });
-        }
-    };
-
     const handleTogglePrimarySidebar = () => {
         if (vscode) {
             vscode.postMessage({ command: "togglePrimarySidebar" });
@@ -1958,14 +1952,6 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
             <div className="chapter-navigation-group" style={{ gap: buttonGap }}>
                 {/* File status indicator */}
                 {getFileStatusButton()}
-
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={handleToggleWorkspaceUI}
-                    title="Toggle Distraction-Free Mode"
-                >
-                    <i className="codicon codicon-layout"></i>
-                </VSCodeButton>
 
                 {/* Show left sidebar toggle only when editor is not leftmost */}
                 {(editorPosition === "rightmost" ||

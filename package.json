@@ -715,11 +715,6 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
-            },
-            {
-                "command": "codex-editor-extension.toggleWorkspaceUI",
-                "title": "Toggle Workspace UI",
-                "category": "Codex Editor"
             }
         ],
         "notebooks": [
