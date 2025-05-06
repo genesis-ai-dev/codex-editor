@@ -481,6 +481,18 @@ export class SyncManager {
                 consistencyScore: 85 + Math.floor(Math.random() * 15),
             };
 
+            // Add detailed logging before return
+            console.log("====== PROGRESS REPORT DETAILS ======");
+            console.log(`Project ID: ${projectId}`);
+            console.log(`Project Name: ${projectName}`);
+            console.log("Book Completion Map:", report.translationProgress.bookCompletionMap);
+            console.log(
+                `Total files: ${Object.keys(report.translationProgress.bookCompletionMap).length}`
+            );
+            console.log(`Total verses: ${report.translationProgress.totalVerseCount}`);
+            console.log(`Translated verses: ${report.translationProgress.translatedVerseCount}`);
+            console.log("====================================");
+
             return report;
         } catch (error) {
             console.error("Error generating progress report:", error);
@@ -588,7 +600,11 @@ export class SyncManager {
 
             // Check if the API has the submitProgressReport method
             if ("submitProgressReport" in authApi) {
+                console.log("Submitting progress report to API...");
+
                 const result = await authApi.submitProgressReport(report);
+                console.log("API response:", result);
+
                 if (result.success) {
                     console.log(`Progress report submitted successfully: ${result.reportId}`);
                     this.lastProgressReport = report;
