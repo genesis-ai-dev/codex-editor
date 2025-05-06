@@ -183,6 +183,78 @@ interface IFrontierAuthProvider extends vscode.AuthenticationProvider, vscode.Di
     // Resource cleanup
     dispose(): void;
 }
+
+// Progress report interface for tracking translation progress
+export interface ProjectProgressReport {
+    projectId: string; // Unique project identifier
+    timestamp: string; // ISO timestamp of report generation
+    reportId: string; // Unique report identifier
+
+    // Translation metrics
+    translationProgress: {
+        bookCompletionMap: Record<string, number>; // Book ID -> percentage complete
+        totalVerseCount: number; // Total verses in project
+        translatedVerseCount: number; // Verses with translations
+        validatedVerseCount: number; // Verses passing validation
+        wordsTranslated: number; // Total words translated
+    };
+
+    // Validation metrics
+    validationStatus: {
+        stage: "none" | "initial" | "community" | "expert" | "finished";
+        versesPerStage: Record<string, number>; // Stage -> verse count
+        lastValidationTimestamp: string; // ISO timestamp
+    };
+
+    // Activity metrics
+    activityMetrics: {
+        lastEditTimestamp: string; // ISO timestamp
+        editCountLast24Hours: number; // Edit count
+        editCountLastWeek: number; // Edit count
+        averageDailyEdits: number; // Avg edits per active day
+    };
+
+    // Quality indicators
+    qualityMetrics: {
+        spellcheckIssueCount: number; // Spelling issues
+        flaggedSegmentsCount: number; // Segments needing review
+        consistencyScore: number; // 0-100 score
+    };
+}
+
+export interface ProjectProgressAPI {
+    // Submit progress report to the database
+    submitProgressReport(
+        report: ProjectProgressReport
+    ): Promise<{ success: boolean; reportId: string }>;
+
+    // Retrieve reports for projects user has access to
+    getProgressReports(options: {
+        projectIds?: string[]; // Filter by specific projects
+        startDate?: string; // Filter by date range
+        endDate?: string;
+        limit?: number; // Pagination
+        offset?: number;
+    }): Promise<{
+        reports: ProjectProgressReport[];
+        totalCount: number;
+    }>;
+
+    // Get aggregated progress for all accessible projects
+    getAggregatedProgress(): Promise<{
+        projectCount: number;
+        activeProjectCount: number;
+        totalCompletionPercentage: number;
+        projectSummaries: Array<{
+            projectId: string;
+            projectName: string;
+            completionPercentage: number;
+            lastActivity: string;
+            stage: string;
+        }>;
+    }>;
+}
+
 export interface FrontierAPI {
     authProvider: IFrontierAuthProvider;
     getAuthStatus: () => {
@@ -224,4 +296,36 @@ export interface FrontierAPI {
         conflicts?: Array<ConflictFile>;
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[]) => Promise<void>;
+
+    // Progress reporting API methods
+    submitProgressReport: (report: ProjectProgressReport) => Promise<{
+        success: boolean;
+        reportId: string;
+    }>;
+
+    // Retrieve reports for projects user has access to
+    getProgressReports: (options?: {
+        projectIds?: string[]; // Filter by specific projects
+        startDate?: string; // Filter by date range
+        endDate?: string;
+        limit?: number; // Pagination
+        offset?: number;
+    }) => Promise<{
+        reports: ProjectProgressReport[];
+        totalCount: number;
+    }>;
+
+    // Get aggregated progress for all accessible projects
+    getAggregatedProgress: () => Promise<{
+        projectCount: number;
+        activeProjectCount: number;
+        totalCompletionPercentage: number;
+        projectSummaries: Array<{
+            projectId: string;
+            projectName: string;
+            completionPercentage: number;
+            lastActivity: string;
+            stage: string;
+        }>;
+    }>;
 }
