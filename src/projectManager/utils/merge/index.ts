@@ -23,7 +23,7 @@ import { ConflictFile } from "./types";
 export async function stageAndCommitAllAndSync(commitMessage: string): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
-        vscode.window.showErrorMessage("No workspace folder found");
+        console.error("No workspace folder found");
         return;
     }
 

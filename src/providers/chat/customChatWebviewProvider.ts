@@ -237,7 +237,7 @@ const processGradeResponse = async (
 const checkThatChatThreadsFileExists = async () => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder found.");
+        console.error("No workspace folder found.");
         return [];
     }
 

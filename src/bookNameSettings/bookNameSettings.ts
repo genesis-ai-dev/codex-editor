@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as xml2js from 'xml2js';
+import * as xml2js from "xml2js";
 
 export async function openBookNameEditor() {
     const panel = vscode.window.createWebviewPanel(
@@ -19,7 +19,7 @@ export async function openBookNameEditor() {
     // Get workspace folder
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
-        vscode.window.showErrorMessage("No workspace folder is open.");
+        console.error("No workspace folder is open.");
         panel.dispose();
         return;
     }
@@ -37,7 +37,10 @@ export async function openBookNameEditor() {
     const extensionPath = extension.extensionPath;
 
     // Construct the path to the default books JSON relative to the extension's install location
-    const defaultBooksPath = path.join(extensionPath, "webviews/codex-webviews/src/assets/bible-books-lookup.json");
+    const defaultBooksPath = path.join(
+        extensionPath,
+        "webviews/codex-webviews/src/assets/bible-books-lookup.json"
+    );
     console.log(`Attempting to load default books from: ${defaultBooksPath}`); // Log the path
 
     let defaultBooks: any[] = [];
@@ -47,7 +50,9 @@ export async function openBookNameEditor() {
     } catch (err: any) {
         // Improved error logging
         console.error(`Error loading default book names from ${defaultBooksPath}:`, err);
-        vscode.window.showErrorMessage(`Could not load default book names. Check console for details. Path: ${defaultBooksPath}. Error: ${err.message}`);
+        vscode.window.showErrorMessage(
+            `Could not load default book names. Check console for details. Path: ${defaultBooksPath}. Error: ${err.message}`
+        );
         panel.dispose();
         return;
     }
@@ -85,18 +90,20 @@ export async function openBookNameEditor() {
             case "save": {
                 try {
                     // Only save books with a non-blank name different from default
-                    const toSave = mergedBooks.map((book, i) => {
-                        const newName = message.books[i]?.name?.trim();
-                        if (newName && newName !== book.defaultName) {
-                            return {
-                                abbr: book.abbr,
-                                name: newName,
-                                ord: book.ord,
-                                testament: book.testament,
-                            };
-                        }
-                        return null;
-                    }).filter(Boolean);
+                    const toSave = mergedBooks
+                        .map((book, i) => {
+                            const newName = message.books[i]?.name?.trim();
+                            if (newName && newName !== book.defaultName) {
+                                return {
+                                    abbr: book.abbr,
+                                    name: newName,
+                                    ord: book.ord,
+                                    testament: book.testament,
+                                };
+                            }
+                            return null;
+                        })
+                        .filter(Boolean);
                     fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
                     vscode.window.showInformationMessage("Book names updated successfully");
                     panel.dispose();
@@ -115,8 +122,8 @@ export async function openBookNameEditor() {
                         canSelectFiles: true,
                         canSelectFolders: false,
                         canSelectMany: false,
-                        filters: { 'XML Files': ['xml'] },
-                        title: 'Import Book Names from XML'
+                        filters: { "XML Files": ["xml"] },
+                        title: "Import Book Names from XML",
                     });
 
                     if (!fileUris || fileUris.length === 0) {
@@ -125,83 +132,104 @@ export async function openBookNameEditor() {
 
                     // Read the XML file
                     const xmlFilePath = fileUris[0].fsPath;
-                    const xmlContent = fs.readFileSync(xmlFilePath, 'utf8');
-                    
+                    const xmlContent = fs.readFileSync(xmlFilePath, "utf8");
+
                     // Parse XML to JSON
                     const parser = new xml2js.Parser({
                         explicitArray: false,
-                        mergeAttrs: true
+                        mergeAttrs: true,
                     });
-                    
+
                     parser.parseString(xmlContent, async (err: any, result: any) => {
                         if (err) {
                             vscode.window.showErrorMessage(`Failed to parse XML: ${err.message}`);
                             return;
                         }
-                        
+
                         try {
                             // Extract book data from XML first to check available fields
-                            const books = Array.isArray(result.BookNames.book) 
-                                ? result.BookNames.book 
+                            const books = Array.isArray(result.BookNames.book)
+                                ? result.BookNames.book
                                 : [result.BookNames.book];
-                            
+
                             // Check which name types are available in the XML
                             const hasLong = books.some((book: any) => book.long);
                             const hasShort = books.some((book: any) => book.short);
                             const hasAbbr = books.some((book: any) => book.abbr);
-                            
+
                             // Build options for the quick pick based on what's available
                             const options = [];
-                            if (hasLong) options.push({ label: "Long Names", value: "long", description: "Full names (e.g., 'كِتَابُ عِزْرَا')" });
-                            if (hasShort) options.push({ label: "Short Names", value: "short", description: "Short names (e.g., 'عزرا')" });
-                            if (hasAbbr) options.push({ label: "Abbreviations", value: "abbr", description: "Abbreviations (e.g., 'عز')" });
-                            
+                            if (hasLong)
+                                options.push({
+                                    label: "Long Names",
+                                    value: "long",
+                                    description: "Full names (e.g., 'كِتَابُ عِزْرَا')",
+                                });
+                            if (hasShort)
+                                options.push({
+                                    label: "Short Names",
+                                    value: "short",
+                                    description: "Short names (e.g., 'عزرا')",
+                                });
+                            if (hasAbbr)
+                                options.push({
+                                    label: "Abbreviations",
+                                    value: "abbr",
+                                    description: "Abbreviations (e.g., 'عز')",
+                                });
+
                             if (options.length === 0) {
-                                vscode.window.showErrorMessage("No name formats found in the XML file.");
+                                vscode.window.showErrorMessage(
+                                    "No name formats found in the XML file."
+                                );
                                 return;
                             }
-                            
+
                             // Ask user which name format to use
                             const selectedOption = await vscode.window.showQuickPick(options, {
                                 placeHolder: "Select which name format to import",
-                                title: "Book Name Format"
+                                title: "Book Name Format",
                             });
-                            
+
                             if (!selectedOption) {
                                 return; // User canceled
                             }
-                            
+
                             const nameType = selectedOption.value;
-                            
+
                             // Create mapping from XML based on selected name type
                             const xmlBooks: Record<string, any> = {};
                             books.forEach((book: any) => {
                                 const abbr = book.code;
                                 let name = book[nameType]; // Use the selected name type
-                                
+
                                 if (abbr && name) {
                                     xmlBooks[abbr] = name;
                                 }
                             });
-                            
+
                             // Update the UI with new imported book names
-                            const updatedBooks = mergedBooks.map(book => {
+                            const updatedBooks = mergedBooks.map((book) => {
                                 // If XML contains a value for this book, use it
                                 if (xmlBooks[book.abbr]) {
                                     book.name = xmlBooks[book.abbr];
                                 }
                                 return book;
                             });
-                            
+
                             // Update the webview with new book data
-                            panel.webview.html = getWebviewContent(updatedBooks, { 
-                                importSource: `${path.basename(xmlFilePath)} (${selectedOption.label})` 
+                            panel.webview.html = getWebviewContent(updatedBooks, {
+                                importSource: `${path.basename(xmlFilePath)} (${selectedOption.label})`,
                             });
-                            
+
                             // Show success message
-                            vscode.window.showInformationMessage(`Book names imported from XML (${selectedOption.label})`);
+                            vscode.window.showInformationMessage(
+                                `Book names imported from XML (${selectedOption.label})`
+                            );
                         } catch (error: any) {
-                            vscode.window.showErrorMessage(`Error processing XML data: ${error.message}`);
+                            vscode.window.showErrorMessage(
+                                `Error processing XML data: ${error.message}`
+                            );
                         }
                     });
                 } catch (error: any) {
@@ -216,25 +244,30 @@ export async function openBookNameEditor() {
 function getWebviewContent(books: any[], options: { importSource?: string } = {}) {
     // Escape HTML utility
     const escapeHtml = (unsafe: string) =>
-        unsafe.replace(/&/g, "&amp;")
+        unsafe
+            .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
 
     // Table rows
-    const rows = books.map((book, i) => `
+    const rows = books
+        .map(
+            (book, i) => `
         <tr>
             <td>${escapeHtml(book.abbr)}</td>
             <td>${escapeHtml(book.defaultName)}</td>
             <td><input type="text" data-idx="${i}" value="${escapeHtml(book.name)}" placeholder="(default)" style="width: 100%" /></td>
         </tr>
-    `).join("");
+    `
+        )
+        .join("");
 
     // Import source notice
-    const importNotice = options.importSource 
+    const importNotice = options.importSource
         ? `<div class="import-notice">Imported from: ${escapeHtml(options.importSource)}</div>`
-        : '';
+        : "";
 
     return `<!DOCTYPE html>
 <html>
@@ -318,4 +351,4 @@ function getWebviewContent(books: any[], options: { importSource?: string } = {}
     </script>
 </body>
 </html>`;
-} 
+}
