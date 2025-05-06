@@ -93,12 +93,14 @@ const TAB_LAYOUT_KEY = "codexEditor.tabLayout";
 async function saveTabLayout(context: vscode.ExtensionContext) {
     const layout = vscode.window.tabGroups.all.map((group, groupIndex) => ({
         isActive: group.isActive,
-        tabs: group.tabs.map(tab => {
+        tabs: group.tabs.map((tab) => {
             // Try to get URI and viewType for all tab types
             let uri: string | undefined = undefined;
             let viewType: string | undefined = undefined;
             if ((tab as any).input) {
-                uri = (tab as any).input?.uri?.toString?.() || (tab as any).input?.resource?.toString?.();
+                uri =
+                    (tab as any).input?.uri?.toString?.() ||
+                    (tab as any).input?.resource?.toString?.();
                 viewType = (tab as any).input?.viewType;
             }
             return {
@@ -109,7 +111,7 @@ async function saveTabLayout(context: vscode.ExtensionContext) {
                 isPinned: tab.isPinned,
                 groupIndex,
             };
-        })
+        }),
     }));
     savedTabLayout = layout;
     await context.globalState.update(TAB_LAYOUT_KEY, layout);
@@ -122,7 +124,7 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
         for (const tab of group.tabs) {
             if (tab.uri) {
                 try {
-                    if (tab.viewType && tab.viewType !== 'default') {
+                    if (tab.viewType && tab.viewType !== "default") {
                         await vscode.commands.executeCommand(
                             "vscode.openWith",
                             vscode.Uri.parse(tab.uri),
@@ -130,7 +132,9 @@ async function restoreTabLayout(context: vscode.ExtensionContext) {
                             { viewColumn: tab.groupIndex + 1 }
                         );
                     } else {
-                        const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(tab.uri));
+                        const doc = await vscode.workspace.openTextDocument(
+                            vscode.Uri.parse(tab.uri)
+                        );
                         await vscode.window.showTextDocument(doc, tab.groupIndex + 1);
                     }
                 } catch (e) {
@@ -327,6 +331,10 @@ export async function activate(context: vscode.ExtensionContext) {
             console.log(
                 "[Extension] Splash screen closed, checking if welcome view needs to be shown"
             );
+            // Show tabs again after splash screen closes
+            await vscode.workspace
+                .getConfiguration()
+                .update("workbench.editor.showTabs", "multiple", true);
             // Restore tab layout after splash screen closes
             await restoreTabLayout(context);
             // Check if we need to show the welcome view after initialization
@@ -492,7 +500,7 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     await config.update("breadcrumbs.filePath", "last", true);
     await config.update("breadcrumbs.enabled", false, true); // hide breadcrumbs for now... it shows the file name which cannot be localized
     await config.update("workbench.editor.editorActionsLocation", "hidden", true);
-    await config.update("workbench.editor.showTabs", "multiple", true);
+    await config.update("workbench.editor.showTabs", "none", true); // Hide tabs during splash screen
     await config.update("window.autoDetectColorScheme", true, true);
     await config.update("workbench.editor.revealIfOpen", true, true);
     await config.update("workbench.layoutControl.enabled", true, true);
