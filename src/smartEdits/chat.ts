@@ -15,13 +15,10 @@ class Chatbot {
     constructor(private systemMessage: string) {
         this.config = vscode.workspace.getConfiguration("translators-copilot");
         this.language = this.config.get("main_chat_language") || "en";
-        // Warn if API key is not set
-        if (!this.getApiKey()) {
-            vscode.window.showWarningMessage(
-                "Smart Edits LLM API key is not set (translators-copilot.api_key). LLM suggestions will be disabled."
-            );
-        }
-        this.initializeOpenAI(); // Initialize OpenAI in constructor
+
+        // Initialize OpenAI with proper configuration (will check Frontier API)
+        this.initializeOpenAI();
+
         this.messages = [
             {
                 role: "system",
@@ -37,19 +34,33 @@ class Chatbot {
         // Get the LLM endpoint from auth API if available
         let llmEndpoint: string | undefined;
         let authBearerToken: string | undefined;
+        let frontierApiAvailable = false;
+
         try {
             const frontierApi = getAuthApi();
             if (frontierApi) {
-                llmEndpoint = await frontierApi.getLlmEndpoint();
-                // Get auth token from the auth provider
-                authBearerToken = await frontierApi.authProvider.getToken();
+                const authStatus = frontierApi.getAuthStatus();
+                if (authStatus.isAuthenticated) {
+                    frontierApiAvailable = true;
+                    llmEndpoint = await frontierApi.getLlmEndpoint();
+                    // Get auth token from the auth provider
+                    authBearerToken = await frontierApi.authProvider.getToken();
+                }
             }
         } catch (error) {
             console.debug("Could not get LLM endpoint from auth API:", error);
         }
 
+        // Warn if API key is not set and no Frontier API is available
+        const apiKey = this.getApiKey();
+        if (!apiKey && !frontierApiAvailable) {
+            vscode.window.showWarningMessage(
+                "Smart Edits LLM API key is not set (translators-copilot.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
+            );
+        }
+
         this.openai = new OpenAI({
-            apiKey: this.getApiKey(),
+            apiKey: apiKey,
             baseURL: llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
             defaultHeaders: authBearerToken
                 ? {
@@ -57,7 +68,11 @@ class Chatbot {
                   }
                 : undefined,
         });
-        console.log('Called OpenAI from smart edits with', {llmEndpoint: llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1", authBearerToken})
+        console.log("Called OpenAI from smart edits with", {
+            llmEndpoint:
+                llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
+            authBearerToken,
+        });
     }
 
     private getApiKey(): string {
@@ -79,6 +94,12 @@ class Chatbot {
 
     private async callLLM(messages: ChatMessage[]): Promise<string> {
         try {
+            // Ensure OpenAI is initialized with the latest configuration
+            // This helps if Frontier authentication state changes during a session
+            if (!this.openai) {
+                await this.initializeOpenAI();
+            }
+
             let model = this.config.get("model") as string;
             if (model === "custom") {
                 model = this.config.get("customModel") as string;
@@ -106,17 +127,41 @@ class Chatbot {
             }
         } catch (error: any) {
             if (error.response && error.response.status === 401) {
-                vscode.window.showErrorMessage(
-                    "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
-                );
+                // Try to reinitialize OpenAI in case authentication state changed
+                try {
+                    await this.initializeOpenAI();
+
+                    // If we still don't have valid authentication, show appropriate message
+                    const apiKey = this.getApiKey();
+                    const frontierApi = getAuthApi();
+                    const isAuthenticated = frontierApi?.getAuthStatus().isAuthenticated;
+
+                    if (!apiKey && !isAuthenticated) {
+                        vscode.window.showErrorMessage(
+                            "Authentication failed. Please add a valid API key or log in to Frontier to use the Smart Edits feature."
+                        );
+                    } else {
+                        vscode.window.showErrorMessage(
+                            "Authentication failed. Please check your API key or Frontier credentials."
+                        );
+                    }
+                } catch (reinitError) {
+                    console.error("Failed to reinitialize OpenAI client:", reinitError);
+                }
                 return "";
             }
+            console.error("Error calling LLM:", error);
             throw error;
         }
     }
 
     private async *streamLLM(messages: ChatMessage[]): AsyncGenerator<string> {
         try {
+            // Ensure OpenAI is initialized with the latest configuration
+            if (!this.openai) {
+                await this.initializeOpenAI();
+            }
+
             let model = this.config.get("model") as string;
             if (model === "custom") {
                 model = this.config.get("customModel") as string;
@@ -141,11 +186,30 @@ class Chatbot {
             }
         } catch (error: any) {
             if (error.response && error.response.status === 401) {
-                vscode.window.showErrorMessage(
-                    "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
-                );
+                // Try to reinitialize OpenAI in case authentication state changed
+                try {
+                    await this.initializeOpenAI();
+
+                    // If we still don't have valid authentication, show appropriate message
+                    const apiKey = this.getApiKey();
+                    const frontierApi = getAuthApi();
+                    const isAuthenticated = frontierApi?.getAuthStatus().isAuthenticated;
+
+                    if (!apiKey && !isAuthenticated) {
+                        vscode.window.showErrorMessage(
+                            "Authentication failed. Please add a valid API key or log in to Frontier to use the Smart Edits feature."
+                        );
+                    } else {
+                        vscode.window.showErrorMessage(
+                            "Authentication failed. Please check your API key or Frontier credentials."
+                        );
+                    }
+                } catch (reinitError) {
+                    console.error("Failed to reinitialize OpenAI client:", reinitError);
+                }
                 return;
             }
+            console.error("Error streaming from LLM:", error);
             throw error;
         }
     }
