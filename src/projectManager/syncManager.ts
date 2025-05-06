@@ -395,11 +395,12 @@ export class SyncManager {
                                 const bookProgress =
                                     totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
-                                // Store in book map
-                                bookCompletionMap[fileNameAbbr] = Math.round(bookProgress);
+                                // Store in book map with 2 decimal places instead of just rounding to integer
+                                bookCompletionMap[fileNameAbbr] =
+                                    Math.round(bookProgress * 100) / 100;
 
                                 console.log(
-                                    `Processed ${fileNameAbbr}: ${cellsWithValues}/${totalCells} verses translated (${Math.round(bookProgress)}%)`
+                                    `Processed ${fileNameAbbr}: ${cellsWithValues}/${totalCells} verses translated (${(Math.round(bookProgress * 100) / 100).toFixed(2)}%)`
                                 );
                             } catch (jsonError) {
                                 console.warn(`Failed to parse JSON for ${uri.fsPath}:`, jsonError);
