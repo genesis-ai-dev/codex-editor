@@ -5,7 +5,7 @@ const CONFIG_FILE_NAME = "scribe.config.json";
 const getConfigFromDisk = async () => {
     const rootDir = vscode.workspace.workspaceFolders?.[0].uri;
     if (!rootDir) {
-        vscode.window.showErrorMessage("No workspace found.");
+        console.error("No workspace found.");
         return;
     }
     const configUri = vscode.Uri.joinPath(rootDir, CONFIG_FILE_NAME);
@@ -17,7 +17,7 @@ const getConfigFromDisk = async () => {
 const saveToConfigToDisk = async (config: any) => {
     const rootDir = vscode.workspace.workspaceFolders?.[0].uri;
     if (!rootDir) {
-        vscode.window.showErrorMessage("No workspace found.");
+        console.error("No workspace found.");
         return;
     }
     const configUri = vscode.Uri.joinPath(rootDir, CONFIG_FILE_NAME);
