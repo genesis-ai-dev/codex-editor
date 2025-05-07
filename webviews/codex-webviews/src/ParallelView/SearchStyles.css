@@ -262,4 +262,73 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+}
+
+/* Override the VSCode button component behavior completely */
+vscode-button.search-toolbar-button::part(control),
+vscode-button.search-toolbar-button::part(content),
+vscode-button.search-toolbar-button::part(label) {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transition: none !important;
+}
+
+vscode-button.search-toolbar-button:hover::part(control),
+vscode-button.search-toolbar-button:active::part(control),
+vscode-button.search-toolbar-button:focus::part(control),
+vscode-button.search-toolbar-button:focus-visible::part(control),
+vscode-button.search-toolbar-button:focus-within::part(control) {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.search-toolbar-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    background-color: transparent !important;
+    color: var(--vscode-foreground);
+    border: none !important;
+    min-height: auto;
+    min-width: auto;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    box-shadow: none !important;
+    outline: none !important;
+    -webkit-tap-highlight-color: transparent !important;
+}
+
+.search-toolbar-button:hover,
+.search-toolbar-button:focus,
+.search-toolbar-button:active,
+.search-toolbar-button:focus-visible,
+.search-toolbar-button:focus-within {
+    background-color: transparent !important;
+    border: none !important;
+    color: var(--vscode-textLink-foreground);
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.search-toolbar-button .codicon {
+    font-size: 14px;
+    margin-right: 4px;
+}
+
+.search-toolbar-button .button-label {
+    margin: 0;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.search-toolbar-button vscode-badge {
+    margin-left: 4px;
+    vertical-align: middle;
 } 

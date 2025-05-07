@@ -125,12 +125,12 @@ function SearchTab({
                             ref={searchInputRef}
                             type="text"
                             className="search-input"
-                            placeholder="Search Bible verses..."
+                            placeholder="Search Bible text (words or phrases)..."
                             value={lastQuery}
                             onChange={(e) => onQueryChange(e.target.value)}
                             onFocus={handleSearchFocus}
                             onKeyDown={handleKeyDown}
-                            aria-label="Search Bible verses"
+                            aria-label="Search Bible text (words or phrases)"
                         />
                         {isLoading ? (
                             <VSCodeProgressRing className="search-loading" aria-label="Searching"></VSCodeProgressRing>
@@ -183,6 +183,7 @@ function SearchTab({
                         <div className="search-toolbar-left">
                             <VSCodeButton 
                                 appearance="icon" 
+                                className="search-toolbar-button"
                                 onClick={() => setIsSettingsExpanded(!isSettingsExpanded)} 
                                 title="Search Settings"
                                 aria-label="Toggle search settings"
@@ -197,6 +198,7 @@ function SearchTab({
                             {verses.length > 0 && (
                                 <VSCodeButton 
                                     appearance="icon" 
+                                    className="search-toolbar-button"
                                     onClick={onPinAll} 
                                     title="Pin All Verses"
                                     aria-label="Pin all verses"
@@ -258,19 +260,10 @@ function SearchTab({
                         <div className="empty-state-icon codicon codicon-book" aria-hidden="true"></div>
                         <h2 className="empty-state-title">Search Bible Verses</h2>
                         <p className="empty-state-description">
-                            Enter a reference, word, or phrase to find relevant verses
+                            Enter a word or phrase to find relevant verses
                         </p>
                         <div className="search-suggestions">
                             <div className="suggestion-chips">
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("John 3:16");
-                                        handleSearch();
-                                    }}
-                                >
-                                    John 3:16
-                                </button>
                                 <button 
                                     className="prompt-chip" 
                                     onClick={() => {
@@ -279,15 +272,6 @@ function SearchTab({
                                     }}
                                 >
                                     love
-                                </button>
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("Psalm 23");
-                                        handleSearch();
-                                    }}
-                                >
-                                    Psalm 23
                                 </button>
                                 <button 
                                     className="prompt-chip" 
@@ -306,6 +290,24 @@ function SearchTab({
                                     }}
                                 >
                                     hope
+                                </button>
+                                <button 
+                                    className="prompt-chip" 
+                                    onClick={() => {
+                                        onQueryChange("forgive");
+                                        handleSearch();
+                                    }}
+                                >
+                                    forgive
+                                </button>
+                                <button 
+                                    className="prompt-chip" 
+                                    onClick={() => {
+                                        onQueryChange("mercy");
+                                        handleSearch();
+                                    }}
+                                >
+                                    mercy
                                 </button>
                             </div>
                         </div>
