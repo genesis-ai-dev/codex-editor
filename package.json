@@ -32,18 +32,6 @@
                 "when": "editorTextFocus && !inputDisabled"
             }
         ],
-        "notebookEditorDecorations": [
-            {
-                "type": "codex-type",
-                "viewType": "codex-type",
-                "displayName": "Codex Translation Editor Notebook CodeLens",
-                "selector": [
-                    {
-                        "filenamePattern": "*.codex"
-                    }
-                ]
-            }
-        ],
         "views": {
             "codex-main-menu": [
                 {
@@ -714,20 +702,6 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
-            }
-        ],
-        "notebooks": [
-            {
-                "type": "codex-type",
-                "displayName": "Codex Translation Editor Notebook",
-                "selector": [
-                    {
-                        "filenamePattern": "*.codex"
-                    },
-                    {
-                        "filenamePattern": "*.source"
-                    }
-                ]
             }
         ],
         "configuration": [
