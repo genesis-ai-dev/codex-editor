@@ -418,13 +418,40 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 </VSCodeButton>
                             </div>
                             {uniqueId && (
-                                <div className="unique-id-row">
+                                <div
+                                    className="unique-id-row"
+                                    style={{
+                                        borderBottom:
+                                            project.syncStatus === "downloadedAndSynced" ||
+                                            project.syncStatus === "localOnlyNotSynced"
+                                                ? "1px solid var(--vscode-widget-border)"
+                                                : "none",
+                                        marginBottom:
+                                            project.syncStatus === "downloadedAndSynced" ||
+                                            project.syncStatus === "localOnlyNotSynced"
+                                                ? "8px"
+                                                : "0",
+                                        paddingBottom:
+                                            project.syncStatus === "downloadedAndSynced" ||
+                                            project.syncStatus === "localOnlyNotSynced"
+                                                ? "8px"
+                                                : "0",
+                                    }}
+                                >
                                     <span className="unique-id">#{uniqueId}</span>
+                                    <VSCodeButton
+                                        appearance="secondary"
+                                        onClick={() => navigator.clipboard.writeText(uniqueId)}
+                                        title="Copy ID to clipboard"
+                                    >
+                                        <i className="codicon codicon-copy"></i>
+                                    </VSCodeButton>
                                 </div>
                             )}
                             {(project.syncStatus === "downloadedAndSynced" ||
                                 project.syncStatus === "localOnlyNotSynced") && (
                                 <div className="zip-button-row">
+                                    <span className="project-name">{project.name}</span>
                                     <VSCodeButton
                                         appearance="secondary"
                                         onClick={() => {

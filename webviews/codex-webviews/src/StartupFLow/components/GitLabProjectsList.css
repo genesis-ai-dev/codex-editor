@@ -316,12 +316,17 @@ vscode-option[selected] {
     padding: 0.5rem 1rem;
     background: color-mix(in srgb, var(--vscode-widget-border) 5%, transparent);
     border-radius: 3px;
+    display: flex;
+    width: 100%;
 }
 
 .url-container {
     padding: 8px;
     background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
     border-radius: 4px;
+    flex-direction: column;
+    flex: 1;
 }
 
 .url-row {
@@ -329,6 +334,8 @@ vscode-option[selected] {
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--vscode-widget-border);
 }
 
 .url {
@@ -337,22 +344,37 @@ vscode-option[selected] {
     word-break: break-all;
     color: var(--vscode-descriptionForeground);
     font-size: 0.9em;
+    text-align: right;
 }
 
 .unique-id-row {
-    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 4px 0;
 }
 
 .unique-id {
+    flex: 1;
     color: var(--vscode-descriptionForeground);
     font-size: 0.85em;
     opacity: 0.7;
+    text-align: right;
 }
 
 .zip-button-row {
     display: flex;
+    align-items: center;
+    gap: 8px;
     justify-content: flex-end;
+    padding-top: 4px;
+}
+
+.project-name {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+    opacity: 0.8;
+    text-align: right;
 }
 
 .status-icon {
