@@ -90,7 +90,11 @@ vscode-option {
 }
 
 vscode-option:hover {
-    background-color: color-mix(in srgb, var(--vscode-list-activeSelectionBackground) 50%, transparent);
+    background-color: color-mix(
+        in srgb,
+        var(--vscode-list-activeSelectionBackground) 50%,
+        transparent
+    );
 }
 
 vscode-option[selected] {
@@ -316,18 +320,24 @@ vscode-option[selected] {
 
 .url-container {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.5rem;
-    font-size: 0.9em;
-    opacity: 0.8;
-    width: 100%;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
 }
 
-.url-container .url {
+.url {
     margin: 0;
     word-break: break-all;
-    flex: 1;
+    color: var(--vscode-descriptionForeground);
+}
+
+.url-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .unique-id {

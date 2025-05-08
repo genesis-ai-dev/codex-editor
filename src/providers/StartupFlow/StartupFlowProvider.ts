@@ -18,6 +18,7 @@ import {
 import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
+import JSZip from "jszip";
 
 // State machine types
 export enum StartupFlowStates {
@@ -95,7 +96,7 @@ function getNonce(): string {
     return text;
 }
 
-const DEBUG_MODE = false; // Set to true to enable debug logging
+const DEBUG_MODE = true; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
@@ -1125,6 +1126,102 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
                 case "navigateToMainMenu": {
                     await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    break;
+                }
+                case "zipProject": {
+                    debugLog("Zipping project:", message.projectName, {
+                        vscode: vscode,
+                        message: message,
+                    });
+                    try {
+                        // Show save dialog to get zip file location
+                        const saveUri = await vscode.window.showSaveDialog({
+                            defaultUri: vscode.Uri.file(
+                                `${message.projectName}-${new Date().toISOString().split("T")[0]}.zip`
+                            ),
+                            filters: {
+                                "ZIP files": ["zip"],
+                            },
+                        });
+
+                        if (!saveUri) {
+                            debugLog("Zip operation cancelled by user");
+                            return;
+                        }
+
+                        // Show progress indicator
+                        await vscode.window.withProgress(
+                            {
+                                location: vscode.ProgressLocation.Notification,
+                                title: "Zipping project...",
+                                cancellable: false,
+                            },
+                            async (progress) => {
+                                progress.report({ increment: 0 });
+
+                                // Create a temporary directory using VS Code's temp directory
+                                const tempDir = vscode.Uri.joinPath(
+                                    vscode.Uri.file(vscode.env.appRoot),
+                                    "temp"
+                                );
+                                const tempZipPath = vscode.Uri.joinPath(
+                                    tempDir,
+                                    `${message.projectName}-temp.zip`
+                                );
+
+                                // Create JSZip instance
+                                const zip = new JSZip();
+
+                                // Recursive function to add files and folders to zip
+                                async function addToZip(currentUri: vscode.Uri, zipFolder: JSZip) {
+                                    const entries =
+                                        await vscode.workspace.fs.readDirectory(currentUri);
+
+                                    for (const [name, type] of entries) {
+                                        const entryUri = vscode.Uri.joinPath(currentUri, name);
+
+                                        if (type === vscode.FileType.File) {
+                                            const fileData =
+                                                await vscode.workspace.fs.readFile(entryUri);
+                                            zipFolder.file(name, fileData);
+                                        } else if (type === vscode.FileType.Directory) {
+                                            const newFolder = zipFolder.folder(name);
+                                            if (newFolder) {
+                                                await addToZip(entryUri, newFolder);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Start adding files from the project root
+                                const projectUri = vscode.Uri.file(message.projectPath);
+                                await addToZip(projectUri, zip);
+
+                                // Generate zip content
+                                const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+
+                                // Write zip file to temporary location
+                                await vscode.workspace.fs.writeFile(tempZipPath, zipContent);
+
+                                // Copy the zip file to the user's chosen location
+                                await vscode.workspace.fs.copy(tempZipPath, saveUri);
+
+                                // Clean up temporary file
+                                await vscode.workspace.fs.delete(tempZipPath);
+
+                                progress.report({ increment: 100 });
+                            }
+                        );
+
+                        vscode.window.showInformationMessage(
+                            `Project "${message.projectName}" has been zipped successfully!`
+                        );
+                    } catch (error) {
+                        debugLog("Error zipping project:", error);
+                        vscode.window.showErrorMessage(
+                            `Failed to zip project: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
                     break;
                 }
                 case "metadata.check": {

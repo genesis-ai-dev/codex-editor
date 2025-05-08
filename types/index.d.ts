@@ -350,7 +350,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.triggerSync"; message?: string }
     | { command: "startup.dismiss" }
     | { command: "webview.ready" }
-    | { command: "navigateToMainMenu" };
+    | { command: "navigateToMainMenu" }
+    | { command: "zipProject"; projectName: string; projectPath: string };
 
 export type GitLabProject = {
     id: number;
