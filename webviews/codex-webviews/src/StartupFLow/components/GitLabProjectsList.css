@@ -451,19 +451,20 @@ vscode-option[selected] {
     font-weight: 500;
 }
 
-.compact-progress-bar-container {
+/* Simple progress styling that works with native browser implementation */
+.compact-progress-bar {
     width: 40px;
     height: 4px;
-    background-color: var(--vscode-progressBar-background);
+    border: none;
     border-radius: 2px;
-    overflow: hidden;
+    overflow: visible;
+    margin: 0;
 }
 
-.compact-progress-bar {
-    height: 100%;
+/* Let the browser handle the progress bar appearance with minimal customization */
+progress.compact-progress-bar {
+    color: var(--vscode-progressBar-foreground);
     background-color: var(--vscode-progressBar-background);
-    background-color: var(--vscode-button-background);
-    transition: width 0.3s ease;
 }
 
 /* Debug information styles */

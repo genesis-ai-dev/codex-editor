@@ -468,17 +468,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 <span className="compact-progress-text">
                                     {project.completionPercentage.toFixed(1)}%
                                 </span>
-                                <div className="compact-progress-bar-container">
-                                    <div
-                                        className="compact-progress-bar"
-                                        style={{
-                                            width: `${Math.min(
-                                                project.completionPercentage,
-                                                100
-                                            )}%`,
-                                        }}
-                                    ></div>
-                                </div>
+                                <progress
+                                    className="compact-progress-bar"
+                                    value={Math.min(project.completionPercentage, 100)}
+                                    max="100"
+                                    title={`${project.completionPercentage.toFixed(4)}% complete`}
+                                ></progress>
                             </div>
                         )}
                         {mainAction()}
