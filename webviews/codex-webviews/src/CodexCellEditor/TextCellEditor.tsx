@@ -587,16 +587,32 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     )}
                 </div>
                 <div className="action-buttons">
-                    <VSCodeButton onClick={() => editorHandlesRef.current?.openLibrary()} appearance="icon" title="Add All Words to Dictionary">
+                    <VSCodeButton
+                        onClick={() => editorHandlesRef.current?.openLibrary()}
+                        appearance="icon"
+                        title="Add All Words to Dictionary"
+                    >
                         <i className="codicon codicon-book"></i>
                     </VSCodeButton>
-                    <VSCodeButton onClick={() => editorHandlesRef.current?.autocomplete()} appearance="icon" title="Autocomplete with AI">
+                    <VSCodeButton
+                        onClick={() => editorHandlesRef.current?.autocomplete()}
+                        appearance="icon"
+                        title="Autocomplete with AI"
+                    >
                         <i className="codicon codicon-sparkle"></i>
                     </VSCodeButton>
-                    <VSCodeButton onClick={() => editorHandlesRef.current?.showEditHistory()} appearance="icon" title="Show Edit History">
+                    <VSCodeButton
+                        onClick={() => editorHandlesRef.current?.showEditHistory()}
+                        appearance="icon"
+                        title="Show Edit History"
+                    >
                         <i className="codicon codicon-history"></i>
                     </VSCodeButton>
-                    <VSCodeButton onClick={() => editorHandlesRef.current?.addFootnote()} appearance="icon" title="Add Footnote">
+                    <VSCodeButton
+                        onClick={() => editorHandlesRef.current?.addFootnote()}
+                        appearance="icon"
+                        title="Add Footnote"
+                    >
                         <i className="codicon codicon-note"></i>
                     </VSCodeButton>
                     {showAdvancedControls ? (
@@ -809,7 +825,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     Save
                                                 </VSCodeButton>
                                                 <VSCodeButton
-                                                    onClick={() => setIsEditingBacktranslation(false)}
+                                                    onClick={() =>
+                                                        setIsEditingBacktranslation(false)
+                                                    }
                                                     appearance="secondary"
                                                     title="Cancel Editing"
                                                 >

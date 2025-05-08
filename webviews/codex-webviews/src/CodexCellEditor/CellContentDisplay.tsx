@@ -10,7 +10,6 @@ import { HACKY_removeContiguousSpans } from "./utils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
-import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import ValidationButton from "./ValidationButton";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
@@ -71,7 +70,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
     const cellRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
-    const { contentToScrollTo } = useContext(ScrollToContentContext);
 
     // Effect to attach event listeners to footnote markers
     useEffect(() => {
@@ -132,6 +130,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     }, [allTranslationsComplete, translationState]);
 
     useEffect(() => {
+        debug("Before Scrolling to content highlightedCellId", {
+            highlightedCellId,
+            cellIds,
+            isSourceText,
+            scrollSyncEnabled,
+        });
         if (
             highlightedCellId === cellIds[0] &&
             cellRef.current &&

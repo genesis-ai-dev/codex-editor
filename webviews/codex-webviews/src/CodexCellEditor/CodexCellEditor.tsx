@@ -22,10 +22,7 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import DuplicateCellResolver from "./DuplicateCellResolver";
 import TimelineEditor from "./TimelineEditor";
 import VideoTimelineEditor from "./VideoTimelineEditor";
-import { useQuillTextExtractor } from "./hooks/useQuillTextExtractor";
-import { initializeStateStore } from "../../../../src/stateStore";
-import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
-import { CodexCellTypes } from "types/enums";
+
 import { getCellValueData } from "@sharedUtils";
 import { isValidValidationEntry } from "./ValidationButton";
 import "./TranslationAnimations.css";
@@ -72,7 +69,6 @@ const CodexCellEditor: React.FC = () => {
     }>({});
     const [highlightedCellId, setHighlightedCellId] = useState<string | null>(null);
     const [isWebviewReady, setIsWebviewReady] = useState(false);
-    const { setContentToScrollTo } = useContext(ScrollToContentContext);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
 
     // Translation queue state for single cell translations
@@ -216,7 +212,9 @@ const CodexCellEditor: React.FC = () => {
             }
         };
         window.addEventListener("message", handleMessage);
-        return () => window.removeEventListener("message", handleMessage);
+        return () => {
+            window.removeEventListener("message", handleMessage);
+        };
     }, []);
 
     useEffect(() => {

@@ -1138,12 +1138,30 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     public updateCellIdState(cellId: string, uri: string) {
-        debug("Updating cell ID state:", cellId, uri);
+        debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
+        if (cellId && uri) {
+            // Only send highlight messages to source files when a codex file is active
+            const valueIsCodexFile = uri.endsWith(".codex");
+            if (valueIsCodexFile) {
+                debug("Processing codex file highlight");
+                for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                    const isSourceFile = panelUri.endsWith(".source");
+                    debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
+                    if (isSourceFile) {
+                        panel.webview.postMessage({
+                            type: "highlightCell",
+                            cellId: cellId,
+                        });
+                    }
+                }
+            }
+        }
         if (!this.stateStore) {
             console.warn("State store not initialized when trying to update cell ID");
             return;
         }
-
+        // Fixme: this is not working as expected sometime after closing and reopening a codex files
+        // the update is not being registered in the state store
         this.stateStore.updateStoreState({
             key: "cellId",
             value: {
