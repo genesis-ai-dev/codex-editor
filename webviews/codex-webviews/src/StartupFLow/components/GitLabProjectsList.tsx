@@ -405,8 +405,8 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 {isExpanded && displayUrl && (
                     <div className="card-content">
                         <div className="url-container">
-                            <p className="url">{displayUrl}</p>
-                            <div className="url-actions">
+                            <div className="url-row">
+                                <p className="url">{displayUrl}</p>
                                 <VSCodeButton
                                     appearance="secondary"
                                     onClick={() =>
@@ -416,21 +416,30 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 >
                                     <i className="codicon codicon-copy"></i>
                                 </VSCodeButton>
-                                <VSCodeButton
-                                    appearance="secondary"
-                                    onClick={() => {
-                                        vscode.postMessage({
-                                            command: "zipProject",
-                                            projectName: project.name,
-                                            projectPath: project.path,
-                                        });
-                                    }}
-                                    title="Download as ZIP"
-                                >
-                                    <i className="codicon codicon-package"></i>
-                                </VSCodeButton>
                             </div>
-                            {uniqueId && <span className="unique-id">#{uniqueId}</span>}
+                            {uniqueId && (
+                                <div className="unique-id-row">
+                                    <span className="unique-id">#{uniqueId}</span>
+                                </div>
+                            )}
+                            {(project.syncStatus === "downloadedAndSynced" ||
+                                project.syncStatus === "localOnlyNotSynced") && (
+                                <div className="zip-button-row">
+                                    <VSCodeButton
+                                        appearance="secondary"
+                                        onClick={() => {
+                                            vscode.postMessage({
+                                                command: "zipProject",
+                                                projectName: project.name,
+                                                projectPath: project.path,
+                                            });
+                                        }}
+                                        title="Download as ZIP"
+                                    >
+                                        <i className="codicon codicon-package"></i>
+                                    </VSCodeButton>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

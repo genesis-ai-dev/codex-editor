@@ -319,32 +319,40 @@ vscode-option[selected] {
 }
 
 .url-container {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
     padding: 8px;
     background-color: var(--vscode-editor-background);
-    border: 1px solid var(--vscode-input-border);
     border-radius: 4px;
 }
 
+.url-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
 .url {
+    flex: 1;
     margin: 0;
     word-break: break-all;
     color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
 }
 
-.url-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
+.unique-id-row {
+    margin-bottom: 8px;
+    padding: 4px 0;
 }
 
 .unique-id {
-    font-size: 0.8em;
-    margin-left: 0.5rem;
-    opacity: 0.7;
     color: var(--vscode-descriptionForeground);
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
+.zip-button-row {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .status-icon {
