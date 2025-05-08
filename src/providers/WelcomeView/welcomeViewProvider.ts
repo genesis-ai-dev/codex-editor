@@ -194,7 +194,7 @@ export class WelcomeViewProvider {
 
                 case "openExistingProject":
                 case "viewProjects":
-                    vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                    vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
                     break;
 
                 case "openLoginFlow":
