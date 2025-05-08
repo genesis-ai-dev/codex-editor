@@ -1123,6 +1123,35 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 // Send a response back to the webview
                 this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });
                 break;
+            case "getAggregatedProgress":
+                debugLog("Fetching aggregated progress data");
+                try {
+                    if (!this.frontierApi) {
+                        this.frontierApi = getAuthApi();
+                        if (!this.frontierApi) {
+                            console.log("Frontier API not available for progress data");
+                            return;
+                        }
+                    }
+
+                    const progressData = await vscode.commands.executeCommand(
+                        "frontier.getAggregatedProgress"
+                    );
+
+                    if (progressData && this.webviewPanel) {
+                        this.webviewPanel.webview.postMessage({
+                            command: "aggregatedProgressData",
+                            data: progressData,
+                        } as MessagesFromStartupFlowProvider);
+                    }
+                } catch (error) {
+                    console.error("Error fetching aggregated progress data:", error);
+                    this.webviewPanel?.webview.postMessage({
+                        command: "error",
+                        message: `Failed to fetch progress data: ${error instanceof Error ? error.message : String(error)}`,
+                    } as MessagesFromStartupFlowProvider);
+                }
+                break;
             case "project.showManager":
                 await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
                 break;

@@ -31,6 +31,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
     const [isLoading, setIsLoading] = useState(true);
+    const [progressData, setProgressData] = useState<any>(null);
     // const [state, send, service] = useMachine(startupFlowMachine);
 
     const fetchProjectList = () => {
@@ -38,6 +39,13 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
+        fetchProgressData();
+    };
+
+    const fetchProgressData = () => {
+        vscode.postMessage({
+            command: "getAggregatedProgress",
+        } as MessagesToStartupFlowProvider);
     };
 
     const handleDeleteProject = (project: ProjectWithSyncStatus) => {
@@ -58,6 +66,9 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         vscode.postMessage({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
+
+        // Also fetch progress data when component mounts
+        fetchProgressData();
 
         const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
             const message = event.data;
@@ -88,6 +99,9 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     // Always stop loading on any error or cancellation
                     setIsLoading(false);
                 }
+            } else if (message.command === "aggregatedProgressData") {
+                console.log("Received progress data:", message.data);
+                setProgressData(message.data);
             }
         };
 
@@ -192,6 +206,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     project.gitOriginUrl && onCloneRepo(project.gitOriginUrl)
                 }
                 vscode={vscode}
+                progressData={progressData}
             />
         </div>
     );

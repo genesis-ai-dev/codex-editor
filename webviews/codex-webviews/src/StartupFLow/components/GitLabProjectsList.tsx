@@ -429,7 +429,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     </div>
                 </div>
 
-                {JSON.stringify(project)}
 
                 {/* Add progress bar if completion percentage exists */}
                 {project.completionPercentage !== undefined && (
