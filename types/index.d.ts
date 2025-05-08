@@ -348,6 +348,9 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.initialize"; waitForStateUpdate?: boolean }
     | { command: "metadata.check" }
     | { command: "project.triggerSync"; message?: string }
+    | { command: "project.submitProgressReport" }
+    | { command: "getProjectProgress" }
+    | { command: "showProgressDashboard" }
     | { command: "startup.dismiss" }
     | { command: "webview.ready" }
     | { command: "navigateToMainMenu" }
@@ -371,7 +374,10 @@ export type ProjectSyncStatus =
     | "localOnlyNotSynced"
     | "error";
 
-export type ProjectWithSyncStatus = LocalProject & { syncStatus: ProjectSyncStatus };
+export type ProjectWithSyncStatus = LocalProject & {
+    syncStatus: ProjectSyncStatus;
+    completionPercentage?: number;
+};
 
 export type MessagesFromStartupFlowProvider =
     | { command: "projectsSyncStatus"; status: Record<string, "synced" | "cloud" | "error"> }
@@ -419,7 +425,10 @@ export type MessagesFromStartupFlowProvider =
           };
       }
     | { command: "setupIncompleteCriticalDataMissing" }
-    | { command: "setupComplete" };
+    | { command: "setupComplete" }
+    | { command: "project.progressReportSubmitted"; success: boolean; error?: string }
+    | { command: "progressData"; data: any };
+
 type DictionaryPostMessages =
     | {
           command: "webviewTellsProviderToUpdateData";
@@ -1222,7 +1231,9 @@ type ProjectManagerMessageFromWebview =
       }
     | { command: "triggerSync" }
     | { command: "openBookNameEditor" }
-    | { command: "navigateToMainMenu" };
+    | { command: "navigateToMainMenu" }
+    | { command: "getProjectProgress" }
+    | { command: "showProgressDashboard" };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1252,6 +1263,10 @@ type ProjectManagerMessageToWebview =
               autoSyncEnabled: boolean;
               syncDelayMinutes: number;
           };
+      }
+    | {
+          command: "progressData";
+          data: any; // Type for progress data
       };
 
 // Ensure the Project type is correctly defined
