@@ -301,6 +301,18 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         try {
+            // First fetch progress data
+            let progressData;
+            try {
+                debugLog("Fetching progress data before sending project list");
+                progressData = await vscode.commands.executeCommand(
+                    "frontier.getAggregatedProgress"
+                );
+                debugLog("Fetched progress data:", progressData);
+            } catch (error) {
+                console.warn("Error fetching progress data:", error);
+            }
+
             const projectList: ProjectWithSyncStatus[] = [];
 
             // Fetch remote projects if authenticated
@@ -375,11 +387,12 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            // Send the compiled list to the webview
+            // Send the compiled list to the webview along with progress data
             if (webviewPanel.visible) {
                 webviewPanel.webview.postMessage({
                     command: "projectsListFromGitLab",
                     projects: projectList,
+                    progressData: progressData, // Include progress data
                 } as MessagesFromStartupFlowProvider);
             }
         } catch (error) {

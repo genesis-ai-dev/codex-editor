@@ -269,8 +269,8 @@ vscode-option[selected] {
 
 .card-actions {
     display: flex;
-    gap: 0.5rem;
     align-items: center;
+    gap: 8px;
 }
 
 .expand-link {
@@ -433,4 +433,61 @@ vscode-option[selected] {
     background-color: var(--vscode-progressBar-foreground);
     border-radius: 3px;
     transition: width 0.3s ease;
+}
+
+/* Add styles for the compact progress indicator */
+.compact-progress {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-right: 10px;
+    min-width: 45px;
+}
+
+.compact-progress-text {
+    font-size: 0.8rem;
+    color: var(--vscode-editor-foreground);
+    margin-bottom: 2px;
+    font-weight: 500;
+}
+
+.compact-progress-bar-container {
+    width: 40px;
+    height: 4px;
+    background-color: var(--vscode-progressBar-background);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.compact-progress-bar {
+    height: 100%;
+    background-color: var(--vscode-progressBar-background);
+    background-color: var(--vscode-button-background);
+    transition: width 0.3s ease;
+}
+
+/* Debug information styles */
+.debug-info {
+    margin-bottom: 20px;
+    padding: 10px;
+    background-color: var(--vscode-editorWidget-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 4px;
+    max-height: 300px;
+    overflow: auto;
+}
+
+.debug-info h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 14px;
+    color: var(--vscode-editorWarning-foreground);
+}
+
+.debug-info pre {
+    margin: 0;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
 }
