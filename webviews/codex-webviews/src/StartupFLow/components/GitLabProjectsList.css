@@ -396,3 +396,41 @@ vscode-option[selected] {
 .status-icon.local {
     color: var(--vscode-charts-orange);
 }
+
+/* Progress bar styles */
+.project-progress {
+    margin-top: 0.5rem;
+    padding: 0 0.5rem 0.5rem;
+}
+
+.progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.25rem;
+}
+
+.progress-label {
+    font-size: 0.85em;
+    color: var(--vscode-foreground);
+}
+
+.progress-percentage {
+    font-size: 0.85em;
+    font-weight: bold;
+    color: var(--vscode-textLink-activeForeground);
+}
+
+.progress-bar-container {
+    height: 6px;
+    background-color: var(--vscode-progressBar-background);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: var(--vscode-progressBar-foreground);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}

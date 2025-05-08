@@ -650,18 +650,27 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
 
     // Command to force progress report submission
     context.subscriptions.push(
-        vscode.commands.registerCommand("codex-editor-extension.submitProgressReport", async () => {
-            const syncManager = SyncManager.getInstance();
-            const success = await syncManager.forceProgressReport();
+        vscode.commands.registerCommand(
+            "codex-editor-extension.submitProgressReport",
+            async (forceSubmit?: boolean) => {
+                const syncManager = SyncManager.getInstance();
+                const success = await syncManager.forceProgressReport();
 
-            if (success) {
-                vscode.window.showInformationMessage(
-                    "Project progress report submitted successfully"
-                );
-            } else {
-                vscode.window.showErrorMessage("Failed to submit progress report");
+                if (success) {
+                    vscode.window.showInformationMessage(
+                        "Project progress report submitted successfully"
+                    );
+                } else if (forceSubmit) {
+                    // If force submit is true and we couldn't find a valid GitLab project,
+                    // show a more specific error message
+                    vscode.window.showWarningMessage(
+                        "Progress report not submitted: No GitLab project found for this workspace"
+                    );
+                } else {
+                    vscode.window.showErrorMessage("Failed to submit progress report");
+                }
             }
-        })
+        )
     );
 
     // Listen for configuration changes

@@ -339,84 +339,100 @@ const ProjectField = ({
 
 function ProjectManagerView() {
     const [state, setState] = useState<ProjectManagerState>({
-        projects: [],
         projectOverview: null,
-        isScanning: false,
+        webviewReady: false,
         watchedFolders: [],
+        projects: null,
+        isScanning: false,
         canInitializeProject: false,
-        workspaceIsOpen: true,
-        webviewReady: true,
+        workspaceIsOpen: false,
         repoHasRemote: false,
         isInitializing: false,
     });
 
-    // Add state for sync settings
-    const [syncSettings, setSyncSettings] = useState({
-        autoSyncEnabled: true,
-        syncDelayMinutes: 5,
-    });
+    const [autoSyncEnabled, setAutoSyncEnabled] = useState(true);
+    const [syncDelayMinutes, setSyncDelayMinutes] = useState(5);
+    const [progressData, setProgressData] = useState<any>(null);
+    const [activeTabId, setActiveTabId] = useState("overview");
 
-    const handleAction = (message: ProjectManagerMessageFromWebview) => {
-        vscode.postMessage(message as ProjectManagerMessageFromWebview);
+    const handler = (message: MessageEvent<ProjectManagerMessageToWebview>) => {
+        console.log("message received", { message: message.data });
+
+        const { command, data } = message.data;
+
+        switch (command) {
+            case "stateUpdate":
+                setState(data);
+                break;
+            case "syncSettingsUpdate":
+                if (data.autoSyncEnabled !== undefined) {
+                    setAutoSyncEnabled(data.autoSyncEnabled);
+                }
+                if (data.syncDelayMinutes !== undefined) {
+                    setSyncDelayMinutes(data.syncDelayMinutes);
+                }
+                break;
+            case "progressData":
+                setProgressData(data);
+                break;
+            // ... other cases
+        }
     };
 
     useEffect(() => {
-        vscode.postMessage({ command: "checkPublishStatus" } as ProjectManagerMessageFromWebview);
-        // Request sync settings when component mounts
-        vscode.postMessage({ command: "getSyncSettings" } as ProjectManagerMessageFromWebview);
-    }, []);
+        setState((prevState) => ({
+            ...prevState,
+            webviewReady: true,
+        }));
 
-    useEffect(() => {
-        const handler = (message: MessageEvent<ProjectManagerMessageToWebview>) => {
-            switch (message.data.command) {
-                case "stateUpdate":
-                    setState(message.data.data);
-                    break;
-                case "publishStatus":
-                    setState((prev) => ({
-                        ...prev,
-                        repoHasRemote: (message.data.data as { repoHasRemote: boolean })
-                            .repoHasRemote,
-                    }));
-                    break;
-                case "syncSettingsUpdate":
-                    // Handle sync settings update
-                    setSyncSettings(message.data.data);
-                    break;
-            }
-        };
+        vscode.postMessage({
+            command: "webviewReady",
+        } as ProjectManagerMessageFromWebview);
+
+        // Request sync settings
+        vscode.postMessage({
+            command: "getSyncSettings",
+        } as ProjectManagerMessageFromWebview);
+
+        // Request progress data
+        vscode.postMessage({
+            command: "getProjectProgress",
+        } as ProjectManagerMessageFromWebview);
 
         window.addEventListener("message", handler);
-
-        // Initial state request
-        vscode.postMessage({ command: "webviewReady" } as ProjectManagerMessageFromWebview);
 
         return () => {
             window.removeEventListener("message", handler);
         };
     }, []);
 
-    // Add handlers for sync settings changes
+    const handleAction = (message: ProjectManagerMessageFromWebview) => {
+        console.log("sending message", { message });
+        vscode.postMessage(message);
+    };
+
     const handleToggleAutoSync = (enabled: boolean) => {
-        const updatedSettings = { ...syncSettings, autoSyncEnabled: enabled };
-        setSyncSettings(updatedSettings);
-        vscode.postMessage({
+        setAutoSyncEnabled(enabled);
+        handleAction({
             command: "updateSyncSettings",
-            data: updatedSettings,
-        } as ProjectManagerMessageFromWebview);
+            data: { autoSyncEnabled: enabled, syncDelayMinutes },
+        });
     };
 
     const handleChangeSyncDelay = (minutes: number) => {
-        const updatedSettings = { ...syncSettings, syncDelayMinutes: minutes };
-        setSyncSettings(updatedSettings);
-        vscode.postMessage({
+        setSyncDelayMinutes(minutes);
+        handleAction({
             command: "updateSyncSettings",
-            data: updatedSettings,
-        } as ProjectManagerMessageFromWebview);
+            data: { autoSyncEnabled, syncDelayMinutes: minutes },
+        });
     };
 
     const handleTriggerSync = () => {
-        vscode.postMessage({ command: "triggerSync" } as ProjectManagerMessageFromWebview);
+        handleAction({ command: "triggerSync" });
+    };
+
+    const handleShowProgressDashboard = () => {
+        handleAction({ command: "showProgressDashboard" });
     };
 
     // Show scanning indicator
@@ -594,8 +610,8 @@ function ProjectManagerView() {
                             />
                             {state.repoHasRemote && (
                                 <SyncSettings
-                                    autoSyncEnabled={syncSettings.autoSyncEnabled}
-                                    syncDelayMinutes={syncSettings.syncDelayMinutes}
+                                    autoSyncEnabled={autoSyncEnabled}
+                                    syncDelayMinutes={syncDelayMinutes}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
@@ -697,7 +713,7 @@ function ProjectManagerView() {
                                         </div>
                                     </VSCodeButton>
                                 )}
-                                {state.repoHasRemote && !syncSettings.autoSyncEnabled && (
+                                {state.repoHasRemote && !autoSyncEnabled && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "syncProject" })}
                                     >

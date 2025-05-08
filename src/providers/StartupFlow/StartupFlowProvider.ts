@@ -5,6 +5,7 @@ import {
     GitLabProject,
     ProjectWithSyncStatus,
     LocalProject,
+    ProjectManagerMessageFromWebview,
 } from "../../../types";
 import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
@@ -936,6 +937,38 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.disposables.push(this.metadataWatcher);
     }
 
+    // Add method to fetch project progress data
+    private async fetchAndSendProgressData() {
+        try {
+            // Check if frontier authentication is available
+            if (!this.frontierApi) {
+                this.frontierApi = getAuthApi();
+                if (!this.frontierApi) {
+                    console.log("Frontier API not available for progress data");
+                    return;
+                }
+            }
+
+            // Try to get aggregated progress data
+            try {
+                const progressData = await vscode.commands.executeCommand(
+                    "frontier.getAggregatedProgress"
+                );
+
+                if (progressData && this.webviewPanel) {
+                    this.webviewPanel.webview.postMessage({
+                        command: "progressData",
+                        data: progressData,
+                    } as MessagesFromStartupFlowProvider);
+                }
+            } catch (error) {
+                console.log("Unable to fetch progress data:", error);
+            }
+        } catch (error) {
+            console.error("Error fetching progress data:", error);
+        }
+    }
+
     public async resolveCustomTextEditor(
         document: vscode.TextDocument,
         webviewPanel: vscode.WebviewPanel,
@@ -985,504 +1018,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         // Send initial state immediately after webview is ready
         webviewPanel.webview.onDidReceiveMessage(async (message) => {
-            switch (message.command) {
-                case "openProjectSettings":
-                case "renameProject":
-                case "editAbbreviation":
-                case "changeSourceLanguage":
-                case "changeTargetLanguage":
-                case "selectCategory":
-                case "downloadSourceText":
-                case "openAISettings":
-                case "openSourceUpload":
-                    await this.handleProjectChange(message.command, message);
-                    // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
-                    // Send a response back to the webview
-                    this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });
-                    break;
-                case "project.showManager":
-                    await vscode.commands.executeCommand(
-                        "codex-project-manager.showProjectOverview"
-                    );
-                    break;
-                case "project.createEmpty": {
-                    debugLog("Creating empty project");
-                    await createNewWorkspaceAndProject();
-                    break;
-                }
-                case "project.initialize": {
-                    debugLog("Initializing project");
-                    await createNewProject();
-
-                    // Wait for metadata.json to be created
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
-                    if (workspaceFolders) {
-                        try {
-                            const metadataUri = vscode.Uri.joinPath(
-                                workspaceFolders[0].uri,
-                                "metadata.json"
-                            );
-                            // Wait for metadata.json to exist
-                            await vscode.workspace.fs.stat(metadataUri);
-
-                            // Show Project Manager view first
-                            await vscode.commands.executeCommand(
-                                "codex-project-manager.showProjectOverview"
-                            );
-
-                            // Send initialization status to webview
-                            webviewPanel.webview.postMessage({
-                                command: "project.initializationStatus",
-                                isInitialized: true,
-                            });
-
-                            this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
-                        } catch (error) {
-                            console.error("Error checking metadata.json:", error);
-                            // If metadata.json doesn't exist yet, don't transition state
-                            webviewPanel.webview.postMessage({
-                                command: "project.initializationStatus",
-                                isInitialized: false,
-                            });
-                        }
-                    }
-                    break;
-                }
-                case "webview.ready": {
-                    const preflightState = await preflightCheck.preflight();
-                    debugLog("Sending initial preflight state:", preflightState);
-                    this.stateMachine.send({
-                        type: StartupFlowEvents.UPDATE_AUTH_STATE,
-                        data: preflightState.authState,
-                    });
-
-                    // Check workspace status
-                    if (!preflightState.workspaceState.isOpen) {
-                        this.stateMachine.send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN });
-                        return;
-                    }
-
-                    // Check if metadata exists and project is set up
-                    if (preflightState.workspaceState.hasMetadata) {
-                        if (preflightState.workspaceState.isProjectSetup) {
-                            this.stateMachine.send({
-                                type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
-                            });
-                        } else {
-                            this.stateMachine.send({
-                                type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
-                            });
-                        }
-                    } else {
-                        this.stateMachine.send({
-                            type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
-                        });
-                    }
-                    break;
-                }
-                case "auth.status":
-                case "auth.login":
-                case "auth.signup":
-                case "auth.logout":
-                    debugLog("Handling authentication message", message.command);
-                    await this.handleAuthenticationMessage(webviewPanel, message);
-                    break;
-                case "startup.dismiss":
-                    debugLog("Dismissing startup flow");
-                    webviewPanel.dispose();
-                    break;
-                case "project.triggerSync":
-                    // Trigger a sync operation via the SyncManager
-                    try {
-                        debugLog("Triggering sync after login");
-                        // Destructure message for type safety
-                        const { message: commitMessage = "Sync after login" } = message;
-
-                        // Execute the sync command which is registered in syncManager.ts
-                        await vscode.commands.executeCommand(
-                            "codex-editor-extension.triggerSync",
-                            commitMessage
-                        );
-                    } catch (error) {
-                        console.error("Error triggering sync:", error);
-                    }
-                    break;
-                case "workspace.status":
-                case "workspace.open":
-                case "workspace.create":
-                case "workspace.continue":
-                case "project.open":
-                    debugLog("Handling workspace message", message.command);
-                    await this.handleWorkspaceMessage(webviewPanel, message);
-                    break;
-                case "extension.check": {
-                    this.stateMachine.send({
-                        type: "extension.checkResponse",
-                        data: {
-                            isInstalled: !!this.frontierApi,
-                        },
-                    });
-                    break;
-                }
-                case "navigateToMainMenu": {
-                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                    break;
-                }
-                case "zipProject": {
-                    debugLog("Zipping project:", message.projectName, {
-                        vscode: vscode,
-                        message: message,
-                    });
-                    try {
-                        // Show save dialog to get zip file location
-                        const saveUri = await vscode.window.showSaveDialog({
-                            defaultUri: vscode.Uri.file(
-                                `${message.projectName}-${new Date().toISOString().split("T")[0]}.zip`
-                            ),
-                            filters: {
-                                "ZIP files": ["zip"],
-                            },
-                        });
-
-                        if (!saveUri) {
-                            debugLog("Zip operation cancelled by user");
-                            return;
-                        }
-
-                        // Show progress indicator
-                        await vscode.window.withProgress(
-                            {
-                                location: vscode.ProgressLocation.Notification,
-                                title: "Zipping project...",
-                                cancellable: false,
-                            },
-                            async (progress) => {
-                                progress.report({ increment: 0 });
-
-                                // Create a temporary directory using VS Code's temp directory
-                                const tempDir = vscode.Uri.joinPath(
-                                    vscode.Uri.file(vscode.env.appRoot),
-                                    "temp"
-                                );
-                                const tempZipPath = vscode.Uri.joinPath(
-                                    tempDir,
-                                    `${message.projectName}-temp.zip`
-                                );
-
-                                // Create JSZip instance
-                                const zip = new JSZip();
-
-                                // Recursive function to add files and folders to zip
-                                async function addToZip(currentUri: vscode.Uri, zipFolder: JSZip) {
-                                    const entries =
-                                        await vscode.workspace.fs.readDirectory(currentUri);
-
-                                    for (const [name, type] of entries) {
-                                        const entryUri = vscode.Uri.joinPath(currentUri, name);
-
-                                        if (type === vscode.FileType.File) {
-                                            const fileData =
-                                                await vscode.workspace.fs.readFile(entryUri);
-                                            zipFolder.file(name, fileData);
-                                        } else if (type === vscode.FileType.Directory) {
-                                            const newFolder = zipFolder.folder(name);
-                                            if (newFolder) {
-                                                await addToZip(entryUri, newFolder);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Start adding files from the project root
-                                const projectUri = vscode.Uri.file(message.projectPath);
-                                await addToZip(projectUri, zip);
-
-                                // Generate zip content
-                                const zipContent = await zip.generateAsync({ type: "nodebuffer" });
-
-                                // Write zip file to temporary location
-                                await vscode.workspace.fs.writeFile(tempZipPath, zipContent);
-
-                                // Copy the zip file to the user's chosen location
-                                await vscode.workspace.fs.copy(tempZipPath, saveUri);
-
-                                // Clean up temporary file
-                                await vscode.workspace.fs.delete(tempZipPath);
-
-                                progress.report({ increment: 100 });
-                            }
-                        );
-
-                        vscode.window.showInformationMessage(
-                            `Project "${message.projectName}" has been zipped successfully!`
-                        );
-                    } catch (error) {
-                        debugLog("Error zipping project:", error);
-                        vscode.window.showErrorMessage(
-                            `Failed to zip project: ${error instanceof Error ? error.message : String(error)}`
-                        );
-                    }
-                    break;
-                }
-                case "metadata.check": {
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
-                    if (workspaceFolders) {
-                        try {
-                            const metadataUri = vscode.Uri.joinPath(
-                                workspaceFolders[0].uri,
-                                "metadata.json"
-                            );
-                            const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
-                            const metadata = JSON.parse(metadataContent.toString());
-
-                            const sourceLanguage = metadata.languages?.find(
-                                (l: any) => l.projectStatus === "source"
-                            );
-                            const targetLanguage = metadata.languages?.find(
-                                (l: any) => l.projectStatus === "target"
-                            );
-
-                            // Get source texts
-                            const sourceTexts = metadata.ingredients
-                                ? Object.keys(metadata.ingredients)
-                                : [];
-
-                            webviewPanel.webview.postMessage({
-                                command: "metadata.checkResponse",
-                                data: {
-                                    sourceLanguage,
-                                    targetLanguage,
-                                    sourceTexts,
-                                },
-                            });
-                        } catch (error) {
-                            console.error("Error checking metadata:", error);
-                            webviewPanel.webview.postMessage({
-                                command: "metadata.checkResponse",
-                                data: {
-                                    sourceLanguage: null,
-                                    targetLanguage: null,
-                                    sourceTexts: [],
-                                },
-                            });
-                        }
-                    }
-                    break;
-                }
-                case "getProjectsListFromGitLab": {
-                    debugLog("Fetching GitLab projects list");
-                    this.sendList(webviewPanel);
-                    break;
-                }
-                case "getProjectsSyncStatus": {
-                    debugLog("Fetching projects sync status");
-                    try {
-                        // Get workspace folders to check local repositories
-                        const workspaceFolders = vscode.workspace.workspaceFolders;
-                        const localRepos = new Set<string>();
-
-                        if (workspaceFolders) {
-                            // Get all git repositories in the workspace
-                            const gitExtension =
-                                vscode.extensions.getExtension("vscode.git")?.exports;
-                            const git = gitExtension?.getAPI(1);
-
-                            if (git) {
-                                const repositories = git.repositories;
-                                for (const repo of repositories) {
-                                    try {
-                                        // Get remote URL
-                                        const remoteUrl = await repo.getConfig("remote.origin.url");
-                                        if (remoteUrl) {
-                                            localRepos.add(remoteUrl.value);
-                                        }
-                                    } catch (error) {
-                                        debugLog("Error getting remote URL for repo:", error);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Get GitLab projects
-                        const projects = (await this.frontierApi?.listProjects(false)) || [];
-
-                        // Create status map
-                        const status: Record<number, "synced" | "cloud" | "error"> = {};
-
-                        for (const project of projects) {
-                            if (localRepos.has(project.url)) {
-                                // Project exists locally and is in GitLab
-                                status[project.id] = "synced";
-                            } else {
-                                // Project is only in GitLab
-                                status[project.id] = "cloud";
-                            }
-                        }
-
-                        // Send status back to webview
-                        this.stateMachine.send({
-                            type: "projectsSyncStatus",
-                            data: {
-                                status,
-                            },
-                        });
-                    } catch (error) {
-                        console.error("Failed to get projects sync status:", error);
-                        this.stateMachine.send({
-                            type: "projectsSyncStatus",
-                            data: {
-                                status: {},
-                                error:
-                                    error instanceof Error
-                                        ? error.message
-                                        : "Failed to get projects sync status",
-                            },
-                        });
-                    }
-                    break;
-                }
-                case "project.clone": {
-                    debugLog("Cloning repository", message.repoUrl);
-
-                    try {
-                        // Get the .codex-projects directory
-                        const codexProjectsDir = await getCodexProjectsDirectory();
-
-                        // Extract project name from URL to use as folder name
-                        const urlParts = message.repoUrl.split("/");
-                        let projectName = urlParts[urlParts.length - 1];
-
-                        // Remove .git extension if present
-                        if (projectName.endsWith(".git")) {
-                            projectName = projectName.slice(0, -4);
-                        }
-
-                        // Create a unique folder name if needed
-                        let projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
-
-                        // Check if directory already exists
-                        try {
-                            await vscode.workspace.fs.stat(projectDir);
-                            // If we get here, the directory exists
-                            const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                            const newProjectName = `${projectName}-${timestamp}`;
-                            projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
-                        } catch {
-                            // Directory doesn't exist, which is what we want
-                        }
-
-                        // Clone to the .codex-projects directory
-                        this.frontierApi?.cloneRepository(message.repoUrl, projectDir.fsPath);
-                    } catch (error) {
-                        console.error("Error preparing to clone repository:", error);
-                        this.frontierApi?.cloneRepository(message.repoUrl);
-                    }
-
-                    break;
-                }
-                case "project.delete": {
-                    debugLog("Deleting project", message.projectPath);
-
-                    // Ensure the path exists
-                    try {
-                        const projectUri = vscode.Uri.file(message.projectPath);
-                        await vscode.workspace.fs.stat(projectUri);
-
-                        // Show confirmation dialog
-                        const projectName =
-                            message.projectPath.split("/").pop() || message.projectPath;
-
-                        // Determine if this is a cloud-synced project
-                        let isCloudSynced = false;
-                        try {
-                            const localProjects = await findAllCodexProjects();
-                            const project = localProjects.find(
-                                (p) => p.path === message.projectPath
-                            );
-                            // If the project has a git origin URL, it might be synced with cloud
-                            isCloudSynced = !!project?.gitOriginUrl;
-
-                            // If we have sync status info from the message, use that
-                            if (message.syncStatus === "downloadedAndSynced") {
-                                isCloudSynced = true;
-                            }
-                        } catch (error) {
-                            console.error("Error determining project sync status:", error);
-                            // Fall back to local-only message if we can't determine
-                            isCloudSynced = false;
-                        }
-
-                        const confirmMessage = isCloudSynced
-                            ? `Are you sure you want to delete project \n"${projectName}" locally?\n\nPlease ensure the project is synced before deleting.`
-                            : `Are you sure you want to delete project \n"${projectName}"?\n\nThis action cannot be undone.`;
-
-                        const confirmResult = await vscode.window.showWarningMessage(
-                            confirmMessage,
-                            { modal: true },
-                            "Delete"
-                        );
-
-                        if (confirmResult === "Delete") {
-                            // Delete the project directory
-                            try {
-                                // Use vscode.workspace.fs.delete with the recursive flag
-                                await vscode.workspace.fs.delete(projectUri, { recursive: true });
-                                vscode.window.showInformationMessage(
-                                    `Project "${projectName}" has been deleted.`
-                                );
-
-                                // Send success response to webview
-                                webviewPanel.webview.postMessage({
-                                    command: "project.deleteResponse",
-                                    success: true,
-                                    projectPath: message.projectPath,
-                                });
-
-                                // Refresh the projects list
-                                await this.sendList(webviewPanel);
-                            } catch (error) {
-                                console.error("Error deleting project:", error);
-                                vscode.window.showErrorMessage(
-                                    `Failed to delete project: ${error instanceof Error ? error.message : String(error)}`
-                                );
-
-                                // Send error response to webview
-                                webviewPanel.webview.postMessage({
-                                    command: "project.deleteResponse",
-                                    success: false,
-                                    error: error instanceof Error ? error.message : String(error),
-                                });
-
-                                // Still attempt to refresh the list to ensure UI is in sync
-                                await this.sendList(webviewPanel);
-                            }
-                        } else {
-                            // User cancelled deletion
-                            webviewPanel.webview.postMessage({
-                                command: "project.deleteResponse",
-                                success: false,
-                                error: "Deletion cancelled by user",
-                            });
-                        }
-                    } catch (error) {
-                        console.error("Project not found:", error);
-                        vscode.window.showErrorMessage("The specified project could not be found.");
-
-                        // Send error response to webview
-                        webviewPanel.webview.postMessage({
-                            command: "project.deleteResponse",
-                            success: false,
-                            error: "The specified project could not be found.",
-                        });
-
-                        // Still attempt to refresh the list to ensure UI is in sync
-                        await this.sendList(webviewPanel);
-                    }
-
-                    break;
-                }
+            try {
+                await this.handleMessage(message);
+            } catch (error) {
+                console.error("Error handling message:", error);
+                webviewPanel.webview.postMessage({
+                    command: "error",
+                    message: `Failed to handle action: ${(error as Error).message}`,
+                });
             }
         });
+
+        // Fetch initial progress data after webview is ready
+        webviewPanel.webview.postMessage({ command: "webview.loading" });
+
+        try {
+            // Initialize standard panels and functionality
+            // ... existing initialization code ...
+
+            // Fetch initial progress data
+            await this.fetchAndSendProgressData();
+        } catch (error) {
+            console.error("Error during startup flow initialization:", error);
+        } finally {
+            webviewPanel.webview.postMessage({ command: "webview.ready" });
+        }
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
@@ -1540,5 +1100,559 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 <script nonce="${nonce}" src="${scriptUri}"></script>
             </body>
             </html>`;
+    }
+
+    private async handleMessage(
+        message:
+            | MessagesToStartupFlowProvider
+            | ProjectManagerMessageFromWebview
+            | MessagesFromStartupFlowProvider
+    ) {
+        switch (message.command) {
+            case "openProjectSettings":
+            case "renameProject":
+            case "editAbbreviation":
+            case "changeSourceLanguage":
+            case "changeTargetLanguage":
+            case "selectCategory":
+            case "downloadSourceText":
+            case "openAISettings":
+            case "openSourceUpload":
+                await this.handleProjectChange(message.command, message);
+                // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
+                // Send a response back to the webview
+                this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });
+                break;
+            case "project.showManager":
+                await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+                break;
+            case "project.createEmpty": {
+                debugLog("Creating empty project");
+                await createNewWorkspaceAndProject();
+                break;
+            }
+            case "project.initialize": {
+                debugLog("Initializing project");
+                await createNewProject();
+
+                // Wait for metadata.json to be created
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        // Wait for metadata.json to exist
+                        await vscode.workspace.fs.stat(metadataUri);
+
+                        // Show Project Manager view first
+                        await vscode.commands.executeCommand(
+                            "codex-project-manager.showProjectOverview"
+                        );
+
+                        // Send initialization status to webview
+                        this.webviewPanel?.webview.postMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: true,
+                        });
+
+                        this.stateMachine.send({ type: StartupFlowEvents.INITIALIZE_PROJECT });
+                    } catch (error) {
+                        console.error("Error checking metadata.json:", error);
+                        // If metadata.json doesn't exist yet, don't transition state
+                        this.webviewPanel?.webview.postMessage({
+                            command: "project.initializationStatus",
+                            isInitialized: false,
+                        });
+                    }
+                }
+                break;
+            }
+            case "webview.ready": {
+                const preflightCheck = new PreflightCheck();
+                const preflightState = await preflightCheck.preflight();
+                debugLog("Sending initial preflight state:", preflightState);
+                this.stateMachine.send({
+                    type: StartupFlowEvents.UPDATE_AUTH_STATE,
+                    data: preflightState.authState,
+                });
+
+                // Check workspace status
+                if (!preflightState.workspaceState.isOpen) {
+                    this.stateMachine.send({ type: StartupFlowEvents.PROJECT_CLONE_OR_OPEN });
+                    return;
+                }
+
+                // Check if metadata exists and project is set up
+                if (preflightState.workspaceState.hasMetadata) {
+                    if (preflightState.workspaceState.isProjectSetup) {
+                        this.stateMachine.send({
+                            type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN,
+                        });
+                    } else {
+                        this.stateMachine.send({
+                            type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA,
+                        });
+                    }
+                } else {
+                    this.stateMachine.send({
+                        type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT,
+                    });
+                }
+                break;
+            }
+            case "auth.status":
+            case "auth.login":
+            case "auth.signup":
+            case "auth.logout":
+                debugLog("Handling authentication message", message.command);
+                await this.handleAuthenticationMessage(this.webviewPanel!, message);
+                break;
+            case "startup.dismiss":
+                debugLog("Dismissing startup flow");
+                this.webviewPanel?.dispose();
+                break;
+            case "project.triggerSync":
+                // Trigger a sync operation via the SyncManager
+                try {
+                    debugLog("Triggering sync after login");
+                    // Destructure message for type safety
+                    const { message: commitMessage = "Sync after login" } = message;
+
+                    // Execute the sync command which is registered in syncManager.ts
+                    await vscode.commands.executeCommand(
+                        "codex-editor-extension.triggerSync",
+                        commitMessage
+                    );
+                } catch (error) {
+                    console.error("Error triggering sync:", error);
+                }
+                break;
+            case "project.submitProgressReport":
+                // Trigger progress report submission via the SyncManager
+                try {
+                    debugLog("Submitting progress report");
+                    const { forceSubmit = false } = message;
+
+                    // Execute the report submission command which is registered in syncManager.ts
+                    await vscode.commands.executeCommand(
+                        "codex-editor-extension.submitProgressReport",
+                        forceSubmit
+                    );
+
+                    // Send response back to webview
+                    this.webviewPanel?.webview.postMessage({
+                        command: "project.progressReportSubmitted",
+                        success: true,
+                    });
+                } catch (error) {
+                    console.error("Error submitting progress report:", error);
+                    // Send error response back to webview
+                    this.webviewPanel?.webview.postMessage({
+                        command: "project.progressReportSubmitted",
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error),
+                    });
+                }
+                break;
+            case "workspace.status":
+            case "workspace.open":
+            case "workspace.create":
+            case "workspace.continue":
+            case "project.open":
+                debugLog("Handling workspace message", message.command);
+                await this.handleWorkspaceMessage(this.webviewPanel!, message);
+                break;
+            case "extension.check": {
+                this.stateMachine.send({
+                    type: "extension.checkResponse",
+                    data: {
+                        isInstalled: !!this.frontierApi,
+                    },
+                });
+                break;
+            }
+            case "navigateToMainMenu": {
+                await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                break;
+            }
+            case "metadata.check": {
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                if (workspaceFolders) {
+                    try {
+                        const metadataUri = vscode.Uri.joinPath(
+                            workspaceFolders[0].uri,
+                            "metadata.json"
+                        );
+                        const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+                        const metadata = JSON.parse(metadataContent.toString());
+
+                        const sourceLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "source"
+                        );
+                        const targetLanguage = metadata.languages?.find(
+                            (l: any) => l.projectStatus === "target"
+                        );
+
+                        // Get source texts
+                        const sourceTexts = metadata.ingredients
+                            ? Object.keys(metadata.ingredients)
+                            : [];
+
+                        this.webviewPanel?.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                sourceLanguage,
+                                targetLanguage,
+                                sourceTexts,
+                            },
+                        });
+                    } catch (error) {
+                        console.error("Error checking metadata:", error);
+                        this.webviewPanel?.webview.postMessage({
+                            command: "metadata.checkResponse",
+                            data: {
+                                sourceLanguage: null,
+                                targetLanguage: null,
+                                sourceTexts: [],
+                            },
+                        });
+                    }
+                }
+                break;
+            }
+            case "getProjectsListFromGitLab": {
+                debugLog("Fetching GitLab projects list");
+                await this.sendList(this.webviewPanel!);
+                break;
+            }
+            case "getProjectsSyncStatus": {
+                debugLog("Fetching projects sync status");
+                try {
+                    // Get workspace folders to check local repositories
+                    const workspaceFolders = vscode.workspace.workspaceFolders;
+                    const localRepos = new Set<string>();
+
+                    if (workspaceFolders) {
+                        // Get all git repositories in the workspace
+                        const gitExtension = vscode.extensions.getExtension("vscode.git")?.exports;
+                        const git = gitExtension?.getAPI(1);
+
+                        if (git) {
+                            const repositories = git.repositories;
+                            for (const repo of repositories) {
+                                try {
+                                    // Get remote URL
+                                    const remoteUrl = await repo.getConfig("remote.origin.url");
+                                    if (remoteUrl) {
+                                        localRepos.add(remoteUrl.value);
+                                    }
+                                } catch (error) {
+                                    debugLog("Error getting remote URL for repo:", error);
+                                }
+                            }
+                        }
+                    }
+
+                    // Get GitLab projects
+                    const projects = (await this.frontierApi?.listProjects(false)) || [];
+
+                    // Create status map
+                    const status: Record<number, "synced" | "cloud" | "error"> = {};
+
+                    for (const project of projects) {
+                        if (localRepos.has(project.url)) {
+                            // Project exists locally and is in GitLab
+                            status[project.id] = "synced";
+                        } else {
+                            // Project is only in GitLab
+                            status[project.id] = "cloud";
+                        }
+                    }
+
+                    // Send status back to webview
+                    this.stateMachine.send({
+                        type: "projectsSyncStatus",
+                        data: {
+                            status,
+                        },
+                    });
+                } catch (error) {
+                    console.error("Failed to get projects sync status:", error);
+                    this.stateMachine.send({
+                        type: "projectsSyncStatus",
+                        data: {
+                            status: {},
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Failed to get projects sync status",
+                        },
+                    });
+                }
+                break;
+            }
+            case "project.clone": {
+                debugLog("Cloning repository", message.repoUrl);
+
+                try {
+                    // Get the .codex-projects directory
+                    const codexProjectsDir = await getCodexProjectsDirectory();
+
+                    // Extract project name from URL to use as folder name
+                    const urlParts = message.repoUrl.split("/");
+                    let projectName = urlParts[urlParts.length - 1];
+
+                    // Remove .git extension if present
+                    if (projectName.endsWith(".git")) {
+                        projectName = projectName.slice(0, -4);
+                    }
+
+                    // Create a unique folder name if needed
+                    let projectDir = vscode.Uri.joinPath(codexProjectsDir, projectName);
+
+                    // Check if directory already exists
+                    try {
+                        await vscode.workspace.fs.stat(projectDir);
+                        // If we get here, the directory exists
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                        const newProjectName = `${projectName}-${timestamp}`;
+                        projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
+                    } catch {
+                        // Directory doesn't exist, which is what we want
+                    }
+
+                    // Clone to the .codex-projects directory
+                    this.frontierApi?.cloneRepository(message.repoUrl, projectDir.fsPath);
+                } catch (error) {
+                    console.error("Error preparing to clone repository:", error);
+                    this.frontierApi?.cloneRepository(message.repoUrl);
+                }
+
+                break;
+            }
+            case "project.delete": {
+                // Extract project path from either format
+                const projectPath =
+                    "projectPath" in message
+                        ? message.projectPath
+                        : "data" in message &&
+                            message.data &&
+                            typeof message.data === "object" &&
+                            "path" in message.data
+                          ? message.data.path
+                          : "";
+
+                debugLog("Deleting project", projectPath);
+
+                // Ensure the path exists
+                try {
+                    const projectUri = vscode.Uri.file(projectPath);
+                    await vscode.workspace.fs.stat(projectUri);
+
+                    // Show confirmation dialog
+                    const projectName = projectPath.split("/").pop() || projectPath;
+
+                    // Determine if this is a cloud-synced project
+                    let isCloudSynced = false;
+                    try {
+                        const localProjects = await findAllCodexProjects();
+                        const project = localProjects.find((p) => p.path === projectPath);
+                        // If the project has a git origin URL, it might be synced with cloud
+                        isCloudSynced = !!project?.gitOriginUrl;
+
+                        // If we have sync status info from the message, use that
+                        if (
+                            "syncStatus" in message &&
+                            message.syncStatus === "downloadedAndSynced"
+                        ) {
+                            isCloudSynced = true;
+                        }
+                    } catch (error) {
+                        console.error("Error determining project sync status:", error);
+                        // Fall back to local-only message if we can't determine
+                        isCloudSynced = false;
+                    }
+
+                    const confirmMessage = isCloudSynced
+                        ? `Are you sure you want to delete project \n"${projectName}" locally?\n\nPlease ensure the project is synced before deleting.`
+                        : `Are you sure you want to delete project \n"${projectName}"?\n\nThis action cannot be undone.`;
+
+                    const confirmResult = await vscode.window.showWarningMessage(
+                        confirmMessage,
+                        { modal: true },
+                        "Delete"
+                    );
+
+                    if (confirmResult === "Delete") {
+                        // Delete the project directory
+                        try {
+                            // Use vscode.workspace.fs.delete with the recursive flag
+                            await vscode.workspace.fs.delete(projectUri, { recursive: true });
+                            vscode.window.showInformationMessage(
+                                `Project "${projectName}" has been deleted.`
+                            );
+
+                            // Send success response to webview
+                            this.webviewPanel?.webview.postMessage({
+                                command: "project.deleteResponse",
+                                success: true,
+                                projectPath: projectPath,
+                            });
+
+                            // Refresh the projects list
+                            await this.sendList(this.webviewPanel!);
+                        } catch (error) {
+                            console.error("Error deleting project:", error);
+                            vscode.window.showErrorMessage(
+                                `Failed to delete project: ${error instanceof Error ? error.message : String(error)}`
+                            );
+
+                            // Send error response to webview
+                            this.webviewPanel?.webview.postMessage({
+                                command: "project.deleteResponse",
+                                success: false,
+                                error: error instanceof Error ? error.message : String(error),
+                            });
+
+                            // Still attempt to refresh the list to ensure UI is in sync
+                            await this.sendList(this.webviewPanel!);
+                        }
+                    } else {
+                        // User cancelled deletion
+                        this.webviewPanel?.webview.postMessage({
+                            command: "project.deleteResponse",
+                            success: false,
+                            error: "Deletion cancelled by user",
+                        });
+                    }
+                } catch (error) {
+                    console.error("Project not found:", error);
+                    vscode.window.showErrorMessage("The specified project could not be found.");
+
+                    // Send error response to webview
+                    this.webviewPanel?.webview.postMessage({
+                        command: "project.deleteResponse",
+                        success: false,
+                        error: "The specified project could not be found.",
+                    });
+
+                    // Still attempt to refresh the list to ensure UI is in sync
+                    await this.sendList(this.webviewPanel!);
+                }
+
+                break;
+            }
+            case "getProjectProgress":
+                // Handle request for project progress data
+                await this.fetchAndSendProgressData();
+                break;
+            case "showProgressDashboard": {
+                // Open the progress dashboard
+                try {
+                    await vscode.commands.executeCommand("frontier.showProgressDashboard");
+                } catch (error) {
+                    console.error("Error opening progress dashboard:", error);
+                    vscode.window.showErrorMessage("Failed to open progress dashboard");
+                }
+                break;
+            }
+            case "zipProject": {
+                debugLog("Zipping project:", message.projectName, {
+                    vscode: vscode,
+                    message: message,
+                });
+                try {
+                    // Show save dialog to get zip file location
+                    const saveUri = await vscode.window.showSaveDialog({
+                        defaultUri: vscode.Uri.file(
+                            `${message.projectName}-${new Date().toISOString().split("T")[0]}.zip`
+                        ),
+                        filters: {
+                            "ZIP files": ["zip"],
+                        },
+                    });
+
+                    if (!saveUri) {
+                        debugLog("Zip operation cancelled by user");
+                        return;
+                    }
+
+                    // Show progress indicator
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Zipping project...",
+                            cancellable: false,
+                        },
+                        async (progress) => {
+                            progress.report({ increment: 0 });
+
+                            // Create a temporary directory using VS Code's temp directory
+                            const tempDir = vscode.Uri.joinPath(
+                                vscode.Uri.file(vscode.env.appRoot),
+                                "temp"
+                            );
+                            const tempZipPath = vscode.Uri.joinPath(
+                                tempDir,
+                                `${message.projectName}-temp.zip`
+                            );
+
+                            // Create JSZip instance
+                            const zip = new JSZip();
+
+                            // Recursive function to add files and folders to zip
+                            async function addToZip(currentUri: vscode.Uri, zipFolder: JSZip) {
+                                const entries = await vscode.workspace.fs.readDirectory(currentUri);
+
+                                for (const [name, type] of entries) {
+                                    const entryUri = vscode.Uri.joinPath(currentUri, name);
+
+                                    if (type === vscode.FileType.File) {
+                                        const fileData =
+                                            await vscode.workspace.fs.readFile(entryUri);
+                                        zipFolder.file(name, fileData);
+                                    } else if (type === vscode.FileType.Directory) {
+                                        const newFolder = zipFolder.folder(name);
+                                        if (newFolder) {
+                                            await addToZip(entryUri, newFolder);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Start adding files from the project root
+                            const projectUri = vscode.Uri.file(message.projectPath);
+                            await addToZip(projectUri, zip);
+
+                            // Generate zip content
+                            const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+
+                            // Write zip file to temporary location
+                            await vscode.workspace.fs.writeFile(tempZipPath, zipContent);
+
+                            // Copy the zip file to the user's chosen location
+                            await vscode.workspace.fs.copy(tempZipPath, saveUri);
+
+                            // Clean up temporary file
+                            await vscode.workspace.fs.delete(tempZipPath);
+
+                            progress.report({ increment: 100 });
+                        }
+                    );
+
+                    vscode.window.showInformationMessage(
+                        `Project "${message.projectName}" has been zipped successfully!`
+                    );
+                } catch (error) {
+                    debugLog("Error zipping project:", error);
+                    vscode.window.showErrorMessage(
+                        `Failed to zip project: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+                break;
+            }
+        }
     }
 }

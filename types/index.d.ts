@@ -347,14 +347,16 @@ export type MessagesToStartupFlowProvider =
     | { command: "project.createEmpty" }
     | { command: "project.initialize"; waitForStateUpdate?: boolean }
     | { command: "metadata.check" }
+    | { command: "project.showManager" }
     | { command: "project.triggerSync"; message?: string }
-    | { command: "project.submitProgressReport" }
+    | { command: "project.submitProgressReport"; forceSubmit?: boolean }
     | { command: "getProjectProgress" }
     | { command: "showProgressDashboard" }
     | { command: "startup.dismiss" }
     | { command: "webview.ready" }
     | { command: "navigateToMainMenu" }
-    | { command: "zipProject"; projectName: string; projectPath: string };
+    | { command: "zipProject"; projectName: string; projectPath: string }
+    | { command: "project.delete"; projectName: string; projectPath: string };
 
 export type GitLabProject = {
     id: number;
@@ -1233,7 +1235,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "openBookNameEditor" }
     | { command: "navigateToMainMenu" }
     | { command: "getProjectProgress" }
-    | { command: "showProgressDashboard" };
+    | { command: "showProgressDashboard" }
+    | { command: "project.delete"; data: { path: string } };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

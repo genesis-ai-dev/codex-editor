@@ -26,6 +26,7 @@ interface GitLabProjectsListProps {
     onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
     vscode: any;
+    progressData?: any;
 }
 
 interface ProjectGroup {
@@ -49,6 +50,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     onDeleteProject,
     isLoading,
     vscode,
+    progressData,
 }) => {
     const [searchQuery, setSearchQuery] = useState("");
     const [filter, setFilter] = useState<ProjectFilter>("all");
@@ -101,6 +103,30 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             }
         });
     }, [searchQuery, projects]);
+
+    // Add effect to update projects with progress data
+    useEffect(() => {
+        if (progressData && progressData.projectSummaries && projects) {
+            const progressMap = new Map();
+            progressData.projectSummaries.forEach((summary: any) => {
+                progressMap.set(summary.projectName, summary.completionPercentage);
+            });
+
+            // Update projects with completion percentages
+            projects.forEach((project) => {
+                const projectName = project.name.toLowerCase();
+                for (const [name, percentage] of progressMap.entries()) {
+                    if (
+                        name.toLowerCase().includes(projectName) ||
+                        projectName.includes(name.toLowerCase())
+                    ) {
+                        (project as any).completionPercentage = percentage;
+                        break;
+                    }
+                }
+            });
+        }
+    }, [progressData, projects]);
 
     const getStatusIcon = (syncStatus: ProjectSyncStatus) => {
         switch (syncStatus) {
@@ -402,6 +428,27 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         )}
                     </div>
                 </div>
+
+                {JSON.stringify(project)}
+
+                {/* Add progress bar if completion percentage exists */}
+                {project.completionPercentage !== undefined && (
+                    <div className="project-progress">
+                        <div className="progress-header">
+                            <span className="progress-label">Translation Progress</span>
+                            <span className="progress-percentage">
+                                {(project as any).completionPercentage.toFixed(2)}%
+                            </span>
+                        </div>
+                        <div className="progress-bar-container">
+                            <div
+                                className="progress-bar"
+                                style={{ width: `${(project as any).completionPercentage}%` }}
+                            ></div>
+                        </div>
+                    </div>
+                )}
+
                 {isExpanded && displayUrl && (
                     <div className="card-content">
                         <div className="url-container">
