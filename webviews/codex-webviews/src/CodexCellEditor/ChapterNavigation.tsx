@@ -2030,7 +2030,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                         style={{
                             position: "absolute",
                             top: "100%",
-                            right: "0",
+                            ...(textDirection === "rtl" ? { left: "0" } : { right: "0" }),
                             backgroundColor: "var(--vscode-menu-background)",
                             border: "1px solid var(--vscode-menu-border)",
                             borderRadius: "4px",
