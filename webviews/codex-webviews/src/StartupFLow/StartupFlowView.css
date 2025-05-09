@@ -201,3 +201,62 @@
     text-align: center;
     padding: 2rem;
 }
+
+/* Add spinning animation for loading indicators */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.codicon-modifier-spin {
+    animation: spin 1.5s linear infinite;
+}
+
+/* Ensure login/register button text stays contained */
+.login-register-step vscode-button {
+    overflow: hidden;
+}
+
+.login-register-step vscode-button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Fix the dialog body to not overflow */
+form .button-group {
+    flex-direction: row !important; /* Override the column display */
+    align-items: center !important;
+    margin-top: 1rem;
+}
+
+/* Fix for the loading button state */
+vscode-button[disabled] {
+    opacity: 0.8;
+}
+
+/* Make sure the loading indicator and text are aligned */
+vscode-button > div {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+/* Fix positioning for the cancel/X button */
+.login-button-row vscode-button[appearance="icon"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-button-row vscode-button[appearance="icon"] i {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+}
