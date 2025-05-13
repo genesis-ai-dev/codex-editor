@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 import * as path from "path";
 
 export async function openLicenseEditor() {
@@ -36,7 +36,7 @@ export async function openLicenseEditor() {
 
     try {
         if (fs.existsSync(licensePath)) {
-            const licenseContent = fs.readFileSync(licensePath, "utf8");
+            const licenseContent =vscode.workspace.fs.readFileSync(licensePath, "utf8");
 
             // Try to extract license type and owner from existing file
             const typeMatch = licenseContent.match(/License:\s*([\w-]+)/i);
@@ -63,7 +63,7 @@ export async function openLicenseEditor() {
             case "save": {
                 try {
                     const licenseContent = generateLicenseContent(message.licenseData);
-                    fs.writeFileSync(licensePath, licenseContent);
+                   vscode.workspace.fs.writeFileSync(licensePath, licenseContent);
                     vscode.window.showInformationMessage("License updated successfully");
                     panel.dispose();
                 } catch (error) {

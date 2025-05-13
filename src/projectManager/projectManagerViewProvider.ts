@@ -21,7 +21,7 @@ import {
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "../utils/vscode";
 import git from "isomorphic-git";
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
 import { SyncManager } from "./syncManager";
@@ -301,7 +301,7 @@ class ProjectManagerStore {
 
             // List all remotes
             const remotes = await git.listRemotes({
-                fs,
+               vscode.workspace.fs,
                 dir: workspacePath,
             });
 

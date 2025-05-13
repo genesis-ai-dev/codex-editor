@@ -12,8 +12,8 @@ export async function openBookNameEditor() {
         }
     );
 
-    // Dynamic import for fs and path
-    const fs = await import("fs");
+    // Dynamic import forvscode.workspace.fs and path
+    constvscode.workspace.fs = await import("fs");
     const path = await import("path");
 
     // Get workspace folder
@@ -45,7 +45,7 @@ export async function openBookNameEditor() {
 
     let defaultBooks: any[] = [];
     try {
-        const raw = fs.readFileSync(defaultBooksPath, "utf8");
+        const raw =vscode.workspace.fs.readFileSync(defaultBooksPath, "utf8");
         defaultBooks = JSON.parse(raw);
     } catch (err: any) {
         // Improved error logging
@@ -61,7 +61,7 @@ export async function openBookNameEditor() {
     let localizedBooks: Record<string, string> = {};
     try {
         if (fs.existsSync(localizedPath)) {
-            const raw = fs.readFileSync(localizedPath, "utf8");
+            const raw =vscode.workspace.fs.readFileSync(localizedPath, "utf8");
             const arr = JSON.parse(raw);
             for (const book of arr) {
                 if (book.abbr && book.name) {
@@ -104,7 +104,7 @@ export async function openBookNameEditor() {
                             return null;
                         })
                         .filter(Boolean);
-                    fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
+                   vscode.workspace.fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
                     vscode.window.showInformationMessage("Book names updated successfully");
                     panel.dispose();
                 } catch (error) {
@@ -132,7 +132,7 @@ export async function openBookNameEditor() {
 
                     // Read the XML file
                     const xmlFilePath = fileUris[0].fsPath;
-                    const xmlContent = fs.readFileSync(xmlFilePath, "utf8");
+                    const xmlContent =vscode.workspace.fs.readFileSync(xmlFilePath, "utf8");
 
                     // Parse XML to JSON
                     const parser = new xml2js.Parser({

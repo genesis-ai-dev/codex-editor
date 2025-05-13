@@ -10,7 +10,7 @@ import { LocalProject, ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
-import fs from "fs";
+importvscode.workspace.fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
@@ -379,7 +379,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         let isGitInitialized = false;
         try {
             await git.resolveRef({
-                fs,
+               vscode.workspace.fs,
                 dir: workspaceFolder,
                 ref: "HEAD",
             });
@@ -392,7 +392,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             // Initialize git repository
             try {
                 await git.init({
-                    fs,
+                   vscode.workspace.fs,
                     dir: workspaceFolder,
                     defaultBranch: "main",
                 });
@@ -407,13 +407,13 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
 
                 // Add files to git
                 await git.add({
-                    fs,
+                   vscode.workspace.fs,
                     dir: workspaceFolder,
                     filepath: "metadata.json",
                 });
 
                 await git.add({
-                    fs,
+                   vscode.workspace.fs,
                     dir: workspaceFolder,
                     filepath: ".gitignore",
                 });
@@ -435,7 +435,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 };
 
                 await git.commit({
-                    fs,
+                   vscode.workspace.fs,
                     dir: workspaceFolder,
                     message: "Initial commit: Add project metadata",
                     author,
@@ -754,7 +754,7 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
     try {
         // Check git repository
         await git.resolveRef({
-            fs,
+           vscode.workspace.fs,
             dir: workspaceFolder.uri.fsPath,
             ref: "HEAD",
         });
@@ -958,7 +958,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
                         let gitOriginUrl: string | undefined;
                         try {
                             const config = await git.listRemotes({
-                                fs,
+                               vscode.workspace.fs,
                                 dir: projectPath,
                             });
                             const origin = config.find((remote: any) => remote.remote === "origin");

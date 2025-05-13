@@ -1,7 +1,7 @@
-import * as fs from "fs/promises";
+import * asvscode.workspace.fs from "fs/promises";
 
 export async function getCodexCells(filePath: string): Promise<string[]> {
-    const fileContent = await fs.readFile(filePath, "utf-8");
+    const fileContent = awaitvscode.workspace.fs.readFile(filePath, "utf-8");
     const cells = JSON.parse(fileContent).cells;
     return cells
         .filter((cell: any) => cell.kind === 2 && cell.language === "scripture")

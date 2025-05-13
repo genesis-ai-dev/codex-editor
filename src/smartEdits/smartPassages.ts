@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as fs from "fs/promises";
+import * asvscode.workspace.fs from "fs/promises";
 import Chatbot from "./chat";
 import { TranslationPair, MinimalCellResult } from "../../types";
 import { SavedBacktranslation } from "./smartBacktranslation";
@@ -72,17 +72,17 @@ export class SmartPassages {
 
     private async ensureFileExists(filePath: string) {
         try {
-            await fs.access(filePath);
+            awaitvscode.workspace.fs.access(filePath);
         } catch (error) {
             // File doesn't exist, create it
             try {
-                await fs.writeFile(filePath, "");
+                awaitvscode.workspace.fs.writeFile(filePath, "");
             } catch (createError) {
                 console.error(`Error creating file ${filePath}:`, createError);
                 // If creation fails, delete the file (if it exists) and try again
                 try {
-                    await fs.unlink(filePath);
-                    await fs.writeFile(filePath, "");
+                    awaitvscode.workspace.fs.unlink(filePath);
+                    awaitvscode.workspace.fs.writeFile(filePath, "");
                 } catch (retryError) {
                     console.error(`Error recreating file ${filePath}:`, retryError);
                 }
@@ -309,7 +309,7 @@ export class SmartPassages {
             const jsonLine = JSON.stringify(newEntry) + "\n";
 
             try {
-                await fs.appendFile(this.feedbackFile, jsonLine, "utf-8");
+                awaitvscode.workspace.fs.appendFile(this.feedbackFile, jsonLine, "utf-8");
             } catch (error) {
                 console.error(`Error appending feedback for cellId ${id}:`, error);
             }
@@ -328,11 +328,11 @@ export class SmartPassages {
 
         try {
             // Ensure the directory exists
-            await fs.mkdir(path.dirname(this.chatHistoryFile), { recursive: true });
+            awaitvscode.workspace.fs.mkdir(path.dirname(this.chatHistoryFile), { recursive: true });
 
             // Create the file if it doesn't exist
             if (!(await this.fileExists(this.chatHistoryFile))) {
-                await fs.writeFile(this.chatHistoryFile, "");
+                awaitvscode.workspace.fs.writeFile(this.chatHistoryFile, "");
             }
 
             const writeStream = createWriteStream(tempFile);
@@ -376,19 +376,19 @@ export class SmartPassages {
             });
 
             // Replace the old file with the new one
-            await fs.rename(tempFile, this.chatHistoryFile);
+            awaitvscode.workspace.fs.rename(tempFile, this.chatHistoryFile);
 
             console.log(`Chat history saved for session ${this.currentSessionId}`);
         } catch (error) {
             console.error("Error saving chat history:", error);
             // Clean up the temp file if there was an error
-            await fs.unlink(tempFile).catch(console.error);
+            awaitvscode.workspace.fs.unlink(tempFile).catch(console.error);
         }
     }
 
     private async fileExists(filePath: string): Promise<boolean> {
         try {
-            await fs.access(filePath);
+            awaitvscode.workspace.fs.access(filePath);
             return true;
         } catch {
             return false;
@@ -397,7 +397,7 @@ export class SmartPassages {
 
     public async loadChatHistory(sessionId?: string): Promise<ChatHistoryEntry | null> {
         try {
-            const content = await fs.readFile(this.chatHistoryFile, "utf-8");
+            const content = awaitvscode.workspace.fs.readFile(this.chatHistoryFile, "utf-8");
             const lines = content.split("\n").filter((line) => line.trim() !== "");
 
             let latestSession: ChatHistoryEntry | null = null;
@@ -604,7 +604,7 @@ export class SmartPassages {
             });
 
             // Replace the old file with the new one
-            await fs.rename(tempFile, this.chatHistoryFile);
+            awaitvscode.workspace.fs.rename(tempFile, this.chatHistoryFile);
 
             if (sessionFound) {
                 console.log(`Chat session ${sessionId} deleted successfully`);
@@ -620,7 +620,7 @@ export class SmartPassages {
         } catch (error) {
             console.error("Error deleting chat session:", error);
             // Clean up the temp file if there was an error
-            await fs.unlink(tempFile).catch(console.error);
+            awaitvscode.workspace.fs.unlink(tempFile).catch(console.error);
             return false;
         }
     }

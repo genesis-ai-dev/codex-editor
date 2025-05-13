@@ -23,7 +23,7 @@ import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
 import path from "path";
 import { SyncManager } from "../../projectManager/syncManager";
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // Enable debug logging if needed
@@ -1906,7 +1906,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const localizedPath = path.join(workspaceRoot, "localized-books.json");
                 if (fs.existsSync(localizedPath)) {
                     debug("Found localized-books.json, loading...");
-                    const raw = fs.readFileSync(localizedPath, "utf8");
+                    const raw =vscode.workspace.fs.readFileSync(localizedPath, "utf8");
                     bookData = JSON.parse(raw);
                     debug("Localized books loaded successfully");
                 }

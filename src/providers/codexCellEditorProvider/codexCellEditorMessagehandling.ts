@@ -18,7 +18,7 @@ import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
-import fs from "fs";
+importvscode.workspace.fs from "fs";
 import { getAuthApi } from "@/extension";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";

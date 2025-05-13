@@ -1,4 +1,4 @@
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 import { Database } from "sql.js";
 import * as vscode from "vscode";
 import { bulkAddWords } from ".";
@@ -27,10 +27,10 @@ export async function parseAndImportJSONL(
         const BATCH_SIZE = 1000;
         let entryCount = 0;
 
-        const fileStream = fs.createReadStream(jsonlFilePath, { encoding: "utf-8" });
+        const fileStream =vscode.workspace.fs.createReadStream(jsonlFilePath, { encoding: "utf-8" });
         let remainder = "";
 
-        const totalSize = fs.statSync(jsonlFilePath).size;
+        const totalSize =vscode.workspace.fs.statSync(jsonlFilePath).size;
         let processedSize = 0;
 
         fileStream.on("data", (chunk: string) => {

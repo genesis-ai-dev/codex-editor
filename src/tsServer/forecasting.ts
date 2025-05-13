@@ -6,7 +6,7 @@ import {
     CancellationToken,
     CompletionContext,
 } from "vscode-languageserver/node";
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 import * as path from "path";
 
 class MarkovChain {
@@ -85,10 +85,10 @@ export class WordSuggestionProvider {
         const completeDraftPath = path.join(workspaceFolder, ".project", "complete_drafts.txt");
         console.log(`Attempting to read file at: ${completeDraftPath}`);
         try {
-            const stats = await fs.promises.stat(completeDraftPath);
+            const stats = awaitvscode.workspace.fs.promises.stat(completeDraftPath);
             console.log(`File exists: ${stats.isFile()}, Size: ${stats.size} bytes`);
 
-            const content = await fs.promises.readFile(completeDraftPath, "utf8");
+            const content = awaitvscode.workspace.fs.promises.readFile(completeDraftPath, "utf8");
             console.log(`Successfully read file. Content length: ${content.length}`);
 
             const words = content.split(/\s+/).filter((word: string) => word.length > 0);

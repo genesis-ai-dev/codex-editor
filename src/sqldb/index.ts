@@ -5,7 +5,7 @@ import vscode from "vscode";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 import crypto from "crypto";
 import { DictionaryEntry } from "types";
-import fs from "fs";
+importvscode.workspace.fs from "fs";
 
 export function getDefinitions(db: Database, headWord: string): string[] {
     const stmt = db.prepare("SELECT definition FROM entries WHERE head_word = ?");
@@ -79,7 +79,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
 
     try {
         // NOTE: Use a stream to read the database file to avoid memory issues that can arise from large files and crashes the app
-        const fileStream = fs.createReadStream(dbPath.fsPath);
+        const fileStream =vscode.workspace.fs.createReadStream(dbPath.fsPath);
         const chunks: Buffer[] = [];
 
         for await (const chunk of fileStream) {
@@ -474,8 +474,8 @@ export const ingestJsonlDictionaryEntries = (db: Database) => {
     if (!exportPath) {
         return;
     }
-    const jsonlContent = fs.existsSync(exportPath.fsPath)
-        ? fs.readFileSync(exportPath.fsPath, "utf-8")
+    const jsonlContent =vscode.workspace.fs.existsSync(exportPath.fsPath)
+        ?vscode.workspace.fs.readFileSync(exportPath.fsPath, "utf-8")
         : "";
     const entries = jsonlContent
         .split("\n")

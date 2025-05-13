@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFLow/types";
 import git from "isomorphic-git";
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 import { getAuthApi } from "../../extension";
 
 interface AuthState {
@@ -199,7 +199,7 @@ export class PreflightCheck {
                 try {
                     // Check if it's a git repository
                     await git.resolveRef({
-                        fs,
+                       vscode.workspace.fs,
                         dir: workspacePath,
                         ref: "HEAD",
                     });
@@ -208,7 +208,7 @@ export class PreflightCheck {
 
                     // Check for remotes
                     const remotes = await git.listRemotes({
-                        fs,
+                       vscode.workspace.fs,
                         dir: workspacePath,
                     });
                     state.gitState.hasRemote = remotes.length > 0;

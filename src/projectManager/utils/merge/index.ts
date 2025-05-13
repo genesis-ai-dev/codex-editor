@@ -14,7 +14,7 @@
 
 import * as vscode from "vscode";
 import git from "isomorphic-git";
-import fs from "fs";
+importvscode.workspace.fs from "fs";
 import http from "isomorphic-git/http/web";
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
@@ -40,7 +40,7 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         // First check if we have a valid git repo
         let remotes;
         try {
-            remotes = await git.listRemotes({ fs, dir: workspaceFolder });
+            remotes = await git.listRemotes({vscode.workspace.fs, dir: workspaceFolder });
             if (remotes.length === 0) {
                 console.log("No remotes found");
                 return;

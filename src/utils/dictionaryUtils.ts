@@ -1,12 +1,12 @@
-import * as fs from "fs"; // Need to use fs because the server uses this too
+import * asvscode.workspace.fs from "fs"; // Need to usevscode.workspace.fs because the server uses this too
 import * as vscode from "vscode";
 import { Dictionary, DictionaryEntry } from "../../types";
 import { cleanWord } from "./cleaningUtils";
 
-// Server version (using fs)
+// Server version (usingvscode.workspace.fs)
 export async function readDictionaryServer(path: string): Promise<Dictionary> {
     try {
-        const content = await fs.promises.readFile(path, "utf-8");
+        const content = awaitvscode.workspace.fs.promises.readFile(path, "utf-8");
         const entries = deserializeDictionaryEntries(content);
         return {
             id: "project",
@@ -22,7 +22,7 @@ export async function readDictionaryServer(path: string): Promise<Dictionary> {
 
 export async function saveDictionaryServer(path: string, dictionary: Dictionary): Promise<void> {
     const content = serializeDictionaryEntries(dictionary.entries);
-    await fs.promises.writeFile(path, content, "utf-8");
+    awaitvscode.workspace.fs.promises.writeFile(path, content, "utf-8");
 }
 
 // Client version (using vscode.workspace.fs)

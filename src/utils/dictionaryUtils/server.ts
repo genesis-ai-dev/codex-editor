@@ -1,4 +1,4 @@
-import * as fs from "fs";
+import * asvscode.workspace.fs from "fs";
 
 import { cleanWord } from "../cleaningUtils";
 import {
@@ -12,7 +12,7 @@ import { Dictionary } from "../../../types";
 
 export async function readDictionaryServer(path: string): Promise<Dictionary> {
     try {
-        const content = await fs.promises.readFile(path, "utf-8");
+        const content = awaitvscode.workspace.fs.promises.readFile(path, "utf-8");
         const entries = deserializeDictionaryEntries(content);
         return {
             id: "project",
@@ -28,7 +28,7 @@ export async function readDictionaryServer(path: string): Promise<Dictionary> {
 
 export async function saveDictionaryServer(path: string, dictionary: Dictionary): Promise<void> {
     const content = serializeDictionaryEntries(dictionary.entries);
-    await fs.promises.writeFile(path, content, "utf-8");
+    awaitvscode.workspace.fs.promises.writeFile(path, content, "utf-8");
 }
 
 export async function addWordsToDictionary(path: string, words: string[]): Promise<void> {
