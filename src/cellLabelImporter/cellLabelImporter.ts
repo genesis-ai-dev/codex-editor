@@ -10,7 +10,6 @@ import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
 } from "../utils/notebookMetadataManager";
-import { CodexContentSerializer } from "../serializer";
 import { importLabelsFromVscodeUri } from "./fileHandler";
 import { matchCellLabels } from "./matcher";
 import { copyToTempStorage, getColumnHeaders } from "./utils";
@@ -54,25 +53,118 @@ interface CellMetadata {
     cellLabel?: string;
 }
 
+// Helper function to generate nonce (from navigationWebviewProvider)
+function getNonce(): string {
+    let text = "";
+    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    for (let i = 0; i < 32; i++) {
+        text += possible.charAt(Math.floor(Math.random() * possible.length));
+    }
+    return text;
+}
+
+async function getHtmlForCellLabelImporterView(
+    webview: vscode.Webview,
+    context: vscode.ExtensionContext
+): Promise<string> {
+    const distPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "webviews",
+        "codex-webviews",
+        "dist",
+        "CellLabelImporterView"
+    );
+
+    // Option 1: Look for a pre-built index.html (if Vite generates one with hashed assets)
+    // This is more robust to asset hash changes.
+    // For this to work, ensure CellLabelImporterView build output includes an index.html in its root.
+    // const indexPath = vscode.Uri.joinPath(distPath, 'index.html');
+    // try {
+    //     const indexContentBytes = await vscode.workspace.fs.readFile(indexPath);
+    //     let indexContent = new TextDecoder().decode(indexContentBytes);
+    //     // Replace asset paths with webview URIs
+    //     indexContent = indexContent.replace(/(href|src)=\"/g, `$1="${webview.asWebviewUri(distPath)}/`);
+    //     // Add nonce to script tags if needed by your CSP and how Vite injects scripts
+    //     // This part can be tricky and depends on Vite's output structure.
+    //     return indexContent;
+    // } catch (e) {
+    //     console.warn("Could not read pre-built index.html for CellLabelImporterView, falling back to explicit asset paths.", e);
+    // }
+
+    // Option 2: Explicitly link to known (potentially unhashed or predictably named) assets.
+    // This is simpler if Vite's output names are predictable and don't include hashes, or if you handle hashes manually.
+    // The `package.json` uses `vite build`, which often produces hashed assets. We might need to adjust build or use a manifest.
+    // For now, let's assume a common output `index.js` (or main.js/bundle.js) and potentially `index.css`.
+    // This might need adjustment based on actual Vite output for `CellLabelImporterView`.
+
+    const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(distPath, "index.js")); // Adjust if filename is different
+    // const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(distPath, "index.css")); // Adjust if CSS is separate and named differently
+
+    // URIs for common VS Code styles and icons (copied from navigationWebviewProvider)
+    const styleResetUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(context.extensionUri, "src", "assets", "reset.css")
+    );
+    const styleVSCodeUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(context.extensionUri, "src", "assets", "vscode.css")
+    );
+    const codiconsUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(
+            context.extensionUri,
+            "node_modules",
+            "@vscode/codicons",
+            "dist",
+            "codicon.css"
+        )
+    );
+    const nonce = getNonce();
+
+    return `<!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none';
+                img-src ${webview.cspSource} https: data:;
+                style-src ${webview.cspSource} 'unsafe-inline'; 
+                script-src 'nonce-${nonce}';
+                font-src ${webview.cspSource};">
+            <link href="${styleResetUri}" rel="stylesheet">
+            <link href="${styleVSCodeUri}" rel="stylesheet">
+            <link href="${codiconsUri}" rel="stylesheet">
+            
+            <script nonce="${nonce}">
+                const vscode = acquireVsCodeApi();
+                // Persisted state can be passed to the webview this way if needed before React app loads,
+                // though the React app also tries to load it via vscode.getState().
+                // const persistedState = \${JSON.stringify(vscode.getState ? vscode.getState() : {})}; 
+                // Or, post it after webview is ready.
+            </script>
+        </head>
+        <body>
+            <div id="root"></div>
+            <script nonce="${nonce}" src="${scriptUri}"></script>
+        </body>
+        </html>`;
+}
+
 export async function openCellLabelImporter(context: vscode.ExtensionContext) {
-    // Create the webview panel
     const panel = vscode.window.createWebviewPanel(
         "cellLabelImporter",
-        "Import Cell Labels",
+        "Import Cell Labels (React)",
         vscode.ViewColumn.One,
         {
             enableScripts: true,
             retainContextWhenHidden: true,
+            localResourceRoots: [
+                context.extensionUri,
+                vscode.Uri.joinPath(context.extensionUri, "webviews", "codex-webviews", "dist"),
+            ],
         }
     );
 
-    // Add the panel to disposables to ensure proper cleanup
     context.subscriptions.push(panel);
-
-    // Track active panel
     let disposables: vscode.Disposable[] = [];
 
-    // Get workspace folder
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         vscode.window.showErrorMessage("No workspace folder is open.");
@@ -81,178 +173,219 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     }
     const workspaceRoot = workspaceFolders[0].uri.fsPath;
 
-    // Initialize the metadata manager for accessing notebook metadata
     const metadataManager = getNotebookMetadataManager();
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
-    // Initialize source text index for matching cell IDs
     const sourceTextIndex = new MiniSearch<SourceCellVersions>({
         fields: ["cellId", "content"],
         storeFields: ["cellId", "content", "versions", "notebookId"],
         idField: "cellId",
     });
 
-    // Load initial HTML without any data
-    panel.webview.html = getWebviewContent([]);
+    panel.webview.html = await getHtmlForCellLabelImporterView(panel.webview, context);
 
-    // Ensure temp directory exists
+    // Initial data load for the webview (if any part needs to be ready immediately)
+    // For example, pre-load available source files for the exclusion list.
+    // Otherwise, the webview can request data when it's ready, or data is sent on events like file import.
+    // Let's try sending availableSourceFiles after a short delay or on a 'webviewReady' message if implemented in React app.
+    // For simplicity now, we can post it once, the React app will manage if it arrives before or after it asks.
+
+    // Example: if you wanted to pre-populate the file exclusion list right away
+    // (async () => {
+    //     const { sourceFiles } = await loadSourceAndTargetFiles();
+    //     panel.webview.postMessage({
+    //         command: 'initialData', // Or use a more specific command like 'setAvailableSourceFiles'
+    //         availableSourceFiles: sourceFiles.map(f => ({ path: f.uri.fsPath, id: f.id, name: path.basename(f.uri.fsPath) }))
+    //     });
+    // })();
+
     const tempDirUri = vscode.Uri.joinPath(context.globalStorageUri, "temp");
     try {
         await vscode.workspace.fs.createDirectory(tempDirUri);
     } catch (error) {
-        console.error("Failed to create temp directory:", error);
+        // console.error("Failed to create temp directory:", error); // Often fails if exists, which is fine
     }
 
-    // Handle messages from the webview
     const messageListener = panel.webview.onDidReceiveMessage(async (message) => {
+        console.log("[Extension] Received message from CellLabelImporterView:", message);
         switch (message.command) {
             case "importFile":
                 try {
+                    panel.webview.postMessage({ command: "setLoading", isLoading: true });
                     const fileUris = await vscode.window.showOpenDialog({
                         canSelectFiles: true,
                         canSelectFolders: false,
                         canSelectMany: false,
-                        filters: {
-                            Spreadsheets: ["xlsx", "csv", "tsv"],
-                        },
+                        filters: { Spreadsheets: ["xlsx", "csv", "tsv"] },
                         title: "Import Cell Labels from File",
                         openLabel: "Import",
                         defaultUri: vscode.Uri.file(workspaceRoot),
                     });
 
                     if (!fileUris || fileUris.length === 0) {
-                        return; // User canceled
-                    }
-
-                    const sourceFileUri = fileUris[0];
-
-                    try {
-                        // Create a temp copy of the file inside the extension's storage
-                        const tempFileUri = await copyToTempStorage(sourceFileUri, context);
-
-                        // Now read the labels from the temp file
-                        const importedLabels = await importLabelsFromVscodeUri(tempFileUri);
-
-                        // Extract column headers for selection
-                        const columnHeaders = getColumnHeaders(importedLabels);
-
-                        // Send only the column headers first for selection
-                        panel.webview.postMessage({
-                            command: "updateHeaders",
-                            headers: columnHeaders,
-                            importSource: path.basename(sourceFileUri.fsPath),
-                        });
-
-                        // Store the imported data and URI for later use
-                        panel.webview.postMessage({
-                            command: "storeImportData",
-                            data: importedLabels,
-                            uri: tempFileUri.toString(),
-                        });
-
-                        // Clean up temp file - now handled after processing
-                    } catch (error) {
-                        console.error("Error accessing file:", error);
-                        vscode.window.showErrorMessage(
-                            `Cannot access file: ${sourceFileUri.fsPath}. Error: ${error instanceof Error ? error.message : String(error)}`
-                        );
+                        panel.webview.postMessage({ command: "setLoading", isLoading: false });
                         return;
                     }
+                    const sourceFileUri = fileUris[0];
+                    const tempFileUri = await copyToTempStorage(sourceFileUri, context);
+                    const importedData = await importLabelsFromVscodeUri(tempFileUri);
+                    const columnHeaders = getColumnHeaders(importedData);
+
+                    // Also load available source files for exclusion list if not already loaded
+                    // This ensures the column selection view has all necessary data.
+                    const { sourceFiles } = await loadSourceAndTargetFiles();
+
+                    panel.webview.postMessage({
+                        command: "updateHeaders",
+                        headers: columnHeaders,
+                        importSource: path.basename(sourceFileUri.fsPath),
+                        availableSourceFiles: sourceFiles.map((f) => ({
+                            path: f.uri.fsPath,
+                            id: f.id,
+                            name: path.basename(f.uri.fsPath),
+                        })),
+                    });
+                    panel.webview.postMessage({
+                        command: "storeImportData",
+                        data: importedData,
+                        uri: tempFileUri.toString(),
+                    });
                 } catch (error: any) {
+                    console.error("Error during importFile:", error);
                     vscode.window.showErrorMessage(`Error importing file: ${error.message}`);
-                    console.error("Full error details:", error);
+                    panel.webview.postMessage({
+                        command: "showError",
+                        error: `Error importing file: ${error.message}`,
+                    });
+                    panel.webview.postMessage({ command: "setLoading", isLoading: false });
                 }
                 break;
 
             case "processLabels":
                 try {
-                    // Get the stored data and selected column
-                    const { data, uri, selectedColumn } = message;
-
+                    panel.webview.postMessage({ command: "setLoading", isLoading: true });
+                    const { data, uri, selectedColumn, excludedFilePaths } = message;
                     if (!data || !selectedColumn) {
-                        vscode.window.showErrorMessage("Missing data or selected column");
+                        vscode.window.showErrorMessage(
+                            "Missing data or selected column for processing."
+                        );
+                        panel.webview.postMessage({
+                            command: "showError",
+                            error: "Missing data or selected column.",
+                        });
+                        panel.webview.postMessage({ command: "setLoading", isLoading: false });
                         return;
                     }
 
-                    // Create source text index for matching
                     const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
+                    let filesToProcess = [...sourceFiles];
+                    if (excludedFilePaths && excludedFilePaths.length > 0) {
+                        filesToProcess = filesToProcess.filter(
+                            (file) => !excludedFilePaths.includes(file.uri.fsPath)
+                        );
+                    }
+
+                    sourceTextIndex.removeAll();
                     await createSourceTextIndex(
                         sourceTextIndex,
-                        sourceFiles,
+                        filesToProcess,
                         metadataManager,
                         true
                     );
-
-                    // Match the imported labels with existing cell IDs using the selected column
                     const matchedLabels = await matchCellLabels(
                         data,
-                        sourceFiles,
+                        filesToProcess,
                         targetFiles,
                         selectedColumn
                     );
 
-                    // Update the webview with the matched data
-                    panel.webview.html = getWebviewContent(matchedLabels, {
-                        importSource: path.basename(vscode.Uri.parse(uri).fsPath),
+                    panel.webview.postMessage({
+                        command: "displayLabels",
+                        labels: matchedLabels,
+                        importSource: path.basename(vscode.Uri.parse(uri).fsPath), // Keep track of original import source for display
+                        availableSourceFiles: sourceFiles.map((f) => ({
+                            path: f.uri.fsPath,
+                            id: f.id,
+                            name: path.basename(f.uri.fsPath),
+                        })), // Send full list for UI consistency
                     });
+                    panel.webview.postMessage({ command: "setLoading", isLoading: false });
 
-                    // Clean up temp file
+                    // Clean up temp file for the processed import
                     try {
                         await vscode.workspace.fs.delete(vscode.Uri.parse(uri));
-                    } catch (error) {
-                        console.error("Failed to delete temp file:", error);
+                    } catch (e) {
+                        console.warn("Failed to delete temp import file after processing:", uri, e);
                     }
                 } catch (error: any) {
+                    console.error("Error during processLabels:", error);
                     vscode.window.showErrorMessage(`Error processing labels: ${error.message}`);
-                    console.error("Full error details:", error);
+                    panel.webview.postMessage({
+                        command: "showError",
+                        error: `Error processing labels: ${error.message}`,
+                    });
+                    panel.webview.postMessage({ command: "setLoading", isLoading: false });
+                }
+                break;
+
+            case "cleanupTempFile": // New case from React App
+                if (message.uri) {
+                    try {
+                        await vscode.workspace.fs.delete(vscode.Uri.parse(message.uri));
+                        console.log("Temp file deleted on cancel:", message.uri);
+                    } catch (e) {
+                        console.warn("Failed to delete temp file on cancel:", message.uri, e);
+                    }
                 }
                 break;
 
             case "save":
                 try {
-                    const updatedLabels: CellLabelData[] = message.labels;
-                    const selectedLabels = updatedLabels.filter(
-                        (label) => label.matched && message.selectedIds.includes(label.cellId)
+                    const updatedLabels: CellLabelData[] = message.labels; // Assuming CellLabelData structure matches
+                    const selectedLabelsToSave = updatedLabels.filter(
+                        (label: any) => label.matched && message.selectedIds.includes(label.cellId)
                     );
-
-                    if (selectedLabels.length === 0) {
+                    if (selectedLabelsToSave.length === 0) {
                         vscode.window.showInformationMessage("No cell labels selected for update.");
                         return;
                     }
-
-                    await updateCellLabels(selectedLabels);
+                    await updateCellLabels(selectedLabelsToSave);
                     vscode.window.showInformationMessage(
-                        `Updated ${selectedLabels.length} cell labels successfully.`
+                        `Updated ${selectedLabelsToSave.length} cell labels successfully.`
                     );
-                    panel.dispose();
+                    panel.dispose(); // Close panel on successful save
                 } catch (error: any) {
                     vscode.window.showErrorMessage(`Failed to save cell labels: ${error.message}`);
+                    panel.webview.postMessage({
+                        command: "showError",
+                        error: `Failed to save: ${error.message}`,
+                    });
                 }
                 break;
 
             case "cancel":
                 panel.dispose();
                 break;
+
+            case "logError": // For the webview to log errors to the extension console
+                console.error("[CellLabelImporterView Error]:", message.message);
+                break;
         }
     });
 
-    // Add message listener to disposables
     disposables.push(messageListener);
-
-    // Clean up when the panel is closed
     panel.onDidDispose(
         () => {
-            // Clean up all disposables
             disposables.forEach((d) => d.dispose());
             disposables = [];
         },
         null,
-        disposables
-    );
+        context.subscriptions
+    ); // Add to context.subscriptions for proper disposal of panel resources
 
-    // Add the disposables to context.subscriptions
-    context.subscriptions.push(...disposables);
+    // Add the panel itself to disposables managed by the extension context
+    context.subscriptions.push(panel);
 }
 
 // Load source and target files
@@ -260,554 +393,12 @@ async function loadSourceAndTargetFiles(): Promise<{
     sourceFiles: FileData[];
     targetFiles: FileData[];
 }> {
-    // Use the dynamic import to avoid TS errors
     const { readSourceAndTargetFiles } = await import(
         "../activationHelpers/contextAware/miniIndex/indexes/fileReaders"
     );
-    return await readSourceAndTargetFiles();
-}
-
-function getWebviewContent(cellLabels: CellLabelData[], options: { importSource?: string } = {}) {
-    // Split labels into pages for performance
-    const itemsPerPage = 50;
-    const totalPages = Math.ceil(cellLabels.length / itemsPerPage);
-
-    return `<!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Import Cell Labels</title>
-        <style>
-            body {
-                font-family: var(--vscode-font-family);
-                color: var(--vscode-foreground);
-                background-color: var(--vscode-editor-background);
-                padding: 20px;
-            }
-            .import-info {
-                margin-bottom: 20px;
-                font-style: italic;
-                color: var(--vscode-descriptionForeground);
-            }
-            .column-selector {
-                margin-bottom: 20px;
-                padding: 15px;
-                background-color: var(--vscode-editor-lineHighlightBackground);
-                border-radius: 4px;
-            }
-            .column-selector h3 {
-                margin-top: 0;
-            }
-            .column-selector select {
-                width: 100%;
-                max-width: 400px;
-                padding: 8px;
-                background-color: var(--vscode-input-background);
-                color: var(--vscode-input-foreground);
-                border: 1px solid var(--vscode-input-border);
-                border-radius: 2px;
-                margin-bottom: 10px;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 20px;
-            }
-            th, td {
-                padding: 8px;
-                text-align: left;
-                border-bottom: 1px solid var(--vscode-panel-border);
-            }
-            th {
-                background-color: var(--vscode-editor-lineHighlightBackground);
-                font-weight: bold;
-            }
-            .matched {
-                background-color: var(--vscode-diffEditor-insertedTextBackground);
-            }
-            .unmatched {
-                background-color: var(--vscode-diffEditor-removedTextBackground);
-                opacity: 0.7;
-            }
-            button {
-                background-color: var(--vscode-button-background);
-                color: var(--vscode-button-foreground);
-                border: none;
-                padding: 6px 12px;
-                cursor: pointer;
-                margin-right: 8px;
-            }
-            button:hover {
-                background-color: var(--vscode-button-hoverBackground);
-            }
-            .actions {
-                display: flex;
-                justify-content: space-between;
-                margin-top: 20px;
-            }
-            .pagination {
-                display: flex;
-                justify-content: center;
-                margin: 20px 0;
-            }
-            .pagination button {
-                margin: 0 5px;
-            }
-            .current-page {
-                background-color: var(--vscode-button-secondaryBackground);
-            }
-            .checkbox-container {
-                display: flex;
-                align-items: center;
-                margin-bottom: 10px;
-            }
-            .checkbox-container input {
-                margin-right: 8px;
-            }
-            .summary {
-                margin-bottom: 20px;
-            }
-            .empty-state {
-                text-align: center;
-                padding: 40px;
-                color: var(--vscode-descriptionForeground);
-            }
-            .new-label {
-                font-weight: bold;
-            }
-            .current-label {
-                color: var(--vscode-descriptionForeground);
-                text-decoration: line-through;
-            }
-            #columnSelectorContainer {
-                display: none;
-            }
-            #tableView {
-                display: none;
-            }
-        </style>
-    </head>
-    <body>
-        <h1>Cell Label Importer</h1>
-        
-        <div id="initialImport" ${cellLabels.length > 0 ? 'class="hidden"' : ""}>
-            <div class="empty-state">
-                <p>No cell labels loaded yet.</p>
-                <button id="importBtn">Import From File</button>
-            </div>
-        </div>
-
-        <div id="columnSelectorContainer">
-            <div class="import-info">
-                Imported from: <span id="importedFileName"></span>
-            </div>
-            <div class="column-selector">
-                <h3>Select Column to Use as Cell Label</h3>
-                <p>Choose which column from your spreadsheet will be used for cell labels:</p>
-                <select id="columnSelector"></select>
-                <p>Preview of selected column:</p>
-                <div id="columnPreview" style="max-height: 150px; overflow-y: auto; margin-bottom: 10px; padding: 10px; background-color: var(--vscode-input-background); border-radius: 2px;"></div>
-                <button id="processLabelsBtn">Process Labels</button>
-                <button id="cancelImportBtn">Cancel</button>
-            </div>
-        </div>
-        
-        <div id="tableView" ${cellLabels.length === 0 ? 'class="hidden"' : ""}>
-            ${
-                options.importSource
-                    ? `
-                <div class="import-info">
-                    Imported from: ${options.importSource}
-                </div>
-            `
-                    : ""
-            }
-            
-            <div class="summary">
-                <div>Total imported rows: <strong>${cellLabels.length}</strong></div>
-                <div>Matched cells: <strong>${cellLabels.filter((l) => l.matched).length}</strong></div>
-                <div>Unmatched cells: <strong>${cellLabels.filter((l) => !l.matched).length}</strong></div>
-            </div>
-            
-            <div class="checkbox-container">
-                <input type="checkbox" id="selectAll" ${cellLabels.filter((l) => l.matched).length > 0 ? "checked" : ""}>
-                <label for="selectAll">Select all matched cells</label>
-            </div>
-            
-            <div class="pagination" id="paginationTop"></div>
-            
-            <table>
-                <thead>
-                    <tr>
-                        <th>Select</th>
-                        <th>Cell ID</th>
-                        <th>Time Range</th>
-                        <th>New Label</th>
-                        <th>Current Label</th>
-                    </tr>
-                </thead>
-                <tbody id="labelTableBody">
-                    <!-- Table rows will be inserted here via JavaScript -->
-                </tbody>
-            </table>
-            
-            <div class="pagination" id="paginationBottom"></div>
-            
-            <div class="actions">
-                <div>
-                    <button id="importNewBtn">Import New File</button>
-                </div>
-                <div>
-                    <button id="cancelBtn">Cancel</button>
-                    <button id="saveBtn">Save Selected</button>
-                </div>
-            </div>
-        </div>
-        
-        <script>
-            (function() {
-                const vscode = acquireVsCodeApi();
-                
-                // State management
-                const state = {
-                    labels: ${JSON.stringify(cellLabels)},
-                    selectedIds: ${JSON.stringify(cellLabels.filter((l) => l.matched).map((l) => l.cellId))},
-                    currentPage: 1,
-                    itemsPerPage: ${itemsPerPage},
-                    totalPages: ${totalPages},
-                    importData: null,
-                    importUri: null,
-                    headers: [],
-                    selectedColumn: null,
-                    importSource: ${JSON.stringify(options.importSource || "")}
-                };
-                
-                // Save state
-                vscode.setState(state);
-                
-                // Initial setup based on whether we have data
-                if (state.labels.length > 0) {
-                    document.getElementById('tableView').style.display = 'block';
-                    document.getElementById('initialImport').style.display = 'none';
-                    document.getElementById('columnSelectorContainer').style.display = 'none';
-                } else {
-                    document.getElementById('tableView').style.display = 'none';
-                    document.getElementById('initialImport').style.display = 'block';
-                    document.getElementById('columnSelectorContainer').style.display = 'none';
-                }
-                
-                // Import button
-                document.getElementById('importBtn')?.addEventListener('click', () => {
-                    vscode.postMessage({ command: 'importFile' });
-                });
-                
-                // Import new button (from table view)
-                document.getElementById('importNewBtn')?.addEventListener('click', () => {
-                    vscode.postMessage({ command: 'importFile' });
-                });
-                
-                // Process labels button
-                document.getElementById('processLabelsBtn')?.addEventListener('click', () => {
-                    const selectedColumn = document.getElementById('columnSelector').value;
-                    if (!selectedColumn) {
-                        // Show error message
-                        return;
-                    }
-                    
-                    state.selectedColumn = selectedColumn;
-                    vscode.setState(state);
-                    
-                    vscode.postMessage({ 
-                        command: 'processLabels',
-                        data: state.importData,
-                        uri: state.importUri,
-                        selectedColumn
-                    });
-                });
-                
-                // Cancel button in column selector
-                document.getElementById('cancelImportBtn')?.addEventListener('click', () => {
-                    // Reset to initial state
-                    document.getElementById('tableView').style.display = 'none';
-                    document.getElementById('initialImport').style.display = 'block';
-                    document.getElementById('columnSelectorContainer').style.display = 'none';
-                });
-                
-                // Handle messages from the extension
-                window.addEventListener('message', event => {
-                    const message = event.data;
-                    
-                    if (message.command === 'updateHeaders') {
-                        // Show the column selector UI
-                        document.getElementById('tableView').style.display = 'none';
-                        document.getElementById('initialImport').style.display = 'none';
-                        document.getElementById('columnSelectorContainer').style.display = 'block';
-                        
-                        // Set filename
-                        document.getElementById('importedFileName').textContent = message.importSource;
-                        
-                        // Populate the column selector dropdown
-                        const columnSelector = document.getElementById('columnSelector');
-                        columnSelector.innerHTML = '';
-                        
-                        // Add a placeholder option
-                        const placeholderOption = document.createElement('option');
-                        placeholderOption.value = '';
-                        placeholderOption.textContent = '-- Select a column --';
-                        placeholderOption.disabled = true;
-                        placeholderOption.selected = true;
-                        columnSelector.appendChild(placeholderOption);
-                        
-                        message.headers.forEach(header => {
-                            const option = document.createElement('option');
-                            option.value = header;
-                            option.textContent = header;
-                            columnSelector.appendChild(option);
-                        });
-                        
-                        // Store headers in state
-                        state.headers = message.headers;
-                        vscode.setState(state);
-                        
-                        // Set up change handler for column preview
-                        columnSelector.addEventListener('change', updateColumnPreview);
-                    }
-                    
-                    if (message.command === 'storeImportData') {
-                        // Store import data for later processing
-                        state.importData = message.data;
-                        state.importUri = message.uri;
-                        vscode.setState(state);
-                    }
-                });
-                
-                // Function to update the column preview
-                function updateColumnPreview() {
-                    const columnSelector = document.getElementById('columnSelector');
-                    const selectedColumn = columnSelector.value;
-                    const previewEl = document.getElementById('columnPreview');
-                    
-                    if (!selectedColumn || !state.importData || state.importData.length === 0) {
-                        previewEl.innerHTML = '<em>No preview available</em>';
-                        return;
-                    }
-                    
-                    // Get up to 5 values from the selected column
-                    const previewValues = state.importData
-                        .slice(0, 5)
-                        .map(row => row[selectedColumn])
-                        .filter(val => val) // Filter out empty values
-                        .map(val => \`<div>\${val}</div>\`)
-                        .join('');
-                    
-                    previewEl.innerHTML = previewValues || '<em>No data found in this column</em>';
-                }
-                
-                // Cancel button
-                document.getElementById('cancelBtn')?.addEventListener('click', () => {
-                    vscode.postMessage({ command: 'cancel' });
-                });
-                
-                // Save button
-                document.getElementById('saveBtn')?.addEventListener('click', () => {
-                    vscode.postMessage({ 
-                        command: 'save', 
-                        labels: state.labels,
-                        selectedIds: state.selectedIds
-                    });
-                });
-                
-                // Select all checkbox
-                const selectAll = document.getElementById('selectAll');
-                if (selectAll) {
-                    selectAll.addEventListener('change', (e) => {
-                        const checked = e.target.checked;
-                        
-                        if (checked) {
-                            // Select all matched cells
-                            state.selectedIds = state.labels
-                                .filter(label => label.matched)
-                                .map(label => label.cellId);
-                        } else {
-                            // Deselect all
-                            state.selectedIds = [];
-                        }
-                        
-                        vscode.setState(state);
-                        renderTable();
-                    });
-                }
-                
-                // Render pagination
-                function renderPagination() {
-                    const paginationTop = document.getElementById('paginationTop');
-                    const paginationBottom = document.getElementById('paginationBottom');
-                    
-                    if (!paginationTop || !paginationBottom) return;
-                    
-                    // Clear existing buttons
-                    paginationTop.innerHTML = '';
-                    paginationBottom.innerHTML = '';
-                    
-                    if (state.totalPages <= 1) return;
-                    
-                    // Previous button
-                    const prevBtn = document.createElement('button');
-                    prevBtn.textContent = '←';
-                    prevBtn.disabled = state.currentPage === 1;
-                    prevBtn.addEventListener('click', () => {
-                        if (state.currentPage > 1) {
-                            state.currentPage--;
-                            vscode.setState(state);
-                            renderTable();
-                            renderPagination();
-                        }
-                    });
-                    
-                    // Next button
-                    const nextBtn = document.createElement('button');
-                    nextBtn.textContent = '→';
-                    nextBtn.disabled = state.currentPage === state.totalPages;
-                    nextBtn.addEventListener('click', () => {
-                        if (state.currentPage < state.totalPages) {
-                            state.currentPage++;
-                            vscode.setState(state);
-                            renderTable();
-                            renderPagination();
-                        }
-                    });
-                    
-                    // Page buttons
-                    const maxVisiblePages = 5;
-                    const startPage = Math.max(1, state.currentPage - Math.floor(maxVisiblePages / 2));
-                    const endPage = Math.min(state.totalPages, startPage + maxVisiblePages - 1);
-                    
-                    // Add previous button
-                    paginationTop.appendChild(prevBtn.cloneNode(true));
-                    paginationBottom.appendChild(prevBtn);
-                    
-                    // Add page buttons
-                    for (let i = startPage; i <= endPage; i++) {
-                        const pageBtn = document.createElement('button');
-                        pageBtn.textContent = i.toString();
-                        pageBtn.classList.toggle('current-page', i === state.currentPage);
-                        pageBtn.addEventListener('click', () => {
-                            state.currentPage = i;
-                            vscode.setState(state);
-                            renderTable();
-                            renderPagination();
-                        });
-                        
-                        const pageBtnClone = pageBtn.cloneNode(true);
-                        pageBtnClone.addEventListener('click', () => {
-                            state.currentPage = i;
-                            vscode.setState(state);
-                            renderTable();
-                            renderPagination();
-                        });
-                        
-                        paginationTop.appendChild(pageBtnClone);
-                        paginationBottom.appendChild(pageBtn);
-                    }
-                    
-                    // Add next button
-                    const nextBtnClone = nextBtn.cloneNode(true);
-                    nextBtnClone.addEventListener('click', () => {
-                        if (state.currentPage < state.totalPages) {
-                            state.currentPage++;
-                            vscode.setState(state);
-                            renderTable();
-                            renderPagination();
-                        }
-                    });
-                    
-                    paginationTop.appendChild(nextBtnClone);
-                    paginationBottom.appendChild(nextBtn);
-                }
-                
-                // Render table
-                function renderTable() {
-                    const tableBody = document.getElementById('labelTableBody');
-                    if (!tableBody) return;
-                    
-                    tableBody.innerHTML = '';
-                    
-                    const start = (state.currentPage - 1) * state.itemsPerPage;
-                    const end = Math.min(start + state.itemsPerPage, state.labels.length);
-                    
-                    for (let i = start; i < end; i++) {
-                        const label = state.labels[i];
-                        const row = document.createElement('tr');
-                        row.className = label.matched ? 'matched' : 'unmatched';
-                        
-                        // Create cells
-                        
-                        // Checkbox cell
-                        const checkboxCell = document.createElement('td');
-                        if (label.matched) {
-                            const checkbox = document.createElement('input');
-                            checkbox.type = 'checkbox';
-                            checkbox.checked = state.selectedIds.includes(label.cellId);
-                            checkbox.dataset.cellId = label.cellId;
-                            checkbox.addEventListener('change', (e) => {
-                                const cellId = e.target.dataset.cellId;
-                                
-                                if (e.target.checked) {
-                                    if (!state.selectedIds.includes(cellId)) {
-                                        state.selectedIds.push(cellId);
-                                    }
-                                } else {
-                                    state.selectedIds = state.selectedIds.filter(id => id !== cellId);
-                                }
-                                
-                                // Update the selectAll checkbox
-                                if (selectAll) {
-                                    const matchedCells = state.labels.filter(l => l.matched).length;
-                                    selectAll.checked = state.selectedIds.length === matchedCells;
-                                }
-                                
-                                vscode.setState(state);
-                            });
-                            checkboxCell.appendChild(checkbox);
-                        }
-                        
-                        // Cell ID cell
-                        const cellIdCell = document.createElement('td');
-                        cellIdCell.textContent = label.cellId || '(No match)';
-                        
-                        // Time range cell
-                        const timeCell = document.createElement('td');
-                        timeCell.textContent = \`\${label.startTime} → \${label.endTime}\`;
-                        
-                        // New label cell
-                        const newLabelCell = document.createElement('td');
-                        newLabelCell.className = 'new-label';
-                        newLabelCell.textContent = label.newLabel || '(Empty)';
-                        
-                        // Current label cell
-                        const currentLabelCell = document.createElement('td');
-                        currentLabelCell.className = 'current-label';
-                        currentLabelCell.textContent = label.currentLabel || '(None)';
-                        
-                        // Append cells
-                        row.appendChild(checkboxCell);
-                        row.appendChild(cellIdCell);
-                        row.appendChild(timeCell);
-                        row.appendChild(newLabelCell);
-                        row.appendChild(currentLabelCell);
-                        
-                        tableBody.appendChild(row);
-                    }
-                }
-                
-                // Initial render
-                if (state.labels.length > 0) {
-                    renderTable();
-                    renderPagination();
-                }
-            })();
-        </script>
-    </body>
-    </html>`;
+    const files = await readSourceAndTargetFiles();
+    console.log(
+        `[loadSourceAndTargetFiles] Found ${files.sourceFiles.length} source files and ${files.targetFiles.length} target files.`
+    );
+    return files;
 }

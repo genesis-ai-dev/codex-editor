@@ -11,6 +11,9 @@ export async function matchCellLabels(
     labelColumn: string
 ): Promise<CellLabelData[]> {
     const result: CellLabelData[] = [];
+    console.log(
+        `[matchCellLabels] Received ${importedRows.length} imported rows, ${sourceFiles.length} source files, ${targetFiles.length} target files. Label column: ${labelColumn}`
+    );
 
     // Create a map of all cells by their start time
     const cellMap = new Map<number, { cellId: string; currentLabel?: string }>();
@@ -33,6 +36,7 @@ export async function matchCellLabels(
             }
         });
     });
+    console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells.`);
 
     // Process each imported row
     importedRows.forEach((row) => {
@@ -45,18 +49,39 @@ export async function matchCellLabels(
 
         if (isCue) {
             // Find start time field - could be named differently
-            let startField = "start";
-            if (!row.start) {
-                const possibleStarts = Object.keys(row).filter(
-                    (key) =>
-                        key.toLowerCase().includes("start") ||
-                        key.toLowerCase().includes("begin") ||
-                        key.toLowerCase().includes("from")
-                );
+            let startField = "";
+            const rowKeys = Object.keys(row);
 
-                if (possibleStarts.length > 0) {
-                    startField = possibleStarts[0];
+            // Prioritize "start" if it exists
+            if (row.start) {
+                startField = "start";
+            } else {
+                // Look for "timecode in", "time in", etc.
+                const timeInKeyword = rowKeys.find(
+                    (key) =>
+                        key.toLowerCase().replace(/\s+/g, "") === "timecodein" || // "TIMECODE IN"
+                        key.toLowerCase().replace(/\s+/g, "") === "timein"
+                );
+                if (timeInKeyword) {
+                    startField = timeInKeyword;
+                } else {
+                    // Fallback to existing logic
+                    const possibleStarts = rowKeys.filter(
+                        (key) =>
+                            key.toLowerCase().includes("start") ||
+                            key.toLowerCase().includes("begin") ||
+                            key.toLowerCase().includes("from")
+                    );
+                    if (possibleStarts.length > 0) {
+                        startField = possibleStarts[0];
+                    }
                 }
+            }
+
+            // If no start field could be identified, skip this row
+            if (!startField) {
+                console.warn("Could not identify a start time field for row:", row);
+                return;
             }
 
             // Convert the imported row's start time to seconds
@@ -94,22 +119,40 @@ export async function matchCellLabels(
             // Determine end time field
             let endField = "end";
             if (!row.end) {
-                const possibleEnds = Object.keys(row).filter(
-                    (key) =>
-                        key.toLowerCase().includes("end") ||
-                        key.toLowerCase().includes("stop") ||
-                        key.toLowerCase().includes("to")
-                );
+                // Try to find "timecode out" or "time out" if startField was a "timecode in" type
+                if (startField.toLowerCase().replace(/\s+/g, "").includes("timein")) {
+                    const timeOutKeyword = rowKeys.find(
+                        (key) =>
+                            key.toLowerCase().replace(/\s+/g, "") === "timecodeout" ||
+                            key.toLowerCase().replace(/\s+/g, "") === "timeout"
+                    );
+                    if (timeOutKeyword) {
+                        endField = timeOutKeyword;
+                    } else {
+                        // If no specific "out" found, don't assume an end field
+                        endField = "";
+                    }
+                } else {
+                    const possibleEnds = rowKeys.filter(
+                        (key) =>
+                            key.toLowerCase().includes("end") ||
+                            key.toLowerCase().includes("stop") ||
+                            key.toLowerCase().includes("to")
+                    );
 
-                if (possibleEnds.length > 0) {
-                    endField = possibleEnds[0];
+                    if (possibleEnds.length > 0) {
+                        endField = possibleEnds[0];
+                    } else {
+                        // If no end field found, it's okay, it might not be present
+                        endField = "";
+                    }
                 }
             }
 
             result.push({
                 cellId: match?.cellId || "",
                 startTime: row[startField] || "",
-                endTime: row[endField] || "",
+                endTime: endField && row[endField] ? row[endField] : "", // Handle missing endField
                 character: row.character || row.CHARACTER || "",
                 dialogue: row.dialogue || row.DIALOGUE || "",
                 newLabel: labelValue,
