@@ -53,6 +53,8 @@ import {
     updateSplashScreenTimings,
     closeSplashScreen,
 } from "./providers/SplashScreen/register";
+import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
+import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 
 export interface ActivationTiming {
     step: string;
@@ -347,6 +349,14 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
     }
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openBookNameEditor", openBookNameEditor)
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openCellLabelImporter", openCellLabelImporter)
+    );
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {

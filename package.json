@@ -185,6 +185,16 @@
                 {
                     "command": "translators-copilot.showFileStatsView",
                     "title": "Translators Copilot: Show Translation Progress View"
+                },
+                {
+                    "command": "codex-editor.openBookNameEditor",
+                    "title": "Codex: Open Book Name Editor",
+                    "category": "Codex Editor"
+                },
+                {
+                    "command": "codex-editor.openCellLabelImporter",
+                    "title": "Codex: Import Cell Labels",
+                    "category": "Codex Editor"
                 }
             ]
         },
@@ -701,6 +711,16 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
+            },
+            {
+                "command": "codex-editor.openBookNameEditor",
+                "title": "Codex: Open Book Name Editor",
+                "category": "Codex Editor"
+            },
+            {
+                "command": "codex-editor.openCellLabelImporter",
+                "title": "Codex: Import Cell Labels",
+                "category": "Codex Editor"
             }
         ],
         "configuration": [
@@ -1223,6 +1243,7 @@
         "vscode-languageclient": "^9.0.1",
         "vscode-uri": "^3.0.8",
         "webvtt-parser": "^2.2.0",
+        "xlsx": "^0.18.5",
         "xml2js": "^0.6.2",
         "xstate": "^5.19.2"
     },
