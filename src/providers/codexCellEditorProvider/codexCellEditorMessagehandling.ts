@@ -997,7 +997,7 @@ export const handleMessages = async (
 
                 // Only focus the main menu if we're opening the sidebar (not closing it)
                 if (event.content?.isOpening) {
-                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
                 }
             } catch (error) {
                 console.error("Error toggling main menu visibility:", error);
