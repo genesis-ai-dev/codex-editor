@@ -187,12 +187,26 @@ export const StartupFlowView: React.FC = () => {
                     window.removeEventListener("message", messageHandler);
 
                     const isAuthenticated = message.authState?.isAuthenticated || false;
+                    const authError = message.authState?.error;
 
                     // If login was successful, trigger project sync
-                    triggerSyncAfterAuth(isAuthenticated);
+                    if (isAuthenticated) {
+                        triggerSyncAfterAuth(isAuthenticated);
+                    }
 
                     // Resolve with success status based on auth state
                     resolve(isAuthenticated);
+                } else if (message.command === "auth.error") {
+                    // Handle explicit auth error message
+                    console.error("Authentication error:", message.error);
+                    window.removeEventListener("message", messageHandler);
+                    resolve(false);
+                } else if (message.command === "show.error" || message.command === "show.warning") {
+                    // Handle VS Code notifications which often indicate authentication failures
+                    console.warn("VS Code notification during login:", message);
+                    // We keep the listener to also get the auth state update, but resolve false immediately
+                    // to stop the loading indicator
+                    resolve(false);
                 }
             };
 
@@ -202,8 +216,9 @@ export const StartupFlowView: React.FC = () => {
             // Fallback timeout in case we don't get a response
             setTimeout(() => {
                 window.removeEventListener("message", messageHandler);
+                console.warn("Authentication timed out");
                 resolve(false);
-            }, 10000); // 10 second fallback
+            }, 5000); // Reduced timeout to 5 seconds
         });
     };
 
@@ -225,11 +240,25 @@ export const StartupFlowView: React.FC = () => {
                     window.removeEventListener("message", messageHandler);
 
                     const isAuthenticated = message.authState?.isAuthenticated || false;
+                    const authError = message.authState?.error;
 
                     // If registration was successful, trigger project sync
-                    triggerSyncAfterAuth(isAuthenticated);
+                    if (isAuthenticated) {
+                        triggerSyncAfterAuth(isAuthenticated);
+                    }
 
                     resolve(isAuthenticated);
+                } else if (message.command === "auth.error") {
+                    // Handle explicit auth error message
+                    console.error("Registration error:", message.error);
+                    window.removeEventListener("message", messageHandler);
+                    resolve(false);
+                } else if (message.command === "show.error" || message.command === "show.warning") {
+                    // Handle VS Code notifications which often indicate registration failures
+                    console.warn("VS Code notification during registration:", message);
+                    // We keep the listener to also get the auth state update, but resolve false immediately
+                    // to stop the loading indicator
+                    resolve(false);
                 }
             };
 
@@ -238,8 +267,9 @@ export const StartupFlowView: React.FC = () => {
             // Fallback timeout
             setTimeout(() => {
                 window.removeEventListener("message", messageHandler);
+                console.warn("Registration timed out");
                 resolve(false);
-            }, 15000); // 15 second fallback for registration
+            }, 5000); // Reduced timeout to 5 seconds
         });
     };
 

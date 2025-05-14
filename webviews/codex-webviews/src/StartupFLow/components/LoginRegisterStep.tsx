@@ -25,6 +25,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [isPasswordFocused, setIsPasswordFocused] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const [authError, setAuthError] = useState<string | null>(null);
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -54,12 +55,15 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
+        setAuthError(null); // Clear any previous errors
 
         const trimmedUsername = username.trim();
         const trimmedPassword = password;
         const trimmedEmail = email.trim();
 
         try {
+            let success = false;
+            
             if (isRegistering) {
                 if (!validatePassword(trimmedPassword)) {
                     setIsLoading(false);
@@ -74,20 +78,29 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
 
                 // Wait for the Promise to resolve from register
                 console.log("Registering user...");
-                await onRegister(trimmedUsername, trimmedEmail, trimmedPassword);
-                console.log("Register API call completed");
+                success = await onRegister(trimmedUsername, trimmedEmail, trimmedPassword);
+                console.log("Register API call completed, success:", success);
             } else {
                 console.log("Logging in user...");
                 // Wait for the Promise to resolve from login
-                await onLogin(trimmedUsername, trimmedPassword);
-                console.log("Login API call completed");
+                success = await onLogin(trimmedUsername, trimmedPassword);
+                console.log("Login API call completed, success:", success);
             }
-
-            // Keep loading state on if successful - we'll likely navigate away
-            // Only reset loading state on error
+            
+            // If authentication failed, stop loading and show error
+            if (!success) {
+                // No delay - immediately show error and stop loading
+                setIsLoading(false);
+                setAuthError(isRegistering ? 
+                    "Registration failed. Please check your information and try again." : 
+                    "Login failed. Please check your credentials and try again.");
+            }
+            // For success case, keep loading state on as we'll likely navigate away
+            
         } catch (error) {
             console.error("Authentication error:", error);
             setIsLoading(false);
+            setAuthError("An error occurred during authentication. Please try again.");
         }
     };
 
@@ -142,6 +155,24 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 </VSCodeButton>
             </div>
             <h2>{isRegistering ? "Register" : "Login"}</h2>
+            {authError && (
+                <div
+                    style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        marginBottom: "1rem",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-inputValidation-errorBackground)",
+                        border: "1px solid var(--vscode-inputValidation-errorBorder)",
+                        borderRadius: "4px",
+                        width: "min(100%, 400px)",
+                    }}
+                >
+                    <i className="codicon codicon-error"></i>
+                    <span>{authError}</span>
+                </div>
+            )}
             <form
                 onSubmit={handleSubmit}
                 style={{
@@ -304,8 +335,14 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                     )}
                 </div>
                 <div
-                    className="button-group"
-                    style={{ display: "flex", alignItems: "center", gap: "1rem" }}
+                    className="button-group login-button-row"
+                    style={{ 
+                        display: "flex", 
+                        flexDirection: "row",
+                        alignItems: "center", 
+                        gap: "1rem",
+                        marginTop: "1rem"
+                    }}
                 >
                     <VSCodeButton
                         type="submit"
@@ -316,13 +353,22 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             justifyContent: "center",
                             alignItems: "center",
                             gap: "0.5rem",
+                            position: "relative",
+                            overflow: "hidden"
                         }}
                     >
                         {isLoading ? (
-                            <>
-                                <i className="codicon codicon-sync codicon-modifier-spin"></i>
-                                <span>{isRegistering ? "Registering" : "Logging in"}</span>
-                            </>
+                            <div style={{ 
+                                display: "flex", 
+                                alignItems: "center", 
+                                justifyContent: "center",
+                                width: "100%"
+                            }}>
+                                <i className="codicon codicon-loading codicon-modifier-spin"></i>
+                                <span style={{ marginLeft: "6px", whiteSpace: "nowrap" }}>
+                                    {isRegistering ? "Registering" : "Logging in"}
+                                </span>
+                            </div>
                         ) : isRegistering ? (
                             "Register"
                         ) : (
@@ -334,8 +380,9 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             appearance="icon"
                             onClick={() => setIsLoading(false)}
                             title="Cancel"
+                            style={{ height: "28px", minWidth: "28px", padding: "0" }}
                         >
-                            <i className="codicon codicon-close"></i>
+                            <i className="codicon codicon-close" style={{ margin: "0" }}></i>
                         </VSCodeButton>
                     )}
                 </div>
