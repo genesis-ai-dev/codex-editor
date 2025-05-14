@@ -532,9 +532,13 @@ async function executeCommandsAfter() {
 
                 const syncManager = SyncManager.getInstance();
                 // During startup, don't show info messages for connection issues
-                await syncManager.executeSync("Initial workspace sync", false);
-
-                trackTiming("Project Synchronization Complete", syncStart);
+                try {
+                    await syncManager.executeSync("Initial workspace sync", false);
+                    trackTiming("Project Synchronization Complete", syncStart);
+                } catch (error) {
+                    console.error("Error during initial sync:", error);
+                    trackTiming("Project Synchronization Failed", syncStart);
+                }
             } else {
                 console.log("User is not authenticated, skipping initial sync");
                 trackTiming(

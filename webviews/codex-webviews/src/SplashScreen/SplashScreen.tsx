@@ -10,11 +10,13 @@ import "./SplashScreen.css";
 
 export const SplashScreen: React.FC = () => {
     const [progress, setProgress] = useState(0);
-    const { timings, isComplete, sendMessage } = useVSCodeMessaging();
+    const { timings, isComplete, sendMessage, syncDetails } = useVSCodeMessaging();
     const mainTimelineRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const [syncInProgress, setSyncInProgress] = useState(false);
+    const [syncMessage, setSyncMessage] = useState("");
+    const [syncProgress, setSyncProgress] = useState(0);
 
     // Set up main timeline for coordinated animations
     useEffect(() => {
@@ -80,12 +82,25 @@ export const SplashScreen: React.FC = () => {
         const totalDuration = timings.reduce((sum, stage) => sum + stage.duration, 0);
 
         // Calculate overall progress percentage (cap at 99% until complete)
-        // Reserve the last 10% for sync operation if in progress
-        const syncReservedPercentage = syncInProgress ? 10 : 0;
-        const maxProgress = 99 - syncReservedPercentage;
-        const newProgress = Math.min(maxProgress, Math.floor((totalDuration / 5000) * 100));
-        setProgress(newProgress);
-    }, [timings, syncInProgress]);
+        const syncReservedPercentage = syncInProgress ? 15 : 0;
+        const baseProgress = Math.min(
+            85 - syncReservedPercentage,
+            Math.floor((totalDuration / 5000) * 100)
+        );
+
+        // If sync is in progress and we have details, use sync progress to fill the reserved percentage
+        if (syncInProgress && syncDetails) {
+            const syncPercentage = syncDetails.progress || 0;
+            setSyncProgress(syncPercentage);
+            setSyncMessage(syncDetails.message || "Syncing files...");
+
+            // Add sync progress contribution to total progress
+            const syncContribution = (syncPercentage * syncReservedPercentage) / 100;
+            setProgress(baseProgress + syncContribution);
+        } else {
+            setProgress(baseProgress);
+        }
+    }, [timings, syncInProgress, syncDetails]);
 
     useEffect(() => {
         if (isComplete) {
@@ -126,7 +141,7 @@ export const SplashScreen: React.FC = () => {
                 {isComplete
                     ? "Codex Editor has finished loading."
                     : `Codex Editor is loading. Current progress: ${progress}%${
-                          syncInProgress ? " - Syncing project files..." : ""
+                          syncInProgress ? ` - ${syncMessage}` : ""
                       }`}
             </div>
 
@@ -135,9 +150,18 @@ export const SplashScreen: React.FC = () => {
             <div ref={containerRef} className="container" id="main-container">
                 <LoadingBook />
                 <h1>Loading Codex Editor</h1>
-
                 <div className="current-step" id="current-step" aria-live="polite">
-                    {latestTiming ? (
+                    {syncInProgress ? (
+                        <div className="sync-info">
+                            <strong>{syncMessage}</strong>
+                            {syncDetails && syncDetails.currentFile && (
+                                <span className="sync-file">{syncDetails.currentFile}</span>
+                            )}
+                            {syncDetails && syncDetails.progress > 0 && (
+                                <span className="sync-percentage">{syncDetails.progress}%</span>
+                            )}
+                        </div>
+                    ) : latestTiming ? (
                         <>
                             <span>
                                 {isSyncStep ? (
@@ -152,9 +176,8 @@ export const SplashScreen: React.FC = () => {
                         "Initializing components..."
                     )}
                 </div>
-
                 <ProgressBar progress={progress} />
-                <LoadingStages stages={timings} />
+                <LoadingStages stages={timings.slice(-8)} /> {/* Only show most recent items */}
             </div>
 
             <Particles count={15} />
