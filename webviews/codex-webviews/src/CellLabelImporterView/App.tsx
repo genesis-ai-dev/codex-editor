@@ -152,9 +152,9 @@ const App: React.FC = () => {
                             .map((l: CellLabelData) => l.cellId),
                         currentPage: 1, // Reset to first page
                         isLoading: false,
-                        // availableSourceFiles might be sent again if they were part of the processing context
-                        availableSourceFiles:
-                            message.availableSourceFiles || prev.availableSourceFiles,
+                        importData: null, // Clear data from the imported spreadsheet file
+                        availableSourceFiles: [], // Clear source files list, not used in table view
+                        // and will be re-populated if a new import occurs.
                     }));
                     break;
                 case "showError": // Generic error display
