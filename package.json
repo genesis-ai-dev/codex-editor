@@ -23,6 +23,9 @@
         "onStartupFinished"
     ],
     "main": "./out/extension.js",
+    "permissions": [
+        "readFile"
+    ],
     "contributes": {
         "keybindings": [
             {

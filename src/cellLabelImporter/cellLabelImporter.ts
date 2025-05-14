@@ -47,7 +47,8 @@ interface CellMetadata {
     cellLabel?: string;
 }
 
-export async function openCellLabelImporter() {
+export async function openCellLabelImporter(context: vscode.ExtensionContext) {
+    // Create the webview panel
     const panel = vscode.window.createWebviewPanel(
         "cellLabelImporter",
         "Import Cell Labels",
@@ -57,6 +58,12 @@ export async function openCellLabelImporter() {
             retainContextWhenHidden: true,
         }
     );
+
+    // Add the panel to disposables to ensure proper cleanup
+    context.subscriptions.push(panel);
+
+    // Track active panel
+    let disposables: vscode.Disposable[] = [];
 
     // Get workspace folder
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -82,8 +89,16 @@ export async function openCellLabelImporter() {
     // Load initial HTML without any data
     panel.webview.html = getWebviewContent([]);
 
+    // Ensure temp directory exists
+    const tempDirUri = vscode.Uri.joinPath(context.globalStorageUri, "temp");
+    try {
+        await vscode.workspace.fs.createDirectory(tempDirUri);
+    } catch (error) {
+        console.error("Failed to create temp directory:", error);
+    }
+
     // Handle messages from the webview
-    panel.webview.onDidReceiveMessage(async (message) => {
+    const messageListener = panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.command) {
             case "importFile":
                 try {
@@ -95,37 +110,60 @@ export async function openCellLabelImporter() {
                             Spreadsheets: ["xlsx", "csv"],
                         },
                         title: "Import Cell Labels from File",
+                        openLabel: "Import",
+                        defaultUri: vscode.Uri.file(workspaceRoot),
                     });
 
                     if (!fileUris || fileUris.length === 0) {
                         return; // User canceled
                     }
 
-                    const filePath = fileUris[0].fsPath;
-                    const importedLabels = await importLabelsFromFile(filePath);
+                    const sourceFileUri = fileUris[0];
 
-                    // Create source text index for matching
-                    const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
-                    await createSourceTextIndex(
-                        sourceTextIndex,
-                        sourceFiles,
-                        metadataManager,
-                        true
-                    );
+                    try {
+                        // Create a temp copy of the file inside the extension's storage
+                        const tempFileUri = await copyToTempStorage(sourceFileUri, context);
 
-                    // Match the imported labels with existing cell IDs
-                    const matchedLabels = await matchCellLabels(
-                        importedLabels,
-                        sourceFiles,
-                        targetFiles
-                    );
+                        // Now read the labels from the temp file
+                        const importedLabels = await importLabelsFromVscodeUri(tempFileUri);
 
-                    // Update the webview with the matched data
-                    panel.webview.html = getWebviewContent(matchedLabels, {
-                        importSource: path.basename(filePath),
-                    });
+                        // Create source text index for matching
+                        const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
+                        await createSourceTextIndex(
+                            sourceTextIndex,
+                            sourceFiles,
+                            metadataManager,
+                            true
+                        );
+
+                        // Match the imported labels with existing cell IDs
+                        const matchedLabels = await matchCellLabels(
+                            importedLabels,
+                            sourceFiles,
+                            targetFiles
+                        );
+
+                        // Update the webview with the matched data
+                        panel.webview.html = getWebviewContent(matchedLabels, {
+                            importSource: path.basename(sourceFileUri.fsPath),
+                        });
+
+                        // Clean up temp file (optional)
+                        try {
+                            await vscode.workspace.fs.delete(tempFileUri);
+                        } catch (error) {
+                            console.error("Failed to delete temp file:", error);
+                        }
+                    } catch (error) {
+                        console.error("Error accessing file:", error);
+                        vscode.window.showErrorMessage(
+                            `Cannot access file: ${sourceFileUri.fsPath}. Error: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                        return;
+                    }
                 } catch (error: any) {
                     vscode.window.showErrorMessage(`Error importing file: ${error.message}`);
+                    console.error("Full error details:", error);
                 }
                 break;
 
@@ -156,17 +194,64 @@ export async function openCellLabelImporter() {
                 break;
         }
     });
+
+    // Add message listener to disposables
+    disposables.push(messageListener);
+
+    // Clean up when the panel is closed
+    panel.onDidDispose(
+        () => {
+            // Clean up all disposables
+            disposables.forEach((d) => d.dispose());
+            disposables = [];
+        },
+        null,
+        disposables
+    );
+
+    // Add the disposables to context.subscriptions
+    context.subscriptions.push(...disposables);
 }
 
-// Import labels from Excel or CSV file
-async function importLabelsFromFile(filePath: string): Promise<ImportedRow[]> {
+// Helper function to copy a file to temp storage
+async function copyToTempStorage(
+    sourceUri: vscode.Uri,
+    context: vscode.ExtensionContext
+): Promise<vscode.Uri> {
+    // Create a temp file path in extension's storage area
+    const tempDirUri = vscode.Uri.joinPath(context.globalStorageUri, "temp");
+    await vscode.workspace.fs.createDirectory(tempDirUri);
+
+    const fileName = path.basename(sourceUri.fsPath);
+    const tempFileUri = vscode.Uri.joinPath(tempDirUri, `${Date.now()}-${fileName}`);
+
+    // Read the original file using VS Code's API
+    const fileData = await vscode.workspace.fs.readFile(sourceUri);
+
+    // Write it to the temp location
+    await vscode.workspace.fs.writeFile(tempFileUri, fileData);
+
+    return tempFileUri;
+}
+
+// Import labels from Excel or CSV file using VSCode's file system API
+async function importLabelsFromVscodeUri(fileUri: vscode.Uri): Promise<ImportedRow[]> {
     try {
-        const workbook = xlsx.readFile(filePath);
+        // Read the file using VSCode's file system API
+        const fileData = await vscode.workspace.fs.readFile(fileUri);
+
+        // Use xlsx to parse the file data directly from the buffer
+        const workbook = xlsx.read(fileData, { type: "buffer" });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
 
         // Convert to JSON
         const rows: any[] = xlsx.utils.sheet_to_json(worksheet);
+
+        // If no rows found, throw an error
+        if (rows.length === 0) {
+            throw new Error(`No data found in the file: ${fileUri.fsPath}`);
+        }
 
         // Normalize column names (they might have varying capitalization)
         return rows.map((row) => {
@@ -186,6 +271,20 @@ async function importLabelsFromFile(filePath: string): Promise<ImportedRow[]> {
         });
     } catch (error) {
         console.error("Error importing labels:", error);
+        throw new Error(
+            `Failed to import file: ${error instanceof Error ? error.message : String(error)}`
+        );
+    }
+}
+
+// Keep the old function for backward compatibility, but modify it to use the new approach
+async function importLabelsFromFile(filePath: string): Promise<ImportedRow[]> {
+    try {
+        // Convert file path to URI and use the VSCode API to read it
+        const fileUri = vscode.Uri.file(filePath);
+        return await importLabelsFromVscodeUri(fileUri);
+    } catch (error) {
+        console.error("Error importing labels from file path:", error);
         throw new Error(
             `Failed to import file: ${error instanceof Error ? error.message : String(error)}`
         );
