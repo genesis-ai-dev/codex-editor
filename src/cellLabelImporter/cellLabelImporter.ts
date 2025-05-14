@@ -26,12 +26,15 @@ interface CellLabelData {
 
 // Interface for the imported Excel/CSV format
 interface ImportedRow {
-    index: string;
-    type: string;
-    start: string;
-    end: string;
+    index?: string;
+    type?: string;
+    start?: string;
+    end?: string;
     character?: string;
     dialogue?: string;
+    CHARACTER?: string;
+    DIALOGUE?: string;
+    [key: string]: any; // Allow any string keys for dynamic column names
 }
 
 // Extended cell metadata interface to include cellLabel
@@ -107,7 +110,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                         canSelectFolders: false,
                         canSelectMany: false,
                         filters: {
-                            Spreadsheets: ["xlsx", "csv"],
+                            Spreadsheets: ["xlsx", "csv", "tsv"],
                         },
                         title: "Import Cell Labels from File",
                         openLabel: "Import",
@@ -127,33 +130,24 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                         // Now read the labels from the temp file
                         const importedLabels = await importLabelsFromVscodeUri(tempFileUri);
 
-                        // Create source text index for matching
-                        const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
-                        await createSourceTextIndex(
-                            sourceTextIndex,
-                            sourceFiles,
-                            metadataManager,
-                            true
-                        );
+                        // Extract column headers for selection
+                        const columnHeaders = getColumnHeaders(importedLabels);
 
-                        // Match the imported labels with existing cell IDs
-                        const matchedLabels = await matchCellLabels(
-                            importedLabels,
-                            sourceFiles,
-                            targetFiles
-                        );
-
-                        // Update the webview with the matched data
-                        panel.webview.html = getWebviewContent(matchedLabels, {
+                        // Send only the column headers first for selection
+                        panel.webview.postMessage({
+                            command: "updateHeaders",
+                            headers: columnHeaders,
                             importSource: path.basename(sourceFileUri.fsPath),
                         });
 
-                        // Clean up temp file (optional)
-                        try {
-                            await vscode.workspace.fs.delete(tempFileUri);
-                        } catch (error) {
-                            console.error("Failed to delete temp file:", error);
-                        }
+                        // Store the imported data and URI for later use
+                        panel.webview.postMessage({
+                            command: "storeImportData",
+                            data: importedLabels,
+                            uri: tempFileUri.toString(),
+                        });
+
+                        // Clean up temp file - now handled after processing
                     } catch (error) {
                         console.error("Error accessing file:", error);
                         vscode.window.showErrorMessage(
@@ -163,6 +157,50 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     }
                 } catch (error: any) {
                     vscode.window.showErrorMessage(`Error importing file: ${error.message}`);
+                    console.error("Full error details:", error);
+                }
+                break;
+
+            case "processLabels":
+                try {
+                    // Get the stored data and selected column
+                    const { data, uri, selectedColumn } = message;
+
+                    if (!data || !selectedColumn) {
+                        vscode.window.showErrorMessage("Missing data or selected column");
+                        return;
+                    }
+
+                    // Create source text index for matching
+                    const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
+                    await createSourceTextIndex(
+                        sourceTextIndex,
+                        sourceFiles,
+                        metadataManager,
+                        true
+                    );
+
+                    // Match the imported labels with existing cell IDs using the selected column
+                    const matchedLabels = await matchCellLabels(
+                        data,
+                        sourceFiles,
+                        targetFiles,
+                        selectedColumn
+                    );
+
+                    // Update the webview with the matched data
+                    panel.webview.html = getWebviewContent(matchedLabels, {
+                        importSource: path.basename(vscode.Uri.parse(uri).fsPath),
+                    });
+
+                    // Clean up temp file
+                    try {
+                        await vscode.workspace.fs.delete(vscode.Uri.parse(uri));
+                    } catch (error) {
+                        console.error("Failed to delete temp file:", error);
+                    }
+                } catch (error: any) {
+                    vscode.window.showErrorMessage(`Error processing labels: ${error.message}`);
                     console.error("Full error details:", error);
                 }
                 break;
@@ -234,41 +272,50 @@ async function copyToTempStorage(
     return tempFileUri;
 }
 
+// Helper function to get column headers from imported data
+function getColumnHeaders(importedData: ImportedRow[]): string[] {
+    if (importedData.length === 0) {
+        return [];
+    }
+
+    // Get the first row and extract all keys
+    const firstRow = importedData[0];
+    return Object.keys(firstRow);
+}
+
 // Import labels from Excel or CSV file using VSCode's file system API
 async function importLabelsFromVscodeUri(fileUri: vscode.Uri): Promise<ImportedRow[]> {
     try {
         // Read the file using VSCode's file system API
         const fileData = await vscode.workspace.fs.readFile(fileUri);
 
+        // Determine file type based on extension
+        const fileExt = path.extname(fileUri.fsPath).toLowerCase();
+
+        let workbook;
         // Use xlsx to parse the file data directly from the buffer
-        const workbook = xlsx.read(fileData, { type: "buffer" });
+        if (fileExt === ".csv" || fileExt === ".tsv") {
+            const content = new TextDecoder().decode(fileData);
+            const delimiter = fileExt === ".tsv" ? "\t" : ",";
+            workbook = xlsx.read(content, { type: "string", raw: true, FS: delimiter });
+        } else {
+            // Default to xlsx
+            workbook = xlsx.read(fileData, { type: "buffer" });
+        }
+
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
 
-        // Convert to JSON
-        const rows: any[] = xlsx.utils.sheet_to_json(worksheet);
+        // Convert to JSON, preserving the original column names
+        const rows: any[] = xlsx.utils.sheet_to_json(worksheet, { raw: false });
 
         // If no rows found, throw an error
         if (rows.length === 0) {
             throw new Error(`No data found in the file: ${fileUri.fsPath}`);
         }
 
-        // Normalize column names (they might have varying capitalization)
-        return rows.map((row) => {
-            const normalizedRow: any = {};
-
-            Object.keys(row).forEach((key) => {
-                const lowerKey = key.toLowerCase();
-                if (lowerKey.includes("index")) normalizedRow.index = row[key];
-                else if (lowerKey.includes("type")) normalizedRow.type = row[key];
-                else if (lowerKey.includes("start")) normalizedRow.start = row[key];
-                else if (lowerKey.includes("end")) normalizedRow.end = row[key];
-                else if (lowerKey.includes("character")) normalizedRow.character = row[key];
-                else if (lowerKey.includes("dialogue")) normalizedRow.dialogue = row[key];
-            });
-
-            return normalizedRow as ImportedRow;
-        });
+        // Return data with original column names
+        return rows;
     } catch (error) {
         console.error("Error importing labels:", error);
         throw new Error(
@@ -329,7 +376,8 @@ function convertTimestampToSeconds(timestamp: string): number {
 async function matchCellLabels(
     importedRows: ImportedRow[],
     sourceFiles: FileData[],
-    targetFiles: FileData[]
+    targetFiles: FileData[],
+    labelColumn: string
 ): Promise<CellLabelData[]> {
     const result: CellLabelData[] = [];
 
@@ -357,19 +405,38 @@ async function matchCellLabels(
 
     // Process each imported row
     importedRows.forEach((row) => {
-        if (row.type === "cue") {
-            // Convert the imported row's start time to seconds
-            const startTimeSeconds = convertTimestampToSeconds(row.start);
+        // Check if the row has a type field and it equals "cue"
+        // If not, try to determine if this is a subtitle by other means
+        const isCue =
+            row.type === "cue" ||
+            (row.start && row.end) || // Has time fields
+            Object.keys(row).some((key) => key.toLowerCase().includes("time")); // Has time-related fields
 
-            // Create a new label combining character and dialogue if both exist
-            let newLabel = "";
-            if (row.character && row.character.trim()) {
-                newLabel = row.character.trim();
-                if (row.dialogue && row.dialogue.trim()) {
-                    newLabel += `: ${row.dialogue.trim()}`;
+        if (isCue) {
+            // Find start time field - could be named differently
+            let startField = "start";
+            if (!row.start) {
+                const possibleStarts = Object.keys(row).filter(
+                    (key) =>
+                        key.toLowerCase().includes("start") ||
+                        key.toLowerCase().includes("begin") ||
+                        key.toLowerCase().includes("from")
+                );
+
+                if (possibleStarts.length > 0) {
+                    startField = possibleStarts[0];
                 }
-            } else if (row.dialogue && row.dialogue.trim()) {
-                newLabel = row.dialogue.trim();
+            }
+
+            // Convert the imported row's start time to seconds
+            const startTimeSeconds = convertTimestampToSeconds(row[startField] || "");
+
+            // Find which field to use for the label based on user selection
+            const labelValue = row[labelColumn] ? row[labelColumn].toString().trim() : "";
+
+            // Skip empty labels
+            if (!labelValue) {
+                return;
             }
 
             // Try to find a matching cell
@@ -393,13 +460,28 @@ async function matchCellLabels(
                 match = closestCell;
             }
 
+            // Determine end time field
+            let endField = "end";
+            if (!row.end) {
+                const possibleEnds = Object.keys(row).filter(
+                    (key) =>
+                        key.toLowerCase().includes("end") ||
+                        key.toLowerCase().includes("stop") ||
+                        key.toLowerCase().includes("to")
+                );
+
+                if (possibleEnds.length > 0) {
+                    endField = possibleEnds[0];
+                }
+            }
+
             result.push({
                 cellId: match?.cellId || "",
-                startTime: row.start,
-                endTime: row.end,
-                character: row.character,
-                dialogue: row.dialogue,
-                newLabel,
+                startTime: row[startField] || "",
+                endTime: row[endField] || "",
+                character: row.character || row.CHARACTER || "",
+                dialogue: row.dialogue || row.DIALOGUE || "",
+                newLabel: labelValue,
                 currentLabel: match?.currentLabel,
                 matched: !!match,
             });
@@ -519,6 +601,25 @@ function getWebviewContent(cellLabels: CellLabelData[], options: { importSource?
                 font-style: italic;
                 color: var(--vscode-descriptionForeground);
             }
+            .column-selector {
+                margin-bottom: 20px;
+                padding: 15px;
+                background-color: var(--vscode-editor-lineHighlightBackground);
+                border-radius: 4px;
+            }
+            .column-selector h3 {
+                margin-top: 0;
+            }
+            .column-selector select {
+                width: 100%;
+                max-width: 400px;
+                padding: 8px;
+                background-color: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                border: 1px solid var(--vscode-input-border);
+                border-radius: 2px;
+                margin-bottom: 10px;
+            }
             table {
                 width: 100%;
                 border-collapse: collapse;
@@ -590,30 +691,50 @@ function getWebviewContent(cellLabels: CellLabelData[], options: { importSource?
                 color: var(--vscode-descriptionForeground);
                 text-decoration: line-through;
             }
+            #columnSelectorContainer {
+                display: none;
+            }
+            #tableView {
+                display: none;
+            }
         </style>
     </head>
     <body>
         <h1>Cell Label Importer</h1>
         
-        ${
-            options.importSource
-                ? `
-            <div class="import-info">
-                Imported from: ${options.importSource}
-            </div>
-        `
-                : ""
-        }
-        
-        ${
-            cellLabels.length === 0
-                ? `
+        <div id="initialImport" ${cellLabels.length > 0 ? 'class="hidden"' : ""}>
             <div class="empty-state">
                 <p>No cell labels loaded yet.</p>
                 <button id="importBtn">Import From File</button>
             </div>
-        `
-                : `
+        </div>
+
+        <div id="columnSelectorContainer">
+            <div class="import-info">
+                Imported from: <span id="importedFileName"></span>
+            </div>
+            <div class="column-selector">
+                <h3>Select Column to Use as Cell Label</h3>
+                <p>Choose which column from your spreadsheet will be used for cell labels:</p>
+                <select id="columnSelector"></select>
+                <p>Preview of selected column:</p>
+                <div id="columnPreview" style="max-height: 150px; overflow-y: auto; margin-bottom: 10px; padding: 10px; background-color: var(--vscode-input-background); border-radius: 2px;"></div>
+                <button id="processLabelsBtn">Process Labels</button>
+                <button id="cancelImportBtn">Cancel</button>
+            </div>
+        </div>
+        
+        <div id="tableView" ${cellLabels.length === 0 ? 'class="hidden"' : ""}>
+            ${
+                options.importSource
+                    ? `
+                <div class="import-info">
+                    Imported from: ${options.importSource}
+                </div>
+            `
+                    : ""
+            }
+            
             <div class="summary">
                 <div>Total imported rows: <strong>${cellLabels.length}</strong></div>
                 <div>Matched cells: <strong>${cellLabels.filter((l) => l.matched).length}</strong></div>
@@ -646,15 +767,14 @@ function getWebviewContent(cellLabels: CellLabelData[], options: { importSource?
             
             <div class="actions">
                 <div>
-                    <button id="importBtn">Import New File</button>
+                    <button id="importNewBtn">Import New File</button>
                 </div>
                 <div>
                     <button id="cancelBtn">Cancel</button>
                     <button id="saveBtn">Save Selected</button>
                 </div>
             </div>
-        `
-        }
+        </div>
         
         <script>
             (function() {
@@ -666,16 +786,134 @@ function getWebviewContent(cellLabels: CellLabelData[], options: { importSource?
                     selectedIds: ${JSON.stringify(cellLabels.filter((l) => l.matched).map((l) => l.cellId))},
                     currentPage: 1,
                     itemsPerPage: ${itemsPerPage},
-                    totalPages: ${totalPages}
+                    totalPages: ${totalPages},
+                    importData: null,
+                    importUri: null,
+                    headers: [],
+                    selectedColumn: null,
+                    importSource: ${JSON.stringify(options.importSource || "")}
                 };
                 
                 // Save state
                 vscode.setState(state);
                 
+                // Initial setup based on whether we have data
+                if (state.labels.length > 0) {
+                    document.getElementById('tableView').style.display = 'block';
+                    document.getElementById('initialImport').style.display = 'none';
+                    document.getElementById('columnSelectorContainer').style.display = 'none';
+                } else {
+                    document.getElementById('tableView').style.display = 'none';
+                    document.getElementById('initialImport').style.display = 'block';
+                    document.getElementById('columnSelectorContainer').style.display = 'none';
+                }
+                
                 // Import button
                 document.getElementById('importBtn')?.addEventListener('click', () => {
                     vscode.postMessage({ command: 'importFile' });
                 });
+                
+                // Import new button (from table view)
+                document.getElementById('importNewBtn')?.addEventListener('click', () => {
+                    vscode.postMessage({ command: 'importFile' });
+                });
+                
+                // Process labels button
+                document.getElementById('processLabelsBtn')?.addEventListener('click', () => {
+                    const selectedColumn = document.getElementById('columnSelector').value;
+                    if (!selectedColumn) {
+                        // Show error message
+                        return;
+                    }
+                    
+                    state.selectedColumn = selectedColumn;
+                    vscode.setState(state);
+                    
+                    vscode.postMessage({ 
+                        command: 'processLabels',
+                        data: state.importData,
+                        uri: state.importUri,
+                        selectedColumn
+                    });
+                });
+                
+                // Cancel button in column selector
+                document.getElementById('cancelImportBtn')?.addEventListener('click', () => {
+                    // Reset to initial state
+                    document.getElementById('tableView').style.display = 'none';
+                    document.getElementById('initialImport').style.display = 'block';
+                    document.getElementById('columnSelectorContainer').style.display = 'none';
+                });
+                
+                // Handle messages from the extension
+                window.addEventListener('message', event => {
+                    const message = event.data;
+                    
+                    if (message.command === 'updateHeaders') {
+                        // Show the column selector UI
+                        document.getElementById('tableView').style.display = 'none';
+                        document.getElementById('initialImport').style.display = 'none';
+                        document.getElementById('columnSelectorContainer').style.display = 'block';
+                        
+                        // Set filename
+                        document.getElementById('importedFileName').textContent = message.importSource;
+                        
+                        // Populate the column selector dropdown
+                        const columnSelector = document.getElementById('columnSelector');
+                        columnSelector.innerHTML = '';
+                        
+                        // Add a placeholder option
+                        const placeholderOption = document.createElement('option');
+                        placeholderOption.value = '';
+                        placeholderOption.textContent = '-- Select a column --';
+                        placeholderOption.disabled = true;
+                        placeholderOption.selected = true;
+                        columnSelector.appendChild(placeholderOption);
+                        
+                        message.headers.forEach(header => {
+                            const option = document.createElement('option');
+                            option.value = header;
+                            option.textContent = header;
+                            columnSelector.appendChild(option);
+                        });
+                        
+                        // Store headers in state
+                        state.headers = message.headers;
+                        vscode.setState(state);
+                        
+                        // Set up change handler for column preview
+                        columnSelector.addEventListener('change', updateColumnPreview);
+                    }
+                    
+                    if (message.command === 'storeImportData') {
+                        // Store import data for later processing
+                        state.importData = message.data;
+                        state.importUri = message.uri;
+                        vscode.setState(state);
+                    }
+                });
+                
+                // Function to update the column preview
+                function updateColumnPreview() {
+                    const columnSelector = document.getElementById('columnSelector');
+                    const selectedColumn = columnSelector.value;
+                    const previewEl = document.getElementById('columnPreview');
+                    
+                    if (!selectedColumn || !state.importData || state.importData.length === 0) {
+                        previewEl.innerHTML = '<em>No preview available</em>';
+                        return;
+                    }
+                    
+                    // Get up to 5 values from the selected column
+                    const previewValues = state.importData
+                        .slice(0, 5)
+                        .map(row => row[selectedColumn])
+                        .filter(val => val) // Filter out empty values
+                        .map(val => \`<div>\${val}</div>\`)
+                        .join('');
+                    
+                    previewEl.innerHTML = previewValues || '<em>No data found in this column</em>';
+                }
                 
                 // Cancel button
                 document.getElementById('cancelBtn')?.addEventListener('click', () => {

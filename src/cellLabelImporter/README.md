@@ -32,6 +32,19 @@ The importer expects spreadsheet files with columns containing:
 - Optional "character" column for speaker names
 - Optional "dialogue" column for the actual text
 
+Example TSV:
+
+```tsv
+index	type	start		end	CHARACTER	DIALOGUE
+0	cue	00:00:50,634	00:00:50,63	00:00:51,468	LITTLE MARY MAGDALENE	Abba?
+1	cue	00:00:54,012	00:00:54,01	00:00:56,348	 MARY MAGDALENE'S FATHER	You should be sleeping, little one.
+1	cue	00:00:54,012	00:00:54,01	00:00:56,348	LITTLE MARY MAGDALENE	I can't sleep.
+2	cue	00:00:56,431	00:00:56,43	00:00:58,308	 MARY MAGDALENE'S FATHER	Sit down, sit down.
+3	cue	00:00:59,601	00:00:59,60	00:01:02,437	 MARY MAGDALENE'S FATHER	Is your head hurting you again?
+3	cue	00:00:59,601	00:00:59,60	00:01:02,437	LITTLE MARY MAGDALENE	No.
+4	cue	00:01:02,521	00:01:02,52	00:01:06,233	 MARY MAGDALENE'S FATHER	I know. You were thinking of the big new star.
+```
+
 ## Technical Implementation
 
 The Cell Label Importer:
