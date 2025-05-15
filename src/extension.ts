@@ -40,7 +40,7 @@ import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { waitForExtensionActivation } from "./utils/vscode";
 import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
-import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFlow/types";
 import { registerCommandsBefore } from "./activationHelpers/contextAware/commandsBefore";
 import {
     registerWelcomeViewProvider,
