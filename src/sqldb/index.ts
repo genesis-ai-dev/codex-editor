@@ -1,11 +1,10 @@
+import * as vscode from "vscode";
 import { StatusBarItem } from "vscode";
 import initSqlJs, { Database, SqlJsStatic } from "sql.js";
 import path from "path";
-import vscode from "vscode";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 import crypto from "crypto";
 import { DictionaryEntry } from "types";
-importvscode.workspace.fs from "fs";
 
 export function getDefinitions(db: Database, headWord: string): string[] {
     const stmt = db.prepare("SELECT definition FROM entries WHERE head_word = ?");
@@ -79,15 +78,9 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
 
     try {
         // NOTE: Use a stream to read the database file to avoid memory issues that can arise from large files and crashes the app
-        const fileStream =vscode.workspace.fs.createReadStream(dbPath.fsPath);
-        const chunks: Buffer[] = [];
-
-        for await (const chunk of fileStream) {
-            chunks.push(chunk);
-        }
-
-        fileBuffer = Buffer.concat(chunks);
-        console.log("File buffer loaded using stream");
+        const fileContent = await vscode.workspace.fs.readFile(dbPath);
+        fileBuffer = fileContent;
+        console.log("File buffer loaded");
     } catch {
         console.log("File buffer not found, creating new database");
         // If file doesn't exist, create new database
@@ -268,7 +261,9 @@ export async function importWiktionaryJSONL(db: Database) {
                 },
                 async (progress) => {
                     progress.report({ increment: 0, message: "Starting import..." });
-                    await parseAndImportJSONL(jsonlFilePath, progress, db);
+                    await parseAndImportJSONL(jsonlFilePath, db, (progressValue) => {
+                        progress.report({ increment: progressValue * 100, message: "Importing..." });
+                    });
                     progress.report({ increment: 100, message: "Import completed!" });
                     const fileBuffer = db.export();
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -465,7 +460,7 @@ export const exportUserEntries = (db: Database) => {
     }
 };
 
-export const ingestJsonlDictionaryEntries = (db: Database) => {
+export const ingestJsonlDictionaryEntries = async (db: Database) => {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         return;
@@ -474,16 +469,20 @@ export const ingestJsonlDictionaryEntries = (db: Database) => {
     if (!exportPath) {
         return;
     }
-    const jsonlContent =vscode.workspace.fs.existsSync(exportPath.fsPath)
-        ?vscode.workspace.fs.readFileSync(exportPath.fsPath, "utf-8")
-        : "";
-    const entries = jsonlContent
-        .split("\n")
-        .filter((line) => line)
-        .map((line) => JSON.parse(line));
-    console.log({ entries });
+    
+    try {
+        const fileContent = await vscode.workspace.fs.readFile(exportPath);
+        const jsonlContent = new TextDecoder().decode(fileContent);
+        const entries = jsonlContent
+            .split("\n")
+            .filter((line: string) => line)
+            .map((line: string) => JSON.parse(line));
+        console.log({ entries });
 
-    bulkAddWords(db, entries);
+        await bulkAddWords(db, entries);
+    } catch (error) {
+        console.error("Error reading dictionary file:", error);
+    }
 };
 
 // Function to save the database to file

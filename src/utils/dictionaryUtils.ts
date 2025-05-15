@@ -1,13 +1,14 @@
-import * asvscode.workspace.fs from "fs"; // Need to usevscode.workspace.fs because the server uses this too
+// Need to usevscode.workspace.fs because the server uses this too
 import * as vscode from "vscode";
 import { Dictionary, DictionaryEntry } from "../../types";
 import { cleanWord } from "./cleaningUtils";
 
-// Server version (usingvscode.workspace.fs)
+// Server version (using vscode.workspace.fs)
 export async function readDictionaryServer(path: string): Promise<Dictionary> {
     try {
-        const content = awaitvscode.workspace.fs.promises.readFile(path, "utf-8");
-        const entries = deserializeDictionaryEntries(content);
+        const fileUri = vscode.Uri.file(path);
+        const content = await vscode.workspace.fs.readFile(fileUri);
+        const entries = deserializeDictionaryEntries(new TextDecoder().decode(content));
         return {
             id: "project",
             label: "Project",
@@ -22,7 +23,8 @@ export async function readDictionaryServer(path: string): Promise<Dictionary> {
 
 export async function saveDictionaryServer(path: string, dictionary: Dictionary): Promise<void> {
     const content = serializeDictionaryEntries(dictionary.entries);
-    awaitvscode.workspace.fs.promises.writeFile(path, content, "utf-8");
+    const fileUri = vscode.Uri.file(path);
+    await vscode.workspace.fs.writeFile(fileUri, new TextEncoder().encode(content));
 }
 
 // Client version (using vscode.workspace.fs)
@@ -44,7 +46,7 @@ export async function readDictionaryClient(uri: vscode.Uri): Promise<Dictionary>
 
 export async function saveDictionaryClient(uri: vscode.Uri, dictionary: Dictionary): Promise<void> {
     const content = serializeDictionaryEntries(dictionary.entries);
-    await vscode.workspace.fs.writeFile(uri, Buffer.from(content, "utf-8"));
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(content));
 }
 
 export async function addWordsToDictionary(path: string, words: string[]): Promise<void> {

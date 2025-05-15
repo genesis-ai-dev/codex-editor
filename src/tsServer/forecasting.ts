@@ -6,7 +6,7 @@ import {
     CancellationToken,
     CompletionContext,
 } from "vscode-languageserver/node";
-import * asvscode.workspace.fs from "fs";
+import * as vscode from "vscode";
 import * as path from "path";
 
 class MarkovChain {
@@ -85,13 +85,15 @@ export class WordSuggestionProvider {
         const completeDraftPath = path.join(workspaceFolder, ".project", "complete_drafts.txt");
         console.log(`Attempting to read file at: ${completeDraftPath}`);
         try {
-            const stats = awaitvscode.workspace.fs.promises.stat(completeDraftPath);
-            console.log(`File exists: ${stats.isFile()}, Size: ${stats.size} bytes`);
+            const fileUri = vscode.Uri.file(completeDraftPath);
+            const stats = await vscode.workspace.fs.stat(fileUri);
+            console.log(`File exists: ${stats.type === vscode.FileType.File}, Size: ${stats.size} bytes`);
 
-            const content = awaitvscode.workspace.fs.promises.readFile(completeDraftPath, "utf8");
-            console.log(`Successfully read file. Content length: ${content.length}`);
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const textContent = new TextDecoder().decode(content);
+            console.log(`Successfully read file. Content length: ${textContent.length}`);
 
-            const words = content.split(/\s+/).filter((word: string) => word.length > 0);
+            const words = textContent.split(/\s+/).filter((word: string) => word.length > 0);
 
             for (let i = 0; i < words.length - 1; i++) {
                 const word1 = words[i].toLowerCase().replace(/[^\p{L}\s]/gu, "");

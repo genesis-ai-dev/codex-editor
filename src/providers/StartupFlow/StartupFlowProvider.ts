@@ -1,4 +1,3 @@
-import { waitForExtensionActivation } from "../../utils/vscode";
 import {
     MessagesToStartupFlowProvider,
     MessagesFromStartupFlowProvider,
@@ -11,7 +10,6 @@ import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
 import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
-import { CustomWebviewProvider } from "../../projectManager/projectManagerViewProvider";
 import {
     createNewProject,
     createNewWorkspaceAndProject,

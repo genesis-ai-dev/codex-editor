@@ -1,15 +1,11 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * asvscode.workspace.fs from "fs/promises";
 import Chatbot from "./chat";
 import { TranslationPair, MinimalCellResult } from "../../types";
 import { SavedBacktranslation } from "./smartBacktranslation";
 import { SYSTEM_MESSAGE } from "./prompts";
-import * as readline from "readline";
-import { createReadStream, createWriteStream } from "fs";
 import { findRelevantVideos, VideoEntry } from "./utils/videoUtil";
 import { v4 as uuidv4 } from "uuid";
-import * as os from "os";
 
 interface TranslationPairWithBacktranslation extends TranslationPair {
     backtranslation?: string;
@@ -72,17 +68,17 @@ export class SmartPassages {
 
     private async ensureFileExists(filePath: string) {
         try {
-            awaitvscode.workspace.fs.access(filePath);
+            await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
         } catch (error) {
             // File doesn't exist, create it
             try {
-                awaitvscode.workspace.fs.writeFile(filePath, "");
+                await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), new TextEncoder().encode(""));
             } catch (createError) {
                 console.error(`Error creating file ${filePath}:`, createError);
                 // If creation fails, delete the file (if it exists) and try again
                 try {
-                    awaitvscode.workspace.fs.unlink(filePath);
-                    awaitvscode.workspace.fs.writeFile(filePath, "");
+                    await vscode.workspace.fs.delete(vscode.Uri.file(filePath));
+                    await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), new TextEncoder().encode(""));
                 } catch (retryError) {
                     console.error(`Error recreating file ${filePath}:`, retryError);
                 }
@@ -306,10 +302,20 @@ export class SmartPassages {
                 timestamp: new Date().toISOString(),
             };
 
-            const jsonLine = JSON.stringify(newEntry) + "\n";
-
+            // Read the current feedback file, append the new entry, and write back
             try {
-                awaitvscode.workspace.fs.appendFile(this.feedbackFile, jsonLine, "utf-8");
+                const fileUri = vscode.Uri.file(this.feedbackFile);
+                let feedbackArr: any[] = [];
+                try {
+                    const content = await vscode.workspace.fs.readFile(fileUri);
+                    const text = new TextDecoder().decode(content);
+                    feedbackArr = text.trim() ? JSON.parse(text) : [];
+                } catch (readErr) {
+                    // File may not exist or be empty
+                    feedbackArr = [];
+                }
+                feedbackArr.push(newEntry);
+                await vscode.workspace.fs.writeFile(fileUri, new TextEncoder().encode(JSON.stringify(feedbackArr, null, 2)));
             } catch (error) {
                 console.error(`Error appending feedback for cellId ${id}:`, error);
             }
@@ -317,132 +323,53 @@ export class SmartPassages {
     }
 
     public async saveChatHistory(): Promise<void> {
-        const currentEntry: ChatHistoryEntry = {
-            sessionId: this.currentSessionId,
-            name: this.currentSessionName || "Unnamed Chat",
+        if (!this.currentSessionName) {
+            return;
+        }
+
+        const entry: SingleChatHistoryEntry = {
             messages: this.chatbot.messages,
+            name: this.currentSessionName,
             timestamp: new Date().toISOString(),
         };
 
-        const tempFile = path.join(os.tmpdir(), `chat_history_temp_${Date.now()}.jsonl`);
-
+        const fileUri = vscode.Uri.file(this.chatHistoryFile);
+        let existingContent = "";
         try {
-            // Ensure the directory exists
-            awaitvscode.workspace.fs.mkdir(path.dirname(this.chatHistoryFile), { recursive: true });
-
-            // Create the file if it doesn't exist
-            if (!(await this.fileExists(this.chatHistoryFile))) {
-                awaitvscode.workspace.fs.writeFile(this.chatHistoryFile, "");
-            }
-
-            const writeStream = createWriteStream(tempFile);
-            const readStream = createReadStream(this.chatHistoryFile);
-            const rl = readline.createInterface({
-                input: readStream,
-                crlfDelay: Infinity,
-            });
-
-            let currentSessionUpdated = false;
-
-            for await (const line of rl) {
-                try {
-                    const entry: ChatHistoryEntry = JSON.parse(line);
-                    if (entry.sessionId === this.currentSessionId) {
-                        // Update the current session
-                        writeStream.write(JSON.stringify(currentEntry) + "\n");
-                        currentSessionUpdated = true;
-                    } else {
-                        // Write other sessions as they are
-                        writeStream.write(line + "\n");
-                    }
-                } catch (parseError) {
-                    console.error("Error parsing chat history line:", parseError);
-                    // Write the line as is if there's a parsing error
-                    writeStream.write(line + "\n");
-                }
-            }
-
-            // If the current session wasn't in the file, append it
-            if (!currentSessionUpdated) {
-                writeStream.write(JSON.stringify(currentEntry) + "\n");
-            }
-
-            writeStream.end();
-
-            // Wait for the write stream to finish
-            await new Promise<void>((resolve, reject) => {
-                writeStream.on("finish", resolve);
-                writeStream.on("error", reject);
-            });
-
-            // Replace the old file with the new one
-            awaitvscode.workspace.fs.rename(tempFile, this.chatHistoryFile);
-
-            console.log(`Chat history saved for session ${this.currentSessionId}`);
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            existingContent = new TextDecoder().decode(content);
         } catch (error) {
-            console.error("Error saving chat history:", error);
-            // Clean up the temp file if there was an error
-            awaitvscode.workspace.fs.unlink(tempFile).catch(console.error);
+            console.error("Error reading chat history file:", error);
         }
-    }
 
-    private async fileExists(filePath: string): Promise<boolean> {
-        try {
-            awaitvscode.workspace.fs.access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
+        const newEntry = JSON.stringify(entry) + "\n";
+        await vscode.workspace.fs.writeFile(
+            fileUri,
+            new TextEncoder().encode(existingContent + newEntry)
+        );
     }
 
     public async loadChatHistory(sessionId?: string): Promise<ChatHistoryEntry | null> {
+        const fileUri = vscode.Uri.file(this.chatHistoryFile);
         try {
-            const content = awaitvscode.workspace.fs.readFile(this.chatHistoryFile, "utf-8");
-            const lines = content.split("\n").filter((line) => line.trim() !== "");
-
-            let latestSession: ChatHistoryEntry | null = null;
-
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const lines = new TextDecoder().decode(content).split("\n").filter(Boolean);
+            
             for (const line of lines) {
-                try {
-                    const entry: ChatHistoryEntry = JSON.parse(line);
-                    if (sessionId && entry.sessionId === sessionId) {
-                        latestSession = entry;
-                        break;
-                    } else if (
-                        !sessionId &&
-                        (!latestSession ||
-                            new Date(entry.timestamp) > new Date(latestSession.timestamp))
-                    ) {
-                        latestSession = entry;
-                    }
-                } catch (parseError) {
-                    console.error("Error parsing chat history line:", parseError);
+                const entry = JSON.parse(line) as SingleChatHistoryEntry;
+                if (!sessionId || entry.name === sessionId) {
+                    return {
+                        sessionId: entry.name,
+                        name: entry.name,
+                        messages: entry.messages,
+                        timestamp: entry.timestamp,
+                    };
                 }
             }
-
-            if (latestSession) {
-                this.currentSessionId = latestSession.sessionId;
-                this.currentSessionName = latestSession.name;
-                this.chatbot.messages = [
-                    this.chatbot.messages[0],
-                    ...latestSession.messages.slice(1),
-                ];
-                console.log(
-                    `Loaded chat history for session ${this.currentSessionId}: ${this.currentSessionName}`
-                );
-                return latestSession;
-            } else {
-                console.log("No matching chat history found. Starting a new session.");
-                return null;
-            }
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-                console.log("Chat history file not found. Starting with a fresh history.");
-            } else {
-                console.error("Error loading chat history:", error);
-            }
-            return null; // Add this line to ensure a return value in all cases
+            console.error("Error loading chat history:", error);
         }
+        return null;
     }
 
     public startNewSession(): void {
@@ -460,35 +387,21 @@ export class SmartPassages {
     }
 
     public async getAllSessions(): Promise<Array<{ id: string; name: string; timestamp: string }>> {
-        const sessions: Array<{ id: string; name: string; timestamp: string }> = [];
-
+        const fileUri = vscode.Uri.file(this.chatHistoryFile);
         try {
-            const fileStream = createReadStream(this.chatHistoryFile);
-            const rl = readline.createInterface({
-                input: fileStream,
-                crlfDelay: Infinity,
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const lines = new TextDecoder().decode(content).split("\n").filter(Boolean);
+            
+            return lines.map((line) => {
+                const entry = JSON.parse(line) as SingleChatHistoryEntry;
+                return {
+                    id: entry.name,
+                    name: entry.name,
+                    timestamp: entry.timestamp,
+                };
             });
-
-            for await (const line of rl) {
-                try {
-                    const entry: ChatHistoryEntry = JSON.parse(line);
-                    sessions.push({
-                        id: entry.sessionId,
-                        name: entry.name,
-                        timestamp: entry.timestamp,
-                    });
-                } catch (parseError) {
-                    console.error("Error parsing chat history line:", parseError);
-                }
-            }
-
-            return sessions;
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-                // File doesn't exist, return an empty array
-                return [];
-            }
-            console.error("Error reading chat history:", error);
+            console.error("Error getting all sessions:", error);
             return [];
         }
     }
@@ -496,66 +409,24 @@ export class SmartPassages {
     private async readEntriesForCell(
         cellId: string
     ): Promise<Array<{ content: string; timestamp: string }>> {
-        const entries: Array<{ content: string; timestamp: string }> = [];
-
+        const fileUri = vscode.Uri.file(this.feedbackFile);
         try {
-            const fileStream = createReadStream(this.feedbackFile);
-            const rl = readline.createInterface({
-                input: fileStream,
-                crlfDelay: Infinity,
-            });
-
-            for await (const line of rl) {
-                try {
-                    const entry = JSON.parse(line);
-                    if (entry.cellId === cellId) {
-                        entries.push({ content: entry.content, timestamp: entry.timestamp });
-                    }
-                } catch (parseError) {
-                    console.error("Error parsing line:", parseError);
-                }
-            }
-
-            return entries;
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const data = JSON.parse(new TextDecoder().decode(content));
+            return data[cellId] || [];
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-                // File doesn't exist, return an empty array
-                return [];
-            }
-            console.error("Error reading entries:", error);
+            console.error("Error reading entries for cell:", error);
             return [];
         }
     }
 
     private async readAllMemories(): Promise<{ [cellId: string]: Feedback }> {
-        const memories: { [cellId: string]: Feedback } = {};
-
+        const fileUri = vscode.Uri.file(this.feedbackFile);
         try {
-            const fileStream = createReadStream(this.feedbackFile);
-            const rl = readline.createInterface({
-                input: fileStream,
-                crlfDelay: Infinity,
-            });
-
-            for await (const line of rl) {
-                try {
-                    const entry = JSON.parse(line);
-                    if (!memories[entry.cellId]) {
-                        memories[entry.cellId] = { content: "" };
-                    }
-                    memories[entry.cellId].content += `- ${entry.content}\n`;
-                } catch (parseError) {
-                    console.error("Error parsing line:", parseError);
-                }
-            }
-
-            return memories;
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            return JSON.parse(new TextDecoder().decode(content)) || {};
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-                // File doesn't exist, return an empty object
-                return {};
-            }
-            console.error("Error reading memories:", error);
+            console.error("Error reading all memories:", error);
             return {};
         }
     }
@@ -567,60 +438,23 @@ export class SmartPassages {
     }
 
     public async deleteChatSession(sessionId: string): Promise<boolean> {
-        const tempFile = path.join(os.tmpdir(), `chat_history_temp_${Date.now()}.jsonl`);
-
+        const fileUri = vscode.Uri.file(this.chatHistoryFile);
         try {
-            const writeStream = createWriteStream(tempFile);
-            const readStream = createReadStream(this.chatHistoryFile);
-            const rl = readline.createInterface({
-                input: readStream,
-                crlfDelay: Infinity,
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const lines = new TextDecoder().decode(content).split("\n").filter(Boolean);
+            
+            const filteredLines = lines.filter((line) => {
+                const entry = JSON.parse(line) as SingleChatHistoryEntry;
+                return entry.name !== sessionId;
             });
 
-            let sessionFound = false;
-
-            for await (const line of rl) {
-                try {
-                    const entry: ChatHistoryEntry = JSON.parse(line);
-                    if (entry.sessionId !== sessionId) {
-                        // Write sessions that are not being deleted
-                        writeStream.write(line + "\n");
-                    } else {
-                        sessionFound = true;
-                    }
-                } catch (parseError) {
-                    console.error("Error parsing chat history line:", parseError);
-                    // Write the line as is if there's a parsing error
-                    writeStream.write(line + "\n");
-                }
-            }
-
-            writeStream.end();
-
-            // Wait for the write stream to finish
-            await new Promise<void>((resolve, reject) => {
-                writeStream.on("finish", resolve);
-                writeStream.on("error", reject);
-            });
-
-            // Replace the old file with the new one
-            awaitvscode.workspace.fs.rename(tempFile, this.chatHistoryFile);
-
-            if (sessionFound) {
-                console.log(`Chat session ${sessionId} deleted successfully`);
-                // If the deleted session was the current one, start a new session
-                if (sessionId === this.currentSessionId) {
-                    this.startNewSession();
-                }
-                return true;
-            } else {
-                console.log(`Chat session ${sessionId} not found`);
-                return false;
-            }
+            await vscode.workspace.fs.writeFile(
+                fileUri,
+                new TextEncoder().encode(filteredLines.join("\n") + "\n")
+            );
+            return true;
         } catch (error) {
             console.error("Error deleting chat session:", error);
-            // Clean up the temp file if there was an error
-            awaitvscode.workspace.fs.unlink(tempFile).catch(console.error);
             return false;
         }
     }

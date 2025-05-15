@@ -137,6 +137,6 @@ export async function analyzeSourceContent(
         case "plaintext":
             return await analyzePlainTextContent(content);
         default:
-            throw new Error(`Unsupported file type: ${fileType}`);
+            return [];
     }
 }

@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * asvscode.workspace.fs from "fs";
 import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
@@ -51,7 +50,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         this.registerWatchers();
     }
 
-    private loadBibleBookMap(): void {
+    private async loadBibleBookMap(): Promise<void> {
         console.log("Loading bible book map for Navigation...");
         let bookDataToUse: any[] = bibleData;
         try {
@@ -59,9 +58,14 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             if (workspaceFolders && workspaceFolders.length > 0) {
                 const workspaceRoot = workspaceFolders[0].uri.fsPath;
                 const localizedPath = path.join(workspaceRoot, "localized-books.json");
-                if (fs.existsSync(localizedPath)) {
+                const fileExists = await vscode.workspace.fs.stat(vscode.Uri.file(localizedPath)).then(
+                    () => true,
+                    () => false
+                );
+                if (fileExists) {
                     console.log("Navigation: Found localized-books.json, loading...");
-                    const raw =vscode.workspace.fs.readFileSync(localizedPath, "utf8");
+                    const content = await vscode.workspace.fs.readFile(vscode.Uri.file(localizedPath));
+                    const raw = new TextDecoder().decode(content);
                     bookDataToUse = JSON.parse(raw);
                     console.log("Navigation: Localized books loaded successfully");
                 } else {

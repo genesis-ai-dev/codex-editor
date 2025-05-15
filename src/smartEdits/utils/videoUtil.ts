@@ -1,4 +1,4 @@
-importvscode.workspace.fs from "fs/promises";
+import * as vscode from "vscode";
 import path from "path";
 import german_urls from "../staticResources/bibleProjectLinks/bp_de";
 import french_urls from "../staticResources/bibleProjectLinks/bp_fr";

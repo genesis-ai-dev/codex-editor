@@ -9,7 +9,6 @@ import {
     ImportedContent,
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
-import * asvscode.workspace.fs from "fs/promises"; // Add this import if not already present
 import * as path from "path";
 import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";

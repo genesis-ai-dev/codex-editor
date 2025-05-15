@@ -10,7 +10,6 @@ import { LocalProject, ProjectMetadata, ProjectOverview } from "../../../types";
 import { initializeProject } from "../projectInitializers";
 import { getProjectMetadata } from "../../utils";
 import git from "isomorphic-git";
-importvscode.workspace.fs from "fs";
 import http from "isomorphic-git/http/web";
 import { getAuthApi } from "../../extension";
 import { stageAndCommitAllAndSync } from "./merge";
@@ -375,11 +374,59 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
         await vscode.workspace.fs.writeFile(projectFilePath, projectFileData);
         vscode.window.showInformationMessage(`Project created at ${projectFilePath.fsPath}`);
 
+        // Define customFs object for git operations
+        const customFs = {
+            promises: {
+                readFile: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    const data = await vscode.workspace.fs.readFile(uri);
+                    return data;
+                },
+                writeFile: async (path: string, data: Uint8Array) => {
+                    const uri = vscode.Uri.file(path);
+                    await vscode.workspace.fs.writeFile(uri, data);
+                },
+                unlink: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    await vscode.workspace.fs.delete(uri);
+                },
+                readdir: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    const entries = await vscode.workspace.fs.readDirectory(uri);
+                    return entries.map(([name]) => name);
+                },
+                mkdir: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    await vscode.workspace.fs.createDirectory(uri);
+                },
+                rmdir: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    await vscode.workspace.fs.delete(uri);
+                },
+                stat: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    const stat = await vscode.workspace.fs.stat(uri);
+                    return {
+                        isFile: () => stat.type === vscode.FileType.File,
+                        isDirectory: () => stat.type === vscode.FileType.Directory,
+                    };
+                },
+                lstat: async (path: string) => {
+                    const uri = vscode.Uri.file(path);
+                    const stat = await vscode.workspace.fs.stat(uri);
+                    return {
+                        isFile: () => stat.type === vscode.FileType.File,
+                        isDirectory: () => stat.type === vscode.FileType.Directory,
+                    };
+                }
+            }
+        };
+
         // Check if git is already initialized
         let isGitInitialized = false;
         try {
             await git.resolveRef({
-               vscode.workspace.fs,
+                fs: customFs,
                 dir: workspaceFolder,
                 ref: "HEAD",
             });
@@ -392,7 +439,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
             // Initialize git repository
             try {
                 await git.init({
-                   vscode.workspace.fs,
+                    fs: customFs,
                     dir: workspaceFolder,
                     defaultBranch: "main",
                 });
@@ -407,13 +454,13 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
 
                 // Add files to git
                 await git.add({
-                   vscode.workspace.fs,
+                    fs: customFs,
                     dir: workspaceFolder,
                     filepath: "metadata.json",
                 });
 
                 await git.add({
-                   vscode.workspace.fs,
+                    fs: customFs,
                     dir: workspaceFolder,
                     filepath: ".gitignore",
                 });
@@ -435,7 +482,7 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 };
 
                 await git.commit({
-                   vscode.workspace.fs,
+                    fs: customFs,
                     dir: workspaceFolder,
                     message: "Initial commit: Add project metadata",
                     author,
@@ -751,10 +798,58 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         debug("No metadata.json file found yet"); // Changed to log since this is expected for new projects
     }
 
+    // Define customFs object for git operations
+    const customFs = {
+        promises: {
+            readFile: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                const data = await vscode.workspace.fs.readFile(uri);
+                return data;
+            },
+            writeFile: async (path: string, data: Uint8Array) => {
+                const uri = vscode.Uri.file(path);
+                await vscode.workspace.fs.writeFile(uri, data);
+            },
+            unlink: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                await vscode.workspace.fs.delete(uri);
+            },
+            readdir: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                const entries = await vscode.workspace.fs.readDirectory(uri);
+                return entries.map(([name]) => name);
+            },
+            mkdir: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                await vscode.workspace.fs.createDirectory(uri);
+            },
+            rmdir: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                await vscode.workspace.fs.delete(uri);
+            },
+            stat: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                const stat = await vscode.workspace.fs.stat(uri);
+                return {
+                    isFile: () => stat.type === vscode.FileType.File,
+                    isDirectory: () => stat.type === vscode.FileType.Directory,
+                };
+            },
+            lstat: async (path: string) => {
+                const uri = vscode.Uri.file(path);
+                const stat = await vscode.workspace.fs.stat(uri);
+                return {
+                    isFile: () => stat.type === vscode.FileType.File,
+                    isDirectory: () => stat.type === vscode.FileType.Directory,
+                };
+            }
+        }
+    };
+
     try {
         // Check git repository
         await git.resolveRef({
-           vscode.workspace.fs,
+            fs: customFs,
             dir: workspaceFolder.uri.fsPath,
             ref: "HEAD",
         });
@@ -957,8 +1052,54 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
                         // Get git origin URL using isomorphic-git
                         let gitOriginUrl: string | undefined;
                         try {
+                            const customFs = {
+                                promises: {
+                                    readFile: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        const data = await vscode.workspace.fs.readFile(uri);
+                                        return data;
+                                    },
+                                    writeFile: async (path: string, data: Uint8Array) => {
+                                        const uri = vscode.Uri.file(path);
+                                        await vscode.workspace.fs.writeFile(uri, data);
+                                    },
+                                    unlink: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        await vscode.workspace.fs.delete(uri);
+                                    },
+                                    readdir: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        const entries = await vscode.workspace.fs.readDirectory(uri);
+                                        return entries.map(([name]) => name);
+                                    },
+                                    mkdir: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        await vscode.workspace.fs.createDirectory(uri);
+                                    },
+                                    rmdir: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        await vscode.workspace.fs.delete(uri);
+                                    },
+                                    stat: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        const stat = await vscode.workspace.fs.stat(uri);
+                                        return {
+                                            isFile: () => stat.type === vscode.FileType.File,
+                                            isDirectory: () => stat.type === vscode.FileType.Directory,
+                                        };
+                                    },
+                                    lstat: async (path: string) => {
+                                        const uri = vscode.Uri.file(path);
+                                        const stat = await vscode.workspace.fs.stat(uri);
+                                        return {
+                                            isFile: () => stat.type === vscode.FileType.File,
+                                            isDirectory: () => stat.type === vscode.FileType.Directory,
+                                        };
+                                    }
+                                }
+                            };
                             const config = await git.listRemotes({
-                               vscode.workspace.fs,
+                                fs: customFs,
                                 dir: projectPath,
                             });
                             const origin = config.find((remote: any) => remote.remote === "origin");

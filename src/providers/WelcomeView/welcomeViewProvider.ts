@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * asvscode.workspace.fs from "fs";
+
 import { getAuthApi } from "../../extension";
 
 export class WelcomeViewProvider {

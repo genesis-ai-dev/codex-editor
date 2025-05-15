@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as xml2js from "xml2js";
+import * as path from "path";
 
 export async function openBookNameEditor() {
     const panel = vscode.window.createWebviewPanel(
@@ -12,10 +13,6 @@ export async function openBookNameEditor() {
         }
     );
 
-    // Dynamic import forvscode.workspace.fs and path
-    constvscode.workspace.fs = await import("fs");
-    const path = await import("path");
-
     // Get workspace folder
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
@@ -23,11 +20,10 @@ export async function openBookNameEditor() {
         panel.dispose();
         return;
     }
-    const workspaceRoot = workspaceFolders[0].uri.fsPath;
-    const localizedPath = path.join(workspaceRoot, "localized-books.json");
+    const workspaceRoot = workspaceFolders[0].uri;
+    const localizedPath = vscode.Uri.joinPath(workspaceRoot, "localized-books.json");
 
-    // Correctly get the extension context - this needs to be passed in or retrieved differently
-    // For now, let's assume we can get the extension path this way, but it might need adjustment
+    // Get the extension context
     const extension = vscode.extensions.getExtension("project-accelerate.codex-editor-extension");
     if (!extension) {
         vscode.window.showErrorMessage("Could not find the Codex Editor extension.");
@@ -37,21 +33,21 @@ export async function openBookNameEditor() {
     const extensionPath = extension.extensionPath;
 
     // Construct the path to the default books JSON relative to the extension's install location
-    const defaultBooksPath = path.join(
+    const defaultBooksPath = vscode.Uri.file(path.join(
         extensionPath,
         "webviews/codex-webviews/src/assets/bible-books-lookup.json"
-    );
-    console.log(`Attempting to load default books from: ${defaultBooksPath}`); // Log the path
+    ));
+    console.log(`Attempting to load default books from: ${defaultBooksPath.fsPath}`); // Log the path
 
     let defaultBooks: any[] = [];
     try {
-        const raw =vscode.workspace.fs.readFileSync(defaultBooksPath, "utf8");
-        defaultBooks = JSON.parse(raw);
+        const raw = await vscode.workspace.fs.readFile(defaultBooksPath);
+        defaultBooks = JSON.parse(new TextDecoder().decode(raw));
     } catch (err: any) {
         // Improved error logging
-        console.error(`Error loading default book names from ${defaultBooksPath}:`, err);
+        console.error(`Error loading default book names from ${defaultBooksPath.fsPath}:`, err);
         vscode.window.showErrorMessage(
-            `Could not load default book names. Check console for details. Path: ${defaultBooksPath}. Error: ${err.message}`
+            `Could not load default book names. Check console for details. Path: ${defaultBooksPath.fsPath}. Error: ${err.message}`
         );
         panel.dispose();
         return;
@@ -60,9 +56,14 @@ export async function openBookNameEditor() {
     // Load localized books if present
     let localizedBooks: Record<string, string> = {};
     try {
-        if (fs.existsSync(localizedPath)) {
-            const raw =vscode.workspace.fs.readFileSync(localizedPath, "utf8");
-            const arr = JSON.parse(raw);
+        const localizedFileExists = await vscode.workspace.fs.stat(localizedPath).then(
+            () => true,
+            () => false
+        );
+        
+        if (localizedFileExists) {
+            const raw = await vscode.workspace.fs.readFile(localizedPath);
+            const arr = JSON.parse(new TextDecoder().decode(raw));
             for (const book of arr) {
                 if (book.abbr && book.name) {
                     localizedBooks[book.abbr] = book.name;
@@ -104,7 +105,9 @@ export async function openBookNameEditor() {
                             return null;
                         })
                         .filter(Boolean);
-                   vscode.workspace.fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
+                    
+                    const fileData = new TextEncoder().encode(JSON.stringify(toSave, null, 2));
+                    await vscode.workspace.fs.writeFile(localizedPath, fileData);
                     vscode.window.showInformationMessage("Book names updated successfully");
                     panel.dispose();
                 } catch (error) {
@@ -131,8 +134,9 @@ export async function openBookNameEditor() {
                     }
 
                     // Read the XML file
-                    const xmlFilePath = fileUris[0].fsPath;
-                    const xmlContent =vscode.workspace.fs.readFileSync(xmlFilePath, "utf8");
+                    const xmlFilePath = fileUris[0];
+                    const xmlContent = await vscode.workspace.fs.readFile(xmlFilePath);
+                    const xmlText = new TextDecoder().decode(xmlContent);
 
                     // Parse XML to JSON
                     const parser = new xml2js.Parser({
@@ -140,7 +144,7 @@ export async function openBookNameEditor() {
                         mergeAttrs: true,
                     });
 
-                    parser.parseString(xmlContent, async (err: any, result: any) => {
+                    parser.parseString(xmlText, async (err: any, result: any) => {
                         if (err) {
                             vscode.window.showErrorMessage(`Failed to parse XML: ${err.message}`);
                             return;
@@ -219,7 +223,7 @@ export async function openBookNameEditor() {
 
                             // Update the webview with new book data
                             panel.webview.html = getWebviewContent(updatedBooks, {
-                                importSource: `${path.basename(xmlFilePath)} (${selectedOption.label})`,
+                                importSource: `${path.basename(xmlFilePath.fsPath)} (${selectedOption.label})`,
                             });
 
                             // Show success message

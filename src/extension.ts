@@ -459,13 +459,12 @@ function watchTableFiles(context: vscode.ExtensionContext) {
 }
 
 async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
-    constvscode.workspace.fs = vscode.workspace.fs;
     watcher = vscode.workspace.createFileSystemWatcher("**/*");
 
     const checkInitialization = async () => {
         let metadataExists = false;
         try {
-            awaitvscode.workspace.fs.stat(metadataUri);
+            await vscode.workspace.fs.stat(metadataUri);
             metadataExists = true;
         } catch {
             metadataExists = false;
