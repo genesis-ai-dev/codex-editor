@@ -158,20 +158,50 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // New private method to initialize user info
     private async initializeUserInfo(): Promise<void> {
         try {
-            const authApi = await getAuthApi();
+            const authApi = await getAuthApi(); // Assuming getAuthApi() itself doesn't throw easily
             if (authApi) {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated && authApi.currentUser) {
+                    // Prefer immediately available currentUser if populated by the new auth flow
+                    this._author = authApi.currentUser.username;
+                    this._cachedUserInfo = { username: authApi.currentUser.username };
+                    debug("Initialized user info from authApi.currentUser:", this._author);
+                    return;
+                }
+                // If currentUser is not available, or for more detailed info, try getUserInfo
+                // The new AuthenticationProvider should handle transient errors for getUserInfo internally
+                // and not clear the session unless the token is definitively invalid.
                 try {
-                    const userInfo = await authApi.getUserInfo();
+                    const userInfo = await authApi.getUserInfo(); // This might still fetch GitLab info
                     if (userInfo && userInfo.username) {
                         this._author = userInfo.username;
-                        this._cachedUserInfo = { username: userInfo.username };
+                        this._cachedUserInfo = {
+                            username: userInfo.username,
+                            email: userInfo.email,
+                        };
+                        debug("Initialized user info from authApi.getUserInfo:", this._author);
+                    } else {
+                        // If userInfo is null/undefined or lacks a username, keep the default "anonymous"
+                        debug("getUserInfo returned no user data, _author remains:", this._author);
                     }
                 } catch (e) {
-                    console.error("Error getting user info", e);
+                    // Log error but don't let it break initialization. _author remains "anonymous".
+                    console.error(
+                        "Error calling authApi.getUserInfo() in initializeUserInfo. _author remains:",
+                        this._author,
+                        e
+                    );
                 }
+            } else {
+                debug("AuthAPI not available, _author remains:", this._author);
             }
         } catch (error) {
-            console.error("Error fetching user info:", error);
+            // This would catch errors from getAuthApi() itself or unexpected issues.
+            console.error(
+                "Error fetching user info in initializeUserInfo. _author remains:",
+                this._author,
+                error
+            );
         }
     }
 

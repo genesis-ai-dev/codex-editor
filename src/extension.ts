@@ -524,7 +524,13 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 }
 
 async function executeCommandsAfter() {
-    vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+    try {
+        await vscode.commands.executeCommand(
+            "codex-editor-extension.setEditorFontToTargetLanguage"
+        );
+    } catch (error) {
+        console.warn("Failed to set editor font, possibly due to network issues:", error);
+    }
     // Configure auto-save in settings
     await vscode.workspace
         .getConfiguration()
@@ -559,8 +565,11 @@ async function executeCommandsAfter() {
                 );
             }
         } catch (error) {
-            console.error("Error checking auth status:", error);
-            trackTiming("Project Synchronization Failed", globalThis.performance.now());
+            console.error("Error checking auth status or during initial sync:", error);
+            trackTiming(
+                "Project Synchronization Failed due to auth error",
+                globalThis.performance.now()
+            );
         }
     } else {
         console.log("Auth API not available, skipping initial sync");
