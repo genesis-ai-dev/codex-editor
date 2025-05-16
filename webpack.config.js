@@ -42,13 +42,15 @@ const extensionConfig = {
         },
         fallback: {
             path: false,
-           vscode.workspace.fs: false,
+            "vscode.workspace.fs": false,
             crypto: require.resolve("crypto-browserify"),
             stream: require.resolve("stream-browserify"),
             buffer: require.resolve("buffer/"),
             util: require.resolve("util/"),
             vm: false,
             readline: false,
+            fs: false,
+            "sql.js": false,
         },
     },
     module: {
@@ -184,7 +186,7 @@ const testConfig = {
         fallback: {
             assert: require.resolve("assert/"),
             url: require.resolve("url/"),
-           vscode.workspace.fs: require.resolve("memfs"),
+            "vscode.workspace.fs": require.resolve("memfs"),
             zlib: require.resolve("browserify-zlib"),
             stream: require.resolve("stream-browserify"),
             util: require.resolve("util/"),
@@ -194,6 +196,8 @@ const testConfig = {
             readline: require.resolve("readline-browserify"),
             process: require.resolve("process/browser"),
             timers: require.resolve("timers-browserify"),
+            fs: false,
+            "sql.js": false
         },
     },
     module: {
