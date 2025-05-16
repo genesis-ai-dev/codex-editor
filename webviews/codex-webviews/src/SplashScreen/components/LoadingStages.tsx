@@ -15,7 +15,8 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
         if (stages.length < 4) return;
 
         // Calculate scroll amount based on how many stages we have
-        const scrollAmount = -Math.min(stages.length - 4, 7) * 32; // Each stage is about 32px high
+        // Adjust to show more recent items
+        const scrollAmount = -Math.min(stages.length - 3, stages.length) * 32; // Each stage is about 32px high
 
         if (prefersReducedMotion) {
             setStagesContainerTransform(`translateY(${scrollAmount}px)`);
@@ -28,6 +29,30 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
             });
         }
     }, [stages.length, prefersReducedMotion]);
+
+    // Group stages by categories for visual organization
+    const groupedStages = stages.reduce((acc, stage) => {
+        let category = "initialization";
+
+        if (stage.step.includes("Sync") || stage.step.includes("sync")) {
+            category = "synchronization";
+        } else if (stage.step.includes("Index") || stage.step.includes("index")) {
+            category = "indexing";
+        } else if (
+            stage.step.includes("UI") ||
+            stage.step.includes("Webview") ||
+            stage.step.includes("Component")
+        ) {
+            category = "ui";
+        }
+
+        if (!acc[category]) {
+            acc[category] = [];
+        }
+
+        acc[category].push(stage);
+        return acc;
+    }, {} as Record<string, ActivationTiming[]>);
 
     return (
         <div className="loading-area">
@@ -44,6 +69,17 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
                         const isLatestStage = index === stages.length - 1;
                         const isCompleted = !isLatestStage;
                         const isSyncStep = stage.step.includes("Project Synchronization");
+                        const isIndexStep = stage.step.includes("Index");
+
+                        // Add animation delay based on index for staggered entrance
+                        const animationDelay = prefersReducedMotion ? 0 : index * 70;
+
+                        // Determine stage icon and appearance
+                        let stageIcon = "⚙️";
+                        if (isSyncStep) stageIcon = "🔄";
+                        if (isIndexStep) stageIcon = "📑";
+                        if (stage.step.includes("Webview")) stageIcon = "🖥️";
+                        if (stage.step.includes("Complete")) stageIcon = "✅";
 
                         return (
                             <div
@@ -54,6 +90,10 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
                                 } ${isCompleted ? "completed" : ""} ${
                                     isSyncStep ? "sync-step" : ""
                                 }`}
+                                style={{
+                                    animationDelay: `${animationDelay}ms`,
+                                    opacity: isCompleted ? 0.7 : 1,
+                                }}
                             >
                                 <div className="loading-indicator" aria-hidden="true">
                                     <svg viewBox="0 0 16 16">

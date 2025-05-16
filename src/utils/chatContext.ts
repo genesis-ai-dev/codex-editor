@@ -51,11 +51,34 @@ class VerseDataReader {
     public async loadJSON(filePath: string): Promise<void> {
         try {
             const fileUri = vscode.Uri.file(filePath);
-            const fileContents = await vscode.workspace.fs.readFile(fileUri);
-            this.data = JSON.parse(new TextDecoder().decode(fileContents));
-            console.log("Loaded data:", this.data); // Log the loaded data
+            try {
+                const fileContents = await vscode.workspace.fs.readFile(fileUri);
+                this.data = JSON.parse(new TextDecoder().decode(fileContents));
+                console.log("Loaded data:", this.data); // Log the loaded data
+            } catch (error: any) {
+                if (
+                    error.code === "FileNotFound" ||
+                    (error.name === "FileSystemError" && error.message.includes("ENOENT"))
+                ) {
+                    console.log("chat_context.json not found. Creating it with default content.");
+                    const defaultData: ChatContext = { verses: {}, references: {} };
+                    await vscode.workspace.fs.writeFile(
+                        fileUri,
+                        Buffer.from(JSON.stringify(defaultData, null, 2))
+                    );
+                    this.data = defaultData;
+                } else {
+                    console.error(
+                        "Error reading or parsing JSON file, initializing with default data:",
+                        error
+                    );
+                    this.data = { verses: {}, references: {} }; // Initialize with default on other errors
+                }
+            }
         } catch (error) {
-            console.error("Error reading JSON file:", error);
+            // This catch block is for errors creating the fileUri or other unexpected errors.
+            console.error("Unexpected error in loadJSON, initializing with default data:", error);
+            this.data = { verses: {}, references: {} }; // Initialize with default
         }
     }
 

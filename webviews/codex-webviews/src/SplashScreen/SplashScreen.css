@@ -203,7 +203,7 @@ h1 {
 
 .loading-stages-container {
     position: relative;
-    height: 220px;
+    height: 240px;
     margin-top: 30px;
     overflow: hidden;
 }
@@ -222,8 +222,8 @@ h1 {
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 80px;
-    background: linear-gradient(to bottom, transparent 0%, var(--vscode-editor-background) 100%);
+    height: 60px;
+    background: linear-gradient(to bottom, transparent 0%, var(--vscode-editor-background) 90%);
     pointer-events: none;
     z-index: 15;
 }
@@ -376,6 +376,49 @@ h1 {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border-width: 0;
+}
+
+/* Sync info styles */
+.sync-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    animation: pulse 2s infinite ease-in-out;
+}
+
+.sync-info strong {
+    color: var(--progress-color);
+    font-size: 15px;
+}
+
+.sync-file {
+    display: block;
+    font-size: 12px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.8;
+}
+
+.sync-percentage {
+    font-weight: bold;
+    color: var(--progress-color);
+    font-size: 13px;
+    margin-left: 5px;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 0.8;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.8;
+    }
 }
 
 /* Responsive adjustments */

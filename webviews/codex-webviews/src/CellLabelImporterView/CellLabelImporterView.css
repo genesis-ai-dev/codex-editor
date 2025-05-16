@@ -1,0 +1,186 @@
+/* Basic styles - can be expanded based on the original webview HTML styles */
+body {
+    font-family: var(--vscode-font-family);
+    color: var(--vscode-foreground);
+    background-color: var(--vscode-editor-background);
+    padding: 20px;
+    margin: 0;
+    height: 100vh;
+    overflow-y: auto; /* Allow scrolling for content longer than viewport */
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Styles from the original HTML, adapted for a more component-based approach */
+.import-info {
+    margin-bottom: 20px;
+    font-style: italic;
+    color: var(--vscode-descriptionForeground);
+}
+
+.column-selector-container,
+.initial-import-view,
+.table-view-container {
+    margin-bottom: 20px;
+}
+
+.column-selector-form {
+    padding: 15px;
+    background-color: var(--vscode-editor-lineHighlightBackground);
+    border-radius: 4px;
+}
+
+.column-selector-form h3,
+.column-selector-form h4 {
+    margin-top: 0;
+}
+
+.column-selector-form select, 
+.column-selector-form vscode-text-field /* If using toolkit components */ {
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 10px;
+}
+
+#columnPreview {
+    max-height: 150px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border); /* Added border for clarity */
+    border-radius: 2px;
+    min-height: 30px; /* Ensure it has some height even when empty */
+}
+
+#fileExclusionList {
+    max-height: 150px;
+    overflow-y: auto;
+    border: 1px solid var(--vscode-input-border);
+    padding: 10px;
+    border-radius: 2px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+#fileExclusionList div {
+    margin-bottom: 5px;
+}
+
+#fileExclusionList label {
+    margin-left: 8px;
+}
+
+.summary {
+    margin-bottom: 20px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.new-label {
+    font-weight: bold;
+}
+
+.current-label {
+    color: var(--vscode-descriptionForeground);
+    text-decoration: line-through;
+}
+
+.actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+}
+
+.actions .left-actions,
+.actions .right-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center; /* Vertically align items */
+    margin: 20px 0;
+}
+
+.pagination vscode-button, /* If using toolkit buttons */
+.pagination button {
+    margin: 0 5px;
+}
+
+.pagination .current-page {
+    /* Assuming VSCodeButton is used, background might be controlled by its variant */
+    /* For plain buttons, you might need: */
+    /* background-color: var(--vscode-button-secondaryBackground); */
+    /* border: 1px solid var(--vscode-button-secondaryBorder); */
+    font-weight: bold; /* Differentiate current page */
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.checkbox-container input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+.error-message {
+    color: var(--vscode-errorForeground);
+    margin-top: 5px;
+    margin-bottom: 10px;
+}
+
+/* Table styles */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+}
+
+th,
+td {
+    padding: 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+th {
+    background-color: var(--vscode-editor-lineHighlightBackground);
+    font-weight: bold;
+}
+
+.matched {
+    /* background-color: var(--vscode-diffEditor-insertedTextBackground); */
+    /* Using a lighter green for better text contrast */
+    background-color: rgba(0, 255, 0, 0.1);
+}
+
+.unmatched {
+    /* background-color: var(--vscode-diffEditor-removedTextBackground); */
+    /* Using a lighter red for better text contrast */
+    background-color: rgba(255, 0, 0, 0.1);
+    opacity: 0.8; /* Keep opacity but ensure text is readable */
+}
+
+/* VSCode Toolkit component specific overrides if needed */
+vscode-button {
+    /* Example: ensure consistent margin if mixed with plain buttons */
+    /* margin-right: 8px; */
+}
+
+vscode-text-field,
+vscode-dropdown {
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 10px;
+}

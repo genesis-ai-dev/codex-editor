@@ -4,6 +4,10 @@ import { getAuthApi } from "../extension";
 import { createIndexWithContext } from "../activationHelpers/contextAware/miniIndex/indexes";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
+import { updateSyncProgress } from "../providers/SplashScreen/register";
+import git from "isomorphic-git";
+import fs from "fs";
+import http from "isomorphic-git/http/web";
 
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
@@ -156,13 +160,78 @@ export class SyncManager {
             this.isSyncInProgress = true;
             console.log("Executing sync operation with message:", commitMessage);
 
+            // Update splash screen with initial sync status
+            updateSyncProgress({
+                progress: 0,
+                message: "Starting synchronization...",
+            });
+
             // Generate and submit progress report if needed
             await this.generateAndSubmitProgressReport();
 
-            await stageAndCommitAllAndSync(commitMessage);
+            // Let's skip the custom sync progress and just use the standard sync
+            // with progress reports at key points
+            try {
+                // Update sync progress to 30%
+                updateSyncProgress({
+                    progress: 30,
+                    message: "Preparing to sync...",
+                });
+
+                // Sync all changes
+                await stageAndCommitAllAndSync(commitMessage);
+
+                // Update sync progress to 100%
+                updateSyncProgress({
+                    progress: 100,
+                    message: "Synchronization complete",
+                });
+
+                // Rebuild indexes in the background after successful sync
+                setTimeout(() => {
+                    const emptyContext = {} as vscode.ExtensionContext;
+                    createIndexWithContext(emptyContext).catch(console.error);
+                }, 100);
+            } catch (error) {
+                // Handle error as before
+                console.error("Error during sync operation:", error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+
+                // Update sync progress to indicate error
+                updateSyncProgress({
+                    progress: 100,
+                    message: `Sync failed: ${errorMessage}`,
+                });
+
+                // Show error messages
+                if (
+                    errorMessage.includes("No active session") ||
+                    errorMessage.includes("network") ||
+                    errorMessage.includes("connect") ||
+                    errorMessage.includes("offline")
+                ) {
+                    if (showInfoOnConnectionIssues) {
+                        this.showConnectionIssueMessage(
+                            "Unable to sync: Please check your internet connection or login status"
+                        );
+                    }
+                } else {
+                    // For other errors, show an error message
+                    vscode.window.showErrorMessage(`Sync failed: ${errorMessage}`);
+                }
+
+                // Re-throw the error to maintain the original behavior
+                throw error;
+            }
         } catch (error) {
             console.error("Error during sync operation:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
+
+            // Update sync progress to indicate error
+            updateSyncProgress({
+                progress: 100,
+                message: `Sync failed: ${errorMessage}`,
+            });
 
             // Check if this is a connection-related error
             if (

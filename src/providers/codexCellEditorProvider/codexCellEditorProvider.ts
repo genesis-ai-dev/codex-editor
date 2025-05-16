@@ -249,9 +249,43 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Initial setup
         this.currentDocument = document;
-        const authApi = await this.getAuthApi();
-        this.userInfo = await authApi?.getUserInfo();
-        debug("User info retrieved:", this.userInfo);
+        try {
+            const authApi = await this.getAuthApi(); // Assuming this.getAuthApi() is safe
+            if (authApi) {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated && authApi.currentUser) {
+                    this.userInfo = {
+                        username: authApi.currentUser.username,
+                        email: authApi.currentUser.email || "",
+                    };
+                    debug("User info set from authApi.currentUser:", this.userInfo);
+                } else {
+                    // Attempt to get more detailed info, new auth provider should handle internal errors
+                    try {
+                        const userInfo = await authApi.getUserInfo();
+                        if (userInfo) {
+                            this.userInfo = userInfo;
+                            debug("User info retrieved from authApi.getUserInfo:", this.userInfo);
+                        } else {
+                            this.userInfo = undefined;
+                            debug("authApi.getUserInfo() returned no data.");
+                        }
+                    } catch (error) {
+                        console.error(
+                            "Error calling authApi.getUserInfo() in resolveCustomEditor. User info remains undefined.",
+                            error
+                        );
+                        this.userInfo = undefined; // Explicitly set to undefined on error
+                    }
+                }
+            } else {
+                this.userInfo = undefined;
+                debug("AuthAPI not available in resolveCustomEditor.");
+            }
+        } catch (error) {
+            console.error("Error initializing auth or user info in resolveCustomEditor:", error);
+            this.userInfo = undefined; // Ensure userInfo is undefined if any auth-related error occurs
+        }
 
         // Enable scripts in the webview
         webviewPanel.webview.options = {

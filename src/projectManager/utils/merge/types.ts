@@ -1,4 +1,4 @@
-import { FrontierAPI } from "../../../../webviews/codex-webviews/src/StartupFLow/types";
+import { FrontierAPI } from "../../../../webviews/codex-webviews/src/StartupFlow/types";
 
 export enum ConflictResolutionStrategy {
     OVERRIDE = "override", // Keep newest version (timestamp-based)

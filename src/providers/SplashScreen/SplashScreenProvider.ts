@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import { ActivationTiming } from "../../extension";
 
+export interface SyncDetails {
+    progress: number;
+    message: string;
+    currentFile?: string;
+}
+
 export class SplashScreenProvider {
     public static readonly viewType = "codex-splash-screen";
 
@@ -9,6 +15,7 @@ export class SplashScreenProvider {
     private _disposables: vscode.Disposable[] = [];
     private _timings: ActivationTiming[] = [];
     private _activationStart: number = 0;
+    private _syncDetails?: SyncDetails;
 
     constructor(extensionUri: vscode.Uri) {
         this._extensionUri = extensionUri;
@@ -87,6 +94,17 @@ export class SplashScreenProvider {
         }
     }
 
+    public updateSyncDetails(details: SyncDetails) {
+        this._syncDetails = details;
+        if (this._panel) {
+            // Send message to the webview to update sync progress
+            this._panel.webview.postMessage({
+                command: "syncUpdate",
+                syncDetails: details,
+            });
+        }
+    }
+
     public markComplete() {
         if (this._panel) {
             // Send message to the webview that loading is complete
@@ -130,6 +148,7 @@ export class SplashScreenProvider {
         // Send initial timing data
         const initialState = {
             timings: this._timings,
+            syncDetails: this._syncDetails,
         };
 
         return `<!DOCTYPE html>

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { SplashScreenProvider } from "./SplashScreenProvider";
+import { SplashScreenProvider, SyncDetails } from "./SplashScreenProvider";
 
 let splashScreenProvider: SplashScreenProvider | undefined;
 let isClosing = false;
@@ -14,7 +14,7 @@ export function registerSplashScreenProvider(
 
 export function showSplashScreen(activationStart: number): void {
     if (!splashScreenProvider) {
-        console.error("Splash screen provider not registered");
+        console.error("Splash screen provider not initialized");
         return;
     }
 
@@ -22,65 +22,60 @@ export function showSplashScreen(activationStart: number): void {
 }
 
 export function updateSplashScreenTimings(timings: any[]): void {
-    if (!splashScreenProvider) {
-        return;
-    }
+    if (!splashScreenProvider) return;
 
     splashScreenProvider.updateTimings(timings);
 }
 
-export function closeSplashScreen(onClosed?: () => Promise<void>): void {
-    if (isClosing) {
-        return;
-    }
+export function updateSyncProgress(details: SyncDetails): void {
+    if (!splashScreenProvider) return;
 
+    splashScreenProvider.updateSyncDetails(details);
+}
+
+export function closeSplashScreen(callback?: () => Promise<void>): void {
+    if (isClosing) return;
     isClosing = true;
 
-    if (onClosed) {
-        onSplashScreenClosedCallback = onClosed;
+    if (callback) {
+        onSplashScreenClosedCallback = callback;
     }
 
     if (!splashScreenProvider) {
-        // If there's no splash screen but we have a callback, run it immediately
+        // Provider not available, but we should still call callback
         if (onSplashScreenClosedCallback) {
-            onSplashScreenClosedCallback().finally(() => {
-                onSplashScreenClosedCallback = undefined;
-                isClosing = false;
+            onSplashScreenClosedCallback().catch((error) => {
+                console.error("Error in splash screen closed callback:", error);
             });
-        } else {
-            isClosing = false;
+            onSplashScreenClosedCallback = undefined;
         }
         return;
     }
 
-    // Safety timeout to ensure the callback is called even if something goes wrong with disposal
-    const timeoutId = setTimeout(() => {
-        console.log("[SplashScreen] Safety timeout triggered - ensuring callback is called");
+    splashScreenProvider.markComplete();
+
+    // Check if panel exists before setting up the listener
+    if (!splashScreenProvider.panel) {
         if (onSplashScreenClosedCallback) {
-            onSplashScreenClosedCallback().finally(() => {
-                onSplashScreenClosedCallback = undefined;
-                isClosing = false;
+            onSplashScreenClosedCallback().catch((error) => {
+                console.error("Error in splash screen closed callback:", error);
             });
-        } else {
-            isClosing = false;
+            onSplashScreenClosedCallback = undefined;
         }
-    }, 3000); // 3 second safety timeout
+        isClosing = false;
+        return;
+    }
 
     // Listen for the panel being disposed
-    const disposable = splashScreenProvider.panel?.onDidDispose(() => {
-        console.log("[SplashScreen] Splash screen closed, running callback if available");
-        clearTimeout(timeoutId); // Clear the safety timeout
+    const disposable = splashScreenProvider.panel.onDidDispose(() => {
+        disposable.dispose();
+        isClosing = false;
 
         if (onSplashScreenClosedCallback) {
-            onSplashScreenClosedCallback().finally(() => {
-                onSplashScreenClosedCallback = undefined;
-                isClosing = false;
+            onSplashScreenClosedCallback().catch((error) => {
+                console.error("Error in splash screen closed callback:", error);
             });
-        } else {
-            isClosing = false;
+            onSplashScreenClosedCallback = undefined;
         }
-        disposable?.dispose();
     });
-
-    splashScreenProvider.close();
 }
