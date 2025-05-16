@@ -28,6 +28,10 @@ const webConfig = {
             buffer: require.resolve('buffer/'),
             util: require.resolve('util/'),
             process: require.resolve('process/browser'),
+            vm: false,
+            zlib: false,
+            os: false,
+            timers: false
         },
     },
     module: {
