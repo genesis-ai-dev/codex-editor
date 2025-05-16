@@ -47,10 +47,9 @@ interface AppState {
     itemsPerPage: number;
     // totalPages will be derived
     importData: ImportedRow[] | null;
-    importUri: string | null;
     headers: string[];
     selectedColumn: string | null;
-    importSource: string; // Filename of the imported file
+    importSource: string; // Filename(s) of the imported file(s)
     availableSourceFiles: SourceFileUIData[];
     excludedFilePathsFromLastRun: string[];
     isLoading: boolean; // For loading indicators
@@ -69,7 +68,6 @@ const App: React.FC = () => {
             currentPage: persistedState?.currentPage || 1,
             itemsPerPage: persistedState?.itemsPerPage || ITEMS_PER_PAGE,
             importData: persistedState?.importData || null,
-            importUri: persistedState?.importUri || null,
             headers: persistedState?.headers || [],
             selectedColumn: persistedState?.selectedColumn || null,
             importSource: persistedState?.importSource || "",
@@ -138,7 +136,6 @@ const App: React.FC = () => {
                     setState((prev) => ({
                         ...prev,
                         importData: message.data,
-                        importUri: message.uri,
                         isLoading: false,
                     }));
                     break;
@@ -208,17 +205,11 @@ const App: React.FC = () => {
         vscode.postMessage({
             command: "processLabels",
             data: state.importData,
-            uri: state.importUri,
             selectedColumn: state.selectedColumn,
             excludedFilePaths: state.excludedFilePathsFromLastRun, // Send current selection of excluded files
         });
         setState((prev) => ({ ...prev, isLoading: true, errorMessage: null }));
-    }, [
-        state.importData,
-        state.importUri,
-        state.selectedColumn,
-        state.excludedFilePathsFromLastRun,
-    ]);
+    }, [state.importData, state.selectedColumn, state.excludedFilePathsFromLastRun]);
 
     const handleSave = useCallback(() => {
         vscode.postMessage({
@@ -234,7 +225,6 @@ const App: React.FC = () => {
             ...prev,
             view: "initial",
             importData: null,
-            importUri: null,
             headers: [],
             selectedColumn: null,
             importSource: "",
@@ -242,11 +232,9 @@ const App: React.FC = () => {
             isLoading: false,
             errorMessage: null,
         }));
-        // Optionally, tell extension to clean up temp files if any were created
-        if (state.importUri) {
-            vscode.postMessage({ command: "cleanupTempFile", uri: state.importUri });
-        }
-    }, [state.importUri]);
+        // Tell extension to clean up temp files for the cancelled import session
+        vscode.postMessage({ command: "cancelImportCleanup" });
+    }, []);
 
     const handleFullCancel = useCallback(() => {
         vscode.postMessage({ command: "cancel" }); // Closes the webview panel

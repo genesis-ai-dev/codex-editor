@@ -165,6 +165,11 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     context.subscriptions.push(panel);
     let disposables: vscode.Disposable[] = [];
 
+    // --- Variables to manage temporary files and import sources for the current session ---
+    let currentSessionTempFileUris: vscode.Uri[] = [];
+    let currentImportSourceNames: string[] = [];
+    // ---
+
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
         vscode.window.showErrorMessage("No workspace folder is open.");
@@ -213,10 +218,21 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             case "importFile":
                 try {
                     panel.webview.postMessage({ command: "setLoading", isLoading: true });
+                    // Clear previous session's temp files and sources if any (idempotent)
+                    currentSessionTempFileUris.forEach(async (tempUri) => {
+                        try {
+                            await vscode.workspace.fs.delete(tempUri);
+                        } catch (e) {
+                            /* ignore */
+                        }
+                    });
+                    currentSessionTempFileUris = [];
+                    currentImportSourceNames = [];
+
                     const fileUris = await vscode.window.showOpenDialog({
                         canSelectFiles: true,
                         canSelectFolders: false,
-                        canSelectMany: true, // Allow multiple files
+                        canSelectMany: true,
                         filters: { Spreadsheets: ["xlsx", "csv", "tsv"] },
                         title: "Import Cell Labels from File(s)",
                         openLabel: "Import",
@@ -229,42 +245,50 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     }
 
                     const allImportedData: ImportedRow[] = [];
-                    const allColumnHeaders = new Set<string>();
-                    const importSourceNames: string[] = [];
-                    const tempFileUris: vscode.Uri[] = []; // To keep track for potential cleanup
+                    const allColumnHeaders = new Set<string>(); // Stores normalized headers
+                    const localImportSourceNames: string[] = []; // Use local for this loop
 
                     for (const sourceFileUri of fileUris) {
                         const tempFileUri = await copyToTempStorage(sourceFileUri, context);
-                        tempFileUris.push(tempFileUri); // Store for later use or cleanup
-                        const currentFileData = await importLabelsFromVscodeUri(tempFileUri);
+                        currentSessionTempFileUris.push(tempFileUri); // Add to session list for cleanup
+                        const fileData: ImportedRow[] =
+                            await importLabelsFromVscodeUri(tempFileUri);
+                        localImportSourceNames.push(path.basename(sourceFileUri.fsPath));
 
-                        // Get headers for current file and add to overall set
-                        if (currentFileData.length > 0) {
-                            Object.keys(currentFileData[0]).forEach((header) =>
-                                allColumnHeaders.add(header)
-                            );
+                        if (fileData.length > 0) {
+                            const normalizedRowsForCurrentFile = fileData.map((originalRow) => {
+                                const normalizedRow: ImportedRow = {};
+                                Object.keys(originalRow).forEach((originalHeader) => {
+                                    const normalizedHeader = originalHeader.trim().toUpperCase();
+                                    allColumnHeaders.add(normalizedHeader);
+                                    normalizedRow[normalizedHeader] = originalRow[originalHeader];
+                                });
+                                return normalizedRow;
+                            });
+                            allImportedData.push(...normalizedRowsForCurrentFile);
                         }
-                        allImportedData.push(...currentFileData);
-                        importSourceNames.push(path.basename(sourceFileUri.fsPath));
                     }
 
-                    // Ensure all rows have all columns, filling missing ones with undefined
-                    // This is important if files have divergent columns
+                    currentImportSourceNames = localImportSourceNames; // Store for session
                     const finalHeaders = Array.from(allColumnHeaders);
-                    const processedImportData = allImportedData.map((row) => {
-                        const newRow: ImportedRow = {};
-                        for (const header of finalHeaders) {
-                            newRow[header] = row[header]; // Will be undefined if not present in original row
+
+                    const processedImportData = allImportedData.map(
+                        (rowWithSomeNormalizedHeaders) => {
+                            const completeRow: ImportedRow = {};
+                            for (const finalNormalizedHeader of finalHeaders) {
+                                completeRow[finalNormalizedHeader] =
+                                    rowWithSomeNormalizedHeaders[finalNormalizedHeader];
+                            }
+                            return completeRow;
                         }
-                        return newRow;
-                    });
+                    );
 
                     const { sourceFiles } = await loadSourceAndTargetFiles();
 
                     panel.webview.postMessage({
                         command: "updateHeaders",
                         headers: finalHeaders,
-                        importSource: importSourceNames.join(", "), // Display all imported filenames
+                        importSource: currentImportSourceNames.join(", "),
                         availableSourceFiles: sourceFiles.map((f) => ({
                             path: f.uri.fsPath,
                             id: f.id,
@@ -273,23 +297,8 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     });
                     panel.webview.postMessage({
                         command: "storeImportData",
-                        data: processedImportData, // Send processed data
-                        // For multiple files, a single URI for cleanup is tricky.
-                        // The old logic deleted a single temp file after processing.
-                        // Now, multiple temp files are created.
-                        // We'll need to adjust cleanup logic if we want to clean them all up.
-                        // For now, let's pass an array of temp URIs, or handle cleanup differently.
-                        // Let's send a representative URI for now, or null, and address detailed cleanup later.
-                        // The existing `cleanupTempFile` command in the webview expects a single URI.
-                        // And the processLabels cleanup also expects a single URI.
-                        // This part needs careful thought.
-                        // For now, we'll send the URI of the *first* temp file for display/logging,
-                        // but this doesn't solve the cleanup of *all* temp files from a multi-import.
-                        // A simple approach for now: the webview won't be responsible for cleaning these up on cancel.
-                        // The extension will clean them up after 'processLabels' (if possible) or not at all.
-                        // Let's send a generic identifier or the first file's URI for the 'uri' field,
-                        // as the webview uses it for display in 'importSource' if 'processLabels' is called.
-                        uri: tempFileUris.length > 0 ? tempFileUris[0].toString() : null,
+                        data: processedImportData,
+                        // URI is no longer sent; extension handles cleanup via session
                     });
                 } catch (error: any) {
                     console.error("Error during importFile:", error);
@@ -298,6 +307,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                         command: "showError",
                         error: `Error importing file: ${error.message}`,
                     });
+                } finally {
                     panel.webview.postMessage({ command: "setLoading", isLoading: false });
                 }
                 break;
@@ -305,7 +315,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             case "processLabels":
                 try {
                     panel.webview.postMessage({ command: "setLoading", isLoading: true });
-                    const { data, uri, selectedColumn, excludedFilePaths } = message;
+                    const { data, selectedColumn, excludedFilePaths } = message; // URI no longer expected from webview
                     if (!data || !selectedColumn) {
                         vscode.window.showErrorMessage(
                             "Missing data or selected column for processing."
@@ -314,49 +324,40 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             command: "showError",
                             error: "Missing data or selected column.",
                         });
-                        panel.webview.postMessage({ command: "setLoading", isLoading: false });
-                        return;
-                    }
+                        // No return here, finally block will still execute for cleanup & setLoading
+                    } else {
+                        const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
+                        let filesToProcess = [...sourceFiles];
+                        if (excludedFilePaths && excludedFilePaths.length > 0) {
+                            filesToProcess = filesToProcess.filter(
+                                (file) => !excludedFilePaths.includes(file.uri.fsPath)
+                            );
+                        }
 
-                    const { sourceFiles, targetFiles } = await loadSourceAndTargetFiles();
-                    let filesToProcess = [...sourceFiles];
-                    if (excludedFilePaths && excludedFilePaths.length > 0) {
-                        filesToProcess = filesToProcess.filter(
-                            (file) => !excludedFilePaths.includes(file.uri.fsPath)
+                        sourceTextIndex.removeAll();
+                        await createSourceTextIndex(
+                            sourceTextIndex,
+                            filesToProcess,
+                            metadataManager,
+                            true
                         );
-                    }
+                        const matchedLabels = await matchCellLabels(
+                            data, // Data already has normalized headers from importFile
+                            filesToProcess,
+                            targetFiles,
+                            selectedColumn // This selectedColumn is a normalized header from webview
+                        );
 
-                    sourceTextIndex.removeAll();
-                    await createSourceTextIndex(
-                        sourceTextIndex,
-                        filesToProcess,
-                        metadataManager,
-                        true
-                    );
-                    const matchedLabels = await matchCellLabels(
-                        data,
-                        filesToProcess,
-                        targetFiles,
-                        selectedColumn
-                    );
-
-                    panel.webview.postMessage({
-                        command: "displayLabels",
-                        labels: matchedLabels,
-                        importSource: path.basename(vscode.Uri.parse(uri).fsPath), // Keep track of original import source for display
-                        availableSourceFiles: sourceFiles.map((f) => ({
-                            path: f.uri.fsPath,
-                            id: f.id,
-                            name: path.basename(f.uri.fsPath),
-                        })), // Send full list for UI consistency
-                    });
-                    panel.webview.postMessage({ command: "setLoading", isLoading: false });
-
-                    // Clean up temp file for the processed import
-                    try {
-                        await vscode.workspace.fs.delete(vscode.Uri.parse(uri));
-                    } catch (e) {
-                        console.warn("Failed to delete temp import file after processing:", uri, e);
+                        panel.webview.postMessage({
+                            command: "displayLabels",
+                            labels: matchedLabels,
+                            importSource: currentImportSourceNames.join(", "), // Use session import names
+                            availableSourceFiles: sourceFiles.map((f) => ({
+                                path: f.uri.fsPath,
+                                id: f.id,
+                                name: path.basename(f.uri.fsPath),
+                            })),
+                        });
                     }
                 } catch (error: any) {
                     console.error("Error during processLabels:", error);
@@ -365,19 +366,46 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                         command: "showError",
                         error: `Error processing labels: ${error.message}`,
                     });
+                } finally {
+                    // Clean up all temp files for the session after processing attempt
+                    for (const tempUri of currentSessionTempFileUris) {
+                        try {
+                            await vscode.workspace.fs.delete(tempUri);
+                            console.log(
+                                "[TempFileCleanup] Deleted after processing:",
+                                tempUri.fsPath
+                            );
+                        } catch (e) {
+                            console.warn(
+                                "[TempFileCleanup] Failed to delete after processing:",
+                                tempUri.fsPath,
+                                e
+                            );
+                        }
+                    }
+                    currentSessionTempFileUris = []; // Reset for next import
+                    currentImportSourceNames = []; // Reset for next import
                     panel.webview.postMessage({ command: "setLoading", isLoading: false });
                 }
                 break;
 
-            case "cleanupTempFile": // New case from React App
-                if (message.uri) {
+            case "cancelImportCleanup": // New handler for webview's "Cancel Import"
+                console.log("[TempFileCleanup] Received cancelImportCleanup command.");
+                for (const tempUri of currentSessionTempFileUris) {
                     try {
-                        await vscode.workspace.fs.delete(vscode.Uri.parse(message.uri));
-                        console.log("Temp file deleted on cancel:", message.uri);
+                        await vscode.workspace.fs.delete(tempUri);
+                        console.log("[TempFileCleanup] Deleted on cancel import:", tempUri.fsPath);
                     } catch (e) {
-                        console.warn("Failed to delete temp file on cancel:", message.uri, e);
+                        console.warn(
+                            "[TempFileCleanup] Failed to delete on cancel import:",
+                            tempUri.fsPath,
+                            e
+                        );
                     }
                 }
+                currentSessionTempFileUris = [];
+                currentImportSourceNames = [];
+                // Webview handles its own UI reset, no message needed back from extension for this command.
                 break;
 
             case "save":
@@ -419,10 +447,29 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
         () => {
             disposables.forEach((d) => d.dispose());
             disposables = [];
+
+            // Final cleanup of any session temp files when panel is closed
+            console.log("[TempFileCleanup] Panel disposed. Cleaning up session temp files if any.");
+            const urisToClean = [...currentSessionTempFileUris]; // Copy before clearing
+            currentSessionTempFileUris = [];
+            currentImportSourceNames = [];
+
+            for (const tempUri of urisToClean) {
+                vscode.workspace.fs.delete(tempUri).then(
+                    () =>
+                        console.log("[TempFileCleanup] Deleted on panel dispose:", tempUri.fsPath),
+                    (e) =>
+                        console.warn(
+                            "[TempFileCleanup] Failed to delete on panel dispose:",
+                            tempUri.fsPath,
+                            e
+                        )
+                );
+            }
         },
         null,
         context.subscriptions
-    ); // Add to context.subscriptions for proper disposal of panel resources
+    );
 
     // Add the panel itself to disposables managed by the extension context
     context.subscriptions.push(panel);

@@ -681,6 +681,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await this.store.refreshState();
                 this._view?.webview.postMessage({ command: "actionCompleted" });
                 break;
+            case "openCellLabelImporter":
+                await vscode.commands.executeCommand("codex-editor.openCellLabelImporter");
+                break;
             case "navigateToMainMenu": {
                 try {
                     await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");

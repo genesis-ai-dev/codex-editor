@@ -1235,6 +1235,7 @@ type ProjectManagerMessageFromWebview =
       }
     | { command: "triggerSync" }
     | { command: "openBookNameEditor" }
+    | { command: "openCellLabelImporter" }
     | { command: "navigateToMainMenu" }
     | { command: "getProjectProgress" }
     | { command: "showProgressDashboard" }
