@@ -1,4 +1,4 @@
-import { FrontierAPI } from "./../../../webviews/codex-webviews/src/StartupFLow/types";
+import { FrontierAPI } from "./../../../webviews/codex-webviews/src/StartupFlow/types";
 import { LanguageCodes } from "../../utils/languageUtils";
 import { nonCanonicalBookRefs } from "../../utils/verseRefUtils/verseData";
 import { LanguageMetadata, LanguageProjectStatus, Project } from "codex-types";

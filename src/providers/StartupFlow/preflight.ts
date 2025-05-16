@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { waitForExtensionActivation } from "../../utils/vscode";
-import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFLow/types";
+import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
 import * as fs from "fs";
 import { getAuthApi } from "../../extension";
