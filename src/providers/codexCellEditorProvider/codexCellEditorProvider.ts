@@ -1350,56 +1350,40 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             return;
         }
 
+        debug("Started processing translation queue");
         this.isProcessingQueue = true;
-        debug(`Starting to process translation queue with ${this.translationQueue.length} items`);
 
         try {
-            // Process the queue one at a time
             while (this.translationQueue.length > 0) {
                 const request = this.translationQueue[0];
 
-                // Check if this is a validation request
+                // Handle validation request first if that's what it is
                 if (request.validationRequest) {
-                    debug(`Processing validation request for cell ${request.cellId}`);
-
-                    // Send validation in progress notification to all webviews for this document
-                    this.webviewPanels.forEach((panel, docUri) => {
-                        if (docUri === request.document.uri.toString()) {
-                            this.postMessageToWebview(panel, {
-                                type: "validationInProgress" as any,
-                                content: {
-                                    cellId: request.cellId,
-                                    inProgress: true,
-                                },
-                            });
-                        }
-                    });
-
                     try {
-                        // Process the validation request using the document's validateCellContent method
-                        await request.document.validateCellContent(
-                            request.cellId,
-                            !!request.shouldValidate // Ensure boolean
-                        );
+                        debug(`Processing validation for cell ${request.cellId}`);
 
-                        // For single validations (not part of a batch), save the document
-                        // This ensures standalone validation requests still get saved
-                        if (!this.pendingValidations.has(request.cellId)) {
-                            await request.document.save(new vscode.CancellationTokenSource().token);
-                        }
-
-                        // Remove the processed request from the queue before resolving
-                        this.translationQueue.shift();
-
-                        // Get validated entries from the document for broadcasting to other panels
-                        const validatedEntries = request.document.getCellValidatedBy(
-                            request.cellId
-                        );
-
-                        // Broadcast updates to all webview panels for this document
+                        // Start validation with UI notification
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === request.document.uri.toString()) {
-                                // Send validation complete notification
+                                this.postMessageToWebview(panel, {
+                                    type: "validationInProgress" as any,
+                                    content: {
+                                        cellId: request.cellId,
+                                        inProgress: true,
+                                    },
+                                });
+                            }
+                        });
+
+                        // Perform the validation
+                        await request.document.validateCellContent(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+
+                        // Send completion notification
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
                                 this.postMessageToWebview(panel, {
                                     type: "validationInProgress" as any,
                                     content: {
@@ -1407,19 +1391,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                         inProgress: false,
                                     },
                                 });
-
-                                // Send validation state update
-                                this.postMessageToWebview(panel, {
-                                    type: "providerUpdatesValidationState" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        validatedBy: validatedEntries,
-                                    },
-                                });
                             }
                         });
 
-                        // Resolve the promise to signal completion
+                        // Remove the processed request from the queue and resolve
+                        this.translationQueue.shift();
                         request.resolve(true);
                     } catch (error) {
                         debug(`Error processing validation for cell ${request.cellId}:`, error);
@@ -1490,6 +1466,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     request.reject(error);
 
                     // Process next item immediately without delay - both for individual and batch translations
+                }
+            }
+            
+            // After all translations are done and the queue is empty, trigger a reindex
+            // but only if we're not in an autocompletion process (which will handle its own reindexing)
+            if (!this.autocompletionState.isProcessing) {
+                debug("Translation queue empty, triggering reindexing");
+                try {
+                    // We don't await this to avoid blocking the queue processing completion
+                    vscode.commands.executeCommand("translators-copilot.forceReindex");
+                } catch (error) {
+                    console.error("Error triggering reindex after translations:", error);
                 }
             }
         } finally {

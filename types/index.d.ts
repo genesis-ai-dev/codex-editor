@@ -613,6 +613,8 @@ export type EditorPostMessages =
     | { command: "getValidationCount" }
     | { command: "requestUsername" }
     | { command: "stopAutocompleteChapter" }
+    | { command: "stopSingleCellTranslation" }
+    | { command: "triggerReindexing" }
     | { command: "jumpToChapter"; chapterNumber: number }
     | {
           command: "makeChildOfCell";
