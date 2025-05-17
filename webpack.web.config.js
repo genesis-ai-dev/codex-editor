@@ -97,16 +97,14 @@ const testConfig = {
         devtoolModuleFilenameTemplate: '../../../[resource-path]'
     },
     externals: {
-        vscode: 'commonjs vscode',
-        mocha: 'commonjs mocha'
+        vscode: 'commonjs vscode'
     },
     resolve: {
         extensions: ['.ts', '.js'],
         alias: {
             '@': path.resolve(__dirname, 'src'),
             'process/browser': require.resolve('process/browser'),
-            'isomorphic-git': path.resolve(__dirname, 'node_modules/isomorphic-git/dist/bundle.umd.min.js'),
-            'mocha': require.resolve('mocha/mocha.js')
+            'isomorphic-git': path.resolve(__dirname, 'node_modules/isomorphic-git/dist/bundle.umd.min.js')
         },
         fallback: {
             path: require.resolve('path-browserify'),
@@ -155,25 +153,12 @@ const testConfig = {
     plugins: [
         new webpack.ProvidePlugin({
             process: 'process/browser',
-            Buffer: ['buffer', 'Buffer'],
-            mocha: 'mocha'
+            Buffer: ['buffer', 'Buffer']
         }),
         new webpack.DefinePlugin({
             'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
             'process.type': JSON.stringify(process.type),
             'process.version': JSON.stringify(process.version),
-        }),
-        new CopyWebpackPlugin({
-            patterns: [
-                {
-                    from: require.resolve('mocha/mocha.js'),
-                    to: 'mocha.js'
-                },
-                {
-                    from: require.resolve('mocha/mocha.css'),
-                    to: 'mocha.css'
-                }
-            ]
         })
     ],
     devtool: 'source-map',

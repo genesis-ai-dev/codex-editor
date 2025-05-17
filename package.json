@@ -1159,11 +1159,12 @@
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
         "build:web": "webpack --config webpack.web.config.js",
-        "test:web": "vscode-test-web --browserType=chromium --quality=stable --extensionDevelopmentPath=. --extensionTestsPath=./out/test/suite/index.js",
+        "test:web": "npx @vscode/test-web --browserType=chromium --quality=stable --extensionDevelopmentPath=. --extensionTestsPath=",
         "postinstall": "node -e \"require('fs').copyFileSync('./node_modules/mocha/mocha.js', './out/test/suite/mocha.js')\""
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
+        "@playwright/test": "^1.52.0",
         "@types/copy-webpack-plugin": "^8.0.1",
         "@types/diff": "^5.2.3",
         "@types/glob": "^7.1.1",
