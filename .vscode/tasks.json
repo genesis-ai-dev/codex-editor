@@ -18,7 +18,23 @@
         },
         {
             "type": "npm",
+            "script": "watch-web",
+            "problemMatcher": ["$tsc", "$ts-checker-webpack"],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "never"
+            },
+            "group": "build"
+        },
+        {
+            "type": "npm",
             "script": "compile",
+            "problemMatcher": ["$tsc", "$ts-checker-webpack"],
+            "group": "build"
+        },
+        {
+            "type": "npm",
+            "script": "compile-web",
             "problemMatcher": ["$tsc", "$ts-checker-webpack"],
             "group": "build"
         }

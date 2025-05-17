@@ -21,10 +21,15 @@
     "activationEvents": [
         "onCustomEditor:sourceUploadProvider-scheme",
         "onCustomEditor:startupFlowProvider-scheme",
-        "onStartupFinished"
+        "onStartupFinished",
+        "*"
     ],
     "main": "./out/extension.js",
     "browser": "./out/extension.web.js",
+    "extensionKind": [
+        "workspace",
+        "ui"
+    ],
     "platforms": [
         "node",
         "web"
@@ -1154,7 +1159,8 @@
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
         "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
         "build:web": "webpack --config webpack.web.config.js",
-        "test:web": "vscode-test-web"
+        "test:web": "vscode-test-web --browserType=chromium --quality=stable --extensionDevelopmentPath=. --extensionTestsPath=./out/test/suite/index.js",
+        "postinstall": "node -e \"require('fs').copyFileSync('./node_modules/mocha/mocha.js', './out/test/suite/mocha.js')\""
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
@@ -1163,7 +1169,7 @@
         "@types/glob": "^7.1.1",
         "@types/lodash": "^4.17.13",
         "@types/md5": "^2.3.5",
-        "@types/mocha": "^10.0.9",
+        "@types/mocha": "^10.0.10",
         "@types/node": "^14.18.63",
         "@types/react": "^18.3.3",
         "@types/react-dom": "^18.3.1",
@@ -1191,6 +1197,7 @@
         "eslint": "^7.27.0",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
+        "https-browserify": "^1.0.0",
         "install": "^0.13.0",
         "lodash": "^4.17.21",
         "markdown-loader": "^8.0.0",
@@ -1203,9 +1210,11 @@
         "process": "^0.11.10",
         "readline-browserify": "^0.0.4",
         "stream-browserify": "^3.0.0",
+        "stream-http": "^3.2.0",
         "timers-browserify": "^2.0.12",
         "ts-loader": "^9.5.1",
         "typescript": "^5.4.2",
+        "url": "^0.11.4",
         "util": "^0.12.5",
         "vm-browserify": "^1.1.2",
         "vscode-languageserver": "^9.0.1",
@@ -1251,7 +1260,6 @@
         "sinon": "^19.0.2",
         "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
-        "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",
         "uuid": "^9.0.1",
         "vscode-languageclient": "^9.0.1",

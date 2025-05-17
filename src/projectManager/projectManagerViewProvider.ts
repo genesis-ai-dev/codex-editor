@@ -886,7 +886,7 @@ export function registerProjectManagerViewWebviewProvider(context: vscode.Extens
     const provider = new ProjectManagerStore();
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
-            "codex-project-manager-view",
+            "project-manager-sidebar",
             provider
         )
     );
