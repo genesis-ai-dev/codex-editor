@@ -14,18 +14,43 @@ let vscodeApiInstance: any | undefined = undefined;
  * @returns The VS Code API instance
  */
 export function getVSCodeAPI() {
+    // Check if we're in a VSCode webview context
+    const isInVSCodeContext = typeof acquireVsCodeApi === 'function';
+    
     if (!vscodeApiInstance) {
         try {
-            vscodeApiInstance = acquireVsCodeApi();
+            if (isInVSCodeContext) {
+                vscodeApiInstance = acquireVsCodeApi();
+            } else {
+                throw new Error("Not in a VS Code webview context");
+            }
         } catch (error) {
             console.error("Failed to acquire VS Code API:", error);
-            // Fallback object with postMessage that logs errors
+            
+            // Create a safe fallback object that won't throw errors
             vscodeApiInstance = {
                 postMessage: (message: any) => {
-                    console.error("Unable to post message due to missing VS Code API:", message);
+                    console.error("Unable to post message; not in a VS Code context:", message);
+                    return false; // Return a value to prevent undefined errors
                 },
+                getState: () => ({}),
+                setState: () => {}
             };
         }
     }
+    
+    // Add a safety check in case the instance is still somehow undefined
+    if (!vscodeApiInstance) {
+        console.warn("Creating emergency fallback VS Code API instance");
+        vscodeApiInstance = {
+            postMessage: (message: any) => {
+                console.error("Emergency fallback: Unable to post message:", message);
+                return false;
+            },
+            getState: () => ({}),
+            setState: () => {}
+        };
+    }
+    
     return vscodeApiInstance;
 }

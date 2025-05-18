@@ -189,8 +189,12 @@ export class SyncManager {
 
                 // Rebuild indexes in the background after successful sync
                 setTimeout(() => {
-                    const emptyContext = {} as vscode.ExtensionContext;
-                    createIndexWithContext(emptyContext).catch(console.error);
+                    // Create a proper mock context with subscriptions array
+                    const mockContext = { 
+                        subscriptions: [],
+                        // Add other required properties as needed
+                    } as vscode.ExtensionContext;
+                    createIndexWithContext(mockContext).catch(console.error);
                 }, 100);
             } catch (error) {
                 // Handle error as before
