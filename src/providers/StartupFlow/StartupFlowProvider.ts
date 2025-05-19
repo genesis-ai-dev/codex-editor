@@ -1,4 +1,3 @@
-import { waitForExtensionActivation } from "../../utils/vscode";
 import {
     MessagesToStartupFlowProvider,
     MessagesFromStartupFlowProvider,

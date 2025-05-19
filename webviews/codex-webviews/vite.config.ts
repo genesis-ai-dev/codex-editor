@@ -12,6 +12,8 @@ export default defineConfig({
             "@sharedUtils": path.resolve(__dirname, "../../sharedUtils"),
             // Updated anime.js alias for v4 - simplify to just point to the module root
             animejs: path.resolve(__dirname, "node_modules/animejs"),
+            // Add quill alias
+            quill: path.resolve(__dirname, "node_modules/quill"),
         },
     },
     build: {

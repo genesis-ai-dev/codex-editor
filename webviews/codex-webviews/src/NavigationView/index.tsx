@@ -375,7 +375,7 @@ function NavigationView() {
 
         vscode.postMessage({
             command: "openFile",
-            uri: fsPath,
+            uri:fsPath,
             type: item.type,
         });
     };

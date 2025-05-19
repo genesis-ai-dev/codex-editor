@@ -31,7 +31,7 @@ class ScriptureReferenceCodeLensProvider {
             const activeFileIsACodexFile = uri?.toString().includes(".codex");
             // Check if the URI scheme is not 'file', then adjust it to create a file URI
             if (uri && uri.scheme !== "file") {
-                // Use the fsPath to create a new URI with the 'file' scheme
+                // Use thevscode.workspace.fsPath to create a new URI with the 'file' scheme
                 uri = vscode.Uri.file(uri.fsPath);
             }
             if (verseRef) {
