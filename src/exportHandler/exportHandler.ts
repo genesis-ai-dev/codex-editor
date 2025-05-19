@@ -723,17 +723,39 @@ async function exportCodexContentAsUsfm(
                     try {
                         debug(`Processing file: ${file.fsPath}`);
 
-                        // Read file directly as JSON instead of opening as notebook
-                        const fileContent = await vscode.workspace.fs.readFile(file);
-                        const codexData = JSON.parse(
-                            Buffer.from(fileContent).toString()
+                        // Get the source file path - look in .project/sourceTexts/
+                        const bookCode = basename(file.fsPath).split(".")[0] || "";
+                        const sourceFileName = `${bookCode}.source`;
+                        const sourceFile = vscode.Uri.joinPath(
+                            vscode.Uri.file(workspaceFolders[0].uri.fsPath),
+                            ".project",
+                            "sourceTexts",
+                            sourceFileName
+                        );
+
+                        // Read both source and codex files
+                        let sourceData: Uint8Array | null = null;
+                        try {
+                            sourceData = await vscode.workspace.fs.readFile(sourceFile);
+                        } catch (error) {
+                            vscode.window.showWarningMessage(
+                                `Source file not found for ${bookCode} at ${sourceFile.fsPath}, skipping...`
+                            );
+                            skippedFiles++;
+                            continue;
+                        }
+
+                        const codexData = await vscode.workspace.fs.readFile(file);
+
+                        const sourceNotebook = JSON.parse(
+                            Buffer.from(sourceData).toString()
+                        ) as CodexNotebookAsJSONData;
+                        const codexNotebook = JSON.parse(
+                            Buffer.from(codexData).toString()
                         ) as CodexNotebookAsJSONData;
 
-                        // Extract book code early for logging
-                        const bookCode = basename(file.fsPath).split(".")[0] || "";
-
                         // Quick check - only look for text cells with content
-                        const textCells = codexData.cells.filter(
+                        const textCells = codexNotebook.cells.filter(
                             (cell) =>
                                 cell.kind === 2 && // vscode.NotebookCellKind.Code
                                 cell.metadata?.type === CodexCellTypes.TEXT
@@ -783,7 +805,7 @@ async function exportCodexContentAsUsfm(
                         let isFirstChapter = true;
 
                         // Pre-filter cells to only process relevant ones
-                        const relevantCells = codexData.cells.filter(
+                        const relevantCells = codexNotebook.cells.filter(
                             (cell) =>
                                 cell.kind === 2 && // vscode.NotebookCellKind.Code
                                 cell.metadata?.type &&
@@ -1374,26 +1396,66 @@ async function exportCodexContentAsXliff(
 
                     debug(`Processing file: ${file.fsPath}`);
 
-                    // Read file directly as JSON instead of opening as notebook
-                    const fileData = await vscode.workspace.fs.readFile(file);
-                    const codexData = JSON.parse(
-                        Buffer.from(fileData).toString()
-                    ) as CodexNotebookAsJSONData;
-                    const cells = codexData.cells;
-
-                    debug(`File has ${cells.length} cells`);
-
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
-                    const bookCode = basename(file.fsPath).split(".")[0] || "";
-                    const chapters: { [key: string]: { verses: { [key: string]: string } } } = {};
+                    const currentBookCode = basename(file.fsPath).split(".")[0] || "";
+
+                    // Get the source file path - look in .project/sourceTexts/
+                    const sourceFileName = `${currentBookCode}.source`;
+                    const sourceFile = vscode.Uri.joinPath(
+                        vscode.Uri.file(workspaceFolders[0].uri.fsPath),
+                        ".project",
+                        "sourceTexts",
+                        sourceFileName
+                    );
+
+                    // Read both source and codex files
+                    let sourceData: Uint8Array | null = null;
+                    try {
+                        sourceData = await vscode.workspace.fs.readFile(sourceFile);
+                    } catch (error) {
+                        vscode.window.showWarningMessage(
+                            `Source file not found for ${currentBookCode} at ${sourceFile.fsPath}, skipping...`
+                        );
+                        continue;
+                    }
+
+                    const codexData = await vscode.workspace.fs.readFile(file);
+
+                    const sourceNotebook = JSON.parse(
+                        Buffer.from(sourceData).toString()
+                    ) as CodexNotebookAsJSONData;
+                    const codexNotebook = JSON.parse(
+                        Buffer.from(codexData).toString()
+                    ) as CodexNotebookAsJSONData;
+
+                    debug(`File has ${codexNotebook.cells.length} cells`);
+
+                    const chapters: {
+                        [key: string]: {
+                            verses: { [key: string]: { source: string; target: string } };
+                        };
+                    } = {};
+
+                    // Create maps for quick lookup of cells by ID
+                    const sourceCellsMap = new Map(
+                        sourceNotebook.cells
+                            .filter((cell) => cell.metadata?.id)
+                            .map((cell) => [cell.metadata.id, cell])
+                    );
+
+                    const codexCellsMap = new Map(
+                        codexNotebook.cells
+                            .filter((cell) => cell.metadata?.id)
+                            .map((cell) => [cell.metadata.id, cell])
+                    );
 
                     // First pass: Organize content by chapters and verses
-                    for (const cell of cells) {
+                    for (const [cellId, codexCell] of codexCellsMap) {
                         totalCells++;
-                        if (cell.kind === 2) {
+                        if (codexCell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata as { type: string; id: string };
-                            const cellContent = cell.value.trim();
+                            const cellMetadata = codexCell.metadata as { type: string; id: string };
+                            const cellContent = codexCell.value.trim();
 
                             if (!cellContent) continue;
 
@@ -1410,7 +1472,14 @@ async function exportCodexContentAsXliff(
                                         chapters[chapterNum] = { verses: {} };
                                     }
 
-                                    chapters[chapterNum].verses[verseNum] = cellContent;
+                                    // Get the corresponding source cell content
+                                    const sourceCell = sourceCellsMap.get(cellId);
+                                    const sourceContent = sourceCell?.value.trim() || "";
+
+                                    chapters[chapterNum].verses[verseNum] = {
+                                        source: sourceContent,
+                                        target: cellContent,
+                                    };
                                     totalVerses++;
                                 }
                             }
@@ -1420,17 +1489,17 @@ async function exportCodexContentAsXliff(
                     // Generate XLIFF content
                     const xliffContent = `<?xml version="1.0" encoding="UTF-8"?>
 <xliff version="2.0" xmlns="urn:oasis:names:tc:xliff:document:2.0" srcLang="${sourceLanguage.refName}" trgLang="${targetLanguage.refName}">
-    <file id="${bookCode}" original="${bookCode}.codex">
-        <unit id="${bookCode}">
+    <file id="${currentBookCode}" original="${currentBookCode}.codex">
+        <unit id="${currentBookCode}">
             <segment>
-                <source>${bookCode}</source>
-                <target>${bookCode}</target>
+                <source>${currentBookCode}</source>
+                <target>${currentBookCode}</target>
             </segment>
         </unit>
         ${Object.entries(chapters)
             .map(
                 ([chapterNum, chapterData]) => `
-        <unit id="${bookCode}_${chapterNum}">
+        <unit id="${currentBookCode}_${chapterNum}">
             <segment>
                 <source>Chapter ${chapterNum}</source>
                 <target>Chapter ${chapterNum}</target>
@@ -1438,10 +1507,10 @@ async function exportCodexContentAsXliff(
             ${Object.entries(chapterData.verses)
                 .map(
                     ([verseNum, content]) => `
-            <unit id="${bookCode}_${chapterNum}_${verseNum}">
+            <unit id="${currentBookCode}_${chapterNum}_${verseNum}">
                 <segment>
-                    <source>${content}</source>
-                    <target></target>
+                    <source>${content.source}</source>
+                    <target>${content.target}</target>
                 </segment>
             </unit>`
                 )
@@ -1454,7 +1523,7 @@ async function exportCodexContentAsXliff(
 
                     // Write XLIFF file
                     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                    const exportFileName = `${bookCode}_${timestamp}.xliff`;
+                    const exportFileName = `${currentBookCode}_${timestamp}.xliff`;
                     const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
                     await vscode.workspace.fs.writeFile(exportFile, Buffer.from(xliffContent));
                     debug(`XLIFF file created: ${exportFile.fsPath}`);

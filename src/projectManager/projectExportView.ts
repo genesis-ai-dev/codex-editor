@@ -304,13 +304,15 @@ function getWebviewContent(
                             </div>
                         </div>
 
-                        <!-- XLIFF Export Option -->
-                        <div class="format-option" data-format="xliff" style="margin-top: 1rem;">
-                            <i class="codicon codicon-symbol-interface"></i>
-                            <div>
-                                <strong>XLIFF</strong>
-                                <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
-                                <span class="format-tag">Translation Ready</span>
+                        <!-- Translation Export Options -->
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <div class="format-option" data-format="xliff" style="flex: 1;">
+                                <i class="codicon codicon-symbol-interface"></i>
+                                <div>
+                                    <strong>XLIFF</strong>
+                                    <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
+                                    <span class="format-tag">Translation Ready</span>
+                                </div>
                             </div>
                         </div>
 
