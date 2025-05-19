@@ -1,4 +1,4 @@
-import { CodexExportFormat } from "../commands/exportHandler/exportHandler";
+import { CodexExportFormat } from "../exportHandler/exportHandler";
 import * as vscode from "vscode";
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
@@ -301,6 +301,16 @@ function getWebviewContent(
                                     <strong>HTML</strong>
                                     <p>Export as web pages with chapter navigation</p>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- XLIFF Export Option -->
+                        <div class="format-option" data-format="xliff" style="margin-top: 1rem;">
+                            <i class="codicon codicon-symbol-interface"></i>
+                            <div>
+                                <strong>XLIFF</strong>
+                                <p>Export in XML Localization Interchange File Format (XLIFF) for translation workflows</p>
+                                <span class="format-tag">Translation Ready</span>
                             </div>
                         </div>
 

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { extractVerseRefFromLine } from "../../utils/verseRefUtils";
+import { extractVerseRefFromLine } from "../utils/verseRefUtils";
 import * as grammar from "usfm-grammar";
-import { CodexCellTypes } from "../../../types/enums";
+import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
@@ -20,7 +20,7 @@ import { generateVttData } from "./vttUtils";
  * that we read directly from the .codex files.
  */
 
-import { CodexNotebookAsJSONData } from "../../../types";
+import { CodexNotebookAsJSONData } from "../../types";
 
 // Debug flag
 const DEBUG = false;
@@ -275,6 +275,7 @@ export enum CodexExportFormat {
     SUBTITLES_SRT = "subtitles-srt",
     SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
     SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
+    XLIFF = "xliff",
 }
 
 export interface ExportOptions {
@@ -305,6 +306,9 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.SUBTITLES_SRT:
             await exportCodexContentAsSubtitlesSrt(userSelectedPath, filesToExport, options);
+            break;
+        case CodexExportFormat.XLIFF:
+            await exportCodexContentAsXliff(userSelectedPath, filesToExport, options);
             break;
     }
 }
@@ -1307,6 +1311,163 @@ async function exportCodexContentAsHtml(
     } catch (error) {
         console.error("HTML Export failed:", error);
         vscode.window.showErrorMessage(`HTML Export failed: ${error}`);
+    }
+}
+
+async function exportCodexContentAsXliff(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    try {
+        debug("Starting exportCodexContentAsXliff function");
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        // Get project configuration for language codes
+        const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
+        const sourceLanguage = projectConfig.get("sourceLanguage") as
+            | { refName: string }
+            | undefined;
+        const targetLanguage = projectConfig.get("targetLanguage") as
+            | { refName: string }
+            | undefined;
+
+        if (!sourceLanguage?.refName || !targetLanguage?.refName) {
+            vscode.window.showErrorMessage(
+                "Source and target languages must be configured before exporting to XLIFF."
+            );
+            return;
+        }
+
+        // Filter codex files based on user selection
+        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
+        debug(`Selected files for export: ${selectedFiles.length}`);
+        if (selectedFiles.length === 0) {
+            vscode.window.showInformationMessage("No files selected for export.");
+            return;
+        }
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Exporting Codex Content as XLIFF",
+                cancellable: false,
+            },
+            async (progress) => {
+                let totalCells = 0;
+                let totalVerses = 0;
+                const increment = 100 / selectedFiles.length;
+
+                // Create export directory if it doesn't exist
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                for (const [index, file] of selectedFiles.entries()) {
+                    progress.report({
+                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                        increment,
+                    });
+
+                    debug(`Processing file: ${file.fsPath}`);
+
+                    // Read file directly as JSON instead of opening as notebook
+                    const fileData = await vscode.workspace.fs.readFile(file);
+                    const codexData = JSON.parse(
+                        Buffer.from(fileData).toString()
+                    ) as CodexNotebookAsJSONData;
+                    const cells = codexData.cells;
+
+                    debug(`File has ${cells.length} cells`);
+
+                    // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
+                    const bookCode = basename(file.fsPath).split(".")[0] || "";
+                    const chapters: { [key: string]: { verses: { [key: string]: string } } } = {};
+
+                    // First pass: Organize content by chapters and verses
+                    for (const cell of cells) {
+                        totalCells++;
+                        if (cell.kind === 2) {
+                            // vscode.NotebookCellKind.Code
+                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            const cellContent = cell.value.trim();
+
+                            if (!cellContent) continue;
+
+                            if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
+                                // Extract chapter and verse numbers from reference (e.g., "MRK 1:1" -> "1" and "1")
+                                const chapterMatch = cellMetadata.id.match(/\s(\d+):/);
+                                const verseMatch = cellMetadata.id.match(/\d+$/);
+
+                                if (chapterMatch && verseMatch) {
+                                    const chapterNum = chapterMatch[1];
+                                    const verseNum = verseMatch[0];
+
+                                    if (!chapters[chapterNum]) {
+                                        chapters[chapterNum] = { verses: {} };
+                                    }
+
+                                    chapters[chapterNum].verses[verseNum] = cellContent;
+                                    totalVerses++;
+                                }
+                            }
+                        }
+                    }
+
+                    // Generate XLIFF content
+                    const xliffContent = `<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="2.0" xmlns="urn:oasis:names:tc:xliff:document:2.0" srcLang="${sourceLanguage.refName}" trgLang="${targetLanguage.refName}">
+    <file id="${bookCode}" original="${bookCode}.codex">
+        <unit id="${bookCode}">
+            <segment>
+                <source>${bookCode}</source>
+                <target>${bookCode}</target>
+            </segment>
+        </unit>
+        ${Object.entries(chapters)
+            .map(
+                ([chapterNum, chapterData]) => `
+        <unit id="${bookCode}_${chapterNum}">
+            <segment>
+                <source>Chapter ${chapterNum}</source>
+                <target>Chapter ${chapterNum}</target>
+            </segment>
+            ${Object.entries(chapterData.verses)
+                .map(
+                    ([verseNum, content]) => `
+            <unit id="${bookCode}_${chapterNum}_${verseNum}">
+                <segment>
+                    <source>${content}</source>
+                    <target></target>
+                </segment>
+            </unit>`
+                )
+                .join("")}
+        </unit>`
+            )
+            .join("")}
+    </file>
+</xliff>`;
+
+                    // Write XLIFF file
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                    const exportFileName = `${bookCode}_${timestamp}.xliff`;
+                    const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+                    await vscode.workspace.fs.writeFile(exportFile, Buffer.from(xliffContent));
+                    debug(`XLIFF file created: ${exportFile.fsPath}`);
+                }
+
+                vscode.window.showInformationMessage(
+                    `XLIFF Export completed: ${totalVerses} verses from ${selectedFiles.length} files exported to ${userSelectedPath}`
+                );
+            }
+        );
+    } catch (error) {
+        console.error("XLIFF Export failed:", error);
+        vscode.window.showErrorMessage(`XLIFF Export failed: ${error}`);
     }
 }
 
