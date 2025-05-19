@@ -1015,5 +1015,11 @@ export const handleMessages = async (
             }
             return;
         }
+        case "triggerReindexing": {
+            console.log("Triggering reindexing after all translations completed");
+            // Execute the force reindex command - this will ensure all indices are updated
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            break;
+        }
     }
 };
