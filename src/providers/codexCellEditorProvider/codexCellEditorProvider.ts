@@ -675,8 +675,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <style>
                     .floating-apply-validations-button {
                         position: fixed;
-                        bottom: 20px;
-                        right: 20px;
+                        top: 90px;
+                        right: 30px;
                         display: flex;
                         align-items: center;
                         background-color: var(--vscode-button-background);
