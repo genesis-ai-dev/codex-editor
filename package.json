@@ -1196,6 +1196,7 @@
         "memfs": "^4.14.0",
         "mocha": "^10.2.0",
         "npm": "^10.8.2",
+        "null-loader": "^4.0.1",
         "os-browserify": "^0.3.0",
         "path-browserify": "^1.0.1",
         "prettier": "^3.1.1",

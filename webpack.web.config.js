@@ -14,11 +14,15 @@ const webConfig = {
     },
     externals: {
         vscode: 'commonjs vscode',
+        // Mark shared-state-store as external
+        'project-accelerate.shared-state-store': 'commonjs project-accelerate.shared-state-store'
     },
     resolve: {
-        extensions: ['.ts', '.js'],
+        extensions: ['.ts', '.js', '.mjs', '.json'],
         alias: {
             '@': path.resolve(__dirname, 'src'),
+            'isomorphic-git': false,
+            'xlsx': false,
         },
         fallback: {
             path: require.resolve('path-browserify'),
@@ -45,6 +49,17 @@ const webConfig = {
                     },
                 ],
             },
+            // Handle .mjs files
+            {
+                test: /\.mjs$/,
+                include: /node_modules/,
+                type: 'javascript/auto',
+            },
+            // Add a rule to ignore problematic modules
+            {
+                test: /node_modules[\\\/](isomorphic-git|xlsx)[\\\/]/,
+                use: 'null-loader',
+            }
         ],
     },
     plugins: [
@@ -52,6 +67,14 @@ const webConfig = {
             process: 'process/browser',
             Buffer: ['buffer', 'Buffer'],
         }),
+        new webpack.DefinePlugin({
+            'process.env.EXTENSION_DEPENDENCIES': JSON.stringify(['project-accelerate.shared-state-store']),
+            'process.env.WEB_EXTENSION': JSON.stringify(true)
+        }),
+        // Add a plugin to ignore certain modules that cause problems
+        new webpack.IgnorePlugin({
+            resourceRegExp: /^(isomorphic-git|xlsx)$/
+        })
     ],
     devtool: 'nosources-source-map',
 };
