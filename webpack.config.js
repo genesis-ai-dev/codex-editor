@@ -42,7 +42,7 @@ const extensionConfig = {
         },
         fallback: {
             path: false,
-            fs: false,
+           vscode.workspace.fs: false,
             crypto: require.resolve("crypto-browserify"),
             stream: require.resolve("stream-browserify"),
             buffer: require.resolve("buffer/"),
@@ -184,7 +184,7 @@ const testConfig = {
         fallback: {
             assert: require.resolve("assert/"),
             url: require.resolve("url/"),
-            fs: require.resolve("memfs"),
+           vscode.workspace.fs: require.resolve("memfs"),
             zlib: require.resolve("browserify-zlib"),
             stream: require.resolve("stream-browserify"),
             util: require.resolve("util/"),

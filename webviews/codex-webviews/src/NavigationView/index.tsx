@@ -371,11 +371,11 @@ function NavigationView() {
         // Get the file system path from the URI
         const uri = item.uri;
         // Extract just the path part from the URI
-        const fsPath = uri.replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1");
+        constvscode.workspace.fsPath = uri.replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1");
 
         vscode.postMessage({
             command: "openFile",
-            uri: fsPath,
+            uri:vscode.workspace.fsPath,
             type: item.type,
         });
     };
