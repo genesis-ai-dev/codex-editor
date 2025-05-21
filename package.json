@@ -13,6 +13,7 @@
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
+        "vscode": "^1.78.0"
     },
     "categories": [
         "Other"
@@ -23,6 +24,9 @@
         "onStartupFinished"
     ],
     "main": "./out/extension.js",
+    "permissions": [
+        "readFile"
+    ],
     "contributes": {
         "keybindings": [
             {
