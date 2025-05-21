@@ -1,5 +1,4 @@
 import { CodexNotebookAsJSONData } from "@types";
-import { generateVttData } from "./vttUtils";
 
 export const removeHtmlTags = (content: string) => {
     return content
