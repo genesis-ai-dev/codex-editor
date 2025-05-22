@@ -18,7 +18,7 @@ import {
     getBibleDataRecordById as getBibleDataRecordById,
     TheographicBibleDataRecord,
 } from "./sourceData";
-import { CodexExportFormat, exportCodexContent } from "../../commands/exportHandler/exportHandler";
+import { CodexExportFormat, exportCodexContent } from "../../exportHandler/exportHandler";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
 import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
@@ -36,7 +36,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         async () => {
             try {
                 // Focus the main menu view
-                await vscode.commands.executeCommand(`${MainMenuProvider.viewType}.focus`);
+                await vscode.commands.executeCommand(`${MainMenuProvider.viewType}.focus`, true);
             } catch (error) {
                 console.error("Error focusing main menu view:", error);
                 vscode.window.showErrorMessage(`Error focusing main menu view: ${error}`);

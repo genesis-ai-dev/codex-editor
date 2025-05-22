@@ -18,7 +18,6 @@ import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
-import fs from "fs";
 import { getAuthApi } from "@/extension";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
@@ -997,7 +996,7 @@ export const handleMessages = async (
 
                 // Only focus the main menu if we're opening the sidebar (not closing it)
                 if (event.content?.isOpening) {
-                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
                 }
             } catch (error) {
                 console.error("Error toggling main menu visibility:", error);
@@ -1015,6 +1014,12 @@ export const handleMessages = async (
                 vscode.window.showErrorMessage("Failed to trigger sync.");
             }
             return;
+        }
+        case "triggerReindexing": {
+            console.log("Triggering reindexing after all translations completed");
+            // Execute the force reindex command - this will ensure all indices are updated
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            break;
         }
     }
 };

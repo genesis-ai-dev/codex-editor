@@ -21,9 +21,8 @@ import {
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
 import { initializeStateStore } from "../../stateStore";
-import path from "path";
 import { SyncManager } from "../../projectManager/syncManager";
-import * as fs from "fs";
+
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 
 // Enable debug logging if needed
@@ -189,11 +188,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("Cell ID change detected:", value);
                     if (value?.cellId && value?.uri) {
                         // Only send highlight messages to source files when a codex file is active
-                        const valueIsCodexFile = value.uri.endsWith(".codex");
+                        const valueIsCodexFile = this.isCodexFile(value.uri);
                         if (valueIsCodexFile) {
                             debug("Processing codex file highlight");
                             for (const [panelUri, panel] of this.webviewPanels.entries()) {
-                                const isSourceFile = panelUri.endsWith(".source");
+                                const isSourceFile = this.isSourceText(panelUri);
                                 if (isSourceFile) {
                                     debug("Sending highlight message to source file:", panelUri);
                                     panel.webview.postMessage({
@@ -250,9 +249,43 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Initial setup
         this.currentDocument = document;
-        const authApi = await this.getAuthApi();
-        this.userInfo = await authApi?.getUserInfo();
-        debug("User info retrieved:", this.userInfo);
+        try {
+            const authApi = await this.getAuthApi(); // Assuming this.getAuthApi() is safe
+            if (authApi) {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated && authApi.currentUser) {
+                    this.userInfo = {
+                        username: authApi.currentUser.username,
+                        email: authApi.currentUser.email || "",
+                    };
+                    debug("User info set from authApi.currentUser:", this.userInfo);
+                } else {
+                    // Attempt to get more detailed info, new auth provider should handle internal errors
+                    try {
+                        const userInfo = await authApi.getUserInfo();
+                        if (userInfo) {
+                            this.userInfo = userInfo;
+                            debug("User info retrieved from authApi.getUserInfo:", this.userInfo);
+                        } else {
+                            this.userInfo = undefined;
+                            debug("authApi.getUserInfo() returned no data.");
+                        }
+                    } catch (error) {
+                        console.error(
+                            "Error calling authApi.getUserInfo() in resolveCustomEditor. User info remains undefined.",
+                            error
+                        );
+                        this.userInfo = undefined; // Explicitly set to undefined on error
+                    }
+                }
+            } else {
+                this.userInfo = undefined;
+                debug("AuthAPI not available in resolveCustomEditor.");
+            }
+        } catch (error) {
+            console.error("Error initializing auth or user info in resolveCustomEditor:", error);
+            this.userInfo = undefined; // Ensure userInfo is undefined if any auth-related error occurs
+        }
 
         // Enable scripts in the webview
         webviewPanel.webview.options = {
@@ -261,7 +294,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Get text direction and check if it's a source file
         const textDirection = this.getTextDirection(document);
-        const isSourceText = document.uri.fsPath.endsWith(".source");
+        const isSourceText = this.isSourceText(document.uri);
         debug("Text direction:", textDirection, "Is source text:", isSourceText);
 
         // Load bible book map
@@ -491,7 +524,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const syncManager = SyncManager.getInstance();
 
             // Schedule the sync operation
-            const fileName = document.uri.fsPath.split(/[/\\]/).pop() || "document";
+            const fileName = document.uri.path.split('/').pop() || "document";
             syncManager.scheduleSyncOperation(`changes to ${fileName}`);
 
             // Update the file status based on source control (will check if still dirty)
@@ -642,8 +675,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <style>
                     .floating-apply-validations-button {
                         position: fixed;
-                        bottom: 20px;
-                        right: 20px;
+                        top: 90px;
+                        right: 30px;
                         display: flex;
                         align-items: center;
                         background-color: var(--vscode-button-background);
@@ -728,6 +761,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const notebookData = this.getDocumentAsJson(document);
         debug("Text direction from metadata:", notebookData.metadata?.textDirection);
         return notebookData.metadata?.textDirection || "ltr";
+    }
+
+    private isSourceText(uri: vscode.Uri | string): boolean {
+        const path = typeof uri === 'string' ? uri : uri.path;
+        return path.toLowerCase().endsWith(".source");
+    }
+
+    private isCodexFile(uri: vscode.Uri | string): boolean {
+        const path = typeof uri === 'string' ? uri : uri.path;
+        return path.toLowerCase().endsWith(".codex");
     }
 
     private updateTextDirection(
@@ -1084,7 +1127,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
         const processedData = this.processNotebookData(notebookData);
-        const isSourceText = document.uri.fsPath.endsWith(".source");
+        const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
 
         webviewPanel.webview.html = this.getHtmlForWebview(
@@ -1122,16 +1165,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Getting video URL for path:", videoPath);
         if (!videoPath) return null;
 
-        if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
-            return videoPath;
-        } else if (videoPath.startsWith("file://")) {
-            return webviewPanel.webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
-        } else {
-            const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-            if (workspaceUri) {
-                const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
-                return webviewPanel.webview.asWebviewUri(fullPath).toString();
+        try {
+            if (videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
+                return videoPath;
+            } else if (videoPath.startsWith("file://")) {
+                return webviewPanel.webview.asWebviewUri(vscode.Uri.parse(videoPath)).toString();
+            } else {
+                const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+                if (workspaceUri) {
+                    const fullPath = vscode.Uri.joinPath(workspaceUri, videoPath);
+                    return webviewPanel.webview.asWebviewUri(fullPath).toString();
+                }
             }
+        } catch (err) {
+            console.error("Error processing video URL:", err);
         }
         debug("No valid video URL found");
         return null;
@@ -1141,11 +1188,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
         if (cellId && uri) {
             // Only send highlight messages to source files when a codex file is active
-            const valueIsCodexFile = uri.endsWith(".codex");
+            const valueIsCodexFile = this.isCodexFile(uri);
             if (valueIsCodexFile) {
                 debug("Processing codex file highlight");
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
-                    const isSourceFile = panelUri.endsWith(".source");
+                    const isSourceFile = this.isSourceText(panelUri);
                     debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
                     if (isSourceFile) {
                         panel.webview.postMessage({
@@ -1160,8 +1207,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.warn("State store not initialized when trying to update cell ID");
             return;
         }
-        // Fixme: this is not working as expected sometime after closing and reopening a codex files
-        // the update is not being registered in the state store
         this.stateStore.updateStoreState({
             key: "cellId",
             value: {
@@ -1316,56 +1361,40 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             return;
         }
 
+        debug("Started processing translation queue");
         this.isProcessingQueue = true;
-        debug(`Starting to process translation queue with ${this.translationQueue.length} items`);
 
         try {
-            // Process the queue one at a time
             while (this.translationQueue.length > 0) {
                 const request = this.translationQueue[0];
 
-                // Check if this is a validation request
+                // Handle validation request first if that's what it is
                 if (request.validationRequest) {
-                    debug(`Processing validation request for cell ${request.cellId}`);
-
-                    // Send validation in progress notification to all webviews for this document
-                    this.webviewPanels.forEach((panel, docUri) => {
-                        if (docUri === request.document.uri.toString()) {
-                            this.postMessageToWebview(panel, {
-                                type: "validationInProgress" as any,
-                                content: {
-                                    cellId: request.cellId,
-                                    inProgress: true,
-                                },
-                            });
-                        }
-                    });
-
                     try {
-                        // Process the validation request using the document's validateCellContent method
-                        await request.document.validateCellContent(
-                            request.cellId,
-                            !!request.shouldValidate // Ensure boolean
-                        );
+                        debug(`Processing validation for cell ${request.cellId}`);
 
-                        // For single validations (not part of a batch), save the document
-                        // This ensures standalone validation requests still get saved
-                        if (!this.pendingValidations.has(request.cellId)) {
-                            await request.document.save(new vscode.CancellationTokenSource().token);
-                        }
-
-                        // Remove the processed request from the queue before resolving
-                        this.translationQueue.shift();
-
-                        // Get validated entries from the document for broadcasting to other panels
-                        const validatedEntries = request.document.getCellValidatedBy(
-                            request.cellId
-                        );
-
-                        // Broadcast updates to all webview panels for this document
+                        // Start validation with UI notification
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === request.document.uri.toString()) {
-                                // Send validation complete notification
+                                this.postMessageToWebview(panel, {
+                                    type: "validationInProgress" as any,
+                                    content: {
+                                        cellId: request.cellId,
+                                        inProgress: true,
+                                    },
+                                });
+                            }
+                        });
+
+                        // Perform the validation
+                        await request.document.validateCellContent(
+                            request.cellId,
+                            request.shouldValidate
+                        );
+
+                        // Send completion notification
+                        this.webviewPanels.forEach((panel, docUri) => {
+                            if (docUri === request.document.uri.toString()) {
                                 this.postMessageToWebview(panel, {
                                     type: "validationInProgress" as any,
                                     content: {
@@ -1373,19 +1402,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                         inProgress: false,
                                     },
                                 });
-
-                                // Send validation state update
-                                this.postMessageToWebview(panel, {
-                                    type: "providerUpdatesValidationState" as any,
-                                    content: {
-                                        cellId: request.cellId,
-                                        validatedBy: validatedEntries,
-                                    },
-                                });
                             }
                         });
 
-                        // Resolve the promise to signal completion
+                        // Remove the processed request from the queue and resolve
+                        this.translationQueue.shift();
                         request.resolve(true);
                     } catch (error) {
                         debug(`Error processing validation for cell ${request.cellId}:`, error);
@@ -1458,6 +1479,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Process next item immediately without delay - both for individual and batch translations
                 }
             }
+            
+            // After all translations are done and the queue is empty, trigger a reindex
+            // but only if we're not in an autocompletion process (which will handle its own reindexing)
+            if (!this.autocompletionState.isProcessing) {
+                debug("Translation queue empty, triggering reindexing");
+                try {
+                    // We don't await this to avoid blocking the queue processing completion
+                    vscode.commands.executeCommand("translators-copilot.forceReindex");
+                } catch (error) {
+                    console.error("Error triggering reindex after translations:", error);
+                }
+            }
         } finally {
             this.isProcessingQueue = false;
             debug("Finished processing translation queue");
@@ -1471,7 +1504,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         shouldUpdateValue = false
     ) {
         // Prevent LLM completion on source files
-        if (currentDocument?.uri.fsPath.endsWith(".source")) {
+        if (this.isSourceText(currentDocument?.uri)) {
             throw new Error("Cannot perform LLM completion on source files");
         }
         if (!currentDocument) {
@@ -1902,13 +1935,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         try {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (workspaceFolder) {
-                const workspaceRoot = workspaceFolder.uri.fsPath;
-                const localizedPath = path.join(workspaceRoot, "localized-books.json");
-                if (fs.existsSync(localizedPath)) {
-                    debug("Found localized-books.json, loading...");
-                    const raw = fs.readFileSync(localizedPath, "utf8");
+                const localizedPath = vscode.Uri.joinPath(workspaceFolder.uri, "localized-books.json");
+                try {
+                    await vscode.workspace.fs.stat(localizedPath);
+                    console.log("Navigation: Found localized-books.json, loading...");
+                    const content = await vscode.workspace.fs.readFile(localizedPath);
+                    const raw = new TextDecoder().decode(content);
                     bookData = JSON.parse(raw);
-                    debug("Localized books loaded successfully");
+                    console.log("Navigation: Localized books loaded successfully");
+                } catch (err) {
+                    // File doesn't exist, use default data
+                    console.log("Navigation: Using default bible book data");
                 }
             }
         } catch (err) {
@@ -1961,13 +1998,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         if (repos.length > 0) {
                             // Find the repository that contains this file
                             const repo = repos.find((r: any) =>
-                                docUri.fsPath.startsWith(r.rootUri.fsPath)
+                                docUri.toString().startsWith(r.rootUri.toString())
                             );
 
                             if (repo) {
                                 // Check if the file is dirty in the source control
                                 const fileStatus = repo.state.workingTreeChanges.find(
-                                    (change: any) => change.uri.fsPath === docUri.fsPath
+                                    (change: any) => change.uri.toString() === docUri.toString()
                                 );
 
                                 if (fileStatus) {
@@ -1990,7 +2027,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Default to checking if the document is dirty in the editor
                     const isDirty = vscode.workspace.textDocuments.some(
-                        (doc) => doc.uri.fsPath === docUri.fsPath && doc.isDirty
+                        (doc) => doc.uri.toString() === docUri.toString() && doc.isDirty
                     );
 
                     this.postMessageToWebview(panel, {
@@ -2018,7 +2055,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const syncManager = SyncManager.getInstance();
 
                 // Get the filename for the commit message
-                const fileName = this.currentDocument.uri.fsPath.split(/[/\\]/).pop() || "document";
+                const fileName = this.currentDocument.uri.path.split('/').pop() || "document";
 
                 // Execute sync immediately rather than scheduling
                 syncManager

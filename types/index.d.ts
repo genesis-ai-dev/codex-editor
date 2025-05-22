@@ -613,6 +613,8 @@ export type EditorPostMessages =
     | { command: "getValidationCount" }
     | { command: "requestUsername" }
     | { command: "stopAutocompleteChapter" }
+    | { command: "stopSingleCellTranslation" }
+    | { command: "triggerReindexing" }
     | { command: "jumpToChapter"; chapterNumber: number }
     | {
           command: "makeChildOfCell";
@@ -1235,6 +1237,7 @@ type ProjectManagerMessageFromWebview =
       }
     | { command: "triggerSync" }
     | { command: "openBookNameEditor" }
+    | { command: "openCellLabelImporter" }
     | { command: "navigateToMainMenu" }
     | { command: "getProjectProgress" }
     | { command: "showProgressDashboard" }
@@ -1585,3 +1588,25 @@ export interface SplashScreenMessage {
     command: "update" | "complete" | "animationComplete";
     timings?: ActivationTiming[];
 }
+
+export interface CellLabelData {
+    cellId: string;
+    startTime: string;
+    endTime: string;
+    character?: string;
+    dialogue?: string;
+    newLabel: string;
+    currentLabel?: string;
+    matched: boolean;
+}
+
+export type CellLabelImporterPostMessages =
+    | { command: "importFile" }
+    | { command: "save"; labels: CellLabelData[]; selectedIds: string[] }
+    | { command: "cancel" };
+
+export type CellLabelImporterReceiveMessages = {
+    command: "updateLabels";
+    labels: CellLabelData[];
+    importSource?: string;
+};

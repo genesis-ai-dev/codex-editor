@@ -6,10 +6,17 @@ interface VSCodeAPISimple {
     postMessage(message: any): void;
 }
 
+export interface SyncDetails {
+    progress: number;
+    message: string;
+    currentFile?: string;
+}
+
 export interface VSCodeMessagingResult {
     timings: ActivationTiming[];
     isComplete: boolean;
     sendMessage: (message: any) => void;
+    syncDetails?: SyncDetails;
 }
 
 export function useVSCodeMessaging(): VSCodeMessagingResult {
@@ -17,6 +24,7 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
     const initialTimings = window.initialState?.timings || [];
     const [timings, setTimings] = useState<ActivationTiming[]>(initialTimings);
     const [isComplete, setIsComplete] = useState(false);
+    const [syncDetails, setSyncDetails] = useState<SyncDetails | undefined>(undefined);
     const vscodeRef = useRef<VSCodeAPISimple | null>(null);
 
     // Initialize VS Code API only once
@@ -48,6 +56,11 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
                         break;
                     case "complete":
                         setIsComplete(true);
+                        break;
+                    case "syncUpdate":
+                        if (message.syncDetails) {
+                            setSyncDetails(message.syncDetails);
+                        }
                         break;
                 }
             }
@@ -81,6 +94,11 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
                         break;
                     case "complete":
                         setIsComplete(true);
+                        break;
+                    case "syncUpdate":
+                        if (message.syncDetails) {
+                            setSyncDetails(message.syncDetails);
+                        }
                         break;
                 }
             }
@@ -122,5 +140,5 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
         }
     }, [isComplete, notifyAnimationComplete]);
 
-    return { timings, isComplete, sendMessage };
+    return { timings, isComplete, sendMessage, syncDetails };
 }

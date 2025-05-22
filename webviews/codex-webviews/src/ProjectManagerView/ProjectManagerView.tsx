@@ -670,6 +670,23 @@ function ProjectManagerView() {
                                 </VSCodeButton>
 
                                 <VSCodeButton
+                                    onClick={() =>
+                                        handleAction({ command: "openCellLabelImporter" })
+                                    }
+                                >
+                                    <div
+                                        style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: "0.5rem",
+                                        }}
+                                    >
+                                        <i className="codicon codicon-symbol-array"></i> Import Cell
+                                        Labels
+                                    </div>
+                                </VSCodeButton>
+
+                                <VSCodeButton
                                     onClick={() => handleAction({ command: "openBookNameEditor" })}
                                 >
                                     <div

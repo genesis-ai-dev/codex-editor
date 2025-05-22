@@ -22,7 +22,7 @@ export class SourceAnalyzer {
 
         // Get basic file info
         const fileStat = await vscode.workspace.fs.stat(fileUri);
-        const fileType = getFileType(fileUri);
+        const fileType = getFileType(fileUri) || "plaintext";
 
         // Get original content
         const content = await vscode.workspace.fs.readFile(fileUri);
@@ -37,6 +37,7 @@ export class SourceAnalyzer {
             case "usx":
                 expectedBooks = await analyzeUsxContent(textContent);
                 break;
+            case "plaintext":
             default:
                 expectedBooks = await analyzePlainTextContent(textContent);
         }

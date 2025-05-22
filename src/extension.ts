@@ -40,7 +40,7 @@ import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { waitForExtensionActivation } from "./utils/vscode";
 import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
-import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFLow/types";
+import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFlow/types";
 import { registerCommandsBefore } from "./activationHelpers/contextAware/commandsBefore";
 import {
     registerWelcomeViewProvider,
@@ -53,6 +53,8 @@ import {
     updateSplashScreenTimings,
     closeSplashScreen,
 } from "./providers/SplashScreen/register";
+import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
+import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 
 export interface ActivationTiming {
     step: string;
@@ -347,6 +349,16 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
     }
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openBookNameEditor", openBookNameEditor)
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor.openCellLabelImporter", () =>
+            openCellLabelImporter(context)
+        )
+    );
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
@@ -459,13 +471,12 @@ function watchTableFiles(context: vscode.ExtensionContext) {
 }
 
 async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
-    const fs = vscode.workspace.fs;
     watcher = vscode.workspace.createFileSystemWatcher("**/*");
 
     const checkInitialization = async () => {
         let metadataExists = false;
         try {
-            await fs.stat(metadataUri);
+            await vscode.workspace.fs.stat(metadataUri);
             metadataExists = true;
         } catch {
             metadataExists = false;
@@ -512,7 +523,13 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 }
 
 async function executeCommandsAfter() {
-    vscode.commands.executeCommand("codex-editor-extension.setEditorFontToTargetLanguage");
+    try {
+        await vscode.commands.executeCommand(
+            "codex-editor-extension.setEditorFontToTargetLanguage"
+        );
+    } catch (error) {
+        console.warn("Failed to set editor font, possibly due to network issues:", error);
+    }
     // Configure auto-save in settings
     await vscode.workspace
         .getConfiguration()
@@ -532,9 +549,13 @@ async function executeCommandsAfter() {
 
                 const syncManager = SyncManager.getInstance();
                 // During startup, don't show info messages for connection issues
-                await syncManager.executeSync("Initial workspace sync", false);
-
-                trackTiming("Project Synchronization Complete", syncStart);
+                try {
+                    await syncManager.executeSync("Initial workspace sync", false);
+                    trackTiming("Project Synchronization Complete", syncStart);
+                } catch (error) {
+                    console.error("Error during initial sync:", error);
+                    trackTiming("Project Synchronization Failed", syncStart);
+                }
             } else {
                 console.log("User is not authenticated, skipping initial sync");
                 trackTiming(
@@ -543,8 +564,11 @@ async function executeCommandsAfter() {
                 );
             }
         } catch (error) {
-            console.error("Error checking auth status:", error);
-            trackTiming("Project Synchronization Failed", globalThis.performance.now());
+            console.error("Error checking auth status or during initial sync:", error);
+            trackTiming(
+                "Project Synchronization Failed due to auth error",
+                globalThis.performance.now()
+            );
         }
     } else {
         console.log("Auth API not available, skipping initial sync");
