@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-
+import * as fs from "fs";
 import * as path from "path";
 
 export async function openLicenseEditor() {
@@ -21,8 +21,8 @@ export async function openLicenseEditor() {
         return;
     }
 
-    const workspaceRoot = workspaceFolders[0].uri;
-    const licensePath = vscode.Uri.joinPath(workspaceRoot, "LICENSE");
+    const workspaceRoot = workspaceFolders[0].uri.fsPath;
+    const licensePath = path.join(workspaceRoot, "LICENSE");
 
     // Get project configuration
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
@@ -35,18 +35,12 @@ export async function openLicenseEditor() {
     };
 
     try {
-        const licenseFileExists = await vscode.workspace.fs.stat(licensePath).then(
-            () => true,
-            () => false
-        );
-
-        if (licenseFileExists) {
-            const licenseContent = await vscode.workspace.fs.readFile(licensePath);
-            const licenseText = new TextDecoder().decode(licenseContent);
+        if (fs.existsSync(licensePath)) {
+            const licenseContent = fs.readFileSync(licensePath, "utf8");
 
             // Try to extract license type and owner from existing file
-            const typeMatch = licenseText.match(/License:\s*([\w-]+)/i);
-            const ownerMatch = licenseText.match(/Copyright\s*\(c\)\s*\d+\s*(.*?)[\n\r]/i);
+            const typeMatch = licenseContent.match(/License:\s*([\w-]+)/i);
+            const ownerMatch = licenseContent.match(/Copyright\s*\(c\)\s*\d+\s*(.*?)[\n\r]/i);
 
             if (typeMatch && typeMatch[1]) {
                 currentLicense.type = typeMatch[1].toLowerCase();
@@ -69,8 +63,7 @@ export async function openLicenseEditor() {
             case "save": {
                 try {
                     const licenseContent = generateLicenseContent(message.licenseData);
-                    const fileData = new TextEncoder().encode(licenseContent);
-                    await vscode.workspace.fs.writeFile(licensePath, fileData);
+                    fs.writeFileSync(licensePath, licenseContent);
                     vscode.window.showInformationMessage("License updated successfully");
                     panel.dispose();
                 } catch (error) {

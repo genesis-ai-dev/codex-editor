@@ -14,6 +14,7 @@
 
 import * as vscode from "vscode";
 import git from "isomorphic-git";
+import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
@@ -39,53 +40,7 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
         // First check if we have a valid git repo
         let remotes;
         try {
-            const customFs = {
-                promises: {
-                    readFile: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const data = await vscode.workspace.fs.readFile(uri);
-                        return data;
-                    },
-                    writeFile: async (path: string, data: Uint8Array) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.writeFile(uri, data);
-                    },
-                    unlink: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.delete(uri);
-                    },
-                    readdir: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const entries = await vscode.workspace.fs.readDirectory(uri);
-                        return entries.map(([name]) => name);
-                    },
-                    mkdir: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.createDirectory(uri);
-                    },
-                    rmdir: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.delete(uri);
-                    },
-                    stat: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const stat = await vscode.workspace.fs.stat(uri);
-                        return {
-                            isFile: () => stat.type === vscode.FileType.File,
-                            isDirectory: () => stat.type === vscode.FileType.Directory,
-                        };
-                    },
-                    lstat: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const stat = await vscode.workspace.fs.stat(uri);
-                        return {
-                            isFile: () => stat.type === vscode.FileType.File,
-                            isDirectory: () => stat.type === vscode.FileType.Directory,
-                        };
-                    }
-                }
-            };
-            remotes = await git.listRemotes({ fs: customFs, dir: workspaceFolder });
+            remotes = await git.listRemotes({ fs, dir: workspaceFolder });
             if (remotes.length === 0) {
                 console.log("No remotes found");
                 return;

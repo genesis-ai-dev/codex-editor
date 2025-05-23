@@ -9,11 +9,10 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.4.7",
+    "version": "0.4.6",
     "engines": {
         "node": ">=16.17.1",
-        "vscode": "^1.78.0",
-        "browser": ">=1.0.0"
+        "vscode": "^1.78.0"
     },
     "categories": [
         "Other"
@@ -24,11 +23,6 @@
         "onStartupFinished"
     ],
     "main": "./out/extension.js",
-    "browser": "./out/extension.web.js",
-    "platforms": [
-        "node",
-        "web"
-    ],
     "permissions": [
         "readFile"
     ],
@@ -194,16 +188,6 @@
                 {
                     "command": "translators-copilot.showFileStatsView",
                     "title": "Translators Copilot: Show Translation Progress View"
-                },
-                {
-                    "command": "codex-editor.openBookNameEditor",
-                    "title": "Codex: Open Book Name Editor",
-                    "category": "Codex Editor"
-                },
-                {
-                    "command": "codex-editor.openCellLabelImporter",
-                    "title": "Codex: Import Cell Labels",
-                    "category": "Codex Editor"
                 }
             ]
         },
@@ -720,16 +704,6 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
-            },
-            {
-                "command": "codex-editor.openBookNameEditor",
-                "title": "Codex: Open Book Name Editor",
-                "category": "Codex Editor"
-            },
-            {
-                "command": "codex-editor.openCellLabelImporter",
-                "title": "Codex: Import Cell Labels",
-                "category": "Codex Editor"
             }
         ],
         "configuration": [
@@ -1152,9 +1126,7 @@
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
-        "build:web": "webpack --config webpack.web.config.js",
-        "test:web": "vscode-test-web"
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../.."
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",
@@ -1178,7 +1150,6 @@
         "@typescript-eslint/eslint-plugin": "^6.7.0",
         "@typescript-eslint/parser": "^6.7.0",
         "@vscode/test-electron": "^2.3.8",
-        "@vscode/test-web": "^0.0.69",
         "@vscode/vsce-sign": "^2.0.3",
         "assert": "^2.1.0",
         "browserify-zlib": "^0.2.0",
@@ -1196,9 +1167,7 @@
         "memfs": "^4.14.0",
         "mocha": "^10.2.0",
         "npm": "^10.8.2",
-        "null-loader": "^4.0.1",
         "os-browserify": "^0.3.0",
-        "path-browserify": "^1.0.1",
         "prettier": "^3.1.1",
         "process": "^0.11.10",
         "readline-browserify": "^0.0.4",

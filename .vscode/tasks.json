@@ -21,15 +21,6 @@
             "script": "compile",
             "problemMatcher": ["$tsc", "$ts-checker-webpack"],
             "group": "build"
-        },
-        {
-            "type": "npm",
-            "script": "build:web",
-            "problemMatcher": ["$tsc", "$ts-checker-webpack"],
-            "group": "build",
-            "presentation": {
-                "reveal": "always"
-            }
         }
     ]
 }

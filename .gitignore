@@ -10,4 +10,3 @@ webviews/editable-react-table/node_modules
 .DS_Store
 package-lock.json
 .project/complete_drafts.txt
-.vscode-test-web

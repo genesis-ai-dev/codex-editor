@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { waitForExtensionActivation } from "../../utils/vscode";
 import { FrontierAPI } from "../../../webviews/codex-webviews/src/StartupFlow/types";
 import git from "isomorphic-git";
-
+import * as fs from "fs";
 import { getAuthApi } from "../../extension";
 
 interface AuthState {
@@ -198,54 +198,8 @@ export class PreflightCheck {
                 debugLog("Checking git status for workspace:", workspacePath);
                 try {
                     // Check if it's a git repository
-                    const customFs = {
-                        promises: {
-                            readFile: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                const data = await vscode.workspace.fs.readFile(uri);
-                                return data;
-                            },
-                            writeFile: async (path: string, data: Uint8Array) => {
-                                const uri = vscode.Uri.file(path);
-                                await vscode.workspace.fs.writeFile(uri, data);
-                            },
-                            unlink: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                await vscode.workspace.fs.delete(uri);
-                            },
-                            readdir: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                const entries = await vscode.workspace.fs.readDirectory(uri);
-                                return entries.map(([name]) => name);
-                            },
-                            mkdir: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                await vscode.workspace.fs.createDirectory(uri);
-                            },
-                            rmdir: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                await vscode.workspace.fs.delete(uri);
-                            },
-                            stat: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                const stat = await vscode.workspace.fs.stat(uri);
-                                return {
-                                    isFile: () => stat.type === vscode.FileType.File,
-                                    isDirectory: () => stat.type === vscode.FileType.Directory,
-                                };
-                            },
-                            lstat: async (path: string) => {
-                                const uri = vscode.Uri.file(path);
-                                const stat = await vscode.workspace.fs.stat(uri);
-                                return {
-                                    isFile: () => stat.type === vscode.FileType.File,
-                                    isDirectory: () => stat.type === vscode.FileType.Directory,
-                                };
-                            }
-                        }
-                    };
                     await git.resolveRef({
-                        fs: customFs,
+                        fs,
                         dir: workspacePath,
                         ref: "HEAD",
                     });
@@ -254,7 +208,7 @@ export class PreflightCheck {
 
                     // Check for remotes
                     const remotes = await git.listRemotes({
-                        fs: customFs,
+                        fs,
                         dir: workspacePath,
                     });
                     state.gitState.hasRemote = remotes.length > 0;

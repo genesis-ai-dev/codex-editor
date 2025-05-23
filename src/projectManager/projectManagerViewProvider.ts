@@ -18,15 +18,23 @@ import {
     openProject,
     createNewProject,
 } from "../utils/projectCreationUtils/projectCreationUtils";
-import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
+import { FrontierAPI } from "webviews/codex-webviews/src/StartupFLow/types";
 import { waitForExtensionActivation } from "../utils/vscode";
 import git from "isomorphic-git";
+import * as fs from "fs";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
 import { SyncManager } from "./syncManager";
 
+const DEBUG_MODE = false; // Set to true to enable debug logging
+
+function debugLog(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[ProjectManagerViewProvider]", ...args);
+    }
+}
+
 class ProjectManagerStore {
-    // Initial state for the project manager
     private preflightState: ProjectManagerState = {
         projectOverview: null,
         webviewReady: false,
@@ -47,15 +55,12 @@ class ProjectManagerStore {
     private disposables: vscode.Disposable[] = [];
     private _view?: vscode.WebviewView;
 
-    // Array to store state change listeners
     private listeners: ((state: ProjectManagerState) => void)[] = [];
 
-    // Get current state
     getState() {
         return this.preflightState;
     }
 
-    // Update state and notify listeners
     setState(newState: Partial<ProjectManagerState>) {
         this.preflightState = {
             ...this.preflightState,
@@ -64,12 +69,10 @@ class ProjectManagerStore {
         this.notifyListeners();
     }
 
-    // Set the webview reference
     setView(view: vscode.WebviewView) {
         this._view = view;
     }
 
-    // Subscribe to state changes
     subscribe(listener: (state: ProjectManagerState) => void) {
         this.listeners.push(listener);
         return () => {
@@ -77,13 +80,11 @@ class ProjectManagerStore {
         };
     }
 
-    // Notify all listeners of state changes
     private notifyListeners() {
         this.listeners.forEach((listener) => listener(this.preflightState));
         this._onDidChangeState.fire();
     }
 
-    // Initialize the store
     async initialize() {
         if (this.initialized) return;
 
@@ -201,7 +202,7 @@ class ProjectManagerStore {
                 );
             }
 
-            // Load watched folders from configuration
+            // Load watched folders
             const config = vscode.workspace.getConfiguration("codex-project-manager");
             let watchedFolders = config.get<string[]>("watchedFolders") || [];
 
@@ -245,7 +246,6 @@ class ProjectManagerStore {
         }
     }
 
-    // Refresh the store's state
     async refreshState() {
         if (this.isRefreshing) return;
 
@@ -291,70 +291,21 @@ class ProjectManagerStore {
         }
     }
 
-    // Check if repository has a remote using vscode.workspace.fs
     async checkRepoHasRemote(): Promise<boolean> {
         try {
             // Get current workspace path
-            const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri;
+            const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (!workspacePath) {
                 return false;
             }
 
-            // Create a web-compatible fs implementation using vscode.workspace.fs
-            const customFs = {
-                promises: {
-                    readFile: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const data = await vscode.workspace.fs.readFile(uri);
-                        return data;
-                    },
-                    writeFile: async (path: string, data: Uint8Array) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.writeFile(uri, data);
-                    },
-                    unlink: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.delete(uri);
-                    },
-                    readdir: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const entries = await vscode.workspace.fs.readDirectory(uri);
-                        return entries.map(([name]) => name);
-                    },
-                    mkdir: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.createDirectory(uri);
-                    },
-                    rmdir: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        await vscode.workspace.fs.delete(uri);
-                    },
-                    stat: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const stat = await vscode.workspace.fs.stat(uri);
-                        return {
-                            isFile: () => stat.type === vscode.FileType.File,
-                            isDirectory: () => stat.type === vscode.FileType.Directory,
-                        };
-                    },
-                    lstat: async (path: string) => {
-                        const uri = vscode.Uri.file(path);
-                        const stat = await vscode.workspace.fs.stat(uri);
-                        return {
-                            isFile: () => stat.type === vscode.FileType.File,
-                            isDirectory: () => stat.type === vscode.FileType.Directory,
-                        };
-                    }
-                }
-            };
-
-            // List all remotes using isomorphic-git with our custom fs
+            // List all remotes
             const remotes = await git.listRemotes({
-                fs: customFs,
-                dir: workspacePath.fsPath,
+                fs,
+                dir: workspacePath,
             });
 
-            // Send publish status message to webview
+            // Send publish status message
             if (this._view) {
                 this._view.webview.postMessage({
                     command: "publishStatus",
@@ -371,20 +322,11 @@ class ProjectManagerStore {
         }
     }
 
-    // Clean up resources
     dispose() {
         this.disposables.forEach((d) => d.dispose());
     }
-
-    // Add the resolveWebviewView method for WebviewViewProvider
-    public resolveWebviewView(webviewView: vscode.WebviewView, context: vscode.WebviewViewResolveContext, token: vscode.CancellationToken) {
-        // Use the existing loadWebviewHtml function
-        loadWebviewHtml(webviewView, vscode.Uri.file(__dirname));
-        this.setView(webviewView);
-    }
 }
 
-// Helper function to open files
 export async function simpleOpen(uri: string, context: vscode.ExtensionContext) {
     try {
         const parsedUri = vscode.Uri.parse(uri);
@@ -399,7 +341,6 @@ export async function simpleOpen(uri: string, context: vscode.ExtensionContext) 
     }
 }
 
-// Load and configure the webview HTML
 const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.Uri) => {
     webviewView.webview.options = {
         enableScripts: true,
@@ -427,7 +368,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
         vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
 
-    // Generate a nonce for CSP
     function getNonce() {
         let text = "";
         const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -741,9 +681,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 await this.store.refreshState();
                 this._view?.webview.postMessage({ command: "actionCompleted" });
                 break;
-            case "openCellLabelImporter":
-                await vscode.commands.executeCommand("codex-editor.openCellLabelImporter");
-                break;
             case "navigateToMainMenu": {
                 try {
                     await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
@@ -882,12 +819,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
 }
 
 export function registerProjectManagerViewWebviewProvider(context: vscode.ExtensionContext) {
-    // ProjectManagerStore must implement vscode.WebviewViewProvider
-    const provider = new ProjectManagerStore();
+    const provider = new CustomWebviewProvider(context);
+
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            "codex-project-manager-view",
-            provider
-        )
+        vscode.window.registerWebviewViewProvider("project-manager-sidebar", provider)
     );
 }
