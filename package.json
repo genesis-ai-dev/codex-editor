@@ -448,6 +448,11 @@
         ],
         "commands": [
             {
+                "command": "codex-project-manager.openNewSourceUpload",
+                "title": "Open New Source Uploader",
+                "category": "Codex"
+            },
+            {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
             },
@@ -1067,6 +1072,17 @@
                     {
                         "filenamePattern": "*.sourceUploadProvider",
                         "scheme": "sourceUploadProvider-scheme"
+                    }
+                ],
+                "priority": "default"
+            },
+            {
+                "viewType": "newSourceUploaderProvider",
+                "displayName": "New Source Uploader",
+                "selector": [
+                    {
+                        "filenamePattern": "*.newSourceUploaderProvider",
+                        "scheme": "newSourceUploaderProvider-scheme"
                     }
                 ],
                 "priority": "default"

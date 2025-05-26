@@ -18,7 +18,8 @@
         "build:MainMenu": "cross-env APP_NAME=MainMenu vite build",
         "build:SplashScreen": "cross-env APP_NAME=SplashScreen vite build",
         "build:CellLabelImporterView": "cross-env APP_NAME=CellLabelImporterView vite build",
-        "build:all": "pnpm run build:ChatView && pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:CodexCellEditor && pnpm run build:SemanticView && pnpm run build:CommentsView && pnpm run build:NavigationView && pnpm run build:EditableReactTable && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload && pnpm run build:MainMenu && pnpm run build:SplashScreen && pnpm run build:CellLabelImporterView",
+        "build:NewSourceUploader": "cross-env APP_NAME=NewSourceUploader vite build",
+        "build:all": "pnpm run build:ChatView && pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:CodexCellEditor && pnpm run build:SemanticView && pnpm run build:CommentsView && pnpm run build:NavigationView && pnpm run build:EditableReactTable && pnpm run build:ProjectManagerView && pnpm run build:SourceUpload && pnpm run build:MainMenu && pnpm run build:SplashScreen && pnpm run build:CellLabelImporterView && pnpm run build:NewSourceUploader",
         "type-check": "tsc --noEmit",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
         "watch:ChatView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:ChatView",
@@ -34,6 +35,7 @@
         "watch:MainMenu": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:MainMenu",
         "watch:SplashScreen": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:SplashScreen",
         "watch:CellLabelImporterView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CellLabelImporterView",
+        "watch:NewSourceUploader": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:NewSourceUploader",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },

@@ -20,6 +20,7 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
+import { registerNewSourceUploadCommands } from "./providers/NewSourceUploader/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "sql.js";
@@ -283,6 +284,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
         componentStart = trackTiming("• Register Source Upload Commands", componentStart);
         await registerSourceUploadCommands(context);
+
+        componentStart = trackTiming("• Register New Source Upload Commands", componentStart);
+        await registerNewSourceUploadCommands(context);
 
         componentStart = trackTiming("• Register Providers", componentStart);
         registerProviders(context);
