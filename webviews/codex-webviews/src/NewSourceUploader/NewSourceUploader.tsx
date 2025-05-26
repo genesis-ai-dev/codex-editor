@@ -12,6 +12,8 @@ import {
     FileInfo,
     UploadState,
 } from "./types";
+import "./App.css";
+import "../tailwind.css";
 
 interface VSCodeApi {
     postMessage: (message: NewSourceUploaderPostMessages) => void;
