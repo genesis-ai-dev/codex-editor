@@ -13,12 +13,12 @@ export interface UploadProgress {
 }
 
 export interface NewSourceUploaderPostMessages {
-    command: "uploadFile" | "getProgress" | "reset";
-    fileData?: {
+    command: "uploadFiles" | "getProgress" | "reset";
+    filesData?: {
         name: string;
         content: string;
         type: string;
-    };
+    }[];
 }
 
 export interface NewSourceUploaderResponseMessages {
@@ -36,7 +36,7 @@ export interface FileInfo {
 }
 
 export interface UploadState {
-    selectedFile: File | null;
+    selectedFiles: File[];
     isUploading: boolean;
     progress: UploadProgress[];
     result: FileUploadResult | null;

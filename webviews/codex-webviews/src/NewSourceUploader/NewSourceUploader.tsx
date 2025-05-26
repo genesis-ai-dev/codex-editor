@@ -24,7 +24,7 @@ const vscode: VSCodeApi = (window as any).vscodeApi;
 
 const NewSourceUploader: React.FC = () => {
     const [uploadState, setUploadState] = useState<UploadState>({
-        selectedFile: null,
+        selectedFiles: [],
         isUploading: false,
         progress: [],
         result: null,
@@ -32,50 +32,78 @@ const NewSourceUploader: React.FC = () => {
     });
 
     const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
+        const files = Array.from(event.target.files || []);
+
+        if (files.length === 0) {
             setUploadState((prev) => ({
                 ...prev,
-                selectedFile: file,
+                selectedFiles: [],
                 result: null,
                 error: null,
                 progress: [],
             }));
+            return;
         }
+
+        // Check if all files have the same type
+        const firstFileType = getFileTypeFromName(files[0].name);
+        const allSameType = files.every((file) => getFileTypeFromName(file.name) === firstFileType);
+
+        if (!allSameType) {
+            setUploadState((prev) => ({
+                ...prev,
+                selectedFiles: [],
+                result: null,
+                error: "All files must be of the same type (CSV, TSV, or TXT)",
+                progress: [],
+            }));
+            return;
+        }
+
+        setUploadState((prev) => ({
+            ...prev,
+            selectedFiles: files,
+            result: null,
+            error: null,
+            progress: [],
+        }));
     }, []);
 
     const handleUpload = useCallback(async () => {
-        if (!uploadState.selectedFile) return;
+        if (uploadState.selectedFiles.length === 0) return;
 
         setUploadState((prev) => ({ ...prev, isUploading: true, error: null }));
 
         try {
-            const fileContent = await readFileAsText(uploadState.selectedFile);
+            const filesData = await Promise.all(
+                uploadState.selectedFiles.map(async (file) => {
+                    const content = await readFileAsText(file);
+                    return {
+                        name: file.name,
+                        content,
+                        type: file.type || getFileTypeFromName(file.name),
+                    };
+                })
+            );
 
             vscode.postMessage({
-                command: "uploadFile",
-                fileData: {
-                    name: uploadState.selectedFile.name,
-                    content: fileContent,
-                    type:
-                        uploadState.selectedFile.type ||
-                        getFileTypeFromName(uploadState.selectedFile.name),
-                },
+                command: "uploadFiles",
+                filesData,
             });
         } catch (error) {
             setUploadState((prev) => ({
                 ...prev,
                 isUploading: false,
-                error: `Failed to read file: ${
+                error: `Failed to read files: ${
                     error instanceof Error ? error.message : "Unknown error"
                 }`,
             }));
         }
-    }, [uploadState.selectedFile]);
+    }, [uploadState.selectedFiles]);
 
     const handleReset = useCallback(() => {
         setUploadState({
-            selectedFile: null,
+            selectedFiles: [],
             isUploading: false,
             progress: [],
             result: null,
@@ -196,7 +224,8 @@ const NewSourceUploader: React.FC = () => {
                     New Source Uploader
                 </h1>
                 <p className="text-muted-foreground">
-                    Upload CSV, TSV, or text files to create source and translation notebooks
+                    Upload multiple files of the same type (CSV, TSV, or TXT) to create source and
+                    translation notebooks
                 </p>
             </div>
 
@@ -208,7 +237,8 @@ const NewSourceUploader: React.FC = () => {
                         Select File
                     </CardTitle>
                     <CardDescription>
-                        Choose a file to upload and process into Codex notebooks
+                        Choose multiple files of the same type to upload and process into Codex
+                        notebooks
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -216,33 +246,56 @@ const NewSourceUploader: React.FC = () => {
                         <input
                             type="file"
                             accept=".csv,.tsv,.txt"
+                            multiple
                             onChange={handleFileSelect}
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={uploadState.isUploading}
                         />
                     </div>
 
-                    {uploadState.selectedFile && (
+                    {uploadState.selectedFiles.length > 0 && (
                         <Card className="bg-muted/50">
                             <CardContent className="pt-6">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div>
-                                        <span className="font-medium">File:</span>{" "}
-                                        {getFileInfo(uploadState.selectedFile).name}
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-medium">Selected Files:</span>
+                                        <Badge variant="outline">
+                                            {uploadState.selectedFiles.length} files
+                                        </Badge>
                                     </div>
-                                    <div>
-                                        <span className="font-medium">Size:</span>{" "}
-                                        {formatFileSize(getFileInfo(uploadState.selectedFile).size)}
+                                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                                        {uploadState.selectedFiles.map((file, index) => (
+                                            <div
+                                                key={index}
+                                                className="grid grid-cols-2 gap-4 text-sm p-2 rounded border"
+                                            >
+                                                <div>
+                                                    <span className="font-medium">File:</span>{" "}
+                                                    {file.name}
+                                                </div>
+                                                <div>
+                                                    <span className="font-medium">Size:</span>{" "}
+                                                    {formatFileSize(file.size)}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                    <div>
-                                        <span className="font-medium">Type:</span>{" "}
-                                        {getFileInfo(uploadState.selectedFile).type}
-                                    </div>
-                                    <div>
-                                        <span className="font-medium">Modified:</span>{" "}
-                                        {new Date(
-                                            getFileInfo(uploadState.selectedFile).lastModified
-                                        ).toLocaleString()}
+                                    <div className="grid grid-cols-2 gap-4 text-sm pt-2 border-t">
+                                        <div>
+                                            <span className="font-medium">File Type:</span>{" "}
+                                            {getFileTypeFromName(
+                                                uploadState.selectedFiles[0].name
+                                            ).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <span className="font-medium">Total Size:</span>{" "}
+                                            {formatFileSize(
+                                                uploadState.selectedFiles.reduce(
+                                                    (sum, file) => sum + file.size,
+                                                    0
+                                                )
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </CardContent>
@@ -252,7 +305,9 @@ const NewSourceUploader: React.FC = () => {
                     <div className="flex gap-2">
                         <Button
                             onClick={handleUpload}
-                            disabled={!uploadState.selectedFile || uploadState.isUploading}
+                            disabled={
+                                uploadState.selectedFiles.length === 0 || uploadState.isUploading
+                            }
                             className="flex items-center gap-2"
                         >
                             {uploadState.isUploading ? (
@@ -263,7 +318,7 @@ const NewSourceUploader: React.FC = () => {
                             ) : (
                                 <>
                                     <Upload className="h-4 w-4" />
-                                    Upload File
+                                    Upload Files
                                 </>
                             )}
                         </Button>

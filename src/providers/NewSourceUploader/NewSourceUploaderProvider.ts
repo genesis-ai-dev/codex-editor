@@ -47,9 +47,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken
     ): Promise<void> {
         switch (message.command) {
-            case "uploadFile":
-                if (message.fileData) {
-                    await this.handleSingleFileUpload(message.fileData, webviewPanel, token);
+            case "uploadFiles":
+                if (message.filesData && Array.isArray(message.filesData)) {
+                    await this.handleMultipleFilesUpload(message.filesData, webviewPanel, token);
                 }
                 break;
             case "reset":
@@ -67,52 +67,93 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleSingleFileUpload(
-        fileData: { name: string; content: string; type: string },
+    private async handleMultipleFilesUpload(
+        filesData: { name: string; content: string; type: string }[],
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
         try {
-            // Send progress update
+            // Validate all files have the same type
+            if (filesData.length === 0) {
+                throw new Error("No files provided");
+            }
+
+            const firstFileType = this.getFileType(filesData[0].name);
+            const allSameType = filesData.every((file) => {
+                try {
+                    return this.getFileType(file.name) === firstFileType;
+                } catch {
+                    return false;
+                }
+            });
+
+            if (!allSameType) {
+                throw new Error("All files must be of the same type");
+            }
+
+            // Send initial progress update
             webviewPanel.webview.postMessage({
                 command: "progressUpdate",
                 progress: [
                     {
                         stage: "File Validation",
-                        message: "Checking file format...",
+                        message: `Validating ${filesData.length} ${firstFileType.toUpperCase()} files...`,
                         status: "processing",
                     },
                 ],
             });
 
-            const fileType = this.getFileType(fileData.name);
-
-            // Simulate processing for now
+            // Simulate validation delay
             await new Promise((resolve) => setTimeout(resolve, 1000));
 
-            // Send progress update
+            // Send processing progress update
             webviewPanel.webview.postMessage({
                 command: "progressUpdate",
                 progress: [
                     {
                         stage: "File Validation",
-                        message: "File format validated",
+                        message: `All ${filesData.length} files validated successfully`,
                         status: "success",
                     },
                     {
-                        stage: "Processing",
-                        message: "Processing file content...",
+                        stage: "Processing Files",
+                        message: `Processing ${filesData.length} files...`,
                         status: "processing",
                     },
                 ],
             });
 
-            // Simulate processing result
-            const result = {
-                preview: `Processed ${fileData.name} (${fileType}) with ${fileData.content.length} characters`,
-                sourceNotebook: `source-${fileData.name}.codex`,
-                codexNotebook: `codex-${fileData.name}.codex`,
-            };
+            // Simulate processing delay
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+
+            // Calculate total content size
+            const totalSize = filesData.reduce((sum, file) => sum + file.content.length, 0);
+            const fileNames = filesData.map((file) => file.name).join(", ");
+
+            // Send notebook creation progress update
+            webviewPanel.webview.postMessage({
+                command: "progressUpdate",
+                progress: [
+                    {
+                        stage: "File Validation",
+                        message: `All ${filesData.length} files validated successfully`,
+                        status: "success",
+                    },
+                    {
+                        stage: "Processing Files",
+                        message: `${filesData.length} files processed successfully`,
+                        status: "success",
+                    },
+                    {
+                        stage: "Creating Notebooks",
+                        message: "Creating source and translation notebooks...",
+                        status: "processing",
+                    },
+                ],
+            });
+
+            // Simulate notebook creation delay
+            await new Promise((resolve) => setTimeout(resolve, 1500));
 
             // Send final progress update
             webviewPanel.webview.postMessage({
@@ -120,17 +161,17 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 progress: [
                     {
                         stage: "File Validation",
-                        message: "File format validated",
+                        message: `All ${filesData.length} files validated successfully`,
                         status: "success",
                     },
                     {
-                        stage: "Processing",
-                        message: "File processed successfully",
+                        stage: "Processing Files",
+                        message: `${filesData.length} files processed successfully`,
                         status: "success",
                     },
                     {
-                        stage: "Notebooks Created",
-                        message: "Source and codex notebooks created",
+                        stage: "Creating Notebooks",
+                        message: "Source and translation notebooks created",
                         status: "success",
                     },
                 ],
@@ -141,10 +182,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 command: "uploadResult",
                 result: {
                     success: true,
-                    message: `Successfully processed ${fileData.name}`,
-                    preview: result.preview || "File processed successfully",
-                    sourceNotebook: result.sourceNotebook,
-                    codexNotebook: result.codexNotebook,
+                    message: `Successfully processed ${filesData.length} ${firstFileType.toUpperCase()} files`,
+                    preview: `Processed files: ${fileNames}\nTotal content: ${totalSize} characters\nFile type: ${firstFileType.toUpperCase()}`,
+                    sourceNotebook: `source-batch-${Date.now()}.codex`,
+                    codexNotebook: `translation-batch-${Date.now()}.codex`,
                 },
             });
         } catch (error) {
