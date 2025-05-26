@@ -1,5 +1,7 @@
 import React from "react";
 import { BackToMenuButton } from "./BackToMenuButton";
+import { Card } from "./ui/card";
+import "../tailwind.css";
 
 interface WebviewHeaderProps {
     title?: string;
@@ -23,36 +25,13 @@ export const WebviewHeader: React.FC<WebviewHeaderProps> = ({
         postMessage: (message: any) => void;
     };
 }) => (
-    <div
-        className="webview-header"
-        style={{
-            display: "flex",
-            justifyContent: "flex-start",
-            width: "100%",
-            alignItems: "center",
-            padding: "0.5em 1em",
-            gap: "0.5em",
-            minHeight: "2.5em",
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
-            backgroundColor: "var(--vscode-editor-background)",
-            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.1)"
-        }}
-    >
-        {showBackButton && vscode && <BackToMenuButton vscode={vscode} />}
+    <Card className="webview-header sticky top-0 z-10 rounded-none border-0 border-b shadow-sm">
+        <div className="flex items-center justify-start w-full px-4 py-2 gap-2 min-h-10">
+            {showBackButton && vscode && <BackToMenuButton vscode={vscode} />}
 
-        {/* {title && (
-            <h2
-                style={{
-                    margin: 0,
-                    textTransform: "uppercase",
-                    fontSize: "1rem",
-                }}
-            >
-                {title}
-            </h2>
-        )} */}
-        {/* {children} */}
-    </div>
+            {/* {title && <h2 className="text-sm font-medium uppercase tracking-wide m-0">{title}</h2>} */}
+
+            {children}
+        </div>
+    </Card>
 );
