@@ -236,17 +236,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             )
         );
 
-        const styleUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "NewSourceUploader",
-                "style.css"
-            )
-        );
-
         // Use a nonce to only allow specific scripts to be run
         const nonce = this.getNonce();
 
@@ -257,7 +246,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
             <title>New Source Uploader</title>
-            <link rel="stylesheet" href="${styleUri}">
             <style>
                 #root {
                     height: 100vh;

@@ -20,9 +20,9 @@ export default defineConfig({
             // "@/lib": path.resolve(__dirname, "./src/lib"),
         },
     },
-    // css: {
-    //     postcss: "./postcss.config.js",
-    // },
+    css: {
+        postcss: "./postcss.config.js",
+    },
     build: {
         rollupOptions: {
             input: `src/${appToBuild}/index.tsx`,
