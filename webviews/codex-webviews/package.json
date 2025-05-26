@@ -93,6 +93,7 @@
     },
     "devDependencies": {
         "@babel/plugin-transform-private-property-in-object": "^7.16.7",
+        "@tailwindcss/postcss": "^4.1.7",
         "@tailwindcss/vite": "^4.1.7",
         "@types/diff": "^5.2.1",
         "@types/dompurify": "^3.0.5",
