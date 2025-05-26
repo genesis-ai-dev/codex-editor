@@ -1,5 +1,9 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { VSCodeButton, VSCodeProgressRing, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
+import { Upload, FileText, CheckCircle, XCircle, Clock, RotateCcw } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Progress } from "../components/ui/progress";
+import { Badge } from "../components/ui/badge";
 import {
     FileUploadResult,
     UploadProgress,
@@ -118,16 +122,29 @@ const NewSourceUploader: React.FC = () => {
         lastModified: file.lastModified,
     });
 
-    const getProgressIcon = (status: UploadProgress["status"]) => {
+    const getStatusIcon = (status: UploadProgress["status"]) => {
         switch (status) {
             case "success":
-                return "✓";
+                return <CheckCircle className="h-4 w-4 text-green-500" />;
             case "error":
-                return "✗";
+                return <XCircle className="h-4 w-4 text-red-500" />;
             case "processing":
-                return "⟳";
+                return <RotateCcw className="h-4 w-4 text-blue-500 animate-spin" />;
             default:
-                return "○";
+                return <Clock className="h-4 w-4 text-gray-400" />;
+        }
+    };
+
+    const getStatusBadgeVariant = (status: UploadProgress["status"]) => {
+        switch (status) {
+            case "success":
+                return "success" as const;
+            case "error":
+                return "destructive" as const;
+            case "processing":
+                return "processing" as const;
+            default:
+                return "secondary" as const;
         }
     };
 
@@ -166,150 +183,242 @@ const NewSourceUploader: React.FC = () => {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
+    const completedSteps = uploadState.progress.filter((p) => p.status === "success").length;
+    const totalSteps = uploadState.progress.length;
+    const progressPercentage = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
+
     return (
-        <div className="new-source-uploader">
-            <div className="upload-section">
-                <h2>📁 New Source Uploader</h2>
-                <p>Upload CSV, TSV, or text files to create source and translation notebooks.</p>
-
-                <div className="file-input-container">
-                    <input
-                        type="file"
-                        accept=".csv,.tsv,.txt"
-                        onChange={handleFileSelect}
-                        className="file-input"
-                        disabled={uploadState.isUploading}
-                    />
-                </div>
-
-                {uploadState.selectedFile && (
-                    <div className="file-info">
-                        <p>
-                            <strong>File:</strong> {getFileInfo(uploadState.selectedFile).name}
-                        </p>
-                        <p>
-                            <strong>Size:</strong>{" "}
-                            {formatFileSize(getFileInfo(uploadState.selectedFile).size)}
-                        </p>
-                        <p>
-                            <strong>Type:</strong> {getFileInfo(uploadState.selectedFile).type}
-                        </p>
-                        <p>
-                            <strong>Modified:</strong>{" "}
-                            {new Date(
-                                getFileInfo(uploadState.selectedFile).lastModified
-                            ).toLocaleString()}
-                        </p>
-                    </div>
-                )}
-
-                <div className="upload-button">
-                    <VSCodeButton
-                        onClick={handleUpload}
-                        disabled={!uploadState.selectedFile || uploadState.isUploading}
-                        appearance="primary"
-                    >
-                        {uploadState.isUploading ? (
-                            <>
-                                <VSCodeProgressRing /> Processing...
-                            </>
-                        ) : (
-                            "Upload File"
-                        )}
-                    </VSCodeButton>
-
-                    {(uploadState.result || uploadState.error) && (
-                        <VSCodeButton
-                            onClick={handleReset}
-                            appearance="secondary"
-                            style={{ marginLeft: "10px" }}
-                        >
-                            Reset
-                        </VSCodeButton>
-                    )}
-                </div>
-            </div>
-
-            {uploadState.progress.length > 0 && (
-                <div className="upload-section">
-                    <h3>📊 Progress</h3>
-                    <div className="progress-section">
-                        {uploadState.progress.map((item, index) => (
-                            <div key={index} className="progress-item">
-                                <span className={`progress-icon ${item.status}`}>
-                                    {getProgressIcon(item.status)}
-                                </span>
-                                <div className="progress-text">
-                                    <div>
-                                        <strong>{item.stage}</strong>
-                                    </div>
-                                    <div className="progress-status">{item.message}</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {uploadState.result && (
-                <div className="upload-section">
-                    <h3>✅ Upload Complete</h3>
-                    <div
-                        className={`file-info ${uploadState.result.success ? "success" : "error"}`}
-                    >
-                        <p>
-                            <strong>Status:</strong>{" "}
-                            {uploadState.result.success ? "Success" : "Failed"}
-                        </p>
-                        <p>
-                            <strong>Message:</strong> {uploadState.result.message}
-                        </p>
-                        {uploadState.result.preview && (
-                            <div className="preview-section">
-                                <h4>Preview:</h4>
-                                <div className="preview-content">
-                                    <pre>{uploadState.result.preview}</pre>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {uploadState.error && (
-                <div className="upload-section">
-                    <h3>❌ Error</h3>
-                    <div className="file-info error">
-                        <p>{uploadState.error}</p>
-                    </div>
-                </div>
-            )}
-
-            <VSCodeDivider />
-
-            <div className="supported-formats">
-                <h3>📋 Supported File Types</h3>
-                <ul>
-                    <li>
-                        <strong>CSV files (.csv)</strong> - Comma-separated values with automatic
-                        column detection
-                    </li>
-                    <li>
-                        <strong>TSV files (.tsv)</strong> - Tab-separated values with automatic
-                        column detection
-                    </li>
-                    <li>
-                        <strong>Text files (.txt)</strong> - Plain text files split by paragraphs or
-                        lines
-                    </li>
-                </ul>
-                <p>
-                    <em>
-                        The uploader automatically detects source, target, and ID columns for
-                        translation pairs.
-                    </em>
+        <div className="container mx-auto p-6 max-w-4xl space-y-6">
+            {/* Header */}
+            <div className="text-center space-y-2">
+                <h1 className="text-3xl font-bold flex items-center justify-center gap-2">
+                    <Upload className="h-8 w-8" />
+                    New Source Uploader
+                </h1>
+                <p className="text-muted-foreground">
+                    Upload CSV, TSV, or text files to create source and translation notebooks
                 </p>
             </div>
+
+            {/* File Upload Section */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <FileText className="h-5 w-5" />
+                        Select File
+                    </CardTitle>
+                    <CardDescription>
+                        Choose a file to upload and process into Codex notebooks
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="grid w-full max-w-sm items-center gap-1.5">
+                        <input
+                            type="file"
+                            accept=".csv,.tsv,.txt"
+                            onChange={handleFileSelect}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={uploadState.isUploading}
+                        />
+                    </div>
+
+                    {uploadState.selectedFile && (
+                        <Card className="bg-muted/50">
+                            <CardContent className="pt-6">
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <span className="font-medium">File:</span>{" "}
+                                        {getFileInfo(uploadState.selectedFile).name}
+                                    </div>
+                                    <div>
+                                        <span className="font-medium">Size:</span>{" "}
+                                        {formatFileSize(getFileInfo(uploadState.selectedFile).size)}
+                                    </div>
+                                    <div>
+                                        <span className="font-medium">Type:</span>{" "}
+                                        {getFileInfo(uploadState.selectedFile).type}
+                                    </div>
+                                    <div>
+                                        <span className="font-medium">Modified:</span>{" "}
+                                        {new Date(
+                                            getFileInfo(uploadState.selectedFile).lastModified
+                                        ).toLocaleString()}
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    <div className="flex gap-2">
+                        <Button
+                            onClick={handleUpload}
+                            disabled={!uploadState.selectedFile || uploadState.isUploading}
+                            className="flex items-center gap-2"
+                        >
+                            {uploadState.isUploading ? (
+                                <>
+                                    <RotateCcw className="h-4 w-4 animate-spin" />
+                                    Processing...
+                                </>
+                            ) : (
+                                <>
+                                    <Upload className="h-4 w-4" />
+                                    Upload File
+                                </>
+                            )}
+                        </Button>
+
+                        {(uploadState.result || uploadState.error) && (
+                            <Button onClick={handleReset} variant="outline">
+                                Reset
+                            </Button>
+                        )}
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Progress Section */}
+            {uploadState.progress.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center justify-between">
+                            <span>Processing Progress</span>
+                            <Badge variant="outline">
+                                {completedSteps}/{totalSteps} completed
+                            </Badge>
+                        </CardTitle>
+                        <CardDescription>
+                            Track the progress of your file upload and processing
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <Progress value={progressPercentage} className="w-full" />
+
+                        <div className="space-y-3">
+                            {uploadState.progress.map((item, index) => (
+                                <div
+                                    key={index}
+                                    className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+                                >
+                                    {getStatusIcon(item.status)}
+                                    <div className="flex-1 space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <span className="font-medium">{item.stage}</span>
+                                            <Badge variant={getStatusBadgeVariant(item.status)}>
+                                                {item.status}
+                                            </Badge>
+                                        </div>
+                                        <p className="text-sm text-muted-foreground">
+                                            {item.message}
+                                        </p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Results Section */}
+            {uploadState.result && (
+                <Card
+                    className={uploadState.result.success ? "border-green-200" : "border-red-200"}
+                >
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            {uploadState.result.success ? (
+                                <CheckCircle className="h-5 w-5 text-green-500" />
+                            ) : (
+                                <XCircle className="h-5 w-5 text-red-500" />
+                            )}
+                            Upload {uploadState.result.success ? "Complete" : "Failed"}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="p-4 rounded-lg bg-muted">
+                            <p className="font-medium">Status:</p>
+                            <p className="text-sm text-muted-foreground">
+                                {uploadState.result.message}
+                            </p>
+                        </div>
+
+                        {uploadState.result.preview && (
+                            <div className="space-y-2">
+                                <h4 className="font-medium">Preview:</h4>
+                                <div className="p-4 rounded-lg bg-muted font-mono text-sm max-h-60 overflow-y-auto">
+                                    <pre className="whitespace-pre-wrap">
+                                        {uploadState.result.preview}
+                                    </pre>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Error Section */}
+            {uploadState.error && (
+                <Card className="border-red-200">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-red-600">
+                            <XCircle className="h-5 w-5" />
+                            Error
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="p-4 rounded-lg bg-red-50 border border-red-200">
+                            <p className="text-red-800">{uploadState.error}</p>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Supported Formats */}
+            <Card>
+                <CardHeader>
+                    <CardTitle>Supported File Types</CardTitle>
+                    <CardDescription>
+                        Information about the file formats that can be uploaded
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline">CSV</Badge>
+                                <span className="text-sm font-medium">Comma-separated values</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                Automatic column detection for translation pairs
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline">TSV</Badge>
+                                <span className="text-sm font-medium">Tab-separated values</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                Automatic column detection for translation pairs
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline">TXT</Badge>
+                                <span className="text-sm font-medium">Plain text files</span>
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                Split by paragraphs or lines
+                            </p>
+                        </div>
+                    </div>
+                    <div className="mt-4 p-4 rounded-lg bg-muted">
+                        <p className="text-sm text-muted-foreground">
+                            <strong>Note:</strong> The uploader automatically detects source,
+                            target, and ID columns for translation pairs.
+                        </p>
+                    </div>
+                </CardContent>
+            </Card>
         </div>
     );
 };

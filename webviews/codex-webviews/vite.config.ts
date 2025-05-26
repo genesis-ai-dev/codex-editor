@@ -14,8 +14,15 @@ export default defineConfig({
             animejs: path.resolve(__dirname, "node_modules/animejs"),
             // Add quill alias
             quill: path.resolve(__dirname, "node_modules/quill"),
+            // Add shadcn/ui aliases
+            // "@": path.resolve(__dirname, "./src"),
+            // "@/components": path.resolve(__dirname, "./src/components"),
+            // "@/lib": path.resolve(__dirname, "./src/lib"),
         },
     },
+    // css: {
+    //     postcss: "./postcss.config.js",
+    // },
     build: {
         rollupOptions: {
             input: `src/${appToBuild}/index.tsx`,
@@ -30,5 +37,6 @@ export default defineConfig({
         },
         outDir: appToBuild ? `dist/${appToBuild}` : "dist",
         sourcemap: true,
+        // cssCodeSplit: false, // Inline CSS into JS for webview compatibility
     },
 });
