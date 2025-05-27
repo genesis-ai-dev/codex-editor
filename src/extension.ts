@@ -32,10 +32,14 @@ import {
 } from "./sqldb";
 import {
     createTableIndexes,
-    parseTableFile,
     TableRecord,
-} from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
-import MiniSearch from "minisearch";
+} from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableWrapper";
+import {
+    initializeDynamicTableDb,
+    createDynamicTableIndex as createSqliteDynamicTableIndex,
+    saveDynamicTableDb
+} from "./sqldb/dynamicTableDb";
+// MiniSearch import removed - SQLite is now used directly
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
@@ -56,6 +60,7 @@ import {
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
+import { logUsageReport, clearUsageData } from "./telemetry/featureUsage";
 
 export interface ActivationTiming {
     step: string;
@@ -84,7 +89,7 @@ declare global {
 let client: LanguageClient | undefined;
 let clientCommandsDisposable: vscode.Disposable;
 let autoCompleteStatusBarItem: StatusBarItem;
-let tableIndexMap: Map<string, MiniSearch<TableRecord>>;
+// tableIndexMap removed - SQLite is now used directly for table indexing
 let commitTimeout: any;
 const COMMIT_DELAY = 5000; // Delay in milliseconds
 let notebookMetadataManager: NotebookMetadataManager;
@@ -214,7 +219,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
 
-        // Initialize SqlJs
+        // Initialize SqlJs (Dictionary Database)
         stepStart = trackTiming("Initialize SqlJs", stepStart);
         try {
             global.db = await initializeSqlJs(context);
@@ -222,7 +227,32 @@ export async function activate(context: vscode.ExtensionContext) {
         } catch (error) {
             console.error("Error initializing SqlJs:", error);
         }
+
+        // Initialize Unified Index Database
+        stepStart = trackTiming("Initialize Index Database", stepStart);
+        try {
+            const { initializeUnifiedIndexDb } = await import("./sqldb/unifiedIndexDb");
+            const indexDb = await initializeUnifiedIndexDb(context);
+            if (indexDb) {
+                console.log("✅ Unified index database initialized");
+                // Store the index database globally for easy access
+                (global as any).indexDb = indexDb;
+            } else {
+                console.warn("⚠️ Failed to initialize unified index database");
+            }
+        } catch (error) {
+            console.error("❌ Error initializing unified index database:", error);
+        }
         if (global.db) {
+            // Test FTS5 support
+            const { testFTS5Support } = await import("./sqldb");
+            const fts5Works = testFTS5Support(global.db);
+            if (!fts5Works) {
+                vscode.window.showWarningMessage(
+                    "FTS5 not available. Some search features may be limited. Consider building a custom sql.js with FTS5 support."
+                );
+            }
+            
             const importCommand = vscode.commands.registerCommand(
                 "extension.importWiktionaryJSONL",
                 () => global.db && importWiktionaryJSONL(global.db)
@@ -231,6 +261,20 @@ export async function activate(context: vscode.ExtensionContext) {
             registerLookupWordCommand(global.db, context);
             ingestJsonlDictionaryEntries(global.db);
         }
+
+        // Register performance commands
+        stepStart = trackTiming("Register Performance Commands", stepStart);
+        context.subscriptions.push(
+            vscode.commands.registerCommand('translators-copilot.showPerformanceReport', () => {
+                logUsageReport();
+                vscode.window.showInformationMessage('Performance report logged to console. Check the Developer Console for details.');
+            }),
+
+            vscode.commands.registerCommand('translators-copilot.clearPerformanceData', () => {
+                clearUsageData();
+                vscode.window.showInformationMessage('Performance data cleared.');
+            })
+        );
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
@@ -396,14 +440,15 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Break down index creation
         const indexStart = globalThis.performance.now();
-        stepStart = trackTiming("  • Index Verse Refs", indexStart);
-        await indexVerseRefsInSourceText();
-
+        
         stepStart = trackTiming("  • Create Context Index", stepStart);
         await createIndexWithContext(context);
 
         stepStart = trackTiming("  • Create Table Indexes", stepStart);
-        tableIndexMap = await createTableIndexes();
+        await createTableIndexes();
+        
+        // Note: Verse reference indexing is now handled within createIndexWithContext
+        // which properly initializes all databases before attempting to access them
 
         trackTiming("• Total Index Creation", indexStart);
     } else {
@@ -420,67 +465,66 @@ function watchTableFiles(context: vscode.ExtensionContext) {
     const watcher = vscode.workspace.createFileSystemWatcher("**/*.{csv,tsv,tab}");
 
     watcher.onDidChange(async (uri) => {
-        // Recreate the index for the changed file
-        const [records, fields] = await parseTableFile(uri);
-
-        if (fields.length === 0) {
-            tableIndexMap.delete(uri.fsPath);
-            console.warn(`Headers missing after change in ${uri.fsPath}. Index removed.`);
-            return;
+        console.log(`Table file changed: ${uri.fsPath}`);
+        
+        // Use incremental indexing for file changes
+        const { updateTableIndex } = await import('./activationHelpers/contextAware/miniIndex/indexes/dynamicTableWrapper');
+        await updateTableIndex(uri.fsPath);
+        
+        // Save the unified index database after change
+        try {
+            const { saveUnifiedIndexDb } = await import('./sqldb/unifiedIndexDb');
+            await saveUnifiedIndexDb();
+        } catch (error) {
+            console.error("Error saving unified index database after table change:", error);
         }
-
-        const tableIndex = new MiniSearch<TableRecord>({
-            fields: fields,
-            storeFields: ["id", ...fields],
-            idField: "id",
-        });
-
-        tableIndex.addAll(records);
-
-        tableIndexMap.set(uri.fsPath, tableIndex);
-
-        console.log(`Updated index for file: ${uri.fsPath}`);
     });
 
     watcher.onDidCreate(async (uri) => {
-        // Create an index for the new file
-        const [records, fields] = await parseTableFile(uri);
-
-        if (fields.length === 0) {
-            console.warn(`No headers found in new table file: ${uri.fsPath}. Skipping file.`);
-            return;
+        console.log(`Table file created: ${uri.fsPath}`);
+        
+        // Use incremental indexing for new files
+        const { updateTableIndex } = await import('./activationHelpers/contextAware/miniIndex/indexes/dynamicTableWrapper');
+        await updateTableIndex(uri.fsPath);
+        
+        // Save the unified index database after creation
+        try {
+            const { saveUnifiedIndexDb } = await import('./sqldb/unifiedIndexDb');
+            await saveUnifiedIndexDb();
+        } catch (error) {
+            console.error("Error saving unified index database after table creation:", error);
         }
-
-        const tableIndex = new MiniSearch<TableRecord>({
-            fields: fields,
-            storeFields: ["id", ...fields],
-            idField: "id",
-        });
-
-        tableIndex.addAll(records);
-
-        tableIndexMap.set(uri.fsPath, tableIndex);
-
-        console.log(`Created index for new file: ${uri.fsPath}`);
     });
 
-    watcher.onDidDelete((uri) => {
-        // Remove the index for the deleted file
-        if (tableIndexMap.delete(uri.fsPath)) {
-            console.log(`Removed index for deleted file: ${uri.fsPath}`);
+    watcher.onDidDelete(async (uri) => {
+        console.log(`Table file deleted: ${uri.fsPath}`);
+        
+        // Remove from SQLite using wrapper
+        const { removeTableIndex } = await import('./activationHelpers/contextAware/miniIndex/indexes/dynamicTableWrapper');
+        await removeTableIndex(uri.fsPath);
+        
+        // Save the unified index database after deletion
+        try {
+            const { saveUnifiedIndexDb } = await import('./sqldb/unifiedIndexDb');
+            await saveUnifiedIndexDb();
+        } catch (error) {
+            console.error("Error saving unified index database after table deletion:", error);
         }
+        
+        console.log(`Removed SQLite index for deleted file: ${uri.fsPath}`);
     });
 
     context.subscriptions.push(watcher);
 }
 
 async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
+    const fs = vscode.workspace.fs;
     watcher = vscode.workspace.createFileSystemWatcher("**/*");
 
     const checkInitialization = async () => {
         let metadataExists = false;
         try {
-            await vscode.workspace.fs.stat(metadataUri);
+            await fs.stat(metadataUri);
             metadataExists = true;
         } catch {
             metadataExists = false;
@@ -596,6 +640,13 @@ export function deactivate() {
     }
     if (global.db) {
         global.db.close();
+    }
+    // Close unified index database
+    try {
+        const { closeUnifiedIndexDb } = require("./sqldb/unifiedIndexDb");
+        closeUnifiedIndexDb();
+    } catch (error) {
+        console.error("Error closing unified index database:", error);
     }
 }
 
