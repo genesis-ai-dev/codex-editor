@@ -2,10 +2,10 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as xlsx from "xlsx";
-import MiniSearch from "minisearch";
+// MiniSearch import removed - SQLite is now used directly
 import { SourceCellVersions } from "../../types";
 import { FileData } from "../activationHelpers/contextAware/miniIndex/indexes/fileReaders";
-import { createSourceTextIndex } from "../activationHelpers/contextAware/miniIndex/indexes/sourceTextIndex";
+import * as cellLabelWrapper from "./cellLabelWrapper";
 import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
@@ -13,7 +13,6 @@ import {
 import { importLabelsFromVscodeUri } from "./fileHandler";
 import { matchCellLabels } from "./matcher";
 import { copyToTempStorage, getColumnHeaders } from "./utils";
-import { updateCellLabels } from "./updater";
 
 // Interface for the cell label data
 interface CellLabelData {
@@ -182,11 +181,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
-    const sourceTextIndex = new MiniSearch<SourceCellVersions>({
-        fields: ["cellId", "content"],
-        storeFields: ["cellId", "content", "versions", "notebookId"],
-        idField: "cellId",
-    });
+    // SQLite is now used directly for cell label indexing
 
     panel.webview.html = await getHtmlForCellLabelImporterView(panel.webview, context);
 
@@ -334,9 +329,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             );
                         }
 
-                        sourceTextIndex.removeAll();
-                        await createSourceTextIndex(
-                            sourceTextIndex,
+                        await cellLabelWrapper.createSourceTextIndexWithLabels(
                             filesToProcess,
                             metadataManager,
                             true
@@ -418,7 +411,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                         vscode.window.showInformationMessage("No cell labels selected for update.");
                         return;
                     }
-                    await updateCellLabels(selectedLabelsToSave);
+                    await cellLabelWrapper.updateCellLabels(selectedLabelsToSave);
                     vscode.window.showInformationMessage(
                         `Updated ${selectedLabelsToSave.length} cell labels successfully.`
                     );

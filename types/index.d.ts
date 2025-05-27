@@ -526,21 +526,6 @@ type SpellCheckDiagnostic = {
     source: string;
 };
 
-type MiniSearchVerseResult = {
-    book: string;
-    chapter: string;
-    content: string;
-    id: string;
-    isSourceBible: boolean;
-    line: number;
-    match: { [key: string]: string[] };
-    queryTerms: string[];
-    score: number;
-    terms: string[];
-    uri: string;
-    vref: string;
-};
-
 type MinimalCellResult = {
     cellId?: string;
     content?: string;
@@ -1103,37 +1088,30 @@ type ProjectMetadata = {
     };
 };
 
-// Update or add these function signatures
+// Updated function signatures - MiniSearch parameters removed, SQLite is now used directly
 declare function searchTargetCellsByQuery(
-    translationPairsIndex: MiniSearch,
     query: string,
     k?: number
 ): MinimalCellResult[];
 
 declare function getTranslationPairsFromSourceCellQuery(
-    translationPairsIndex: MiniSearch,
     query: string,
     k?: number
 ): TranslationPair[];
 
 declare function getSourceCellByCellIdFromAllSourceCells(
-    sourceTextIndex: MiniSearch,
     cellId: string
 ): SourceCellVersions | null;
 
 declare function getTargetCellByCellId(
-    translationPairsIndex: MiniSearch,
     cellId: string
 ): MinimalCellResult | null;
 
 declare function getTranslationPairFromProject(
-    translationPairsIndex: MiniSearch,
     cellId: string
 ): TranslationPair | null;
 
 declare function searchParallelCells(
-    translationPairsIndex: MiniSearch,
-    sourceTextIndex: MiniSearch,
     query: string,
     k?: number
 ): TranslationPair[];
