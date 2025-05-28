@@ -23,7 +23,7 @@ import { registerSourceUploadCommands } from "./providers/SourceUpload/registerC
 import { registerNewSourceUploadCommands } from "./providers/NewSourceUploader/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
-import { Database } from "sql.js";
+import { Database } from "sql.js-fts5";
 import {
     importWiktionaryJSONL,
     ingestJsonlDictionaryEntries,
@@ -244,15 +244,7 @@ export async function activate(context: vscode.ExtensionContext) {
             console.error("❌ Error initializing unified index database:", error);
         }
         if (global.db) {
-            // Test FTS5 support
-            const { testFTS5Support } = await import("./sqldb");
-            const fts5Works = testFTS5Support(global.db);
-            if (!fts5Works) {
-                vscode.window.showWarningMessage(
-                    "FTS5 not available. Some search features may be limited. Consider building a custom sql.js with FTS5 support."
-                );
-            }
-            
+            // sql.js-fts5 has built-in FTS5 support, no need to test
             const importCommand = vscode.commands.registerCommand(
                 "extension.importWiktionaryJSONL",
                 () => global.db && importWiktionaryJSONL(global.db)

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { Database } from "sql.js";
+import { Database } from "sql.js-fts5";
 import { getWorkSpaceUri } from "../utils";
 import { ZeroDraftIndexRecord, CellWithMetadata } from "../activationHelpers/contextAware/miniIndex/indexes/zeroDraftIndex";
 import { zeroDraftDocumentLoader } from "../utils/zeroDraftUtils";

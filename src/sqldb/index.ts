@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { StatusBarItem } from "vscode";
-import initSqlJs, { Database, SqlJsStatic } from "sql.js";
+import initSqlJs, { Database, SqlJsStatic } from "sql.js-fts5";
 import path from "path";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 import crypto from "crypto";

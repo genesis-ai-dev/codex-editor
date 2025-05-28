@@ -1,4 +1,4 @@
-import { Database } from 'sql.js';
+import { Database } from 'sql.js-fts5';
 import { trackFeatureUsage } from '../telemetry/featureUsage';
 
 // Interface for fuzzy search results
@@ -289,333 +289,26 @@ export function addToFuzzySearchIndex(
     const charCount = content.length;
     
     const stmt = db.prepare(`
-        INSERT OR REPLACE INTO fuzzy_search_index (
-            id, resource_type, content, normalized_content, phonetic_code, ngrams, word_count, char_count, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT OR REPLACE INTO fuzzy_search_index 
+        (id, resource_type, content, normalized_content, phonetic_code, ngrams, word_count, char_count, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `);
     
     stmt.run([id, resourceType, content, normalizedContent, phoneticCode, ngrams, wordCount, charCount]);
     stmt.free();
     
-    const elapsedTime = performance.now() - startTime;
-    trackFeatureUsage('addToFuzzySearchIndex', 'sqlite', elapsedTime);
+    const endTime = performance.now();
+    trackFeatureUsage('fuzzy_search_index_add', 'sqlite', endTime - startTime);
 }
 
 /**
- * Remove content from the fuzzy search index
+ * Helper function to generate phonetic code using Soundex algorithm
  */
-export function removeFromFuzzySearchIndex(db: Database, id: string): void {
-    const stmt = db.prepare('DELETE FROM fuzzy_search_index WHERE id = ?');
-    stmt.run([id]);
-    stmt.free();
-}
-
-/**
- * Perform fuzzy search with advanced algorithms
- */
-export function performFuzzySearch(
-    db: Database,
-    query: string,
-    resourceType?: string,
-    limit: number = 50,
-    config: Partial<FuzzySearchConfig> = {}
-): FuzzySearchResult[] {
-    const startTime = performance.now();
-    const mergedConfig = { ...DEFAULT_CONFIG, ...config };
-    const configJson = JSON.stringify(mergedConfig);
+function generatePhoneticCode(str: string): string {
+    if (!str) return '';
     
-    const normalizedQuery = mergedConfig.caseSensitive ? query : query.toLowerCase();
-    const phoneticQuery = generatePhoneticCode(query);
-    const queryNgrams = generateNgrams(query, mergedConfig.ngramSize);
-    
-    let sql = `
-        WITH fuzzy_matches AS (
-            -- Exact matches
-            SELECT 
-                id, resource_type, content, normalized_content,
-                'exact' as match_type,
-                0 as distance,
-                fuzzy_score(?, content, 'exact', 0, ?) as score
-            FROM fuzzy_search_index 
-            WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
-            ${resourceType ? 'AND resource_type = ?' : ''}
-            
-            UNION ALL
-            
-            -- Prefix matches
-            SELECT 
-                id, resource_type, content, normalized_content,
-                'prefix' as match_type,
-                0 as distance,
-                fuzzy_score(?, content, 'prefix', 0, ?) as score
-            FROM fuzzy_search_index 
-            WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} LIKE ? || '%'
-            ${resourceType ? 'AND resource_type = ?' : ''}
-            
-            UNION ALL
-            
-            -- FTS5 matches
-            SELECT 
-                i.id, i.resource_type, i.content, i.normalized_content,
-                'fuzzy' as match_type,
-                levenshtein(?, i.normalized_content) as distance,
-                fuzzy_score(?, i.content, 'fuzzy', levenshtein(?, i.normalized_content), ?) as score
-            FROM fuzzy_search_index i
-            JOIN fuzzy_search_fts fts ON i.rowid = fts.rowid
-            WHERE fts.content MATCH ?
-            ${resourceType ? 'AND i.resource_type = ?' : ''}
-            AND levenshtein(?, i.normalized_content) <= ?
-    `;
-    
-    if (mergedConfig.enablePhonetic) {
-        sql += `
-            UNION ALL
-            
-            -- Phonetic matches
-            SELECT 
-                id, resource_type, content, normalized_content,
-                'phonetic' as match_type,
-                levenshtein(?, normalized_content) as distance,
-                fuzzy_score(?, content, 'phonetic', levenshtein(?, normalized_content), ?) as score
-            FROM fuzzy_search_index 
-            WHERE phonetic_code = ?
-            ${resourceType ? 'AND resource_type = ?' : ''}
-        `;
-    }
-    
-    sql += `
-        )
-        SELECT DISTINCT id, resource_type, content, match_type, distance, score
-        FROM fuzzy_matches
-        WHERE score >= ?
-        ORDER BY score DESC, distance ASC, length(content) ASC
-        LIMIT ?
-    `;
-    
-    const stmt = db.prepare(sql);
-    const params: any[] = [];
-    
-    // Exact match parameters
-    params.push(normalizedQuery, configJson, normalizedQuery);
-    if (resourceType) params.push(resourceType);
-    
-    // Prefix match parameters
-    params.push(normalizedQuery, configJson, normalizedQuery);
-    if (resourceType) params.push(resourceType);
-    
-    // FTS5 match parameters
-    const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
-    params.push(normalizedQuery, normalizedQuery, normalizedQuery, configJson, ftsQuery);
-    if (resourceType) params.push(resourceType);
-    params.push(normalizedQuery, mergedConfig.maxDistance);
-    
-    // Phonetic match parameters (if enabled)
-    if (mergedConfig.enablePhonetic) {
-        params.push(normalizedQuery, normalizedQuery, normalizedQuery, configJson, phoneticQuery);
-        if (resourceType) params.push(resourceType);
-    }
-    
-    // Final parameters
-    params.push(mergedConfig.minScore, limit);
-    
-    const results: FuzzySearchResult[] = [];
-    try {
-        stmt.bind(params);
-        
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
-            results.push({
-                id: row.id as string,
-                content: row.content as string,
-                score: row.score as number,
-                distance: row.distance as number,
-                matchType: row.match_type as any,
-                highlightedContent: highlightMatches(row.content as string, query),
-                metadata: { resourceType: row.resource_type }
-            });
-        }
-    } finally {
-        stmt.free();
-    }
-    
-    const elapsedTime = performance.now() - startTime;
-    trackFeatureUsage('performFuzzySearch', 'sqlite', elapsedTime);
-    console.log(`Fuzzy search for "${query}" found ${results.length} results in ${elapsedTime.toFixed(2)}ms`);
-    
-    return results;
-}
-
-/**
- * Perform similarity search using Jaro-Winkler algorithm
- */
-export function performSimilaritySearch(
-    db: Database,
-    query: string,
-    resourceType?: string,
-    limit: number = 50,
-    minSimilarity: number = 0.6
-): FuzzySearchResult[] {
-    const startTime = performance.now();
-    
-    let sql = `
-        SELECT 
-            id, resource_type, content, normalized_content,
-            jaro_winkler(?, normalized_content) as similarity
-        FROM fuzzy_search_index
-        WHERE jaro_winkler(?, normalized_content) >= ?
-        ${resourceType ? 'AND resource_type = ?' : ''}
-        ORDER BY similarity DESC, length(content) ASC
-        LIMIT ?
-    `;
-    
-    const params = [query.toLowerCase(), query.toLowerCase(), minSimilarity];
-    if (resourceType) params.push(resourceType);
-    params.push(limit);
-    
-    const stmt = db.prepare(sql);
-    const results: FuzzySearchResult[] = [];
-    
-    try {
-        stmt.bind(params);
-        
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
-            results.push({
-                id: row.id as string,
-                content: row.content as string,
-                score: row.similarity as number,
-                distance: 0,
-                matchType: 'fuzzy',
-                highlightedContent: highlightMatches(row.content as string, query),
-                metadata: { resourceType: row.resource_type }
-            });
-        }
-    } finally {
-        stmt.free();
-    }
-    
-    const elapsedTime = performance.now() - startTime;
-    trackFeatureUsage('performSimilaritySearch', 'sqlite', elapsedTime);
-    
-    return results;
-}
-
-/**
- * Get fuzzy search statistics
- */
-export function getFuzzySearchStats(db: Database): {
-    totalRecords: number;
-    recordsByType: { [key: string]: number };
-    avgContentLength: number;
-    avgWordCount: number;
-} {
-    const totalStmt = db.prepare('SELECT COUNT(*) as count FROM fuzzy_search_index');
-    const totalResult = totalStmt.get() as any;
-    totalStmt.free();
-    
-    const typeStmt = db.prepare(`
-        SELECT resource_type, COUNT(*) as count 
-        FROM fuzzy_search_index 
-        GROUP BY resource_type
-    `);
-    
-    const recordsByType: { [key: string]: number } = {};
-    try {
-        while (typeStmt.step()) {
-            const row = typeStmt.getAsObject();
-            recordsByType[row.resource_type as string] = row.count as number;
-        }
-    } finally {
-        typeStmt.free();
-    }
-    
-    const avgStmt = db.prepare(`
-        SELECT 
-            AVG(char_count) as avg_char_count,
-            AVG(word_count) as avg_word_count
-        FROM fuzzy_search_index
-    `);
-    const avgResult = avgStmt.get() as any;
-    avgStmt.free();
-    
-    return {
-        totalRecords: totalResult.count,
-        recordsByType,
-        avgContentLength: Math.round(avgResult.avg_char_count || 0),
-        avgWordCount: Math.round(avgResult.avg_word_count || 0),
-    };
-}
-
-/**
- * Bulk index content for fuzzy search
- */
-export function bulkIndexForFuzzySearch(
-    db: Database,
-    records: Array<{ id: string; resourceType: string; content: string }>
-): void {
-    const startTime = performance.now();
-    
-    db.exec('BEGIN TRANSACTION');
-    
-    try {
-        const stmt = db.prepare(`
-            INSERT OR REPLACE INTO fuzzy_search_index (
-                id, resource_type, content, normalized_content, phonetic_code, ngrams, word_count, char_count, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `);
-        
-        for (const record of records) {
-            const normalizedContent = record.content.toLowerCase().trim();
-            const phoneticCode = generatePhoneticCode(record.content);
-            const ngrams = generateNgrams(record.content, 3);
-            const wordCount = record.content.split(/\s+/).length;
-            const charCount = record.content.length;
-            
-            stmt.run([
-                record.id,
-                record.resourceType,
-                record.content,
-                normalizedContent,
-                phoneticCode,
-                ngrams,
-                wordCount,
-                charCount
-            ]);
-        }
-        
-        stmt.free();
-        db.exec('COMMIT');
-        
-        const elapsedTime = performance.now() - startTime;
-        trackFeatureUsage('bulkIndexForFuzzySearch', 'sqlite', elapsedTime);
-        console.log(`Bulk indexed ${records.length} records for fuzzy search in ${elapsedTime.toFixed(2)}ms`);
-        
-    } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-    }
-}
-
-/**
- * Clear fuzzy search index for a specific resource type
- */
-export function clearFuzzySearchIndex(db: Database, resourceType?: string): void {
-    if (resourceType) {
-        const stmt = db.prepare('DELETE FROM fuzzy_search_index WHERE resource_type = ?');
-        stmt.run([resourceType]);
-        stmt.free();
-    } else {
-        db.exec('DELETE FROM fuzzy_search_index');
-    }
-}
-
-// Helper functions
-
-function generatePhoneticCode(text: string): string {
-    if (!text) return '';
-    
-    const cleaned = text.toUpperCase().replace(/[^A-Z]/g, '');
-    if (!cleaned) return '';
+    str = str.toUpperCase().replace(/[^A-Z]/g, '');
+    if (!str) return '';
     
     const soundexMap: { [key: string]: string } = {
         'B': '1', 'F': '1', 'P': '1', 'V': '1',
@@ -626,11 +319,11 @@ function generatePhoneticCode(text: string): string {
         'R': '6'
     };
     
-    let soundex = cleaned[0];
-    let prevCode = soundexMap[cleaned[0]] || '';
+    let soundex = str[0];
+    let prevCode = soundexMap[str[0]] || '';
     
-    for (let i = 1; i < cleaned.length && soundex.length < 4; i++) {
-        const code = soundexMap[cleaned[i]] || '';
+    for (let i = 1; i < str.length && soundex.length < 4; i++) {
+        const code = soundexMap[str[i]] || '';
         if (code && code !== prevCode) {
             soundex += code;
         }
@@ -640,11 +333,14 @@ function generatePhoneticCode(text: string): string {
     return soundex.padEnd(4, '0');
 }
 
-function generateNgrams(text: string, n: number = 3): string {
-    if (!text || text.length < n) return text;
+/**
+ * Helper function to generate n-grams from text
+ */
+function generateNgrams(str: string, n: number = 3): string {
+    if (!str || str.length < n) return str;
     
     const ngrams: string[] = [];
-    const normalized = text.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    const normalized = str.toLowerCase().replace(/[^a-z0-9\s]/g, '');
     
     for (let i = 0; i <= normalized.length - n; i++) {
         ngrams.push(normalized.substr(i, n));
@@ -653,24 +349,212 @@ function generateNgrams(text: string, n: number = 3): string {
     return ngrams.join(' ');
 }
 
-function highlightMatches(content: string, query: string): string {
-    if (!query || !content) return content;
+/**
+ * Perform fuzzy search on the indexed content
+ */
+export function performFuzzySearch(
+    db: Database,
+    query: string,
+    resourceType?: string,
+    limit: number = 50,
+    config: Partial<FuzzySearchConfig> = {}
+): FuzzySearchResult[] {
+    const startTime = performance.now();
+    const mergedConfig = { ...DEFAULT_CONFIG, ...config };
     
-    const queryTerms = query.toLowerCase().split(/\s+/);
-    let highlighted = content;
+    if (!query.trim()) return [];
     
-    for (const term of queryTerms) {
-        const regex = new RegExp(`(${term})`, 'gi');
-        highlighted = highlighted.replace(regex, '<mark>$1</mark>');
+    const normalizedQuery = mergedConfig.caseSensitive ? query : query.toLowerCase();
+    const results: FuzzySearchResult[] = [];
+    
+    // Exact match search
+    let exactSql = `
+        SELECT id, content, resource_type, 1.0 * ? as score, 0 as distance, 'exact' as match_type
+        FROM fuzzy_search_index 
+        WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
+    `;
+    
+    const exactParams: any[] = [mergedConfig.boostExactMatch, normalizedQuery];
+    
+    if (resourceType) {
+        exactSql += ` AND resource_type = ?`;
+        exactParams.push(resourceType);
     }
     
-    return highlighted;
+    exactSql += ` LIMIT ?`;
+    exactParams.push(Math.min(limit, 50));
+    
+    const exactStmt = db.prepare(exactSql);
+    exactStmt.bind(exactParams);
+    
+    while (exactStmt.step()) {
+        const row = exactStmt.getAsObject();
+        results.push({
+            id: row.id as string,
+            content: row.content as string,
+            score: row.score as number,
+            distance: row.distance as number,
+            matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
+        });
+    }
+    exactStmt.free();
+    
+    // FTS5 search for partial matches
+    if (results.length < limit) {
+        let ftsSql = `
+            SELECT f.id, f.content, f.resource_type, 
+                   fuzzy_score(?, f.content, 'fuzzy', levenshtein(?, f.normalized_content), ?) as score,
+                   levenshtein(?, f.normalized_content) as distance,
+                   'fuzzy' as match_type
+            FROM fuzzy_search_fts fts
+            JOIN fuzzy_search_index f ON f.rowid = fts.rowid
+            WHERE fts.content MATCH ?
+        `;
+        
+        const ftsParams: any[] = [];
+        const ftsQuery = normalizedQuery.split(' ').map(term => `"${term}"*`).join(' OR ');
+        const configStr = JSON.stringify(mergedConfig);
+        
+        ftsParams.push(normalizedQuery, normalizedQuery, configStr, normalizedQuery, ftsQuery);
+        
+        if (resourceType) {
+            ftsSql += ` AND f.resource_type = ?`;
+            ftsParams.push(resourceType);
+        }
+        
+        ftsSql += ` AND levenshtein(?, f.normalized_content) <= ? ORDER BY score DESC LIMIT ?`;
+        ftsParams.push(normalizedQuery, mergedConfig.maxDistance, limit - results.length);
+        
+        const ftsStmt = db.prepare(ftsSql);
+        ftsStmt.bind(ftsParams);
+        
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            results.push({
+                id: row.id as string,
+                content: row.content as string,
+                score: row.score as number,
+                distance: row.distance as number,
+                matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
+            });
+        }
+        ftsStmt.free();
+    }
+    
+    const endTime = performance.now();
+    trackFeatureUsage('fuzzy_search_perform', 'sqlite', endTime - startTime);
+    
+    return results
+        .filter(result => result.score >= mergedConfig.minScore)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
 }
 
 /**
- * Save fuzzy search database state
+ * Perform similarity search using Jaro-Winkler algorithm
+ */
+export function performSimilaritySearch(
+    db: Database,
+    query: string,
+    resourceType?: string,
+    limit: number = 50,
+    minSimilarity: number = 0.5
+): FuzzySearchResult[] {
+    const startTime = performance.now();
+    
+    if (!query.trim()) return [];
+    
+    const normalizedQuery = query.toLowerCase();
+    
+    let sql = `
+        SELECT id, content, resource_type,
+               jaro_winkler(?, normalized_content) as score,
+               0 as distance,
+               'fuzzy' as match_type
+        FROM fuzzy_search_index 
+        WHERE jaro_winkler(?, normalized_content) >= ?
+    `;
+    
+    const params: any[] = [normalizedQuery, normalizedQuery, minSimilarity];
+    
+    if (resourceType) {
+        sql += ` AND resource_type = ?`;
+        params.push(resourceType);
+    }
+    
+    sql += ` ORDER BY score DESC LIMIT ?`;
+    params.push(Math.min(limit, 50));
+    
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    
+    const results: FuzzySearchResult[] = [];
+    while (stmt.step()) {
+        const row = stmt.getAsObject();
+        results.push({
+            id: row.id as string,
+            content: row.content as string,
+            score: row.score as number,
+            distance: row.distance as number,
+            matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
+        });
+    }
+    stmt.free();
+    
+    const endTime = performance.now();
+    trackFeatureUsage('similarity_search_perform', 'sqlite', endTime - startTime);
+    
+    return results;
+}
+
+/**
+ * Get fuzzy search statistics
+ */
+export function getFuzzySearchStats(db: Database): any {
+    const stmt = db.prepare(`
+        SELECT 
+            COUNT(*) as total_entries,
+            COUNT(DISTINCT resource_type) as resource_types,
+            AVG(word_count) as avg_word_count,
+            AVG(char_count) as avg_char_count,
+            MIN(created_at) as oldest_entry,
+            MAX(updated_at) as newest_entry
+        FROM fuzzy_search_index
+    `);
+    
+    let result = {};
+    if (stmt.step()) {
+        result = stmt.getAsObject();
+    }
+    stmt.free();
+    
+    return result;
+}
+
+/**
+ * Clear entries from the fuzzy search index
+ */
+export function clearFuzzySearchIndex(db: Database, resourceType?: string): void {
+    const startTime = performance.now();
+    
+    if (resourceType) {
+        const stmt = db.prepare('DELETE FROM fuzzy_search_index WHERE resource_type = ?');
+        stmt.bind([resourceType]);
+        stmt.step();
+        stmt.free();
+    } else {
+        db.exec('DELETE FROM fuzzy_search_index');
+    }
+    
+    const endTime = performance.now();
+    trackFeatureUsage('fuzzy_search_clear', 'sqlite', endTime - startTime);
+}
+
+/**
+ * Save fuzzy search database (placeholder for compatibility)
  */
 export function saveFuzzySearchDb(db: Database): void {
-    db.exec('PRAGMA optimize');
+    // This function exists for compatibility with existing code
+    // The database is automatically persisted when using sql.js-fts5
     console.log('Fuzzy search database state saved');
-} 
+}

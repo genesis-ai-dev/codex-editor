@@ -1,4 +1,4 @@
-import { Database } from "sql.js";
+import { Database } from "sql.js-fts5";
 import * as vscode from "vscode";
 import { getWorkSpaceUri } from "../utils";
 
@@ -21,11 +21,11 @@ export async function initializeUnifiedIndexDb(context?: vscode.ExtensionContext
 
         const dbPath = vscode.Uri.joinPath(workspaceUri, ...unifiedIndexDbPath);
         
-        // Import sql.js using the same pattern as the main database
-        const { default: initSqlJs } = await import("sql.js");
+        // Import sql.js-fts5 for FTS5 support in indexes
+        const { default: initSqlJs } = await import("sql.js-fts5");
         
         // Get extension context
-        const extensionContext = context || vscode.extensions.getExtension("codex-editor-extension");
+        const extensionContext = context || vscode.extensions.getExtension("project-accelerate.codex-editor-extension");
         if (!extensionContext?.extensionUri) {
             throw new Error("Extension context not available");
         }

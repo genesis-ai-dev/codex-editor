@@ -1,12 +1,12 @@
 import * as vscode from "vscode";
-import { Database } from 'sql.js';
+import { Database } from 'sql.js-fts5';
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
 import * as sqlTranslationPairs from "../../../../sqldb/translationPairsDb";
 import * as sqlSourceText from "../../../../sqldb/sourceTextDb";
 
-// Helper function to get the database instance
-function getDatabase(): Database | null {
-    return (global as any).db || null;
+// Helper function to get the unified index database instance
+function getIndexDatabase(): Database | null {
+    return (global as any).indexDb || null;
 }
 
 export function searchTargetCellsByQuery(
@@ -14,7 +14,7 @@ export function searchTargetCellsByQuery(
     k: number = 5,
     fuzziness: number = 0.2
 ) {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -25,7 +25,7 @@ export function searchTargetCellsByQuery(
 export function getSourceCellByCellIdFromAllSourceCells(
     cellId: string
 ): SourceCellVersions | null {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return null;
@@ -34,7 +34,7 @@ export function getSourceCellByCellIdFromAllSourceCells(
 }
 
 export function getTargetCellByCellId(cellId: string) {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return null;
@@ -45,7 +45,7 @@ export function getTargetCellByCellId(cellId: string) {
 export function getTranslationPairFromProject(
     cellId: string
 ): TranslationPair | null {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return null;
@@ -57,7 +57,7 @@ export function getTranslationPairsFromSourceCellQuery(
     query: string,
     k: number = 5
 ): TranslationPair[] {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -66,7 +66,7 @@ export function getTranslationPairsFromSourceCellQuery(
 }
 
 export function handleTextSelection(selectedText: string) {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -79,7 +79,7 @@ export function searchParallelCells(
     query: string,
     k: number = 15
 ): TranslationPair[] {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -93,7 +93,7 @@ export function searchSimilarCellIds(
     k: number = 5,
     fuzziness: number = 0.2
 ) {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -105,7 +105,7 @@ export async function findNextUntranslatedSourceCell(
     query: string,
     currentCellId: string
 ): Promise<{ cellId: string; content: string } | null> {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return null;
@@ -117,7 +117,7 @@ export async function findNextUntranslatedSourceCell(
 export function getAllUntranslatedCells(
     limit: number = 50
 ): { cellId: string; content: string; notebookId: string }[] {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -133,7 +133,7 @@ export function getUntranslatedCellsByBook(
     translatedCells: number;
     progressPercentage: number;
 } {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return {
@@ -147,7 +147,7 @@ export function getUntranslatedCellsByBook(
 }
 
 export function getTranslationProgressSummary(): { book: string; totalCells: number; translatedCells: number; progressPercentage: number }[] {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -160,7 +160,7 @@ export function searchAllCells(
     k: number = 15,
     includeIncomplete: boolean = true
 ): TranslationPair[] {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];
@@ -174,7 +174,7 @@ export function searchTranslationPairs(
     k: number = 15,
     options: { completeBoost?: number; targetContentBoost?: number } = {}
 ): TranslationPair[] {
-    const db = getDatabase();
+    const db = getIndexDatabase();
     if (!db) {
         console.error('SQLite database not available');
         return [];

@@ -43,7 +43,7 @@ import {
     registerFileStatsWebviewProvider,
     updateFileStatsWebview,
 } from "../../../../providers/fileStats/register";
-import { Database } from "sql.js";
+import { Database } from "sql.js-fts5";
 import {
     initializeTranslationPairsDb,
     createTranslationPairsIndex as createSqliteTranslationPairsIndex,
@@ -208,25 +208,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 return;
             }
 
-            // Test FTS5 support
-            const { testFTS5Support } = await import("../../../../sqldb");
-            const fts5Works = testFTS5Support(sqliteDb);
-            if (!fts5Works) {
-                console.error("FTS5 is not available in the current sql.js build. Index creation will be skipped.");
-                const choice = await vscode.window.showErrorMessage(
-                    "FTS5 is not available in the current sql.js build. The extension requires FTS5 for full-text search functionality.",
-                    "View Build Instructions",
-                    "Continue Without Indexing"
-                );
-                
-                if (choice === "View Build Instructions") {
-                    vscode.env.openExternal(vscode.Uri.parse("https://github.com/sql-js/sql.js#building"));
-                }
-                
-                statusBarHandler.setIndexingComplete();
-                return;
-            }
-                    if (force) {
+            // sql.js-fts5 has built-in FTS5 support, no need to test
+
+            if (force) {
             // Clear SQLite records
             if (sqliteDb) {
                 sqliteDb.exec("DELETE FROM translation_pairs");

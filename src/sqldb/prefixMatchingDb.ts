@@ -1,4 +1,4 @@
-import { Database } from 'sql.js';
+import { Database } from 'sql.js-fts5';
 import { trackFeatureUsage } from '../telemetry/featureUsage';
 
 // Interface for prefix matching results

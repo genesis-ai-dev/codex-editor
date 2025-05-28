@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { Database } from 'sql.js';
+import { Database } from 'sql.js-fts5';
 import { trackFeatureUsage } from '../../../../telemetry/featureUsage';
 import * as sqlDynamicTable from '../../../../sqldb/dynamicTableDb';
 
@@ -9,9 +9,9 @@ export interface TableRecord {
     [key: string]: any; // Allow for dynamic keys based on table columns
 }
 
-// Helper function to get the database instance
-function getDatabase(): Database | null {
-    return (global as any).db || null;
+// Helper function to get the unified index database instance
+function getIndexDatabase(): Database | null {
+    return (global as any).indexDb || null;
 }
 
 // Direct SQLite implementation for creating table indexes
@@ -89,10 +89,10 @@ export function searchTableRecords(
     limit: number = 50
 ): any[] {
     const startTime = performance.now();
-    const db = getDatabase();
+    const db = getIndexDatabase();
     
     if (!db) {
-        console.error('SQLite database not available');
+        console.error('Unified index database not available');
         return [];
     }
     
@@ -110,10 +110,10 @@ export function searchTableRecords(
 // Direct SQLite implementation for getting table metadata
 export function getAllTableMetadata(): any[] {
     const startTime = performance.now();
-    const db = getDatabase();
+    const db = getIndexDatabase();
     
     if (!db) {
-        console.error('SQLite database not available');
+        console.error('Unified index database not available');
         return [];
     }
     

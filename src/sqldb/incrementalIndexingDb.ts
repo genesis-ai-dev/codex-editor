@@ -1,4 +1,4 @@
-import { Database } from 'sql.js';
+import { Database } from 'sql.js-fts5';
 import * as vscode from 'vscode';
 import { debounce } from 'lodash';
 import { trackFeatureUsage } from '../telemetry/featureUsage';
