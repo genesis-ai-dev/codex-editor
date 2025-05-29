@@ -1,9 +1,9 @@
 export interface FileUploadResult {
     success: boolean;
     message: string;
-    preview?: string;
-    sourceNotebook?: string;
-    codexNotebook?: string;
+    htmlContent?: string;
+    fileName?: string;
+    wordCount?: number;
 }
 
 export interface UploadProgress {
@@ -13,12 +13,12 @@ export interface UploadProgress {
 }
 
 export interface NewSourceUploaderPostMessages {
-    command: "uploadFiles" | "getProgress" | "reset";
-    filesData?: {
+    command: "uploadFile" | "getProgress" | "reset";
+    fileData?: {
         name: string;
-        content: string;
+        content: ArrayBuffer;
         type: string;
-    }[];
+    };
 }
 
 export interface NewSourceUploaderResponseMessages {
@@ -36,7 +36,7 @@ export interface FileInfo {
 }
 
 export interface UploadState {
-    selectedFiles: File[];
+    selectedFile: File | null;
     isUploading: boolean;
     progress: UploadProgress[];
     result: FileUploadResult | null;
