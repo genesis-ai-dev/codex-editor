@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.4.6",
+    "version": "0.5.0",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -1246,7 +1246,7 @@
         "sax": "^1.4.1",
         "semver": "^7.6.0",
         "sinon": "^19.0.2",
-        "sql.js-fts5": "^1.0.1",
+        "sql.js": "^1.13.0",
         "token.js": "^0.4.3",
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",

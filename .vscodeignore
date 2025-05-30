@@ -21,6 +21,8 @@
 !node_modules/sql.js/dist/sql-wasm.wasm
 !node_modules/sql.js/dist/sql-wasm.js
 !node_modules/sql.js/package.json
+# Include our custom sql.js build
+!src/sqljs-custom/**
 
 !CHANGELOG.md
 !LICENSE

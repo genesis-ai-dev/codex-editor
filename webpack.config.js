@@ -28,7 +28,6 @@ const extensionConfig = {
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
-        "sql.js-fts5": "commonjs sql.js-fts5",
         vm: "commonjs vm",
         encoding: "commonjs encoding",
     },
@@ -39,7 +38,7 @@ const extensionConfig = {
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
             sqldb: path.resolve(__dirname, "src/sqldb"),
-            "sql.js-fts5": path.resolve(__dirname, "out/sql-wasm.js"),
+            "sql.js-fts5": path.resolve(__dirname, "src/sqljs-custom"),
         },
         fallback: {
             path: false,
@@ -84,6 +83,10 @@ const extensionConfig = {
                 test: /\.wasm$/,
                 type: "asset/resource",
             },
+            {
+                test: /\.(png|svg|jpg|jpeg|gif)$/i,
+                type: "asset/resource",
+            },
         ],
     },
     devtool: "nosources-source-map",
@@ -103,11 +106,11 @@ const extensionConfig = {
         new CopyWebpackPlugin({
             patterns: [
                 {
-                    from: "node_modules/sql.js-fts5/dist/sql-wasm.wasm",
+                    from: "src/sqljs-custom/sql-wasm.wasm",
                     to: "sql-wasm.wasm",
                 },
                 {
-                    from: "node_modules/sql.js-fts5/dist/sql-wasm.js",
+                    from: "src/sqljs-custom/sql-wasm.js",
                     to: "sql-wasm.js",
                 },
             ],
