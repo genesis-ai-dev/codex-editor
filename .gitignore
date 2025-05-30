@@ -10,12 +10,3 @@ webviews/editable-react-table/node_modules
 .DS_Store
 package-lock.json
 .project/complete_drafts.txt
-
-# SQLite database files - these should be generated locally, not synced
-.project/*.sqlite
-data/*.sqlite
-*.db
-*.sqlite
-*.sqlite-journal
-*.sqlite-wal
-*.sqlite-shm
