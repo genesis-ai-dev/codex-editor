@@ -495,7 +495,7 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
         if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
             console.log("Dictionary file not found, creating empty dictionary");
         } else {
-            console.error("Error reading dictionary file:", error);
+        console.error("Error reading dictionary file:", error);
         }
     }
 };

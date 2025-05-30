@@ -210,7 +210,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             // sql.js-fts5 has built-in FTS5 support, no need to test
 
-            if (force) {
+                    if (force) {
             // Clear SQLite records
             if (sqliteDb) {
                 sqliteDb.exec("DELETE FROM translation_pairs");

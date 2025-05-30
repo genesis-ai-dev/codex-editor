@@ -51,7 +51,7 @@ export async function initializeTranslationPairsDb(db: Database): Promise<void> 
             document UNINDEXED,
             section UNINDEXED,
             cell UNINDEXED,
-            source_content,
+            source_content, 
             target_content,
             uri UNINDEXED,
             line UNINDEXED,
@@ -347,9 +347,9 @@ export function searchTargetCellsByQuery(
             SELECT id FROM translation_pairs_fts 
             WHERE target_content MATCH ? 
             ORDER BY bm25(translation_pairs_fts)
-            LIMIT ?
-        `);
-        
+        LIMIT ?
+    `);
+    
         ftsStmt.bind([ftsQuery, limit]);
         
         const matchingIds: string[] = [];
@@ -534,11 +534,11 @@ export function searchTranslationPairs(
         // Step 2: Get full data from main table using the IDs
         const placeholders = matchingIds.map(() => '?').join(',');
         let mainSql = `SELECT * FROM translation_pairs WHERE id IN (${placeholders})`;
-        
-        if (!includeIncomplete) {
+    
+    if (!includeIncomplete) {
             mainSql += " AND target_content != '' AND target_content IS NOT NULL";
-        }
-        
+    }
+    
         const mainStmt = db.prepare(mainSql);
         mainStmt.bind(matchingIds);
         
@@ -589,13 +589,13 @@ export function searchTranslationPairs(
                 
                 const mainStmt = db.prepare(mainSql);
                 mainStmt.bind(matchingIds);
-                
-                const results: TranslationPair[] = [];
+        
+        const results: TranslationPair[] = [];
                 while (mainStmt.step()) {
                     const row = mainStmt.getAsObject();
-                    results.push(rowToTranslationPair(row));
-                }
-                
+            results.push(rowToTranslationPair(row));
+        }
+        
                 mainStmt.free();
                 return results;
                 
@@ -734,7 +734,7 @@ export function getTranslationPairsFromSourceCellQuery(
         // Escape special characters and format for FTS5
         const cleanQuery = query.replace(/['"]/g, '').trim();
         const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
-        
+    
         if (!ftsQuery) {
             return [];
         }
@@ -744,9 +744,9 @@ export function getTranslationPairsFromSourceCellQuery(
             SELECT id FROM translation_pairs_fts
             WHERE source_content MATCH ?
             ORDER BY bm25(translation_pairs_fts)
-            LIMIT ?
-        `);
-        
+        LIMIT ?
+    `);
+    
         ftsStmt.bind([ftsQuery, limit]);
         
         const matchingIds: string[] = [];
