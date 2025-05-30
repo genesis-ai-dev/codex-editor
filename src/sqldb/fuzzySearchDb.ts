@@ -394,72 +394,49 @@ export function performFuzzySearch(
     
     if (!query.trim()) return [];
     
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM fuzzy_search_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Fuzzy search FTS5 table is empty, populating it...");
+        try {
+            populateFuzzySearchFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate fuzzy search FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return performFuzzySearchFallback(db, query, resourceType, limit, mergedConfig);
+        }
+    }
+    
     const normalizedQuery = mergedConfig.caseSensitive ? query : query.toLowerCase();
     const results: FuzzySearchResult[] = [];
     
-    // Exact match search
-    let exactSql = `
-        SELECT id, content, resource_type, 1.0 * ? as score, 0 as distance, 'exact' as match_type
-            FROM fuzzy_search_index 
-            WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
-    `;
-    
-    const exactParams: any[] = [mergedConfig.boostExactMatch, normalizedQuery];
-    
-    if (resourceType) {
-        exactSql += ` AND resource_type = ?`;
-        exactParams.push(resourceType);
-    }
-    
-    exactSql += ` LIMIT ?`;
-    exactParams.push(Math.min(limit, 50));
-    
-    const exactStmt = db.prepare(exactSql);
-    exactStmt.bind(exactParams);
-    
-    while (exactStmt.step()) {
-        const row = exactStmt.getAsObject();
-        results.push({
-            id: row.id as string,
-            content: row.content as string,
-            score: row.score as number,
-            distance: row.distance as number,
-            matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
-        });
-    }
-    exactStmt.free();
-    
-    // FTS5 search for partial matches
-    if (results.length < limit) {
-        let ftsSql = `
-            SELECT f.id, f.content, f.resource_type, 
-                   fuzzy_score(?, f.content, 'fuzzy', levenshtein(?, f.normalized_content), ?) as score,
-                   levenshtein(?, f.normalized_content) as distance,
-                   'fuzzy' as match_type
-            FROM fuzzy_search_fts fts
-            JOIN fuzzy_search_index f ON f.rowid = fts.rowid
-            WHERE fts.content MATCH ?
+    try {
+        // Strategy 1: Exact match search
+        let exactSql = `
+            SELECT id, content, resource_type, 1.0 * ? as score, 0 as distance, 'exact' as match_type
+                FROM fuzzy_search_index 
+                WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
         `;
         
-        const ftsParams: any[] = [];
-        const ftsQuery = normalizedQuery.split(' ').map(term => `"${term}"*`).join(' OR ');
-        const configStr = JSON.stringify(mergedConfig);
-        
-        ftsParams.push(normalizedQuery, normalizedQuery, configStr, normalizedQuery, ftsQuery);
+        const exactParams: any[] = [mergedConfig.boostExactMatch, normalizedQuery];
         
         if (resourceType) {
-            ftsSql += ` AND f.resource_type = ?`;
-            ftsParams.push(resourceType);
+            exactSql += ` AND resource_type = ?`;
+            exactParams.push(resourceType);
         }
         
-        ftsSql += ` AND levenshtein(?, f.normalized_content) <= ? ORDER BY score DESC LIMIT ?`;
-        ftsParams.push(normalizedQuery, mergedConfig.maxDistance, limit - results.length);
+        exactSql += ` LIMIT ?`;
+        exactParams.push(Math.min(limit, 50));
         
-        const ftsStmt = db.prepare(ftsSql);
-        ftsStmt.bind(ftsParams);
+        const exactStmt = db.prepare(exactSql);
+        exactStmt.bind(exactParams);
         
-        while (ftsStmt.step()) {
-            const row = ftsStmt.getAsObject();
+        while (exactStmt.step()) {
+            const row = exactStmt.getAsObject();
             results.push({
                 id: row.id as string,
                 content: row.content as string,
@@ -468,16 +445,135 @@ export function performFuzzySearch(
                 matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
             });
         }
-        ftsStmt.free();
+        exactStmt.free();
+        
+        // Strategy 2: FTS5 search for partial matches (using two-step approach)
+        if (results.length < limit) {
+            const ftsQuery = normalizedQuery.split(' ').map(term => `"${term}"*`).join(' OR ');
+            
+            // Step 1: Query FTS5 table directly to get matching IDs
+            const ftsStmt = db.prepare(`
+                SELECT id FROM fuzzy_search_fts 
+                WHERE content MATCH ?
+                ORDER BY bm25(fuzzy_search_fts)
+                LIMIT ?
+            `);
+            
+            ftsStmt.bind([ftsQuery, limit - results.length]);
+            
+            const matchingIds: string[] = [];
+            while (ftsStmt.step()) {
+                const row = ftsStmt.getAsObject();
+                matchingIds.push(row["id"] as string);
+            }
+            ftsStmt.free();
+            
+            if (matchingIds.length > 0) {
+                // Step 2: Get full data from main table using the IDs
+                const placeholders = matchingIds.map(() => '?').join(',');
+                let mainSql = `
+                    SELECT id, content, resource_type,
+                           fuzzy_score(?, content, 'fuzzy', levenshtein(?, normalized_content), ?) as score,
+                           levenshtein(?, normalized_content) as distance,
+                           'fuzzy' as match_type
+                    FROM fuzzy_search_index 
+                    WHERE id IN (${placeholders})
+                `;
+                
+                const mainParams = [normalizedQuery, normalizedQuery, JSON.stringify(mergedConfig), normalizedQuery, ...matchingIds];
+                
+                if (resourceType) {
+                    mainSql += ` AND resource_type = ?`;
+                    mainParams.push(resourceType);
+                }
+                
+                mainSql += ` AND levenshtein(?, normalized_content) <= ? ORDER BY score DESC`;
+                mainParams.push(normalizedQuery, mergedConfig.maxDistance.toString());
+                
+                const mainStmt = db.prepare(mainSql);
+                mainStmt.bind(mainParams);
+                
+                while (mainStmt.step()) {
+                    const row = mainStmt.getAsObject();
+                    results.push({
+                        id: row.id as string,
+                        content: row.content as string,
+                        score: row.score as number,
+                        distance: row.distance as number,
+                        matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
+                    });
+                }
+                mainStmt.free();
+            }
+        }
+        
+        const endTime = performance.now();
+        trackFeatureUsage('fuzzy_search_perform', 'sqlite', endTime - startTime);
+        
+        return results
+            .filter(result => result.score >= mergedConfig.minScore)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+            
+    } catch (error) {
+        console.error("Error in performFuzzySearch:", error);
+        // Fallback to non-FTS search if FTS fails
+        return performFuzzySearchFallback(db, query, resourceType, limit, mergedConfig);
+    }
+}
+
+// Fallback search function for fuzzy search
+function performFuzzySearchFallback(
+    db: Database,
+    query: string,
+    resourceType?: string,
+    limit: number = 50,
+    config: FuzzySearchConfig = DEFAULT_CONFIG
+): FuzzySearchResult[] {
+    const normalizedQuery = config.caseSensitive ? query : query.toLowerCase();
+    
+    let fallbackSql = `
+        SELECT id, content, resource_type,
+               fuzzy_score(?, content, 'fuzzy', levenshtein(?, normalized_content), ?) as score,
+               levenshtein(?, normalized_content) as distance,
+               'fuzzy' as match_type
+        FROM fuzzy_search_index 
+        WHERE (${config.caseSensitive ? 'content' : 'normalized_content'} LIKE ?
+               OR levenshtein(?, normalized_content) <= ?)
+    `;
+    
+    const fallbackParams = [
+        normalizedQuery, normalizedQuery, JSON.stringify(config), normalizedQuery,
+        `%${normalizedQuery}%`, normalizedQuery, config.maxDistance.toString()
+    ];
+    
+    if (resourceType) {
+        fallbackSql += ` AND resource_type = ?`;
+        fallbackParams.push(resourceType);
     }
     
-    const endTime = performance.now();
-    trackFeatureUsage('fuzzy_search_perform', 'sqlite', endTime - startTime);
+    fallbackSql += ` ORDER BY score DESC LIMIT ?`;
+    fallbackParams.push(limit.toString());
     
-    return results
-        .filter(result => result.score >= mergedConfig.minScore)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
+    const fallbackStmt = db.prepare(fallbackSql);
+    
+    try {
+        fallbackStmt.bind(fallbackParams);
+        const results: FuzzySearchResult[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            results.push({
+                id: row.id as string,
+                content: row.content as string,
+                score: row.score as number,
+                distance: row.distance as number,
+                matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
+            });
+        }
+        return results.filter(result => result.score >= config.minScore);
+    } finally {
+        fallbackStmt.free();
+    }
 }
 
 /**

@@ -459,7 +459,7 @@ function searchTableRecordsFallback(
     }
     
     fallbackSql += ` LIMIT ?`;
-    params.push(limit);
+    params.push(limit.toString());
     
     const fallbackStmt = db.prepare(fallbackSql);
     
@@ -504,7 +504,7 @@ export function searchTableColumn(
     }
     
     sql += ` ORDER BY tr.file_name, tr.row_number LIMIT ?`;
-    params.push(limit);
+    params.push(limit.toString());
     
     const stmt = db.prepare(sql);
     
@@ -641,7 +641,7 @@ export function getColumnValues(
     }
     
     sql += ` ORDER BY value LIMIT ?`;
-    params.push(limit);
+    params.push(limit.toString());
     
     const stmt = db.prepare(sql);
     

@@ -314,11 +314,31 @@ export function performPrefixSearch(
         return [];
     }
     
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM prefix_match_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Prefix matching FTS5 table is empty, populating it...");
+        try {
+            populatePrefixMatchingFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate prefix matching FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return performPrefixSearchFallback(db, query, resourceType, limit, mergedConfig);
+        }
+    }
+    
     const normalizedQuery = mergedConfig.caseSensitive ? query : query.toLowerCase();
     
-    let sql = `
-        WITH prefix_matches AS (
-            -- Exact prefix matches
+    try {
+        // Collect results from different strategies
+        const allResults: PrefixMatchResult[] = [];
+        
+        // Strategy 1: Exact prefix matches
+        const exactSql = `
             SELECT 
                 i.id, i.resource_type, i.content, i.normalized_content,
                 'exact_prefix' as match_type,
@@ -328,10 +348,30 @@ export function performPrefixSearch(
             FROM prefix_match_index i
             WHERE ${mergedConfig.caseSensitive ? 'i.content' : 'i.normalized_content'} LIKE ? || '%'
             ${resourceType ? 'AND i.resource_type = ?' : ''}
-            
-            UNION ALL
-            
-            -- Word boundary prefix matches
+        `;
+        
+        const exactParams = [query.length, normalizedQuery, query.length, configJson, normalizedQuery];
+        if (resourceType) exactParams.push(resourceType);
+        
+        const exactStmt = db.prepare(exactSql);
+        exactStmt.bind(exactParams);
+        
+        while (exactStmt.step()) {
+            const row = exactStmt.getAsObject();
+            allResults.push({
+                id: row.id as string,
+                content: row.content as string,
+                score: row.score as number,
+                matchType: row.match_type as any,
+                matchPosition: row.match_position as number,
+                matchLength: row.match_length as number,
+                metadata: { resourceType: row.resource_type }
+            });
+        }
+        exactStmt.free();
+        
+        // Strategy 2: Word boundary prefix matches
+        const wordSql = `
             SELECT 
                 i.id, i.resource_type, i.content, i.normalized_content,
                 'word_prefix' as match_type,
@@ -349,79 +389,17 @@ export function performPrefixSearch(
             WHERE (${mergedConfig.caseSensitive ? 'i.content' : 'i.normalized_content'} LIKE ' ' || ? || '%'
                    OR ${mergedConfig.caseSensitive ? 'i.content' : 'i.normalized_content'} LIKE ? || '%')
             ${resourceType ? 'AND i.resource_type = ?' : ''}
-            
-            UNION ALL
-            
-            -- FTS5 prefix matches
-            SELECT 
-                i.id, i.resource_type, i.content, i.normalized_content,
-                'partial_prefix' as match_type,
-                0 as match_position,
-                ? as match_length,
-                prefix_score(?, i.content, 'partial_prefix', 0, ?, ?) as score
-            FROM prefix_match_index i
-            JOIN prefix_match_fts fts ON i.rowid = fts.rowid
-            WHERE fts.content MATCH ? || '*'
-            ${resourceType ? 'AND i.resource_type = ?' : ''}
-    `;
-    
-    if (mergedConfig.enableFuzzyPrefix) {
-        sql += `
-            UNION ALL
-            
-            -- Fuzzy prefix matches
-            SELECT 
-                i.id, i.resource_type, i.content, i.normalized_content,
-                'fuzzy_prefix' as match_type,
-                0 as match_position,
-                ? as match_length,
-                prefix_score(?, i.content, 'fuzzy_prefix', 0, ?, ?) as score
-            FROM prefix_match_index i
-            WHERE fuzzy_prefix_match(?, ${mergedConfig.caseSensitive ? 'i.content' : 'i.normalized_content'}, ?) > 0
-            ${resourceType ? 'AND i.resource_type = ?' : ''}
         `;
-    }
-    
-    sql += `
-        )
-        SELECT DISTINCT id, resource_type, content, match_type, match_position, match_length, score
-        FROM prefix_matches
-        WHERE score > 0
-        ORDER BY score DESC, match_position ASC, length(content) ASC
-        LIMIT ?
-    `;
-    
-    const stmt = db.prepare(sql);
-    const params: any[] = [];
-    
-    // Exact prefix match parameters
-    params.push(query.length, normalizedQuery, query.length, configJson, normalizedQuery);
-    if (resourceType) params.push(resourceType);
-    
-    // Word boundary prefix match parameters
-    params.push(normalizedQuery, normalizedQuery, query.length, normalizedQuery, normalizedQuery, normalizedQuery, query.length, configJson, normalizedQuery, normalizedQuery);
-    if (resourceType) params.push(resourceType);
-    
-    // FTS5 prefix match parameters
-    params.push(query.length, normalizedQuery, query.length, configJson, normalizedQuery);
-    if (resourceType) params.push(resourceType);
-    
-    // Fuzzy prefix match parameters (if enabled)
-    if (mergedConfig.enableFuzzyPrefix) {
-        params.push(query.length, normalizedQuery, query.length, configJson, normalizedQuery, mergedConfig.fuzzyThreshold);
-        if (resourceType) params.push(resourceType);
-    }
-    
-    // Final parameters
-    params.push(Math.min(limit, mergedConfig.maxResults));
-    
-    const results: PrefixMatchResult[] = [];
-    try {
-        stmt.bind(params);
         
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
-            const result: PrefixMatchResult = {
+        const wordParams = [normalizedQuery, normalizedQuery, query.length, normalizedQuery, normalizedQuery, normalizedQuery, query.length, configJson, normalizedQuery, normalizedQuery];
+        if (resourceType) wordParams.push(resourceType);
+        
+        const wordStmt = db.prepare(wordSql);
+        wordStmt.bind(wordParams);
+        
+        while (wordStmt.step()) {
+            const row = wordStmt.getAsObject();
+            allResults.push({
                 id: row.id as string,
                 content: row.content as string,
                 score: row.score as number,
@@ -429,9 +407,126 @@ export function performPrefixSearch(
                 matchPosition: row.match_position as number,
                 matchLength: row.match_length as number,
                 metadata: { resourceType: row.resource_type }
-            };
+            });
+        }
+        wordStmt.free();
+        
+        // Strategy 3: FTS5 prefix matches (using two-step approach)
+        if (allResults.length < limit) {
+            // Step 1: Query FTS5 table directly to get matching IDs
+            const ftsStmt = db.prepare(`
+                SELECT id FROM prefix_match_fts 
+                WHERE content MATCH ? || '*'
+                ORDER BY bm25(prefix_match_fts)
+                LIMIT ?
+            `);
             
-            if (mergedConfig.enableHighlighting) {
+            ftsStmt.bind([normalizedQuery, limit - allResults.length]);
+            
+            const matchingIds: string[] = [];
+            while (ftsStmt.step()) {
+                const row = ftsStmt.getAsObject();
+                matchingIds.push(row["id"] as string);
+            }
+            ftsStmt.free();
+            
+            if (matchingIds.length > 0) {
+                // Step 2: Get full data from main table using the IDs
+                const placeholders = matchingIds.map(() => '?').join(',');
+                let ftsSql = `
+                    SELECT 
+                        id, resource_type, content, normalized_content,
+                        'partial_prefix' as match_type,
+                        0 as match_position,
+                        ? as match_length,
+                        prefix_score(?, content, 'partial_prefix', 0, ?, ?) as score
+                    FROM prefix_match_index
+                    WHERE id IN (${placeholders})
+                `;
+                
+                const ftsParams = [query.length, normalizedQuery, query.length, configJson, ...matchingIds];
+                
+                if (resourceType) {
+                    ftsSql += ` AND resource_type = ?`;
+                    ftsParams.push(resourceType);
+                }
+                
+                const ftsMainStmt = db.prepare(ftsSql);
+                ftsMainStmt.bind(ftsParams);
+                
+                while (ftsMainStmt.step()) {
+                    const row = ftsMainStmt.getAsObject();
+                    allResults.push({
+                        id: row.id as string,
+                        content: row.content as string,
+                        score: row.score as number,
+                        matchType: row.match_type as any,
+                        matchPosition: row.match_position as number,
+                        matchLength: row.match_length as number,
+                        metadata: { resourceType: row.resource_type }
+                    });
+                }
+                ftsMainStmt.free();
+            }
+        }
+        
+        // Strategy 4: Fuzzy prefix matches (if enabled)
+        if (mergedConfig.enableFuzzyPrefix && allResults.length < limit) {
+            const fuzzySql = `
+                SELECT 
+                    i.id, i.resource_type, i.content, i.normalized_content,
+                    'fuzzy_prefix' as match_type,
+                    0 as match_position,
+                    ? as match_length,
+                    prefix_score(?, i.content, 'fuzzy_prefix', 0, ?, ?) as score
+                FROM prefix_match_index i
+                WHERE fuzzy_prefix_match(?, ${mergedConfig.caseSensitive ? 'i.content' : 'i.normalized_content'}, ?) > 0
+                ${resourceType ? 'AND i.resource_type = ?' : ''}
+            `;
+            
+            const fuzzyParams = [query.length, normalizedQuery, query.length, configJson, normalizedQuery, mergedConfig.fuzzyThreshold];
+            if (resourceType) fuzzyParams.push(resourceType);
+            
+            const fuzzyStmt = db.prepare(fuzzySql);
+            fuzzyStmt.bind(fuzzyParams);
+            
+            while (fuzzyStmt.step()) {
+                const row = fuzzyStmt.getAsObject();
+                allResults.push({
+                    id: row.id as string,
+                    content: row.content as string,
+                    score: row.score as number,
+                    matchType: row.match_type as any,
+                    matchPosition: row.match_position as number,
+                    matchLength: row.match_length as number,
+                    metadata: { resourceType: row.resource_type }
+                });
+            }
+            fuzzyStmt.free();
+        }
+        
+        // Deduplicate and sort results
+        const resultMap = new Map<string, PrefixMatchResult>();
+        for (const result of allResults) {
+            if (result.score > 0) {
+                const existing = resultMap.get(result.id);
+                if (!existing || result.score > existing.score) {
+                    resultMap.set(result.id, result);
+                }
+            }
+        }
+        
+        const finalResults = Array.from(resultMap.values())
+            .sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                if (a.matchPosition !== b.matchPosition) return a.matchPosition - b.matchPosition;
+                return a.content.length - b.content.length;
+            })
+            .slice(0, Math.min(limit, mergedConfig.maxResults));
+        
+        // Add highlighting if enabled
+        if (mergedConfig.enableHighlighting) {
+            for (const result of finalResults) {
                 result.highlightedContent = highlightPrefixMatch(
                     result.content,
                     query,
@@ -439,18 +534,74 @@ export function performPrefixSearch(
                     result.matchLength
                 );
             }
-            
-            results.push(result);
         }
-    } finally {
-        stmt.free();
+        
+        const elapsedTime = performance.now() - startTime;
+        trackFeatureUsage('performPrefixSearch', 'sqlite', elapsedTime);
+        console.log(`Prefix search for "${query}" found ${finalResults.length} results in ${elapsedTime.toFixed(2)}ms`);
+        
+        return finalResults;
+        
+    } catch (error) {
+        console.error("Error in performPrefixSearch:", error);
+        // Fallback to non-FTS search if FTS fails
+        return performPrefixSearchFallback(db, query, resourceType, limit, mergedConfig);
+    }
+}
+
+// Fallback search function for prefix matching
+function performPrefixSearchFallback(
+    db: Database,
+    query: string,
+    resourceType?: string,
+    limit: number = 50,
+    config: PrefixMatchConfig = DEFAULT_CONFIG
+): PrefixMatchResult[] {
+    const normalizedQuery = config.caseSensitive ? query : query.toLowerCase();
+    const configJson = JSON.stringify(config);
+    
+    let fallbackSql = `
+        SELECT 
+            id, resource_type, content, normalized_content,
+            'exact_prefix' as match_type,
+            0 as match_position,
+            ? as match_length,
+            prefix_score(?, content, 'exact_prefix', 0, ?, ?) as score
+        FROM prefix_match_index
+        WHERE ${config.caseSensitive ? 'content' : 'normalized_content'} LIKE ? || '%'
+    `;
+    
+    const fallbackParams = [query.length, normalizedQuery, query.length, configJson, normalizedQuery];
+    
+    if (resourceType) {
+        fallbackSql += ` AND resource_type = ?`;
+        fallbackParams.push(resourceType);
     }
     
-    const elapsedTime = performance.now() - startTime;
-    trackFeatureUsage('performPrefixSearch', 'sqlite', elapsedTime);
-    console.log(`Prefix search for "${query}" found ${results.length} results in ${elapsedTime.toFixed(2)}ms`);
+    fallbackSql += ` ORDER BY score DESC, content_length ASC LIMIT ?`;
+    fallbackParams.push(limit);
     
-    return results;
+    const fallbackStmt = db.prepare(fallbackSql);
+    
+    try {
+        fallbackStmt.bind(fallbackParams);
+        const results: PrefixMatchResult[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            results.push({
+                id: row.id as string,
+                content: row.content as string,
+                score: row.score as number,
+                matchType: row.match_type as any,
+                matchPosition: row.match_position as number,
+                matchLength: row.match_length as number,
+                metadata: { resourceType: row.resource_type }
+            });
+        }
+        return results.filter(result => result.score > 0);
+    } finally {
+        fallbackStmt.free();
+    }
 }
 
 /**
