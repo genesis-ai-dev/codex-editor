@@ -11,7 +11,6 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 //@ts-check
 /** @typedef {import('webpack').Configuration} WebpackConfig **/
 
-
 /** @type WebpackConfig */
 const extensionConfig = {
     name: "extension",
@@ -39,7 +38,7 @@ const extensionConfig = {
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
             sqldb: path.resolve(__dirname, "src/sqldb"),
-            "sql.js": path.resolve(__dirname, "out/sql-wasm.js"),
+            "sql.js": path.resolve(__dirname, "node_modules/sql.js/dist/sql-wasm.js"),
         },
         fallback: {
             path: false,
@@ -103,7 +102,7 @@ const extensionConfig = {
         new CopyWebpackPlugin({
             patterns: [
                 {
-                    from: "out/sql-wasm.wasm",
+                    from: "node_modules/sql.js/dist/sql-wasm.wasm",
                     to: "sql-wasm.wasm",
                 },
             ],

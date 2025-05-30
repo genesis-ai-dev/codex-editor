@@ -3,7 +3,6 @@ import { FileStatsWebviewProvider } from "./FileStatsWebviewProvider";
 import { FileInfo } from "../../activationHelpers/contextAware/miniIndex/indexes/filesIndex";
 
 let provider: FileStatsWebviewProvider;
-let commandsRegistered = false;
 
 export function registerFileStatsWebviewProvider(
     context: vscode.ExtensionContext,
@@ -11,25 +10,20 @@ export function registerFileStatsWebviewProvider(
 ): FileStatsWebviewProvider {
     provider = new FileStatsWebviewProvider(context.extensionUri, filesIndex);
 
-    // Only register commands once to prevent duplicate registration errors
-    if (!commandsRegistered) {
-        // Register a command to show the file stats panel
-        context.subscriptions.push(
-            vscode.commands.registerCommand("translators-copilot.showFileStatsView", () => {
-                provider.show();
-                return true;
-            })
-        );
+    // Register a command to show the file stats panel
+    context.subscriptions.push(
+        vscode.commands.registerCommand("translators-copilot.showFileStatsView", () => {
+            provider.show();
+            return true;
+        })
+    );
 
-        // Register a command to refresh the file stats
-        context.subscriptions.push(
-            vscode.commands.registerCommand("translators-copilot.refreshFileStats", async () => {
-                vscode.commands.executeCommand("translators-copilot.forceReindex");
-            })
-        );
-
-        commandsRegistered = true;
-    }
+    // Register a command to refresh the file stats
+    context.subscriptions.push(
+        vscode.commands.registerCommand("translators-copilot.refreshFileStats", async () => {
+            vscode.commands.executeCommand("translators-copilot.forceReindex");
+        })
+    );
 
     return provider;
 }
