@@ -188,6 +188,10 @@
                 {
                     "command": "translators-copilot.showFileStatsView",
                     "title": "Translators Copilot: Show Translation Progress View"
+                },
+                {
+                    "command": "translators-copilot.cleanupCorruptedDatabases",
+                    "title": "Clean Up Corrupted Databases"
                 }
             ]
         },
@@ -709,6 +713,15 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
+            },
+            {
+                "command": "translators-copilot.showFileStatsView",
+                "title": "Translators Copilot: Show Translation Progress View"
+            },
+            {
+                "command": "translators-copilot.cleanupCorruptedDatabases",
+                "title": "Clean Up Corrupted Databases",
+                "category": "Translators Copilot"
             }
         ],
         "configuration": [
@@ -1223,7 +1236,6 @@
         "jszip": "^3.10.1",
         "md5": "^2.3.0",
         "meilisearch": "^0.38.0",
-        "minisearch": "^7.1.2",
         "ml-pca": "^4.1.1",
         "moment": "^2.30.1",
         "openai": "^4.67.3",
@@ -1234,7 +1246,7 @@
         "sax": "^1.4.1",
         "semver": "^7.6.0",
         "sinon": "^19.0.2",
-        "sql.js": "^1.11.0",
+        "sql.js-fts5": "^1.0.1",
         "token.js": "^0.4.3",
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",

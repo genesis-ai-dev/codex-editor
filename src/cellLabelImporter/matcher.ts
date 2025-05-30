@@ -1,5 +1,6 @@
 import { CellLabelData, FileData, ImportedRow, CellMetadata } from "./types";
 import { convertTimestampToSeconds } from "./utils";
+import * as cellLabelWrapper from "./cellLabelWrapper";
 
 /**
  * Match imported labels with existing cell IDs
@@ -15,28 +16,8 @@ export async function matchCellLabels(
         `[matchCellLabels] Received ${importedRows.length} imported rows, ${sourceFiles.length} source files, ${targetFiles.length} target files. Label column: ${labelColumn}`
     );
 
-    // Create a map of all cells by their start time
-    const cellMap = new Map<number, { cellId: string; currentLabel?: string }>();
-
-    // Extract all cells from source files and create a time-based lookup
-    sourceFiles.forEach((file) => {
-        file.cells.forEach((cell) => {
-            if (cell.metadata?.id) {
-                const cellId = cell.metadata.id;
-
-                // Extract the start time from the cell ID (e.g., "cue-25.192-29.029")
-                const timeMatch = cellId.match(/cue-(\d+(?:\.\d+)?)-/);
-                if (timeMatch && timeMatch[1]) {
-                    const startTimeSeconds = parseFloat(timeMatch[1]);
-                    cellMap.set(startTimeSeconds, {
-                        cellId,
-                        currentLabel: (cell.metadata as CellMetadata).cellLabel,
-                    });
-                }
-            }
-        });
-    });
-    console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells.`);
+    // Note: Cell mapping is now handled by the wrapper function
+    console.log(`[matchCellLabels] Using cell label wrapper for time-based matching.`);
 
     // Process each imported row
     importedRows.forEach((row) => {
@@ -95,26 +76,13 @@ export async function matchCellLabels(
                 return;
             }
 
-            // Try to find a matching cell
-            // First, look for an exact time match
-            let match = cellMap.get(startTimeSeconds);
-
-            // If no exact match, look for the closest cell within a small threshold (e.g., 0.5 seconds)
-            if (!match) {
-                const threshold = 0.5; // 0.5 second threshold
-                let closestDiff = threshold;
-                let closestCell: { cellId: string; currentLabel?: string } | undefined;
-
-                cellMap.forEach((cell, time) => {
-                    const diff = Math.abs(time - startTimeSeconds);
-                    if (diff < closestDiff) {
-                        closestDiff = diff;
-                        closestCell = cell;
-                    }
-                });
-
-                match = closestCell;
-            }
+            // Use the wrapper to find matching cells by time
+            const matches = cellLabelWrapper.searchSourceCellsByTime(
+                startTimeSeconds,
+                0.5 // 0.5 second threshold
+            );
+            
+            const match = matches.length > 0 ? matches[0] : undefined;
 
             // Determine end time field
             let endField = "end";

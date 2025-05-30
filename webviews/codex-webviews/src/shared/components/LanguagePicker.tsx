@@ -33,8 +33,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
 
     const availableLanguages = useMemo(() => LanguageCodes, []);
 
-    const filteredLanguages = useMemo(() => {
-        if (!languageFilter) return availableLanguages;
+    const { filteredLanguages, hasHighQualityMatches } = useMemo(() => {
+        if (!languageFilter) return { filteredLanguages: availableLanguages, hasHighQualityMatches: true };
         const searchTerm = languageFilter.toLowerCase();
         
         // Filter languages and calculate scores
@@ -81,10 +81,17 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                 if (b.score !== a.score) return b.score - a.score;
                 // Then by name length (shorter names first)
                 return (a.language.refName?.length || 0) - (b.language.refName?.length || 0);
-            })
-            .map(item => item.language);
+            });
 
-        return scoredLanguages;
+        // Check if we have high-quality matches (score >= 60)
+        const hasHighQualityMatches = scoredLanguages.some(item => item.score >= 60);
+
+        // If no high-quality matches, only show top 3 results to make custom language more prominent
+        const finalLanguages = !hasHighQualityMatches && scoredLanguages.length > 3 
+            ? scoredLanguages.slice(0, 3).map(item => item.language)
+            : scoredLanguages.map(item => item.language);
+
+        return { filteredLanguages: finalLanguages, hasHighQualityMatches };
     }, [availableLanguages, languageFilter]);
 
     useEffect(() => {
@@ -143,6 +150,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (isDropdownOpen) {
+            const customLanguageAtTop = languageFilter && !hasHighQualityMatches;
+            const customLanguageAtBottom = languageFilter && hasHighQualityMatches;
             const totalOptions = filteredLanguages.length + (languageFilter ? 1 : 0);
             
             switch (e.key) {
@@ -161,11 +170,19 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                     break;
                 case "Enter":
                     e.preventDefault();
-                    if (highlightedIndex === filteredLanguages.length && languageFilter) {
+                    if (customLanguageAtTop && highlightedIndex === 0) {
+                        // Custom language at top selected
                         handleCustomLanguageSelect(languageFilter);
-                    } else if (highlightedIndex >= 0 && highlightedIndex < filteredLanguages.length) {
-                        const language = filteredLanguages[highlightedIndex];
-                        handleLanguageSelect(language.tag || '', language.refName || '');
+                    } else if (customLanguageAtBottom && highlightedIndex === filteredLanguages.length) {
+                        // Custom language at bottom selected
+                        handleCustomLanguageSelect(languageFilter);
+                    } else {
+                        // Regular language selected
+                        const languageIndex = customLanguageAtTop ? highlightedIndex - 1 : highlightedIndex;
+                        if (languageIndex >= 0 && languageIndex < filteredLanguages.length) {
+                            const language = filteredLanguages[languageIndex];
+                            handleLanguageSelect(language.tag || '', language.refName || '');
+                        }
                     }
                     break;
                 case "Escape":
@@ -225,28 +242,49 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
                         ref={listRef}
                         className="language-picker__dropdown"
                     >
-                        {filteredLanguages.map((language, index) => (
+                        {/* Show custom language option at the top when no high-quality matches */}
+                        {languageFilter && !hasHighQualityMatches && (
                             <div
-                                key={language.tag || ''}
-                                onClick={() => handleLanguageSelect(language.tag || '', language.refName || '')}
-                                className={`language-picker__option ${
-                                    index === highlightedIndex 
+                                className={`language-picker__option language-picker__custom-option language-picker__custom-option--prominent ${
+                                    highlightedIndex === 0 
                                         ? 'language-picker__option--highlighted' 
-                                        : previousLanguage?.tag === language.tag 
-                                            ? 'language-picker__option--selected' 
-                                            : ''
+                                        : ''
                                 }`}
-                                onMouseEnter={() => setHighlightedIndex(index)}
-                                onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
-                                    if ((e.relatedTarget as HTMLElement)?.parentElement !== listRef.current) {
-                                        setHighlightedIndex(0);
-                                    }
-                                }}
+                                onClick={() => handleCustomLanguageSelect(languageFilter)}
+                                onMouseEnter={() => setHighlightedIndex(0)}
                             >
-                                {language.refName || ''} ({language.tag || ''})
+                                <i className="codicon codicon-plus"></i> Create Custom Language "{languageFilter}"
                             </div>
-                        ))}
-                        {languageFilter && (
+                        )}
+                        
+                        {filteredLanguages.map((language, index) => {
+                            // Adjust index when custom language is shown at top
+                            const adjustedIndex = languageFilter && !hasHighQualityMatches ? index + 1 : index;
+                            return (
+                                <div
+                                    key={language.tag || ''}
+                                    onClick={() => handleLanguageSelect(language.tag || '', language.refName || '')}
+                                    className={`language-picker__option ${
+                                        adjustedIndex === highlightedIndex 
+                                            ? 'language-picker__option--highlighted' 
+                                            : previousLanguage?.tag === language.tag 
+                                                ? 'language-picker__option--selected' 
+                                                : ''
+                                    }`}
+                                    onMouseEnter={() => setHighlightedIndex(adjustedIndex)}
+                                    onMouseLeave={(e: React.MouseEvent<HTMLDivElement>) => {
+                                        if ((e.relatedTarget as HTMLElement)?.parentElement !== listRef.current) {
+                                            setHighlightedIndex(0);
+                                        }
+                                    }}
+                                >
+                                    {language.refName || ''} ({language.tag || ''})
+                                </div>
+                            );
+                        })}
+                        
+                        {/* Show custom language option at the bottom when there are high-quality matches */}
+                        {languageFilter && hasHighQualityMatches && (
                             <div
                                 className={`language-picker__option language-picker__custom-option ${
                                     highlightedIndex === filteredLanguages.length 

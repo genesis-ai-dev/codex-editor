@@ -1,4 +1,4 @@
-import { Database } from "sql.js";
+import { Database } from "sql.js-fts5";
 import * as vscode from "vscode";
 import { bulkAddWords } from ".";
 import { DictionaryEntry } from "types";

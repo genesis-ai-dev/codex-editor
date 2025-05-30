@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { StatusBarItem } from "vscode";
-import initSqlJs, { Database, SqlJsStatic } from "sql.js";
+import initSqlJs, { Database, SqlJsStatic } from "sql.js-fts5";
 import path from "path";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 import crypto from "crypto";
@@ -46,6 +46,14 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
     let SQL: SqlJsStatic | undefined;
     try {
         const sqlWasmPath = vscode.Uri.joinPath(context.extensionUri, "out", "sql-wasm.wasm");
+
+        // Check if WASM file exists
+        try {
+            await vscode.workspace.fs.stat(sqlWasmPath);
+            console.log("WASM file found at:", sqlWasmPath.fsPath);
+        } catch (statError) {
+            throw new Error(`WASM file not found at ${sqlWasmPath.fsPath}. Please ensure sql-wasm.wasm is in the out/ directory.`);
+        }
 
         SQL = await initSqlJs({
             locateFile: (file: string) => {
@@ -471,6 +479,8 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
     }
     
     try {
+        // Check if file exists first
+        await vscode.workspace.fs.stat(exportPath);
         const fileContent = await vscode.workspace.fs.readFile(exportPath);
         const jsonlContent = new TextDecoder().decode(fileContent);
         const entries = jsonlContent
@@ -481,7 +491,12 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
 
         await bulkAddWords(db, entries);
     } catch (error) {
+        // Only log if it's not a file not found error
+        if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+            console.log("Dictionary file not found, creating empty dictionary");
+        } else {
         console.error("Error reading dictionary file:", error);
+        }
     }
 };
 
@@ -502,3 +517,20 @@ export const saveDatabase = async (db: Database) => {
         vscode.window.showErrorMessage(`Failed to save dictionary database: ${error}`);
     }
 };
+
+// Test function to verify FTS5 support
+export function testFTS5Support(db: Database): boolean {
+    try {
+        db.exec(`
+            CREATE VIRTUAL TABLE test_fts USING fts5(content);
+            INSERT INTO test_fts VALUES ('hello world');
+            SELECT * FROM test_fts WHERE test_fts MATCH 'hello';
+            DROP TABLE test_fts;
+        `);
+        console.log("✅ FTS5 is working!");
+        return true;
+    } catch (error) {
+        console.error("❌ FTS5 still not available:", error);
+        return false;
+    }
+}

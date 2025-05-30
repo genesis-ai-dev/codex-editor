@@ -104,6 +104,23 @@
     background-color: var(--vscode-button-hoverBackground);
 }
 
+.language-picker__custom-option--prominent {
+    border-top: none;
+    border-bottom: 1px solid var(--vscode-dropdown-border);
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+.language-picker__custom-option--prominent:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.language-picker__custom-option--prominent.language-picker__option--highlighted {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
 .language-picker__custom-option i {
     font-size: 14px;
 }

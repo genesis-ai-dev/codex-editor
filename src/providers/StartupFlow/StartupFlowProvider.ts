@@ -963,14 +963,24 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             // Try to get aggregated progress data
             try {
+                // Check if the command exists before calling it
+                const commands = await vscode.commands.getCommands();
+                if (commands.includes("frontier.getAggregatedProgress")) {
                 const progressData = await vscode.commands.executeCommand(
                     "frontier.getAggregatedProgress"
                 );
 
                 if (progressData && this.webviewPanel) {
                     this.webviewPanel.webview.postMessage({
-                        command: "progressData",
+                            command: "aggregatedProgressData",
                         data: progressData,
+                        } as MessagesFromStartupFlowProvider);
+                    }
+                } else {
+                    console.log("frontier.getAggregatedProgress command not available");
+                    this.webviewPanel?.webview.postMessage({
+                        command: "aggregatedProgressData",
+                        data: null,
                     } as MessagesFromStartupFlowProvider);
                 }
             } catch (error) {
@@ -1146,6 +1156,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                     }
 
+                    // Check if the command exists before calling it
+                    const commands = await vscode.commands.getCommands();
+                    if (commands.includes("frontier.getAggregatedProgress")) {
                     const progressData = await vscode.commands.executeCommand(
                         "frontier.getAggregatedProgress"
                     );
@@ -1154,6 +1167,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         this.webviewPanel.webview.postMessage({
                             command: "aggregatedProgressData",
                             data: progressData,
+                            } as MessagesFromStartupFlowProvider);
+                        }
+                    } else {
+                        console.log("frontier.getAggregatedProgress command not available");
+                        this.webviewPanel?.webview.postMessage({
+                            command: "aggregatedProgressData",
+                            data: null,
                         } as MessagesFromStartupFlowProvider);
                     }
                 } catch (error) {

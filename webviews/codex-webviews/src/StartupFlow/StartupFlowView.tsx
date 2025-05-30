@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useActor } from "@xstate/react";
 import { LoginRegisterStep } from "./components/LoginRegisterStep";
 import { WorkspaceStep } from "./components/WorkspaceStep";
@@ -13,6 +13,8 @@ import {
 } from "types";
 import { createActor } from "xstate";
 import { InputCriticalProjectInfo } from "./components/InputCriticalProjectInfo";
+import { createRoot } from "react-dom/client";
+import { getVSCodeAPI } from "../shared/vscodeApi";
 
 enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -22,7 +24,7 @@ enum StartupFlowStates {
     ALREADY_WORKING = "alreadyWorking",
 }
 
-const vscode = acquireVsCodeApi();
+const vscode = getVSCodeAPI();
 
 export const StartupFlowView: React.FC = () => {
     const [value, setValue] = useState<StartupFlowStates | null>(null);

@@ -1,5 +1,5 @@
 import { LanguageClient } from "vscode-languageclient/node";
-import { Database } from "sql.js";
+import { Database } from "sql.js-fts5";
 import * as vscode from "vscode";
 import { getEntry, bulkAddWords } from "../sqldb";
 // Define message types
