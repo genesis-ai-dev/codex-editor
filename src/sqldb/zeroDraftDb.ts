@@ -310,21 +310,36 @@ export function searchZeroDraftContent(
         return [];
     }
     
-    const stmt = db.prepare(`
-        SELECT DISTINCT r.cell_id, r.cells_json 
-        FROM zero_draft_records r
-        JOIN zero_draft_fts fts ON r.cell_id = fts.cell_id
-        WHERE fts.content MATCH ? 
-        ORDER BY bm25(zero_draft_fts)
-        LIMIT ?
-    `);
-    
     try {
-        stmt.bind([ftsQuery, limit]);
+        // Step 1: Query FTS5 table directly to get matching cell_ids
+        const ftsStmt = db.prepare(`
+            SELECT cell_id FROM zero_draft_fts 
+            WHERE content MATCH ? 
+            ORDER BY bm25(zero_draft_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["cell_id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the cell_ids
+        const placeholders = matchingIds.map(() => '?').join(',');
+        const mainStmt = db.prepare(`SELECT * FROM zero_draft_records WHERE cell_id IN (${placeholders})`);
+        mainStmt.bind(matchingIds);
         
         const results: ZeroDraftIndexRecord[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
             const cells = JSON.parse(row["cells_json"] as string || "[]");
             
             results.push({
@@ -334,13 +349,13 @@ export function searchZeroDraftContent(
             });
         }
         
+        mainStmt.free();
         return results;
+        
     } catch (error) {
         console.error("Error in searchZeroDraftContent:", error);
         // Fallback to non-FTS search if FTS fails
         return searchZeroDraftContentFallback(db, query, limit);
-    } finally {
-        stmt.free();
     }
 }
 

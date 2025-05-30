@@ -113,6 +113,33 @@ export function initializeFuzzySearchDb(db: Database): void {
     console.log('Fuzzy search database initialized successfully');
 }
 
+// Function to populate FTS5 from existing main table data
+export function populateFuzzySearchFTS5FromMainTable(db: Database): void {
+    console.log("Populating fuzzy search FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM fuzzy_search_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO fuzzy_search_fts(id, resource_type, content, normalized_content, phonetic_code, ngrams)
+            SELECT id, resource_type, content, normalized_content, phonetic_code, ngrams 
+            FROM fuzzy_search_index
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM fuzzy_search_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Fuzzy search FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating fuzzy search FTS5 table:", error);
+        throw error;
+    }
+}
+
 /**
  * Register custom SQL functions for fuzzy search algorithms
  */

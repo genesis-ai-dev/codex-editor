@@ -116,6 +116,33 @@ export function initializePrefixMatchingDb(db: Database): void {
     console.log('Prefix matching database initialized successfully');
 }
 
+// Function to populate FTS5 from existing main table data
+export function populatePrefixMatchingFTS5FromMainTable(db: Database): void {
+    console.log("Populating prefix matching FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM prefix_match_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO prefix_match_fts(id, resource_type, content, normalized_content)
+            SELECT id, resource_type, content, normalized_content 
+            FROM prefix_match_index
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM prefix_match_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Prefix matching FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating prefix matching FTS5 table:", error);
+        throw error;
+    }
+}
+
 /**
  * Register custom SQL functions for prefix matching algorithms
  */

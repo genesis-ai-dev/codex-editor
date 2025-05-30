@@ -394,7 +394,7 @@ export function updateCellLabels(
     }
 }
 
-// Search cells by content (for general search functionality)
+// Search cells by content and labels using FTS5
 export function searchCellsByContent(
     db: Database,
     query: string,
@@ -421,28 +421,44 @@ export function searchCellsByContent(
         }
     }
     
-    // Escape special characters and format for FTS5
-    const cleanQuery = query.replace(/['"]/g, '').trim();
-    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
-    
-    if (!ftsQuery) {
-        return [];
-    }
-    
-    const stmt = db.prepare(`
-        SELECT s.* FROM source_cells_with_labels s
-        JOIN source_cells_labels_fts fts ON s.rowid = fts.rowid
-        WHERE fts.content MATCH ? OR fts.cell_label MATCH ?
-        ORDER BY bm25(source_cells_labels_fts)
-        LIMIT ?
-    `);
-    
     try {
-        stmt.bind([ftsQuery, ftsQuery, limit]);
+        // Escape special characters and format for FTS5
+        const cleanQuery = query.replace(/['"]/g, '').trim();
+        const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+        
+        if (!ftsQuery) {
+            return [];
+        }
+        
+        // Step 1: Query FTS5 table directly to get matching cell_ids
+        const ftsStmt = db.prepare(`
+            SELECT cell_id FROM source_cells_labels_fts 
+            WHERE (content MATCH ? OR cell_label MATCH ?)
+            ORDER BY bm25(source_cells_labels_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["cell_id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the cell_ids
+        const placeholders = matchingIds.map(() => '?').join(',');
+        const mainStmt = db.prepare(`SELECT * FROM source_cells_with_labels WHERE cell_id IN (${placeholders})`);
+        mainStmt.bind(matchingIds);
         
         const results: SourceCellVersions[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
             results.push({
                 cellId: row["cell_id"] as string,
                 content: row["content"] as string,
@@ -452,13 +468,13 @@ export function searchCellsByContent(
             });
         }
         
+        mainStmt.free();
         return results;
+        
     } catch (error) {
         console.error("Error in searchCellsByContent:", error);
         // Fallback to non-FTS search if FTS fails
         return searchCellsByContentFallback(db, query, limit);
-    } finally {
-        stmt.free();
     }
 }
 

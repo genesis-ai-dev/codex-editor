@@ -315,21 +315,36 @@ export function searchVerseRefs(
         return [];
     }
     
-    const stmt = db.prepare(`
-        SELECT v.vref, v.uri, v.line, v.character_pos 
-        FROM verse_refs v
-        JOIN verse_refs_fts fts ON v.rowid = fts.rowid
-        WHERE fts.vref MATCH ? 
-        ORDER BY bm25(verse_refs_fts)
-        LIMIT ?
-    `);
-    
     try {
-        stmt.bind([ftsQuery, limit]);
+        // Step 1: Query FTS5 table directly to get matching vrefs
+        const ftsStmt = db.prepare(`
+            SELECT vref FROM verse_refs_fts 
+            WHERE vref MATCH ? 
+            ORDER BY bm25(verse_refs_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, limit]);
+        
+        const matchingVrefs: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingVrefs.push(row["vref"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingVrefs.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the vrefs
+        const placeholders = matchingVrefs.map(() => '?').join(',');
+        const mainStmt = db.prepare(`SELECT * FROM verse_refs WHERE vref IN (${placeholders})`);
+        mainStmt.bind(matchingVrefs);
         
         const results: VrefSearchResult[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
             results.push({
                 vref: row["vref"] as string,
                 uri: row["uri"] as string,
@@ -340,13 +355,13 @@ export function searchVerseRefs(
             });
         }
         
+        mainStmt.free();
         return results;
+        
     } catch (error) {
         console.error("Error in searchVerseRefs:", error);
         // Fallback to non-FTS search if FTS fails
         return searchVerseRefsFallback(db, query, limit);
-    } finally {
-        stmt.free();
     }
 }
 

@@ -93,6 +93,33 @@ export async function initializeDynamicTableDb(db: Database): Promise<void> {
     console.timeEnd("initializeDynamicTableDb");
 }
 
+// Function to populate FTS5 from existing main table data
+export function populateTableRecordsFTS5FromMainTable(db: Database): void {
+    console.log("Populating table records FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM table_records_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO table_records_fts(id, file_path, file_name, record_data)
+            SELECT id, file_path, file_name, record_data 
+            FROM table_records
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM table_records_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Table records FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating table records FTS5 table:", error);
+        throw error;
+    }
+}
+
 // Create and populate the dynamic table index
 export async function createDynamicTableIndex(
     db: Database,
@@ -323,34 +350,73 @@ export function searchTableRecords(
     filePath?: string,
     limit: number = 50
 ): TableRecord[] {
-    let sql = `
-        SELECT tr.* FROM table_records tr
-        JOIN table_records_fts fts ON tr.rowid = fts.rowid
-        WHERE fts.record_data MATCH ?
-    `;
-    
-    const params: any[] = [];
-    
-    // Format query for FTS5
-    const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
-    params.push(ftsQuery);
-    
-    if (filePath) {
-        sql += ` AND tr.file_path = ?`;
-        params.push(filePath);
+    if (!query || query.trim() === '') {
+        return [];
     }
+
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM table_records_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
     
-    sql += ` ORDER BY fts.rank LIMIT ?`;
-    params.push(limit);
-    
-    const stmt = db.prepare(sql);
-    
+    if (ftsCount === 0) {
+        console.warn("Table records FTS5 table is empty, populating it...");
+        try {
+            populateTableRecordsFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate table records FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return searchTableRecordsFallback(db, query, filePath, limit);
+        }
+    }
+
     try {
-        stmt.bind(params);
+        // Format query for FTS5
+        const cleanQuery = query.replace(/['"]/g, '').trim();
+        const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+        
+        if (!ftsQuery) {
+            return [];
+        }
+
+        // Step 1: Query FTS5 table directly to get matching IDs
+        const ftsStmt = db.prepare(`
+            SELECT id FROM table_records_fts 
+            WHERE record_data MATCH ?
+            ORDER BY bm25(table_records_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the IDs
+        const placeholders = matchingIds.map(() => '?').join(',');
+        let mainSql = `SELECT * FROM table_records WHERE id IN (${placeholders})`;
+        
+        const params = [...matchingIds];
+        if (filePath) {
+            mainSql += ` AND file_path = ?`;
+            params.push(filePath);
+        }
+        
+        const mainStmt = db.prepare(mainSql);
+        mainStmt.bind(params);
         
         const results: TableRecord[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
             const recordData = JSON.parse(row["record_data"] as string);
             results.push({
                 ...recordData,
@@ -361,9 +427,59 @@ export function searchTableRecords(
             });
         }
         
+        mainStmt.free();
+        return results;
+        
+    } catch (error) {
+        console.error("Error in searchTableRecords:", error);
+        // Fallback to non-FTS search if FTS fails
+        return searchTableRecordsFallback(db, query, filePath, limit);
+    }
+}
+
+// Fallback search function for table records
+function searchTableRecordsFallback(
+    db: Database,
+    query: string,
+    filePath?: string,
+    limit: number = 50
+): TableRecord[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    let fallbackSql = `
+        SELECT * FROM table_records 
+        WHERE record_data LIKE ?
+    `;
+    
+    const params = [`%${cleanQuery}%`];
+    
+    if (filePath) {
+        fallbackSql += ` AND file_path = ?`;
+        params.push(filePath);
+    }
+    
+    fallbackSql += ` LIMIT ?`;
+    params.push(limit);
+    
+    const fallbackStmt = db.prepare(fallbackSql);
+    
+    try {
+        fallbackStmt.bind(params);
+        const results: TableRecord[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            const recordData = JSON.parse(row["record_data"] as string);
+            results.push({
+                ...recordData,
+                id: row["id"] as string,
+                file_path: row["file_path"] as string,
+                file_name: row["file_name"] as string,
+                row_number: row["row_number"] as number,
+            });
+        }
         return results;
     } finally {
-        stmt.free();
+        fallbackStmt.free();
     }
 }
 

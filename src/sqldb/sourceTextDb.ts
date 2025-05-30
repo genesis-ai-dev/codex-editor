@@ -247,20 +247,36 @@ export function searchSourceCells(
         return [];
     }
     
-    const stmt = db.prepare(`
-        SELECT s.* FROM source_text s
-        JOIN source_text_fts fts ON s.rowid = fts.rowid
-        WHERE fts.content MATCH ? 
-        ORDER BY bm25(source_text_fts)
-        LIMIT ?
-    `);
-    
     try {
-        stmt.bind([ftsQuery, limit]);
+        // Step 1: Query FTS5 table directly to get matching cell_ids
+        const ftsStmt = db.prepare(`
+            SELECT cell_id FROM source_text_fts 
+            WHERE content MATCH ? 
+            ORDER BY bm25(source_text_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["cell_id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the cell_ids
+        const placeholders = matchingIds.map(() => '?').join(',');
+        const mainStmt = db.prepare(`SELECT * FROM source_text WHERE cell_id IN (${placeholders})`);
+        mainStmt.bind(matchingIds);
         
         const results: SourceCellVersions[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
             results.push({
                 cellId: row["cell_id"] as string,
                 content: row["content"] as string,
@@ -269,13 +285,13 @@ export function searchSourceCells(
             });
         }
         
+        mainStmt.free();
         return results;
+        
     } catch (error) {
         console.error("Error in searchSourceCells:", error);
         // Fallback to non-FTS search if FTS fails
         return searchSourceCellsFallback(db, query, limit);
-    } finally {
-        stmt.free();
     }
 }
 
@@ -491,44 +507,59 @@ async function findUntranslatedByContent(
     }
     
     // Use FTS5 search to find relevant content, then filter for untranslated
-    const sql = `
-        WITH content_matches AS (
-            SELECT s.cell_id, s.content, bm25(source_text_fts) as score
-            FROM source_text s
-            JOIN source_text_fts fts ON s.rowid = fts.rowid
-            WHERE fts.content MATCH ? 
-            AND s.cell_id != ?
+    try {
+        // Step 1: Query FTS5 table directly to get matching cell_ids
+        const ftsStmt = db.prepare(`
+            SELECT cell_id FROM source_text_fts 
+            WHERE content MATCH ? 
             ORDER BY bm25(source_text_fts)
             LIMIT 20
-        )
-        SELECT cm.cell_id, cm.content
-        FROM content_matches cm
-        LEFT JOIN translation_pairs tp ON cm.cell_id = tp.cell_id
-        WHERE tp.cell_id IS NULL OR tp.target_content = '' OR tp.target_content IS NULL
-        ORDER BY cm.score
-        LIMIT 1
-    `;
-    
-    const stmt = db.prepare(sql);
-    
-    try {
-        stmt.bind([ftsQuery, currentCellId]);
+        `);
         
-        if (stmt.step()) {
-            const row = stmt.getAsObject();
+        ftsStmt.bind([ftsQuery]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            const cellId = row["cell_id"] as string;
+            if (cellId !== currentCellId) {
+                matchingIds.push(cellId);
+            }
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return null;
+        }
+        
+        // Step 2: Get content and check translation status
+        const placeholders = matchingIds.map(() => '?').join(',');
+        const mainStmt = db.prepare(`
+            SELECT s.cell_id, s.content
+            FROM source_text s
+            LEFT JOIN translation_pairs tp ON s.cell_id = tp.cell_id
+            WHERE s.cell_id IN (${placeholders})
+            AND (tp.cell_id IS NULL OR tp.target_content = '' OR tp.target_content IS NULL)
+            LIMIT 1
+        `);
+        
+        mainStmt.bind(matchingIds);
+        
+        if (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
+            mainStmt.free();
             return {
                 cellId: row["cell_id"] as string,
                 content: row["content"] as string,
             };
         }
         
+        mainStmt.free();
         return null;
     } catch (error) {
         console.error("Error in findUntranslatedByContent:", error);
         // Fallback to non-FTS search
         return findUntranslatedByContentFallback(db, translationPairsDb, query, currentCellId);
-    } finally {
-        stmt.free();
     }
 }
 
