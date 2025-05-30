@@ -744,6 +744,144 @@ export async function syncMetadataToConfiguration() {
     }
 }
 
+/**
+ * Updates the .gitignore file to ensure proper SQLite file exclusions
+ * This function will add missing entries and avoid duplicates
+ */
+export async function updateGitignoreForSQLite(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        return;
+    }
+
+    const gitignorePath = vscode.Uri.joinPath(workspaceFolder.uri, ".gitignore");
+    
+    // Required gitignore entries
+    const requiredEntries = [
+        "# Sync dictionary.sqlite (shared dictionary data)",
+        "# Sync .project/sourceTexts/ folder (source text files)",
+        "",
+        "# Don't sync user-specific SQLite databases",
+        ".project/*.sqlite",
+        "!.project/dictionary.sqlite",
+        "",
+        "# Don't sync SQLite auxiliary files",
+        ".project/*.sqlite-wal",
+        ".project/*.sqlite-shm",
+        "",
+        "# Don't sync user-specific files",
+        ".project/complete_drafts.txt",
+        "copilot-messages.log",
+        "",
+        "# System files",
+        ".DS_Store"
+    ];
+
+    try {
+        let existingContent = "";
+        let fileExists = false;
+        
+        try {
+            const existingData = await vscode.workspace.fs.readFile(gitignorePath);
+            existingContent = existingData.toString();
+            fileExists = true;
+        } catch (error) {
+            // File doesn't exist, we'll create it
+            debug("No .gitignore file found, will create one");
+        }
+
+        // Parse existing content into lines
+        const existingLines = existingContent.split('\n').map(line => line.trim());
+        
+        // Check which entries are missing
+        const missingEntries: string[] = [];
+        let needsUpdate = false;
+        
+        // Check for required patterns (ignoring comments and empty lines for logic)
+        const requiredPatterns = [
+            ".project/*.sqlite",
+            "!.project/dictionary.sqlite", 
+            ".project/*.sqlite-wal",
+            ".project/*.sqlite-shm",
+            ".project/complete_drafts.txt",
+            "copilot-messages.log",
+            ".DS_Store"
+        ];
+        
+        for (const pattern of requiredPatterns) {
+            if (!existingLines.includes(pattern)) {
+                needsUpdate = true;
+                break;
+            }
+        }
+        
+        // Check for duplicate .project/*.sqlite entries
+        const sqlitePatternCount = existingLines.filter(line => line === ".project/*.sqlite").length;
+        if (sqlitePatternCount > 1) {
+            needsUpdate = true;
+            debug(`Found ${sqlitePatternCount} duplicate .project/*.sqlite entries, will clean up`);
+        }
+        
+        if (!needsUpdate && fileExists) {
+            debug(".gitignore file already has all required SQLite exclusions");
+            return;
+        }
+        
+        let newContent = "";
+        
+        if (fileExists && existingContent.trim()) {
+            // File exists with content - we need to merge intelligently
+            const lines = existingContent.split('\n');
+            const processedLines: string[] = [];
+            let sqlitePatternSeen = false;
+            
+            // Process existing lines, removing duplicates of .project/*.sqlite
+            for (const line of lines) {
+                if (line.trim() === ".project/*.sqlite") {
+                    if (!sqlitePatternSeen) {
+                        processedLines.push(line);
+                        sqlitePatternSeen = true;
+                    }
+                    // Skip duplicate entries
+                } else {
+                    processedLines.push(line);
+                }
+            }
+            
+            // Check if we have all required patterns
+            const processedContent = processedLines.join('\n');
+            const hasAllPatterns = requiredPatterns.every(pattern => 
+                processedLines.some(line => line.trim() === pattern)
+            );
+            
+            if (hasAllPatterns) {
+                // Just write the deduplicated content
+                newContent = processedContent;
+            } else {
+                // Add missing patterns at the end
+                newContent = processedContent.trimEnd() + "\n\n" + 
+                    "# Codex SQLite file exclusions\n" +
+                    requiredEntries.join('\n');
+            }
+        } else {
+            // File doesn't exist or is empty - create complete content
+            newContent = requiredEntries.join('\n');
+        }
+        
+        // Write the updated content
+        await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(newContent, 'utf8'));
+        
+        if (fileExists) {
+            debug("Updated existing .gitignore file with SQLite exclusions");
+        } else {
+            debug("Created new .gitignore file with SQLite exclusions");
+        }
+        
+    } catch (error) {
+        console.error("Error updating .gitignore file:", error);
+    }
+}
+
 export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
@@ -775,6 +913,9 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
             ref: "HEAD",
         });
         gitExists = true;
+        
+        // If git exists, ensure .gitignore has proper SQLite exclusions
+        await updateGitignoreForSQLite();
     } catch {
         debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
     }

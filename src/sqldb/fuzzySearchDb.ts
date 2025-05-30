@@ -444,8 +444,8 @@ export function performFuzzySearch(
         // Strategy 1: Exact match search
         let exactSql = `
             SELECT id, content, resource_type, 1.0 * ? as score, 0 as distance, 'exact' as match_type
-                FROM fuzzy_search_index 
-                WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
+            FROM fuzzy_search_index 
+            WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
         `;
         
         const exactParams: any[] = [mergedConfig.boostExactMatch, normalizedQuery];
