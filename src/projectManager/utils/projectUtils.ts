@@ -400,9 +400,6 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 // Create .gitignore file
                 const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
                 const gitignoreContent = Buffer.from(
-                    "# Sync dictionary.sqlite (shared dictionary data)\n" +
-                    "# Sync .project/sourceTexts/ folder (source text files)\n" +
-                    "\n" +
                     "# Don't sync user-specific SQLite databases\n" +
                     ".project/*.sqlite\n" +
                     "!.project/dictionary.sqlite\n" +
@@ -758,9 +755,6 @@ export async function updateGitignoreForSQLite(): Promise<void> {
     
     // Required gitignore entries
     const requiredEntries = [
-        "# Sync dictionary.sqlite (shared dictionary data)",
-        "# Sync .project/sourceTexts/ folder (source text files)",
-        "",
         "# Don't sync user-specific SQLite databases",
         ".project/*.sqlite",
         "!.project/dictionary.sqlite",
@@ -822,6 +816,19 @@ export async function updateGitignoreForSQLite(): Promise<void> {
             debug(`Found ${sqlitePatternCount} duplicate .project/*.sqlite entries, will clean up`);
         }
         
+        // Check for old comment lines that need to be removed
+        const oldComments = [
+            "# Sync dictionary.sqlite (shared dictionary data)",
+            "# Sync .project/sourceTexts/ folder (source text files)",
+            "# Codex SQLite file exclusions"
+        ];
+        
+        const hasOldComments = oldComments.some(comment => existingLines.includes(comment));
+        if (hasOldComments) {
+            needsUpdate = true;
+            debug("Found old comment lines that will be removed");
+        }
+        
         if (!needsUpdate && fileExists) {
             debug(".gitignore file already has all required SQLite exclusions");
             return;
@@ -835,9 +842,17 @@ export async function updateGitignoreForSQLite(): Promise<void> {
             const processedLines: string[] = [];
             let sqlitePatternSeen = false;
             
-            // Process existing lines, removing duplicates of .project/*.sqlite
+            // Process existing lines, removing duplicates and old comments
             for (const line of lines) {
-                if (line.trim() === ".project/*.sqlite") {
+                const trimmedLine = line.trim();
+                
+                // Skip old comment lines
+                if (oldComments.includes(trimmedLine)) {
+                    continue;
+                }
+                
+                // Handle .project/*.sqlite duplicates
+                if (trimmedLine === ".project/*.sqlite") {
                     if (!sqlitePatternSeen) {
                         processedLines.push(line);
                         sqlitePatternSeen = true;
@@ -855,12 +870,11 @@ export async function updateGitignoreForSQLite(): Promise<void> {
             );
             
             if (hasAllPatterns) {
-                // Just write the deduplicated content
+                // Just write the cleaned content
                 newContent = processedContent;
             } else {
                 // Add missing patterns at the end
                 newContent = processedContent.trimEnd() + "\n\n" + 
-                    "# Codex SQLite file exclusions\n" +
                     requiredEntries.join('\n');
             }
         } else {
