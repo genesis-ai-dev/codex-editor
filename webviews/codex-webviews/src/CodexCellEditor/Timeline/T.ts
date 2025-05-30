@@ -440,12 +440,12 @@ export default function TimeLine({
     }
     function outPrtcls() {
         const data = prtcls.map((p, i) => {
-            const begin = toFixed3(p.x / zoomLevel);
-            let end = toFixed3((p.x + p.edge) / zoomLevel);
+            const begin = p.x / zoomLevel;
+            let end = (p.x + p.edge) / zoomLevel;
             const text = p.text;
 
             if (prtcls[i + 1]) {
-                const nextStart = toFixed3(prtcls[i + 1].x / zoomLevel);
+                const nextStart = prtcls[i + 1].x / zoomLevel;
                 if (nextStart < end) end = nextStart;
             }
 
