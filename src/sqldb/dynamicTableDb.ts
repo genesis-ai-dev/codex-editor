@@ -98,6 +98,31 @@ export function populateTableRecordsFTS5FromMainTable(db: Database): void {
     console.log("Populating table records FTS5 table from main table data...");
     
     try {
+        // First check if the main table exists
+        const tableExistsStmt = db.prepare(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='table_records'
+        `);
+        tableExistsStmt.step();
+        const tableExists = tableExistsStmt.getAsObject();
+        tableExistsStmt.free();
+        
+        if (!tableExists || !tableExists.name) {
+            console.log("Table records table does not exist, skipping FTS5 population");
+            return;
+        }
+        
+        // Check if the main table has data
+        const checkStmt = db.prepare("SELECT COUNT(*) as count FROM table_records");
+        checkStmt.step();
+        const mainTableCount = checkStmt.getAsObject().count as number;
+        checkStmt.free();
+        
+        if (mainTableCount === 0) {
+            console.log("Table records table is empty, skipping FTS5 population");
+            return;
+        }
+        
         // Clear existing FTS5 data
         db.exec("DELETE FROM table_records_fts");
         
@@ -116,7 +141,8 @@ export function populateTableRecordsFTS5FromMainTable(db: Database): void {
         console.log(`Table records FTS5 table populated with ${count} entries`);
     } catch (error) {
         console.error("Error populating table records FTS5 table:", error);
-        throw error;
+        // Don't throw the error, just log it to prevent breaking the entire rebuild process
+        console.log("Continuing with empty table records FTS5 table");
     }
 }
 
