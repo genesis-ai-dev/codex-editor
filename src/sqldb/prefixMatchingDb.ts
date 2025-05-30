@@ -121,6 +121,31 @@ export function populatePrefixMatchingFTS5FromMainTable(db: Database): void {
     console.log("Populating prefix matching FTS5 table from main table data...");
     
     try {
+        // First check if the main table exists
+        const tableExistsStmt = db.prepare(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='prefix_match_index'
+        `);
+        tableExistsStmt.step();
+        const tableExists = tableExistsStmt.getAsObject();
+        tableExistsStmt.free();
+        
+        if (!tableExists || !tableExists.name) {
+            console.log("Prefix matching index table does not exist, skipping FTS5 population");
+            return;
+        }
+        
+        // Check if the main table has data
+        const checkStmt = db.prepare("SELECT COUNT(*) as count FROM prefix_match_index");
+        checkStmt.step();
+        const mainTableCount = checkStmt.getAsObject().count as number;
+        checkStmt.free();
+        
+        if (mainTableCount === 0) {
+            console.log("Prefix matching index table is empty, skipping FTS5 population");
+            return;
+        }
+        
         // Clear existing FTS5 data
         db.exec("DELETE FROM prefix_match_fts");
         
@@ -139,7 +164,8 @@ export function populatePrefixMatchingFTS5FromMainTable(db: Database): void {
         console.log(`Prefix matching FTS5 table populated with ${count} entries`);
     } catch (error) {
         console.error("Error populating prefix matching FTS5 table:", error);
-        throw error;
+        // Don't throw the error, just log it to prevent breaking the entire rebuild process
+        console.log("Continuing with empty prefix matching FTS5 table");
     }
 }
 
