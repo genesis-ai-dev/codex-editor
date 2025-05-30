@@ -493,7 +493,7 @@ export function performFuzzySearch(
                 matchingIds.push(row["id"] as string);
             }
             ftsStmt.free();
-            
+    
             if (matchingIds.length > 0) {
                 // Step 2: Get full data from main table using the IDs
                 const placeholders = matchingIds.map(() => '?').join(',');
@@ -502,7 +502,7 @@ export function performFuzzySearch(
                            fuzzy_score(?, content, 'fuzzy', levenshtein(?, normalized_content), ?) as score,
                            levenshtein(?, normalized_content) as distance,
                            'fuzzy' as match_type
-                    FROM fuzzy_search_index 
+            FROM fuzzy_search_index 
                     WHERE id IN (${placeholders})
                 `;
                 
@@ -515,7 +515,7 @@ export function performFuzzySearch(
                 
                 mainSql += ` AND levenshtein(?, normalized_content) <= ? ORDER BY score DESC`;
                 mainParams.push(normalizedQuery, mergedConfig.maxDistance.toString());
-                
+    
                 const mainStmt = db.prepare(mainSql);
                 mainStmt.bind(mainParams);
                 
@@ -585,7 +585,7 @@ function performFuzzySearchFallback(
     
     try {
         fallbackStmt.bind(fallbackParams);
-        const results: FuzzySearchResult[] = [];
+    const results: FuzzySearchResult[] = [];
         while (fallbackStmt.step()) {
             const row = fallbackStmt.getAsObject();
             results.push({
@@ -705,8 +705,8 @@ export function performPhoneticSearch(
             score: row.score as number,
             distance: row.distance as number,
             matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
-        });
-    }
+            });
+        }
         stmt.free();
     
     const endTime = performance.now();
