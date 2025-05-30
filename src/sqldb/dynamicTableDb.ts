@@ -56,55 +56,39 @@ export async function initializeDynamicTableDb(db: Database): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_table_records_row_number ON table_records(row_number);
         CREATE INDEX IF NOT EXISTS idx_table_metadata_file_name ON table_metadata(file_name);
 
-        -- Create FTS5 virtual table for full-text search across all table data
+        -- Create standalone FTS5 virtual table (not external content)
         CREATE VIRTUAL TABLE IF NOT EXISTS table_records_fts USING fts5(
-            id,
-            file_path,
+            id UNINDEXED,
+            file_path UNINDEXED,
             file_name,
-            record_data,
-            content='table_records',
-            content_rowid='rowid'
+            record_data
         );
     `);
     
-    // Check if triggers exist and create them if they don't
-    const triggerCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?");
+    // Drop existing triggers if they exist to recreate them properly
+    db.exec(`
+        DROP TRIGGER IF EXISTS table_records_ai;
+        DROP TRIGGER IF EXISTS table_records_ad;  
+        DROP TRIGGER IF EXISTS table_records_au;
+    `);
     
-    const triggers = [
-        {
-            name: 'table_records_ai',
-            sql: `CREATE TRIGGER table_records_ai AFTER INSERT ON table_records BEGIN
-                INSERT INTO table_records_fts(rowid, id, file_path, file_name, record_data) 
-                VALUES (new.rowid, new.id, new.file_path, new.file_name, new.record_data);
-            END;`
-        },
-        {
-            name: 'table_records_ad',
-            sql: `CREATE TRIGGER table_records_ad AFTER DELETE ON table_records BEGIN
-                INSERT INTO table_records_fts(table_records_fts, rowid, id, file_path, file_name, record_data) 
-                VALUES('delete', old.rowid, old.id, old.file_path, old.file_name, old.record_data);
-            END;`
-        },
-        {
-            name: 'table_records_au',
-            sql: `CREATE TRIGGER table_records_au AFTER UPDATE ON table_records BEGIN
-                INSERT INTO table_records_fts(table_records_fts, rowid, id, file_path, file_name, record_data) 
-                VALUES('delete', old.rowid, old.id, old.file_path, old.file_name, old.record_data);
-                INSERT INTO table_records_fts(rowid, id, file_path, file_name, record_data) 
-                VALUES (new.rowid, new.id, new.file_path, new.file_name, new.record_data);
-            END;`
-        }
-    ];
-    
-    triggers.forEach(trigger => {
-        triggerCheck.bind([trigger.name]);
-        if (!triggerCheck.step()) {
-            db.exec(trigger.sql);
-        }
-        triggerCheck.reset();
-    });
-    
-    triggerCheck.free();
+    // Create new triggers for standalone FTS5 table
+    db.exec(`
+        CREATE TRIGGER table_records_ai AFTER INSERT ON table_records BEGIN
+            INSERT INTO table_records_fts(id, file_path, file_name, record_data) 
+            VALUES (new.id, new.file_path, new.file_name, new.record_data);
+        END;
+        
+        CREATE TRIGGER table_records_ad AFTER DELETE ON table_records BEGIN
+            DELETE FROM table_records_fts WHERE rowid = old.rowid;
+        END;
+        
+        CREATE TRIGGER table_records_au AFTER UPDATE ON table_records BEGIN
+            DELETE FROM table_records_fts WHERE rowid = old.rowid;
+            INSERT INTO table_records_fts(id, file_path, file_name, record_data) 
+            VALUES (new.id, new.file_path, new.file_name, new.record_data);
+        END;
+    `);
     
     console.timeEnd("initializeDynamicTableDb");
 }
@@ -114,7 +98,8 @@ export async function createDynamicTableIndex(
     db: Database,
     force: boolean = false
 ): Promise<void> {
-    console.time("createDynamicTableIndex");
+    const timerId = `createDynamicTableIndex-${Date.now()}`;
+    console.time(timerId);
     
     const workspaceFolder = getWorkSpaceUri();
     if (!workspaceFolder) {
@@ -134,7 +119,7 @@ export async function createDynamicTableIndex(
     
     if (tableFiles.length === 0) {
         console.log("No table files found to index");
-        console.timeEnd("createDynamicTableIndex");
+        console.timeEnd(timerId);
         return;
     }
     
@@ -268,7 +253,7 @@ export async function createDynamicTableIndex(
         throw error;
     }
     
-    console.timeEnd("createDynamicTableIndex");
+    console.timeEnd(timerId);
 }
 
 // Helper function to detect delimiter

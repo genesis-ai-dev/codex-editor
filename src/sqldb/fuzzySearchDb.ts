@@ -60,39 +60,42 @@ export function initializeFuzzySearchDb(db: Database): void {
     
     // Create FTS5 virtual table for content search
     db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS fuzzy_search_fts USING fts5(
+        DROP TABLE IF EXISTS fuzzy_search_fts;
+        DROP TRIGGER IF EXISTS fuzzy_search_fts_insert;
+        DROP TRIGGER IF EXISTS fuzzy_search_fts_delete;
+        DROP TRIGGER IF EXISTS fuzzy_search_fts_update;
+    `);
+    
+    db.exec(`
+        CREATE VIRTUAL TABLE fuzzy_search_fts USING fts5(
             id UNINDEXED,
             resource_type UNINDEXED,
             content,
             normalized_content,
             phonetic_code,
-            ngrams,
-            content='fuzzy_search_index',
-            content_rowid='rowid'
+            ngrams
         );
     `);
     
     // Create triggers to keep FTS5 in sync
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS fuzzy_search_fts_insert AFTER INSERT ON fuzzy_search_index BEGIN
-            INSERT INTO fuzzy_search_fts(rowid, id, resource_type, content, normalized_content, phonetic_code, ngrams)
-            VALUES (new.rowid, new.id, new.resource_type, new.content, new.normalized_content, new.phonetic_code, new.ngrams);
+        CREATE TRIGGER fuzzy_search_fts_insert AFTER INSERT ON fuzzy_search_index BEGIN
+            INSERT INTO fuzzy_search_fts(id, resource_type, content, normalized_content, phonetic_code, ngrams)
+            VALUES (new.id, new.resource_type, new.content, new.normalized_content, new.phonetic_code, new.ngrams);
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS fuzzy_search_fts_delete AFTER DELETE ON fuzzy_search_index BEGIN
-            INSERT INTO fuzzy_search_fts(fuzzy_search_fts, rowid, id, resource_type, content, normalized_content, phonetic_code, ngrams)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.content, old.normalized_content, old.phonetic_code, old.ngrams);
+        CREATE TRIGGER fuzzy_search_fts_delete AFTER DELETE ON fuzzy_search_index BEGIN
+            DELETE FROM fuzzy_search_fts WHERE rowid = old.rowid;
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS fuzzy_search_fts_update AFTER UPDATE ON fuzzy_search_index BEGIN
-            INSERT INTO fuzzy_search_fts(fuzzy_search_fts, rowid, id, resource_type, content, normalized_content, phonetic_code, ngrams)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.content, old.normalized_content, old.phonetic_code, old.ngrams);
-            INSERT INTO fuzzy_search_fts(rowid, id, resource_type, content, normalized_content, phonetic_code, ngrams)
-            VALUES (new.rowid, new.id, new.resource_type, new.content, new.normalized_content, new.phonetic_code, new.ngrams);
+        CREATE TRIGGER fuzzy_search_fts_update AFTER UPDATE ON fuzzy_search_index BEGIN
+            DELETE FROM fuzzy_search_fts WHERE rowid = old.rowid;
+            INSERT INTO fuzzy_search_fts(id, resource_type, content, normalized_content, phonetic_code, ngrams)
+            VALUES (new.id, new.resource_type, new.content, new.normalized_content, new.phonetic_code, new.ngrams);
         END;
     `);
     
@@ -370,8 +373,8 @@ export function performFuzzySearch(
     // Exact match search
     let exactSql = `
         SELECT id, content, resource_type, 1.0 * ? as score, 0 as distance, 'exact' as match_type
-        FROM fuzzy_search_index 
-        WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
+            FROM fuzzy_search_index 
+            WHERE ${mergedConfig.caseSensitive ? 'content' : 'normalized_content'} = ?
     `;
     
     const exactParams: any[] = [mergedConfig.boostExactMatch, normalizedQuery];
@@ -471,7 +474,7 @@ export function performSimilaritySearch(
                jaro_winkler(?, normalized_content) as score,
                0 as distance,
                'fuzzy' as match_type
-        FROM fuzzy_search_index 
+        FROM fuzzy_search_index
         WHERE jaro_winkler(?, normalized_content) >= ?
     `;
     
@@ -503,6 +506,62 @@ export function performSimilaritySearch(
     
     const endTime = performance.now();
     trackFeatureUsage('similarity_search_perform', 'sqlite', endTime - startTime);
+    
+    return results;
+}
+
+/**
+ * Perform phonetic search using Soundex algorithm
+ */
+export function performPhoneticSearch(
+    db: Database,
+    query: string,
+    resourceType?: string,
+    limit: number = 50
+): FuzzySearchResult[] {
+    const startTime = performance.now();
+    
+    if (!query.trim()) return [];
+    
+    const queryPhoneticCode = generatePhoneticCode(query);
+    
+    let sql = `
+        SELECT id, content, resource_type,
+               0.6 as score,
+               0 as distance,
+               'phonetic' as match_type
+        FROM fuzzy_search_index 
+        WHERE phonetic_code = ?
+    `;
+    
+    const params: any[] = [queryPhoneticCode];
+    
+    if (resourceType) {
+        sql += ` AND resource_type = ?`;
+        params.push(resourceType);
+    }
+    
+    sql += ` ORDER BY score DESC LIMIT ?`;
+    params.push(Math.min(limit, 50));
+    
+    const stmt = db.prepare(sql);
+        stmt.bind(params);
+        
+    const results: FuzzySearchResult[] = [];
+        while (stmt.step()) {
+            const row = stmt.getAsObject();
+            results.push({
+                id: row.id as string,
+                content: row.content as string,
+            score: row.score as number,
+            distance: row.distance as number,
+            matchType: row.match_type as 'exact' | 'prefix' | 'fuzzy' | 'phonetic'
+        });
+    }
+        stmt.free();
+    
+    const endTime = performance.now();
+    trackFeatureUsage('phonetic_search_perform', 'sqlite', endTime - startTime);
     
     return results;
 }
@@ -557,4 +616,4 @@ export function saveFuzzySearchDb(db: Database): void {
     // This function exists for compatibility with existing code
     // The database is automatically persisted when using sql.js-fts5
     console.log('Fuzzy search database state saved');
-}
+} 

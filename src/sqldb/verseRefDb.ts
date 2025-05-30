@@ -37,55 +37,66 @@ export async function initializeVerseRefDb(db: Database): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_verse_refs_vref ON verse_refs(vref);
         CREATE INDEX IF NOT EXISTS idx_verse_refs_uri ON verse_refs(uri);
 
-        -- Create FTS5 virtual table if it doesn't exist
+        -- Create standalone FTS5 virtual table (not external content)
         CREATE VIRTUAL TABLE IF NOT EXISTS verse_refs_fts USING fts5(
             vref, 
-            uri,
-            content='verse_refs',
-            content_rowid='rowid'
+            uri UNINDEXED
         );
     `);
     
-    // Check if triggers exist and create them if they don't
-    const triggerCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?");
+    // Drop existing triggers if they exist to recreate them properly
+    db.exec(`
+        DROP TRIGGER IF EXISTS verse_refs_ai;
+        DROP TRIGGER IF EXISTS verse_refs_ad;  
+        DROP TRIGGER IF EXISTS verse_refs_au;
+    `);
     
-    const triggers = [
-        {
-            name: 'verse_refs_ai',
-            sql: `CREATE TRIGGER verse_refs_ai AFTER INSERT ON verse_refs BEGIN
-                INSERT INTO verse_refs_fts(rowid, vref, uri) 
-                VALUES (new.rowid, new.vref, new.uri);
-            END;`
-        },
-        {
-            name: 'verse_refs_ad',
-            sql: `CREATE TRIGGER verse_refs_ad AFTER DELETE ON verse_refs BEGIN
-                INSERT INTO verse_refs_fts(verse_refs_fts, rowid, vref, uri) 
-                VALUES('delete', old.rowid, old.vref, old.uri);
-            END;`
-        },
-        {
-            name: 'verse_refs_au',
-            sql: `CREATE TRIGGER verse_refs_au AFTER UPDATE ON verse_refs BEGIN
-                INSERT INTO verse_refs_fts(verse_refs_fts, rowid, vref, uri) 
-                VALUES('delete', old.rowid, old.vref, old.uri);
-                INSERT INTO verse_refs_fts(rowid, vref, uri) 
-                VALUES (new.rowid, new.vref, new.uri);
-            END;`
-        }
-    ];
-    
-    triggers.forEach(trigger => {
-        triggerCheck.bind([trigger.name]);
-        if (!triggerCheck.step()) {
-            db.exec(trigger.sql);
-        }
-        triggerCheck.reset();
-    });
-    
-    triggerCheck.free();
+    // Create new triggers for standalone FTS5 table
+    db.exec(`
+        CREATE TRIGGER verse_refs_ai AFTER INSERT ON verse_refs BEGIN
+            INSERT INTO verse_refs_fts(vref, uri) 
+            VALUES (new.vref, new.uri);
+        END;
+        
+        CREATE TRIGGER verse_refs_ad AFTER DELETE ON verse_refs BEGIN
+            DELETE FROM verse_refs_fts WHERE rowid = old.rowid;
+        END;
+        
+        CREATE TRIGGER verse_refs_au AFTER UPDATE ON verse_refs BEGIN
+            DELETE FROM verse_refs_fts WHERE rowid = old.rowid;
+            INSERT INTO verse_refs_fts(vref, uri) 
+            VALUES (new.vref, new.uri);
+        END;
+    `);
     
     console.timeEnd("initializeVerseRefDb");
+}
+
+// Function to populate FTS5 from existing main table data
+export function populateVerseRefsFTS5FromMainTable(db: Database): void {
+    console.log("Populating verse refs FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM verse_refs_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO verse_refs_fts(vref, uri)
+            SELECT vref, uri 
+            FROM verse_refs
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM verse_refs_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Verse refs FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating verse refs FTS5 table:", error);
+        throw error;
+    }
 }
 
 // Create and populate the verse reference index
@@ -275,18 +286,45 @@ export function searchVerseRefs(
     query: string,
     limit: number = 15
 ): VrefSearchResult[] {
+    if (!query || query.trim() === '') {
+        return [];
+    }
+    
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM verse_refs_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Verse refs FTS5 table is empty, populating it...");
+        try {
+            populateVerseRefsFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate verse refs FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return searchVerseRefsFallback(db, query, limit);
+        }
+    }
+    
+    // Escape special characters and format for FTS5
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+    
+    if (!ftsQuery) {
+        return [];
+    }
+    
     const stmt = db.prepare(`
         SELECT v.vref, v.uri, v.line, v.character_pos 
         FROM verse_refs v
         JOIN verse_refs_fts fts ON v.rowid = fts.rowid
         WHERE fts.vref MATCH ? 
-        ORDER BY rank 
+        ORDER BY bm25(verse_refs_fts)
         LIMIT ?
     `);
     
     try {
-        // Format query for FTS5
-        const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
         stmt.bind([ftsQuery, limit]);
         
         const results: VrefSearchResult[] = [];
@@ -303,8 +341,48 @@ export function searchVerseRefs(
         }
         
         return results;
+    } catch (error) {
+        console.error("Error in searchVerseRefs:", error);
+        // Fallback to non-FTS search if FTS fails
+        return searchVerseRefsFallback(db, query, limit);
     } finally {
         stmt.free();
+    }
+}
+
+// Fallback search function for verse refs
+function searchVerseRefsFallback(
+    db: Database,
+    query: string,
+    limit: number
+): VrefSearchResult[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    const fallbackStmt = db.prepare(`
+        SELECT vref, uri, line, character_pos 
+        FROM verse_refs 
+        WHERE vref LIKE ? 
+        ORDER BY vref
+        LIMIT ?
+    `);
+    
+    try {
+        fallbackStmt.bind([`%${cleanQuery}%`, limit]);
+        const results: VrefSearchResult[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            results.push({
+                vref: row["vref"] as string,
+                uri: row["uri"] as string,
+                position: {
+                    line: row["line"] as number,
+                    character: row["character_pos"] as number,
+                },
+            });
+        }
+        return results;
+    } finally {
+        fallbackStmt.free();
     }
 }
 

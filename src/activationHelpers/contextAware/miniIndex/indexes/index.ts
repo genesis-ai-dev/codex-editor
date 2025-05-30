@@ -279,7 +279,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             console.timeEnd("Index Freshness Checks");
 
             console.log("Creating SQLite indexes (with freshness optimization)...");
-            console.time("Parallel Index Creation");
+            const indexCreationId = `Parallel Index Creation ${Date.now()}`;
+            console.time(indexCreationId);
 
             // Parallelize independent index creation operations (only for indexes that need rebuilding)
             const indexCreationPromises = [];
@@ -421,7 +422,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             // Wait for all index creation operations to complete
             await Promise.all(indexCreationPromises);
 
-            console.timeEnd("Parallel Index Creation");
+            console.timeEnd(indexCreationId);
             console.log("✅ All indexes created successfully");
 
             // Save all SQLite database states (these are quick operations)

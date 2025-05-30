@@ -203,6 +203,72 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const cleanupCorruptedDatabasesCommand = vscode.commands.registerCommand(
+        "translators-copilot.cleanupCorruptedDatabases",
+        async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                vscode.window.showErrorMessage("No workspace folder found.");
+                return;
+            }
+
+            const result = await vscode.window.showWarningMessage(
+                "This will delete corrupted database files and force a clean recreation. This action cannot be undone. Continue?",
+                { modal: true },
+                "Yes, Clean Up",
+                "Cancel"
+            );
+
+            if (result !== "Yes, Clean Up") {
+                return;
+            }
+
+            try {
+                // Find the .project directory
+                const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
+                
+                try {
+                    // Try to access the directory to see if it exists
+                    await vscode.workspace.fs.stat(projectDir);
+                } catch {
+                    vscode.window.showInformationMessage("No .project directory found. Nothing to clean up.");
+                    return;
+                }
+
+                // List of database files to clean up
+                const dbFiles = [
+                    "indexes.sqlite",
+                    "translation_pairs.sqlite",
+                    "dictionary.sqlite"
+                ];
+
+                let cleanedFiles = 0;
+                for (const dbFile of dbFiles) {
+                    try {
+                        const filePath = vscode.Uri.joinPath(projectDir, dbFile);
+                        await vscode.workspace.fs.delete(filePath);
+                        cleanedFiles++;
+                        console.log(`Deleted corrupted database file: ${dbFile}`);
+                    } catch (error) {
+                        // File might not exist, which is fine
+                        console.log(`Database file ${dbFile} not found or already deleted`);
+                    }
+                }
+
+                if (cleanedFiles > 0) {
+                    vscode.window.showInformationMessage(
+                        `Successfully cleaned up ${cleanedFiles} database file(s). The indexes will be automatically recreated when you use search functions.`
+                    );
+                } else {
+                    vscode.window.showInformationMessage("No database files found to clean up.");
+                }
+            } catch (error) {
+                console.error("Error during database cleanup:", error);
+                vscode.window.showErrorMessage(`Error during cleanup: ${error}`);
+            }
+        }
+    );
+
     const openSourceUploadCommand = vscode.commands.registerCommand(
         "codexNotebookTreeView.openSourceFile",
         async (treeNode: Node & { sourceFileUri?: vscode.Uri }) => {
@@ -332,6 +398,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         uploadTranslationFolderCommand,
         downloadSourceBibleCommand,
         analyzeEditsCommand,
-        navigateToMainMenuCommand
+        navigateToMainMenuCommand,
+        cleanupCorruptedDatabasesCommand
     );
 }

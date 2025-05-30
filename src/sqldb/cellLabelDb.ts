@@ -79,56 +79,67 @@ export async function initializeCellLabelDb(db: Database): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_source_cells_labels_notebook_id ON source_cells_with_labels(notebook_id);
         CREATE INDEX IF NOT EXISTS idx_source_cells_labels_content ON source_cells_with_labels(content);
 
-        -- Create FTS5 virtual table for full-text search across cell content and labels
+        -- Create standalone FTS5 virtual table (not external content)
         CREATE VIRTUAL TABLE IF NOT EXISTS source_cells_labels_fts USING fts5(
-            cell_id,
+            cell_id UNINDEXED,
             content,
-            cell_label,
-            content='source_cells_with_labels',
-            content_rowid='rowid'
+            cell_label
         );
     `);
     
-    // Check if triggers exist and create them if they don't
-    const triggerCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?");
+    // Drop existing triggers if they exist to recreate them properly
+    db.exec(`
+        DROP TRIGGER IF EXISTS source_cells_labels_ai;
+        DROP TRIGGER IF EXISTS source_cells_labels_ad;  
+        DROP TRIGGER IF EXISTS source_cells_labels_au;
+    `);
     
-    const triggers = [
-        {
-            name: 'source_cells_labels_ai',
-            sql: `CREATE TRIGGER source_cells_labels_ai AFTER INSERT ON source_cells_with_labels BEGIN
-                INSERT INTO source_cells_labels_fts(rowid, cell_id, content, cell_label) 
-                VALUES (new.rowid, new.cell_id, new.content, COALESCE(new.cell_label, ''));
-            END;`
-        },
-        {
-            name: 'source_cells_labels_ad',
-            sql: `CREATE TRIGGER source_cells_labels_ad AFTER DELETE ON source_cells_with_labels BEGIN
-                INSERT INTO source_cells_labels_fts(source_cells_labels_fts, rowid, cell_id, content, cell_label) 
-                VALUES('delete', old.rowid, old.cell_id, old.content, COALESCE(old.cell_label, ''));
-            END;`
-        },
-        {
-            name: 'source_cells_labels_au',
-            sql: `CREATE TRIGGER source_cells_labels_au AFTER UPDATE ON source_cells_with_labels BEGIN
-                INSERT INTO source_cells_labels_fts(source_cells_labels_fts, rowid, cell_id, content, cell_label) 
-                VALUES('delete', old.rowid, old.cell_id, old.content, COALESCE(old.cell_label, ''));
-                INSERT INTO source_cells_labels_fts(rowid, cell_id, content, cell_label) 
-                VALUES (new.rowid, new.cell_id, new.content, COALESCE(new.cell_label, ''));
-            END;`
-        }
-    ];
-    
-    triggers.forEach(trigger => {
-        triggerCheck.bind([trigger.name]);
-        if (!triggerCheck.step()) {
-            db.exec(trigger.sql);
-        }
-        triggerCheck.reset();
-    });
-    
-    triggerCheck.free();
+    // Create new triggers for standalone FTS5 table
+    db.exec(`
+        CREATE TRIGGER source_cells_labels_ai AFTER INSERT ON source_cells_with_labels BEGIN
+            INSERT INTO source_cells_labels_fts(cell_id, content, cell_label) 
+            VALUES (new.cell_id, new.content, COALESCE(new.cell_label, ''));
+        END;
+        
+        CREATE TRIGGER source_cells_labels_ad AFTER DELETE ON source_cells_with_labels BEGIN
+            DELETE FROM source_cells_labels_fts WHERE rowid = old.rowid;
+        END;
+        
+        CREATE TRIGGER source_cells_labels_au AFTER UPDATE ON source_cells_with_labels BEGIN
+            DELETE FROM source_cells_labels_fts WHERE rowid = old.rowid;
+            INSERT INTO source_cells_labels_fts(cell_id, content, cell_label) 
+            VALUES (new.cell_id, new.content, COALESCE(new.cell_label, ''));
+        END;
+    `);
     
     console.timeEnd("initializeCellLabelDb");
+}
+
+// Function to populate FTS5 from existing main table data
+export function populateCellLabelsFTS5FromMainTable(db: Database): void {
+    console.log("Populating cell labels FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM source_cells_labels_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO source_cells_labels_fts(cell_id, content, cell_label)
+            SELECT cell_id, content, COALESCE(cell_label, '') 
+            FROM source_cells_with_labels
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM source_cells_labels_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Cell labels FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating cell labels FTS5 table:", error);
+        throw error;
+    }
 }
 
 // Create and populate the cell label index
@@ -389,17 +400,44 @@ export function searchCellsByContent(
     query: string,
     limit: number = 15
 ): SourceCellVersions[] {
+    if (!query || query.trim() === '') {
+        return [];
+    }
+    
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM source_cells_labels_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Cell labels FTS5 table is empty, populating it...");
+        try {
+            populateCellLabelsFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate cell labels FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return searchCellsByContentFallback(db, query, limit);
+        }
+    }
+    
+    // Escape special characters and format for FTS5
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+    
+    if (!ftsQuery) {
+        return [];
+    }
+    
     const stmt = db.prepare(`
         SELECT s.* FROM source_cells_with_labels s
         JOIN source_cells_labels_fts fts ON s.rowid = fts.rowid
         WHERE fts.content MATCH ? OR fts.cell_label MATCH ?
-        ORDER BY rank 
+        ORDER BY bm25(source_cells_labels_fts)
         LIMIT ?
     `);
     
     try {
-        // Format query for FTS5
-        const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
         stmt.bind([ftsQuery, ftsQuery, limit]);
         
         const results: SourceCellVersions[] = [];
@@ -415,8 +453,47 @@ export function searchCellsByContent(
         }
         
         return results;
+    } catch (error) {
+        console.error("Error in searchCellsByContent:", error);
+        // Fallback to non-FTS search if FTS fails
+        return searchCellsByContentFallback(db, query, limit);
     } finally {
         stmt.free();
+    }
+}
+
+// Fallback search function for cells by content
+function searchCellsByContentFallback(
+    db: Database,
+    query: string,
+    limit: number
+): SourceCellVersions[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    const fallbackStmt = db.prepare(`
+        SELECT * FROM source_cells_with_labels 
+        WHERE content LIKE ? OR cell_label LIKE ?
+        ORDER BY cell_id
+        LIMIT ?
+    `);
+    
+    try {
+        const likeQuery = `%${cleanQuery}%`;
+        fallbackStmt.bind([likeQuery, likeQuery, limit]);
+        const results: SourceCellVersions[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            results.push({
+                cellId: row["cell_id"] as string,
+                content: row["content"] as string,
+                versions: JSON.parse(row["versions"] as string || "[]"),
+                notebookId: row["notebook_id"] as string,
+                cellLabel: row["cell_label"] as string || undefined
+            });
+        }
+        return results;
+    } finally {
+        fallbackStmt.free();
     }
 }
 

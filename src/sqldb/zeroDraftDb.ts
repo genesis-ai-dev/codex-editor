@@ -34,55 +34,67 @@ export async function initializeZeroDraftDb(db: Database): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_zero_draft_cells_content ON zero_draft_cells(content);
         CREATE INDEX IF NOT EXISTS idx_zero_draft_cells_source ON zero_draft_cells(source);
 
-        -- Create FTS5 virtual table if it doesn't exist
+        -- Create standalone FTS5 virtual table (not external content)
         CREATE VIRTUAL TABLE IF NOT EXISTS zero_draft_fts USING fts5(
-            cell_id, 
-            content,
-            content='zero_draft_cells',
-            content_rowid='id'
+            id UNINDEXED,
+            cell_id UNINDEXED, 
+            content
         );
     `);
     
-    // Check if triggers exist and create them if they don't
-    const triggerCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?");
+    // Drop existing triggers if they exist to recreate them properly
+    db.exec(`
+        DROP TRIGGER IF EXISTS zero_draft_ai;
+        DROP TRIGGER IF EXISTS zero_draft_ad;  
+        DROP TRIGGER IF EXISTS zero_draft_au;
+    `);
     
-    const triggers = [
-        {
-            name: 'zero_draft_ai',
-            sql: `CREATE TRIGGER zero_draft_ai AFTER INSERT ON zero_draft_cells BEGIN
-                INSERT INTO zero_draft_fts(rowid, cell_id, content) 
-                VALUES (new.id, new.cell_id, new.content);
-            END;`
-        },
-        {
-            name: 'zero_draft_ad',
-            sql: `CREATE TRIGGER zero_draft_ad AFTER DELETE ON zero_draft_cells BEGIN
-                INSERT INTO zero_draft_fts(zero_draft_fts, rowid, cell_id, content) 
-                VALUES('delete', old.id, old.cell_id, old.content);
-            END;`
-        },
-        {
-            name: 'zero_draft_au',
-            sql: `CREATE TRIGGER zero_draft_au AFTER UPDATE ON zero_draft_cells BEGIN
-                INSERT INTO zero_draft_fts(zero_draft_fts, rowid, cell_id, content) 
-                VALUES('delete', old.id, old.cell_id, old.content);
-                INSERT INTO zero_draft_fts(rowid, cell_id, content) 
-                VALUES (new.id, new.cell_id, new.content);
-            END;`
-        }
-    ];
-    
-    triggers.forEach(trigger => {
-        triggerCheck.bind([trigger.name]);
-        if (!triggerCheck.step()) {
-            db.exec(trigger.sql);
-        }
-        triggerCheck.reset();
-    });
-    
-    triggerCheck.free();
+    // Create new triggers for standalone FTS5 table
+    db.exec(`
+        CREATE TRIGGER zero_draft_ai AFTER INSERT ON zero_draft_cells BEGIN
+            INSERT INTO zero_draft_fts(id, cell_id, content) 
+            VALUES (new.id, new.cell_id, new.content);
+        END;
+        
+        CREATE TRIGGER zero_draft_ad AFTER DELETE ON zero_draft_cells BEGIN
+            DELETE FROM zero_draft_fts WHERE id = old.id;
+        END;
+        
+        CREATE TRIGGER zero_draft_au AFTER UPDATE ON zero_draft_cells BEGIN
+            DELETE FROM zero_draft_fts WHERE id = old.id;
+            INSERT INTO zero_draft_fts(id, cell_id, content) 
+            VALUES (new.id, new.cell_id, new.content);
+        END;
+    `);
     
     console.timeEnd("initializeZeroDraftDb");
+}
+
+// Function to populate FTS5 from existing main table data
+export function populateZeroDraftFTS5FromMainTable(db: Database): void {
+    console.log("Populating zero draft FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM zero_draft_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO zero_draft_fts(id, cell_id, content)
+            SELECT id, cell_id, content 
+            FROM zero_draft_cells
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM zero_draft_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Zero draft FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating zero draft FTS5 table:", error);
+        throw error;
+    }
 }
 
 // Create and populate the zero draft index
@@ -269,18 +281,45 @@ export function searchZeroDraftContent(
     query: string,
     limit: number = 15
 ): ZeroDraftIndexRecord[] {
+    if (!query || query.trim() === '') {
+        return [];
+    }
+    
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM zero_draft_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Zero draft FTS5 table is empty, populating it...");
+        try {
+            populateZeroDraftFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate zero draft FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return searchZeroDraftContentFallback(db, query, limit);
+        }
+    }
+    
+    // Escape special characters and format for FTS5
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+    
+    if (!ftsQuery) {
+        return [];
+    }
+    
     const stmt = db.prepare(`
         SELECT DISTINCT r.cell_id, r.cells_json 
         FROM zero_draft_records r
         JOIN zero_draft_fts fts ON r.cell_id = fts.cell_id
         WHERE fts.content MATCH ? 
-        ORDER BY rank 
+        ORDER BY bm25(zero_draft_fts)
         LIMIT ?
     `);
     
     try {
-        // Format query for FTS5
-        const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
         stmt.bind([ftsQuery, limit]);
         
         const results: ZeroDraftIndexRecord[] = [];
@@ -296,8 +335,48 @@ export function searchZeroDraftContent(
         }
         
         return results;
+    } catch (error) {
+        console.error("Error in searchZeroDraftContent:", error);
+        // Fallback to non-FTS search if FTS fails
+        return searchZeroDraftContentFallback(db, query, limit);
     } finally {
         stmt.free();
+    }
+}
+
+// Fallback search function for zero draft content
+function searchZeroDraftContentFallback(
+    db: Database,
+    query: string,
+    limit: number
+): ZeroDraftIndexRecord[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    const fallbackStmt = db.prepare(`
+        SELECT DISTINCT r.cell_id, r.cells_json 
+        FROM zero_draft_records r
+        JOIN zero_draft_cells c ON r.cell_id = c.cell_id
+        WHERE c.content LIKE ?
+        ORDER BY r.cell_id
+        LIMIT ?
+    `);
+    
+    try {
+        fallbackStmt.bind([`%${cleanQuery}%`, limit]);
+        const results: ZeroDraftIndexRecord[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            const cells = JSON.parse(row["cells_json"] as string || "[]");
+            
+            results.push({
+                id: row["cell_id"] as string,
+                cellId: row["cell_id"] as string,
+                cells: cells as CellWithMetadata[],
+            });
+        }
+        return results;
+    } finally {
+        fallbackStmt.free();
     }
 }
 

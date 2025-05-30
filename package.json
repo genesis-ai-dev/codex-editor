@@ -188,6 +188,10 @@
                 {
                     "command": "translators-copilot.showFileStatsView",
                     "title": "Translators Copilot: Show Translation Progress View"
+                },
+                {
+                    "command": "translators-copilot.cleanupCorruptedDatabases",
+                    "title": "Clean Up Corrupted Databases"
                 }
             ]
         },
@@ -709,6 +713,15 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
+            },
+            {
+                "command": "translators-copilot.showFileStatsView",
+                "title": "Translators Copilot: Show Translation Progress View"
+            },
+            {
+                "command": "translators-copilot.cleanupCorruptedDatabases",
+                "title": "Clean Up Corrupted Databases",
+                "category": "Translators Copilot"
             }
         ],
         "configuration": [

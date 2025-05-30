@@ -479,6 +479,8 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
     }
     
     try {
+        // Check if file exists first
+        await vscode.workspace.fs.stat(exportPath);
         const fileContent = await vscode.workspace.fs.readFile(exportPath);
         const jsonlContent = new TextDecoder().decode(fileContent);
         const entries = jsonlContent
@@ -489,7 +491,12 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
 
         await bulkAddWords(db, entries);
     } catch (error) {
-        console.error("Error reading dictionary file:", error);
+        // Only log if it's not a file not found error
+        if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+            console.log("Dictionary file not found, creating empty dictionary");
+        } else {
+            console.error("Error reading dictionary file:", error);
+        }
     }
 };
 

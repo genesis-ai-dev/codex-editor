@@ -26,53 +26,37 @@ export async function initializeSourceTextDb(db: Database): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_source_text_notebook_id ON source_text(notebook_id);
         CREATE INDEX IF NOT EXISTS idx_source_text_content ON source_text(content);
 
-        -- Create FTS5 virtual table if it doesn't exist
+        -- Create standalone FTS5 virtual table (not external content)
         CREATE VIRTUAL TABLE IF NOT EXISTS source_text_fts USING fts5(
-            cell_id, 
-            content,
-            content='source_text',
-            content_rowid='rowid'
+            cell_id UNINDEXED, 
+            content
         );
     `);
     
-    // Check if triggers exist and create them if they don't
-    const triggerCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?");
+    // Drop existing triggers if they exist to recreate them properly
+    db.exec(`
+        DROP TRIGGER IF EXISTS source_text_ai;
+        DROP TRIGGER IF EXISTS source_text_ad;  
+        DROP TRIGGER IF EXISTS source_text_au;
+    `);
     
-    const triggers = [
-        {
-            name: 'source_text_ai',
-            sql: `CREATE TRIGGER source_text_ai AFTER INSERT ON source_text BEGIN
-                INSERT INTO source_text_fts(rowid, cell_id, content) 
-                VALUES (new.rowid, new.cell_id, new.content);
-            END;`
-        },
-        {
-            name: 'source_text_ad',
-            sql: `CREATE TRIGGER source_text_ad AFTER DELETE ON source_text BEGIN
-                INSERT INTO source_text_fts(source_text_fts, rowid, cell_id, content) 
-                VALUES('delete', old.rowid, old.cell_id, old.content);
-            END;`
-        },
-        {
-            name: 'source_text_au',
-            sql: `CREATE TRIGGER source_text_au AFTER UPDATE ON source_text BEGIN
-                INSERT INTO source_text_fts(source_text_fts, rowid, cell_id, content) 
-                VALUES('delete', old.rowid, old.cell_id, old.content);
-                INSERT INTO source_text_fts(rowid, cell_id, content) 
-                VALUES (new.rowid, new.cell_id, new.content);
-            END;`
-        }
-    ];
-    
-    triggers.forEach(trigger => {
-        triggerCheck.bind([trigger.name]);
-        if (!triggerCheck.step()) {
-            db.exec(trigger.sql);
-        }
-        triggerCheck.reset();
-    });
-    
-    triggerCheck.free();
+    // Create new triggers for standalone FTS5 table
+    db.exec(`
+        CREATE TRIGGER source_text_ai AFTER INSERT ON source_text BEGIN
+            INSERT INTO source_text_fts(cell_id, content) 
+            VALUES (new.cell_id, new.content);
+        END;
+        
+        CREATE TRIGGER source_text_ad AFTER DELETE ON source_text BEGIN
+            DELETE FROM source_text_fts WHERE rowid = old.rowid;
+        END;
+        
+        CREATE TRIGGER source_text_au AFTER UPDATE ON source_text BEGIN
+            DELETE FROM source_text_fts WHERE rowid = old.rowid;
+            INSERT INTO source_text_fts(cell_id, content) 
+            VALUES (new.cell_id, new.content);
+        END;
+    `);
     
     console.timeEnd("initializeSourceTextDb");
 }
@@ -95,6 +79,7 @@ export async function createSourceTextIndex(
     if (force) {
         // Clear existing data if forced
         db.exec("DELETE FROM source_text");
+        db.exec("DELETE FROM source_text_fts");
     }
     
     // Begin a transaction for better performance with batch inserts
@@ -121,7 +106,7 @@ export async function createSourceTextIndex(
                     const versions: string[] = [];
                     const versionsJson = JSON.stringify(versions);
                     
-                    // Insert into database
+                    // Insert into database (triggers will handle FTS5)
                     insertStmt.bind([
                         cellId,
                         sourceCell.value,
@@ -149,6 +134,15 @@ export async function createSourceTextIndex(
         insertStmt.free();
         
         console.log(`Source text index created with ${insertCount} entries`);
+        
+        // Verify FTS5 population
+        const ftsCountStmt = db.prepare("SELECT COUNT(*) as count FROM source_text_fts");
+        ftsCountStmt.step();
+        const ftsCount = ftsCountStmt.getAsObject().count as number;
+        ftsCountStmt.free();
+        
+        console.log(`Source text FTS5 table has ${ftsCount} entries`);
+        
     } catch (error) {
         // Rollback on error
         db.exec("ROLLBACK");
@@ -157,6 +151,33 @@ export async function createSourceTextIndex(
     }
     
     console.timeEnd("createSourceTextIndex");
+}
+
+// Function to populate FTS5 from existing main table data
+export function populateSourceTextFTS5FromMainTable(db: Database): void {
+    console.log("Populating source text FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM source_text_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO source_text_fts(cell_id, content)
+            SELECT cell_id, content 
+            FROM source_text
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM source_text_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`Source text FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating source text FTS5 table:", error);
+        throw error;
+    }
 }
 
 // Search functions equivalent to MiniSearch operations
@@ -197,17 +218,44 @@ export function searchSourceCells(
     query: string,
     limit: number = 15
 ): SourceCellVersions[] {
+    if (!query || query.trim() === '') {
+        return [];
+    }
+    
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM source_text_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Source text FTS5 table is empty, populating it...");
+        try {
+            populateSourceTextFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate source text FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return searchSourceCellsFallback(db, query, limit);
+        }
+    }
+    
+    // Escape special characters and format for FTS5
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+    
+    if (!ftsQuery) {
+        return [];
+    }
+    
     const stmt = db.prepare(`
         SELECT s.* FROM source_text s
         JOIN source_text_fts fts ON s.rowid = fts.rowid
         WHERE fts.content MATCH ? 
-        ORDER BY rank 
+        ORDER BY bm25(source_text_fts)
         LIMIT ?
     `);
     
     try {
-        // Format query for FTS5
-        const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
         stmt.bind([ftsQuery, limit]);
         
         const results: SourceCellVersions[] = [];
@@ -222,8 +270,44 @@ export function searchSourceCells(
         }
         
         return results;
+    } catch (error) {
+        console.error("Error in searchSourceCells:", error);
+        // Fallback to non-FTS search if FTS fails
+        return searchSourceCellsFallback(db, query, limit);
     } finally {
         stmt.free();
+    }
+}
+
+// Fallback search function for source cells
+function searchSourceCellsFallback(
+    db: Database,
+    query: string,
+    limit: number
+): SourceCellVersions[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    const fallbackStmt = db.prepare(`
+        SELECT * FROM source_text 
+        WHERE content LIKE ? 
+        LIMIT ?
+    `);
+    
+    try {
+        fallbackStmt.bind([`%${cleanQuery}%`, limit]);
+        const results: SourceCellVersions[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            results.push({
+                cellId: row["cell_id"] as string,
+                content: row["content"] as string,
+                versions: JSON.parse(row["versions"] as string || "[]"),
+                notebookId: row["notebook_id"] as string,
+            });
+        }
+        return results;
+    } finally {
+        fallbackStmt.free();
     }
 }
 
@@ -377,30 +461,57 @@ async function findUntranslatedByContent(
     query: string,
     currentCellId: string
 ): Promise<{ cellId: string; content: string } | null> {
+    if (!query || query.trim() === '') {
+        return null;
+    }
+    
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM source_text_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("Source text FTS5 table is empty for untranslated search, populating it...");
+        try {
+            populateSourceTextFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate source text FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return findUntranslatedByContentFallback(db, translationPairsDb, query, currentCellId);
+        }
+    }
+    
+    // Escape special characters and format for FTS5
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+    
+    if (!ftsQuery) {
+        return null;
+    }
+    
     // Use FTS5 search to find relevant content, then filter for untranslated
     const sql = `
         WITH content_matches AS (
-            SELECT s.cell_id, s.content, fts.rank
+            SELECT s.cell_id, s.content, bm25(source_text_fts) as score
             FROM source_text s
             JOIN source_text_fts fts ON s.rowid = fts.rowid
             WHERE fts.content MATCH ? 
             AND s.cell_id != ?
-            ORDER BY fts.rank
+            ORDER BY bm25(source_text_fts)
             LIMIT 20
         )
         SELECT cm.cell_id, cm.content
         FROM content_matches cm
         LEFT JOIN translation_pairs tp ON cm.cell_id = tp.cell_id
         WHERE tp.cell_id IS NULL OR tp.target_content = '' OR tp.target_content IS NULL
-        ORDER BY cm.rank
+        ORDER BY cm.score
         LIMIT 1
     `;
     
     const stmt = db.prepare(sql);
     
     try {
-        // Format query for FTS5
-        const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
         stmt.bind([ftsQuery, currentCellId]);
         
         if (stmt.step()) {
@@ -412,8 +523,50 @@ async function findUntranslatedByContent(
         }
         
         return null;
+    } catch (error) {
+        console.error("Error in findUntranslatedByContent:", error);
+        // Fallback to non-FTS search
+        return findUntranslatedByContentFallback(db, translationPairsDb, query, currentCellId);
     } finally {
         stmt.free();
+    }
+}
+
+// Fallback function for untranslated content search
+async function findUntranslatedByContentFallback(
+    db: Database,
+    translationPairsDb: Database,
+    query: string,
+    currentCellId: string
+): Promise<{ cellId: string; content: string } | null> {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    const fallbackSql = `
+        SELECT s.cell_id, s.content
+        FROM source_text s
+        LEFT JOIN translation_pairs tp ON s.cell_id = tp.cell_id
+        WHERE s.content LIKE ?
+        AND s.cell_id != ?
+        AND (tp.cell_id IS NULL OR tp.target_content = '' OR tp.target_content IS NULL)
+        LIMIT 1
+    `;
+    
+    const fallbackStmt = db.prepare(fallbackSql);
+    
+    try {
+        fallbackStmt.bind([`%${cleanQuery}%`, currentCellId]);
+        
+        if (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            return {
+                cellId: row["cell_id"] as string,
+                content: row["content"] as string,
+            };
+        }
+        
+        return null;
+    } finally {
+        fallbackStmt.free();
     }
 }
 

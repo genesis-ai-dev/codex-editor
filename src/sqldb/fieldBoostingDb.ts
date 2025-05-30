@@ -65,15 +65,24 @@ export function initializeFieldBoostingDb(db: Database): void {
     
     // Create FTS5 virtual table for field-aware search
     db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS field_boost_fts USING fts5(
+        DROP TABLE IF EXISTS field_boost_fts;
+        DROP TABLE IF EXISTS field_specific_fts;
+        DROP TRIGGER IF EXISTS field_boost_fts_insert;
+        DROP TRIGGER IF EXISTS field_boost_fts_delete;
+        DROP TRIGGER IF EXISTS field_boost_fts_update;
+        DROP TRIGGER IF EXISTS field_specific_fts_insert;
+        DROP TRIGGER IF EXISTS field_specific_fts_delete;
+        DROP TRIGGER IF EXISTS field_specific_fts_update;
+    `);
+    
+    db.exec(`
+        CREATE VIRTUAL TABLE field_boost_fts USING fts5(
             id UNINDEXED,
             resource_type UNINDEXED,
             content,
             normalized_content,
             field_data,
-            field_names,
-            content='field_boost_index',
-            content_rowid='rowid'
+            field_names
         );
     `);
     
@@ -93,61 +102,55 @@ export function initializeFieldBoostingDb(db: Database): void {
     
     // Create FTS5 virtual table for field-specific search
     db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS field_specific_fts USING fts5(
+        CREATE VIRTUAL TABLE field_specific_fts USING fts5(
             id UNINDEXED,
             resource_type UNINDEXED,
             field_name UNINDEXED,
             field_value,
-            normalized_value,
-            content='field_specific_index',
-            content_rowid='rowid'
+            normalized_value
         );
     `);
     
     // Create triggers to keep FTS5 in sync
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS field_boost_fts_insert AFTER INSERT ON field_boost_index BEGIN
-            INSERT INTO field_boost_fts(rowid, id, resource_type, content, normalized_content, field_data, field_names)
-            VALUES (new.rowid, new.id, new.resource_type, new.content, new.normalized_content, new.field_data, new.field_names);
+        CREATE TRIGGER field_boost_fts_insert AFTER INSERT ON field_boost_index BEGIN
+            INSERT INTO field_boost_fts(id, resource_type, content, normalized_content, field_data, field_names)
+            VALUES (new.id, new.resource_type, new.content, new.normalized_content, new.field_data, new.field_names);
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS field_boost_fts_delete AFTER DELETE ON field_boost_index BEGIN
-            INSERT INTO field_boost_fts(field_boost_fts, rowid, id, resource_type, content, normalized_content, field_data, field_names)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.content, old.normalized_content, old.field_data, old.field_names);
+        CREATE TRIGGER field_boost_fts_delete AFTER DELETE ON field_boost_index BEGIN
+            DELETE FROM field_boost_fts WHERE rowid = old.rowid;
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS field_boost_fts_update AFTER UPDATE ON field_boost_index BEGIN
-            INSERT INTO field_boost_fts(field_boost_fts, rowid, id, resource_type, content, normalized_content, field_data, field_names)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.content, old.normalized_content, old.field_data, old.field_names);
-            INSERT INTO field_boost_fts(rowid, id, resource_type, content, normalized_content, field_data, field_names)
-            VALUES (new.rowid, new.id, new.resource_type, new.content, new.normalized_content, new.field_data, new.field_names);
+        CREATE TRIGGER field_boost_fts_update AFTER UPDATE ON field_boost_index BEGIN
+            DELETE FROM field_boost_fts WHERE rowid = old.rowid;
+            INSERT INTO field_boost_fts(id, resource_type, content, normalized_content, field_data, field_names)
+            VALUES (new.id, new.resource_type, new.content, new.normalized_content, new.field_data, new.field_names);
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS field_specific_fts_insert AFTER INSERT ON field_specific_index BEGIN
-            INSERT INTO field_specific_fts(rowid, id, resource_type, field_name, field_value, normalized_value)
-            VALUES (new.rowid, new.id, new.resource_type, new.field_name, new.field_value, new.normalized_value);
+        CREATE TRIGGER field_specific_fts_insert AFTER INSERT ON field_specific_index BEGIN
+            INSERT INTO field_specific_fts(id, resource_type, field_name, field_value, normalized_value)
+            VALUES (new.id, new.resource_type, new.field_name, new.field_value, new.normalized_value);
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS field_specific_fts_delete AFTER DELETE ON field_specific_index BEGIN
-            INSERT INTO field_specific_fts(field_specific_fts, rowid, id, resource_type, field_name, field_value, normalized_value)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.field_name, old.field_value, old.normalized_value);
+        CREATE TRIGGER field_specific_fts_delete AFTER DELETE ON field_specific_index BEGIN
+            DELETE FROM field_specific_fts WHERE rowid = old.rowid;
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS field_specific_fts_update AFTER UPDATE ON field_specific_index BEGIN
-            INSERT INTO field_specific_fts(field_specific_fts, rowid, id, resource_type, field_name, field_value, normalized_value)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.field_name, old.field_value, old.normalized_value);
-            INSERT INTO field_specific_fts(rowid, id, resource_type, field_name, field_value, normalized_value)
-            VALUES (new.rowid, new.id, new.resource_type, new.field_name, new.field_value, new.normalized_value);
+        CREATE TRIGGER field_specific_fts_update AFTER UPDATE ON field_specific_index BEGIN
+            DELETE FROM field_specific_fts WHERE rowid = old.rowid;
+            INSERT INTO field_specific_fts(id, resource_type, field_name, field_value, normalized_value)
+            VALUES (new.id, new.resource_type, new.field_name, new.field_value, new.normalized_value);
         END;
     `);
     

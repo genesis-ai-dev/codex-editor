@@ -63,39 +63,42 @@ export function initializePrefixMatchingDb(db: Database): void {
     
     // Create FTS5 virtual table for prefix search
     db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS prefix_match_fts USING fts5(
+        DROP TABLE IF EXISTS prefix_match_fts;
+        DROP TRIGGER IF EXISTS prefix_match_fts_insert;
+        DROP TRIGGER IF EXISTS prefix_match_fts_delete;
+        DROP TRIGGER IF EXISTS prefix_match_fts_update;
+    `);
+    
+    db.exec(`
+        CREATE VIRTUAL TABLE prefix_match_fts USING fts5(
             id UNINDEXED,
             resource_type UNINDEXED,
             content,
             normalized_content,
             words,
-            content='prefix_match_index',
-            content_rowid='rowid',
             prefix='2,3,4,5,6,7,8,9,10'
         );
     `);
     
     // Create triggers to keep FTS5 in sync
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS prefix_match_fts_insert AFTER INSERT ON prefix_match_index BEGIN
-            INSERT INTO prefix_match_fts(rowid, id, resource_type, content, normalized_content, words)
-            VALUES (new.rowid, new.id, new.resource_type, new.content, new.normalized_content, new.words);
+        CREATE TRIGGER prefix_match_fts_insert AFTER INSERT ON prefix_match_index BEGIN
+            INSERT INTO prefix_match_fts(id, resource_type, content, normalized_content, words)
+            VALUES (new.id, new.resource_type, new.content, new.normalized_content, new.words);
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS prefix_match_fts_delete AFTER DELETE ON prefix_match_index BEGIN
-            INSERT INTO prefix_match_fts(prefix_match_fts, rowid, id, resource_type, content, normalized_content, words)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.content, old.normalized_content, old.words);
+        CREATE TRIGGER prefix_match_fts_delete AFTER DELETE ON prefix_match_index BEGIN
+            DELETE FROM prefix_match_fts WHERE rowid = old.rowid;
         END;
     `);
     
     db.exec(`
-        CREATE TRIGGER IF NOT EXISTS prefix_match_fts_update AFTER UPDATE ON prefix_match_index BEGIN
-            INSERT INTO prefix_match_fts(prefix_match_fts, rowid, id, resource_type, content, normalized_content, words)
-            VALUES ('delete', old.rowid, old.id, old.resource_type, old.content, old.normalized_content, old.words);
-            INSERT INTO prefix_match_fts(rowid, id, resource_type, content, normalized_content, words)
-            VALUES (new.rowid, new.id, new.resource_type, new.content, new.normalized_content, new.words);
+        CREATE TRIGGER prefix_match_fts_update AFTER UPDATE ON prefix_match_index BEGIN
+            DELETE FROM prefix_match_fts WHERE rowid = old.rowid;
+            INSERT INTO prefix_match_fts(id, resource_type, content, normalized_content, words)
+            VALUES (new.id, new.resource_type, new.content, new.normalized_content, new.words);
         END;
     `);
     

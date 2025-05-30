@@ -12,6 +12,9 @@ const translationDbPath = [".project", "translation_pairs.sqlite"];
 export async function initializeTranslationPairsDb(db: Database): Promise<void> {
     console.time("initializeTranslationPairsDb");
     
+    // First, migrate existing databases if needed
+    await migrateFTS5Tables(db);
+    
     // Create tables if they don't exist
     db.exec(`
         CREATE TABLE IF NOT EXISTS translation_pairs (
@@ -30,57 +33,128 @@ export async function initializeTranslationPairsDb(db: Database): Promise<void> 
         CREATE INDEX IF NOT EXISTS idx_translation_pairs_cell_id ON translation_pairs(cell_id);
         CREATE INDEX IF NOT EXISTS idx_translation_pairs_document ON translation_pairs(document);
         CREATE INDEX IF NOT EXISTS idx_translation_pairs_document_section ON translation_pairs(document, section);
-
-        -- Create FTS5 virtual table if it doesn't exist
-        CREATE VIRTUAL TABLE IF NOT EXISTS translation_pairs_fts USING fts5(
-            cell_id, 
-            source_content, 
+    `);
+    
+    // Always recreate FTS5 table and triggers to ensure compatibility
+    db.exec(`
+        DROP TABLE IF EXISTS translation_pairs_fts;
+        DROP TRIGGER IF EXISTS translation_pairs_ai;
+        DROP TRIGGER IF EXISTS translation_pairs_ad;  
+        DROP TRIGGER IF EXISTS translation_pairs_au;
+    `);
+    
+    // Create standalone FTS5 virtual table (not external content)
+    db.exec(`
+        CREATE VIRTUAL TABLE translation_pairs_fts USING fts5(
+            id UNINDEXED,
+            cell_id UNINDEXED,
+            document UNINDEXED,
+            section UNINDEXED,
+            cell UNINDEXED,
+            source_content,
             target_content,
-            content='translation_pairs',
-            content_rowid='rowid'
+            uri UNINDEXED,
+            line UNINDEXED,
+            notebook_id UNINDEXED
         );
     `);
     
-    // Check if triggers exist and create them if they don't
-    const triggerCheck = db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?");
+    // Create new triggers for standalone FTS5 table
+    db.exec(`
+        CREATE TRIGGER translation_pairs_ai AFTER INSERT ON translation_pairs BEGIN
+            INSERT INTO translation_pairs_fts(id, cell_id, document, section, cell, source_content, target_content, uri, line, notebook_id) 
+            VALUES (new.id, new.cell_id, new.document, new.section, new.cell, new.source_content, new.target_content, new.uri, new.line, new.notebook_id);
+        END;
+        
+        CREATE TRIGGER translation_pairs_ad AFTER DELETE ON translation_pairs BEGIN
+            DELETE FROM translation_pairs_fts WHERE id = old.id;
+        END;
+        
+        CREATE TRIGGER translation_pairs_au AFTER UPDATE ON translation_pairs BEGIN
+            DELETE FROM translation_pairs_fts WHERE id = old.id;
+            INSERT INTO translation_pairs_fts(id, cell_id, document, section, cell, source_content, target_content, uri, line, notebook_id) 
+            VALUES (new.id, new.cell_id, new.document, new.section, new.cell, new.source_content, new.target_content, new.uri, new.line, new.notebook_id);
+        END;
+    `);
     
-    const triggers = [
-        {
-            name: 'translation_pairs_ai',
-            sql: `CREATE TRIGGER translation_pairs_ai AFTER INSERT ON translation_pairs BEGIN
-                INSERT INTO translation_pairs_fts(rowid, cell_id, source_content, target_content) 
-                VALUES (new.rowid, new.cell_id, new.source_content, new.target_content);
-            END;`
-        },
-        {
-            name: 'translation_pairs_ad',
-            sql: `CREATE TRIGGER translation_pairs_ad AFTER DELETE ON translation_pairs BEGIN
-                INSERT INTO translation_pairs_fts(translation_pairs_fts, rowid, cell_id, source_content, target_content) 
-                VALUES('delete', old.rowid, old.cell_id, old.source_content, old.target_content);
-            END;`
-        },
-        {
-            name: 'translation_pairs_au',
-            sql: `CREATE TRIGGER translation_pairs_au AFTER UPDATE ON translation_pairs BEGIN
-                INSERT INTO translation_pairs_fts(translation_pairs_fts, rowid, cell_id, source_content, target_content) 
-                VALUES('delete', old.rowid, old.cell_id, old.source_content, old.target_content);
-                INSERT INTO translation_pairs_fts(rowid, cell_id, source_content, target_content) 
-                VALUES (new.rowid, new.cell_id, new.source_content, new.target_content);
-            END;`
-        }
-    ];
-    
-    triggers.forEach(trigger => {
-        triggerCheck.bind([trigger.name]);
-        if (!triggerCheck.step()) {
-            db.exec(trigger.sql);
-        }
-        triggerCheck.reset();
-    });
-    
-    triggerCheck.free();
+    // Populate FTS5 table from existing data
+    try {
+        populateFTS5FromMainTable(db);
+    } catch (error) {
+        console.warn("Failed to populate FTS5 table during initialization:", error);
+    }
     
     console.timeEnd("initializeTranslationPairsDb");
+}
+
+// Migration function to handle existing external content FTS5 tables
+async function migrateFTS5Tables(db: Database): Promise<void> {
+    try {
+        // Check if old external content FTS5 table exists
+        const checkStmt = db.prepare(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name='translation_pairs_fts'
+        `);
+        
+        let hasOldFTS = false;
+        let needsRecreation = false;
+        
+        if (checkStmt.step()) {
+            // Check if it's an external content table by looking for content= in the schema
+            const schemaStmt = db.prepare(`
+                SELECT sql FROM sqlite_master 
+                WHERE type='table' AND name='translation_pairs_fts'
+            `);
+            
+            if (schemaStmt.step()) {
+                const schema = schemaStmt.getAsObject().sql as string;
+                if (schema && (schema.includes("content=") || schema.includes("rowid UNINDEXED"))) {
+                    hasOldFTS = true;
+                    needsRecreation = true;
+                    console.log("Detected problematic FTS5 table, recreating...");
+                }
+            }
+            schemaStmt.free();
+            
+            // Also test if the table actually works by attempting a simple query
+            if (!needsRecreation) {
+                try {
+                    const testStmt = db.prepare("SELECT COUNT(*) FROM translation_pairs_fts");
+                    testStmt.step();
+                    testStmt.free();
+                } catch (testError) {
+                    console.log("FTS5 table test failed, needs recreation:", testError);
+                    needsRecreation = true;
+                }
+            }
+        }
+        checkStmt.free();
+        
+        if (hasOldFTS || needsRecreation) {
+            // Remove old external content table and triggers
+            db.exec(`
+                DROP TABLE IF EXISTS translation_pairs_fts;
+                DROP TRIGGER IF EXISTS translation_pairs_ai;
+                DROP TRIGGER IF EXISTS translation_pairs_ad;
+                DROP TRIGGER IF EXISTS translation_pairs_au;
+            `);
+            console.log("Migration completed: Old problematic FTS5 table removed");
+        }
+    } catch (error) {
+        console.warn("Error during FTS5 migration:", error);
+        // If migration fails, force drop everything to start fresh
+        try {
+            db.exec(`
+                DROP TABLE IF EXISTS translation_pairs_fts;
+                DROP TRIGGER IF EXISTS translation_pairs_ai;
+                DROP TRIGGER IF EXISTS translation_pairs_ad;
+                DROP TRIGGER IF EXISTS translation_pairs_au;
+            `);
+            console.log("Force dropped all FTS5 components for clean recreation");
+        } catch (dropError) {
+            console.warn("Error forcing drop of old tables:", dropError);
+        }
+    }
 }
 
 // Create and populate the translation pairs index
@@ -102,6 +176,7 @@ export async function createTranslationPairsIndex(
     if (force) {
         // Clear existing data if forced
         db.exec("DELETE FROM translation_pairs");
+        db.exec("DELETE FROM translation_pairs_fts");
     }
     
     // Begin a transaction for better performance with batch inserts
@@ -151,7 +226,7 @@ export async function createTranslationPairsIndex(
                         const [section, cell] = sectionCell.split(":");
                         const id = `${sourceFile.uri.toString()}:${-1}:${cellId}`;
                         
-                        // Insert into database
+                        // Insert into database (triggers will handle FTS5)
                         insertStmt.bind([
                             id,
                             cellId,
@@ -184,6 +259,15 @@ export async function createTranslationPairsIndex(
         insertStmt.free();
         
         console.log(`Translation pairs index created with ${insertCount} entries`);
+        
+        // Verify FTS5 population
+        const ftsCountStmt = db.prepare("SELECT COUNT(*) as count FROM translation_pairs_fts");
+        ftsCountStmt.step();
+        const ftsCount = ftsCountStmt.getAsObject().count as number;
+        ftsCountStmt.free();
+        
+        console.log(`FTS5 table has ${ftsCount} entries`);
+        
     } catch (error) {
         // Rollback on error
         db.exec("ROLLBACK");
@@ -194,7 +278,32 @@ export async function createTranslationPairsIndex(
     console.timeEnd("createTranslationPairsIndex");
 }
 
-// Search functions equivalent to MiniSearch operations
+// Function to populate FTS5 from existing main table data
+export function populateFTS5FromMainTable(db: Database): void {
+    console.log("Populating FTS5 table from main table data...");
+    
+    try {
+        // Clear existing FTS5 data
+        db.exec("DELETE FROM translation_pairs_fts");
+        
+        // Insert all existing data into FTS5
+        db.exec(`
+            INSERT INTO translation_pairs_fts(id, cell_id, document, section, cell, source_content, target_content, uri, line, notebook_id)
+            SELECT id, cell_id, document, section, cell, source_content, target_content, uri, line, notebook_id 
+            FROM translation_pairs
+        `);
+        
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM translation_pairs_fts");
+        countStmt.step();
+        const count = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        console.log(`FTS5 table populated with ${count} entries`);
+    } catch (error) {
+        console.error("Error populating FTS5 table:", error);
+        throw error;
+    }
+}
 
 // Search target cells by query (similar to searchTargetCellsByQuery)
 export function searchTargetCellsByQuery(
@@ -202,28 +311,101 @@ export function searchTargetCellsByQuery(
     query: string,
     limit: number = 5
 ): TranslationPair[] {
-    const stmt = db.prepare(`
-        SELECT p.* FROM translation_pairs p
-        JOIN translation_pairs_fts fts ON p.rowid = fts.rowid
-        WHERE fts.target_content MATCH ? 
-        ORDER BY rank 
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM translation_pairs_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("FTS5 table is empty, populating it...");
+        try {
+            populateFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return searchTargetCellsByQueryFallback(db, query, limit);
+        }
+    }
+    
+    try {
+        // Format query for FTS5 - handle empty query
+        if (!query || query.trim() === '') {
+            return [];
+        }
+        
+        // Escape special characters and format for FTS5
+        const cleanQuery = query.replace(/['"]/g, '').trim();
+        const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+        
+        if (!ftsQuery) {
+            return [];
+        }
+        
+        // Step 1: Query FTS5 table directly to get matching IDs
+        const ftsStmt = db.prepare(`
+            SELECT id FROM translation_pairs_fts 
+            WHERE target_content MATCH ? 
+            ORDER BY bm25(translation_pairs_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the IDs
+        const placeholders = matchingIds.map(() => '?').join(',');
+        const mainStmt = db.prepare(`SELECT * FROM translation_pairs WHERE id IN (${placeholders})`);
+        mainStmt.bind(matchingIds);
+        
+        const results: TranslationPair[] = [];
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
+            results.push(rowToTranslationPair(row));
+        }
+        
+        mainStmt.free();
+        return results;
+        
+    } catch (error) {
+        console.error("Error in searchTargetCellsByQuery:", error);
+        // Fallback to non-FTS search if FTS fails
+        return searchTargetCellsByQueryFallback(db, query, limit);
+    }
+}
+
+// Fallback search function for target cells
+function searchTargetCellsByQueryFallback(
+    db: Database,
+    query: string,
+    limit: number
+): TranslationPair[] {
+    const fallbackStmt = db.prepare(`
+        SELECT * FROM translation_pairs 
+        WHERE target_content LIKE ? 
         LIMIT ?
     `);
     
     try {
-        // Format query for FTS5
-        const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
-        stmt.bind([ftsQuery, limit]);
-        
+        fallbackStmt.bind([`%${query}%`, limit]);
         const results: TranslationPair[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
             results.push(rowToTranslationPair(row));
         }
-        
         return results;
     } finally {
-        stmt.free();
+        fallbackStmt.free();
     }
 }
 
@@ -287,35 +469,237 @@ export function searchTranslationPairs(
     includeIncomplete: boolean = false,
     limit: number = 15
 ): TranslationPair[] {
-    // Prepare FTS query
-    const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
-    
-    let sql = `
-        SELECT p.* FROM translation_pairs p
-        JOIN translation_pairs_fts fts ON p.rowid = fts.rowid
-        WHERE fts.source_content MATCH ? OR fts.target_content MATCH ?
-    `;
-    
-    if (!includeIncomplete) {
-        sql += " AND p.target_content != '' AND p.target_content IS NOT NULL";
+    if (!query || query.trim() === '') {
+        return [];
     }
     
-    sql += " ORDER BY rank LIMIT ?";
+    // First check if the FTS5 table has any data
+    try {
+        const countStmt = db.prepare("SELECT COUNT(*) as count FROM translation_pairs_fts");
+        countStmt.step();
+        const ftsCount = countStmt.getAsObject().count as number;
+        countStmt.free();
+        
+        if (ftsCount === 0) {
+            console.warn("FTS5 table is empty, populating it...");
+            try {
+                populateFTS5FromMainTable(db);
+            } catch (rebuildError) {
+                console.error("Failed to populate FTS5 table:", rebuildError);
+                // Fall back to non-FTS search immediately
+                return searchTranslationPairsFallback(db, query, includeIncomplete, limit);
+            }
+        }
+    } catch (ftsCheckError) {
+        console.error("FTS5 table check failed, attempting to recreate:", ftsCheckError);
+        try {
+            // Recreate FTS5 table if it's corrupted
+            recreateFTS5Table(db);
+        } catch (recreateError) {
+            console.error("Failed to recreate FTS5 table:", recreateError);
+            return searchTranslationPairsFallback(db, query, includeIncomplete, limit);
+        }
+    }
     
-    const stmt = db.prepare(sql);
+    // Escape special characters and format for FTS5
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+    
+    if (!ftsQuery) {
+        return [];
+    }
     
     try {
-        stmt.bind([ftsQuery, ftsQuery, limit]);
+        // Step 1: Query FTS5 table directly to get matching IDs
+        const ftsStmt = db.prepare(`
+            SELECT id FROM translation_pairs_fts 
+            WHERE (source_content MATCH ? OR target_content MATCH ?)
+            ORDER BY bm25(translation_pairs_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the IDs
+        const placeholders = matchingIds.map(() => '?').join(',');
+        let mainSql = `SELECT * FROM translation_pairs WHERE id IN (${placeholders})`;
+        
+        if (!includeIncomplete) {
+            mainSql += " AND target_content != '' AND target_content IS NOT NULL";
+        }
+        
+        const mainStmt = db.prepare(mainSql);
+        mainStmt.bind(matchingIds);
         
         const results: TranslationPair[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
             results.push(rowToTranslationPair(row));
         }
         
+        mainStmt.free();
+        return results;
+        
+    } catch (error) {
+        console.error("Error in searchTranslationPairs FTS5 query:", error);
+        
+        // If we get the MATCH error, try to recreate the FTS5 table
+        if ((error as Error).message && (error as Error).message.includes("unable to use function MATCH")) {
+            console.warn("Detected MATCH function error, recreating FTS5 table...");
+            try {
+                recreateFTS5Table(db);
+                // Try the search again after recreation with the same approach
+                const ftsStmt = db.prepare(`
+                    SELECT id FROM translation_pairs_fts 
+                    WHERE (source_content MATCH ? OR target_content MATCH ?)
+                    ORDER BY bm25(translation_pairs_fts)
+                    LIMIT ?
+                `);
+                
+                ftsStmt.bind([ftsQuery, ftsQuery, limit]);
+                
+                const matchingIds: string[] = [];
+                while (ftsStmt.step()) {
+                    const row = ftsStmt.getAsObject();
+                    matchingIds.push(row["id"] as string);
+                }
+                ftsStmt.free();
+                
+                if (matchingIds.length === 0) {
+                    return [];
+                }
+                
+                const placeholders = matchingIds.map(() => '?').join(',');
+                let mainSql = `SELECT * FROM translation_pairs WHERE id IN (${placeholders})`;
+                
+                if (!includeIncomplete) {
+                    mainSql += " AND target_content != '' AND target_content IS NOT NULL";
+                }
+                
+                const mainStmt = db.prepare(mainSql);
+                mainStmt.bind(matchingIds);
+                
+                const results: TranslationPair[] = [];
+                while (mainStmt.step()) {
+                    const row = mainStmt.getAsObject();
+                    results.push(rowToTranslationPair(row));
+                }
+                
+                mainStmt.free();
+                return results;
+                
+            } catch (retryError) {
+                console.error("Failed to retry search after FTS5 recreation:", retryError);
+            }
+        }
+        
+        // Fallback to non-FTS search if FTS fails
+        return searchTranslationPairsFallback(db, query, includeIncomplete, limit);
+    }
+}
+
+// Function to recreate FTS5 table when corrupted
+function recreateFTS5Table(db: Database): void {
+    console.log("Recreating FTS5 table and triggers...");
+    
+    try {
+        // Drop and recreate FTS5 table and triggers
+        db.exec(`
+            DROP TABLE IF EXISTS translation_pairs_fts;
+            DROP TRIGGER IF EXISTS translation_pairs_ai;
+            DROP TRIGGER IF EXISTS translation_pairs_ad;
+            DROP TRIGGER IF EXISTS translation_pairs_au;
+        `);
+        
+        // Create standalone FTS5 virtual table
+        db.exec(`
+            CREATE VIRTUAL TABLE translation_pairs_fts USING fts5(
+                id UNINDEXED,
+                cell_id UNINDEXED,
+                document UNINDEXED,
+                section UNINDEXED,
+                cell UNINDEXED,
+                source_content,
+                target_content,
+                uri UNINDEXED,
+                line UNINDEXED,
+                notebook_id UNINDEXED
+            );
+        `);
+        
+        // Create triggers
+        db.exec(`
+            CREATE TRIGGER translation_pairs_ai AFTER INSERT ON translation_pairs BEGIN
+                INSERT INTO translation_pairs_fts(id, cell_id, document, section, cell, source_content, target_content, uri, line, notebook_id) 
+                VALUES (new.id, new.cell_id, new.document, new.section, new.cell, new.source_content, new.target_content, new.uri, new.line, new.notebook_id);
+            END;
+            
+            CREATE TRIGGER translation_pairs_ad AFTER DELETE ON translation_pairs BEGIN
+                DELETE FROM translation_pairs_fts WHERE id = old.id;
+            END;
+            
+            CREATE TRIGGER translation_pairs_au AFTER UPDATE ON translation_pairs BEGIN
+                DELETE FROM translation_pairs_fts WHERE id = old.id;
+                INSERT INTO translation_pairs_fts(id, cell_id, document, section, cell, source_content, target_content, uri, line, notebook_id) 
+                VALUES (new.id, new.cell_id, new.document, new.section, new.cell, new.source_content, new.target_content, new.uri, new.line, new.notebook_id);
+            END;
+        `);
+        
+        // Populate with existing data
+        populateFTS5FromMainTable(db);
+        
+        console.log("FTS5 table recreation completed successfully");
+    } catch (error) {
+        console.error("Error recreating FTS5 table:", error);
+        throw error;
+    }
+}
+
+// Fallback search function for when FTS5 fails
+function searchTranslationPairsFallback(
+    db: Database,
+    query: string,
+    includeIncomplete: boolean,
+    limit: number
+): TranslationPair[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    let fallbackSql = `
+        SELECT * FROM translation_pairs 
+        WHERE (source_content LIKE ? OR target_content LIKE ?)
+    `;
+    
+    if (!includeIncomplete) {
+        fallbackSql += " AND target_content != '' AND target_content IS NOT NULL";
+    }
+    
+    fallbackSql += " LIMIT ?";
+    
+    const fallbackStmt = db.prepare(fallbackSql);
+    
+    try {
+        const likeQuery = `%${cleanQuery}%`;
+        fallbackStmt.bind([likeQuery, likeQuery, limit]);
+        
+        const results: TranslationPair[] = [];
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
+            results.push(rowToTranslationPair(row));
+        }
         return results;
     } finally {
-        stmt.free();
+        fallbackStmt.free();
     }
 }
 
@@ -325,29 +709,102 @@ export function getTranslationPairsFromSourceCellQuery(
     query: string,
     limit: number = 5
 ): TranslationPair[] {
-    // Prepare FTS query
-    const ftsQuery = query.split(/\s+/).map(term => `"${term}"*`).join(" OR ");
+    if (!query || query.trim() === '') {
+        return [];
+    }
     
-    const stmt = db.prepare(`
-        SELECT p.* FROM translation_pairs p
-        JOIN translation_pairs_fts fts ON p.rowid = fts.rowid
-        WHERE fts.source_content MATCH ?
-        ORDER BY rank 
+    // First check if the FTS5 table has any data
+    const countStmt = db.prepare("SELECT COUNT(*) as count FROM translation_pairs_fts");
+    countStmt.step();
+    const ftsCount = countStmt.getAsObject().count as number;
+    countStmt.free();
+    
+    if (ftsCount === 0) {
+        console.warn("FTS5 table is empty, populating it...");
+        try {
+            populateFTS5FromMainTable(db);
+        } catch (rebuildError) {
+            console.error("Failed to populate FTS5 table:", rebuildError);
+            // Fall back to non-FTS search immediately
+            return getTranslationPairsFromSourceCellQueryFallback(db, query, limit);
+        }
+    }
+    
+    try {
+        // Escape special characters and format for FTS5
+        const cleanQuery = query.replace(/['"]/g, '').trim();
+        const ftsQuery = cleanQuery.split(/\s+/).filter(term => term.length > 0).map(term => `"${term}"*`).join(" OR ");
+        
+        if (!ftsQuery) {
+            return [];
+        }
+        
+        // Step 1: Query FTS5 table directly to get matching IDs
+        const ftsStmt = db.prepare(`
+            SELECT id FROM translation_pairs_fts
+            WHERE source_content MATCH ?
+            ORDER BY bm25(translation_pairs_fts)
+            LIMIT ?
+        `);
+        
+        ftsStmt.bind([ftsQuery, limit]);
+        
+        const matchingIds: string[] = [];
+        while (ftsStmt.step()) {
+            const row = ftsStmt.getAsObject();
+            matchingIds.push(row["id"] as string);
+        }
+        ftsStmt.free();
+        
+        if (matchingIds.length === 0) {
+            return [];
+        }
+        
+        // Step 2: Get full data from main table using the IDs
+        const placeholders = matchingIds.map(() => '?').join(',');
+        const mainStmt = db.prepare(`SELECT * FROM translation_pairs WHERE id IN (${placeholders})`);
+        mainStmt.bind(matchingIds);
+        
+        const results: TranslationPair[] = [];
+        while (mainStmt.step()) {
+            const row = mainStmt.getAsObject();
+            results.push(rowToTranslationPair(row));
+        }
+        
+        mainStmt.free();
+        return results;
+        
+    } catch (error) {
+        console.error("Error in getTranslationPairsFromSourceCellQuery:", error);
+        // Fallback to non-FTS search if FTS fails
+        return getTranslationPairsFromSourceCellQueryFallback(db, query, limit);
+    }
+}
+
+// Fallback search function for source cell query
+function getTranslationPairsFromSourceCellQueryFallback(
+    db: Database,
+    query: string,
+    limit: number
+): TranslationPair[] {
+    const cleanQuery = query.replace(/['"]/g, '').trim();
+    
+    const fallbackStmt = db.prepare(`
+        SELECT * FROM translation_pairs 
+        WHERE source_content LIKE ? 
         LIMIT ?
     `);
     
     try {
-        stmt.bind([ftsQuery, limit]);
-        
+        fallbackStmt.bind([`%${cleanQuery}%`, limit]);
         const results: TranslationPair[] = [];
-        while (stmt.step()) {
-            const row = stmt.getAsObject();
+        while (fallbackStmt.step()) {
+            const row = fallbackStmt.getAsObject();
             results.push(rowToTranslationPair(row));
         }
-        
         return results;
     } finally {
-        stmt.free();
+        fallbackStmt.free();
     }
 }
 
