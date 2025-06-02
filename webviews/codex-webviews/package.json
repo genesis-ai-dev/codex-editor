@@ -58,6 +58,7 @@
         "diff": "^5.2.0",
         "dompurify": "^3.0.9",
         "faker": "^5.5.3",
+        "fast-xml-parser": "^5.2.3",
         "framer-motion": "^11.0.15",
         "immutability-helper": "^3.1.1",
         "lodash.debounce": "^4.0.8",

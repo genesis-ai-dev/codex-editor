@@ -20,6 +20,7 @@
         "paths": {
             "@/*": ["src/*"],
             "@types": ["types/index.d.ts"],
+            "@newSourceUploaderTypes": ["webviews/codex-webviews/src/NewSourceUploader/types.ts"],
             "@types/*": ["types/*"],
             "types": ["types/index.d.ts"],
             "types/*": ["types/*"],

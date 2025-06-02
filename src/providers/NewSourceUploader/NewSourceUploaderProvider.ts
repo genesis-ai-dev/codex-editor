@@ -1,4 +1,8 @@
 import * as vscode from "vscode";
+import { NewSourceUploaderPostMessages } from "@newSourceUploaderTypes";
+import { createNoteBookPair } from "./codexFIleCreateUtils";
+import { CodexCellTypes } from "../../../types/enums";
+import { NotebookPreview } from "@types";
 
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
@@ -41,7 +45,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     private async handleMessage(
-        message: any,
+        message: NewSourceUploaderPostMessages,
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
@@ -67,13 +71,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     private async handleDocxUpload(
-        fileData: { name: string; content: ArrayBuffer; type: string },
+        fileData: NewSourceUploaderPostMessages["fileData"],
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
         try {
             // Validate file is DOCX
-            if (!fileData.name.toLowerCase().endsWith(".docx")) {
+            if (!fileData?.name.toLowerCase().endsWith(".docx")) {
                 throw new Error("Only DOCX files are supported");
             }
 
@@ -89,8 +93,57 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 ],
             });
 
+            const fileName = fileData.name.split(".")[0].replace(/\s+/g, "-");
+
+            const sourceNotebook: NotebookPreview = {
+                name: fileName,
+                cells: fileData.htmlContent.map((html, index) => ({
+                    kind: vscode.NotebookCellKind.Code,
+                    value: html,
+                    languageId: "html",
+                    metadata: {
+                        id: `${fileName} 1:${index.toString()}`,
+                        type: CodexCellTypes.TEXT,
+                    },
+                })),
+                metadata: {
+                    id: fileName,
+                    textDirection: "ltr",
+                    navigation: [],
+                    videoUrl: "",
+                    originalName: fileData.name,
+                    sourceFsPath: "",
+                    codexFsPath: "",
+                    sourceCreatedAt: new Date().toISOString(),
+                    corpusMarker: "",
+                },
+            };
+
+            const codexNotebook: NotebookPreview = {
+                name: fileName,
+                cells: sourceNotebook.cells.map((cell) => ({
+                    ...cell,
+                    value: "",
+                })),
+                metadata: {
+                    id: fileName,
+                    textDirection: "ltr",
+                    navigation: [],
+                    videoUrl: "",
+                    originalName: fileData.name,
+                    sourceFsPath: "",
+                    codexFsPath: "",
+                    sourceCreatedAt: new Date().toISOString(),
+                    corpusMarker: "",
+                },
+            };
+
             // Simulate validation delay
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            await createNoteBookPair({
+                token,
+                sourceNotebooks: [sourceNotebook],
+                codexNotebooks: [codexNotebook],
+            });
 
             // Send processing progress update
             webviewPanel.webview.postMessage({
@@ -110,7 +163,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             });
 
             // Simulate processing delay
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+            // await new Promise((resolve) => setTimeout(resolve, 1000));
 
             // Calculate file size
             const fileSizeKB = Math.round(fileData.content.byteLength / 1024);

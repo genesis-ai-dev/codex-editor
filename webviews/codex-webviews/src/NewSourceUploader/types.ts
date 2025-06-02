@@ -2,8 +2,11 @@ export interface FileUploadResult {
     success: boolean;
     message: string;
     htmlContent?: string;
+    formattedHtml?: string | null;
     fileName?: string;
     wordCount?: number;
+    parsedHtml?: any;
+    parseError?: string | null;
 }
 
 export interface UploadProgress {
@@ -17,6 +20,7 @@ export interface NewSourceUploaderPostMessages {
     fileData?: {
         name: string;
         content: ArrayBuffer;
+        htmlContent: string[];
         type: string;
     };
 }
