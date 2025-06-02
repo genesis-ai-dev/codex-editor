@@ -400,7 +400,23 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                 // Create .gitignore file
                 const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
                 const gitignoreContent = Buffer.from(
-                    ".project/dictionary.sqlite\n.DS_Store\n.project/complete_drafts.txt\ncopilot-messages.log\n",
+                    "# Sync dictionary.sqlite (shared dictionary data)\n" +
+                    "# Sync .project/sourceTexts/ folder (source text files)\n" +
+                    "\n" +
+                    "# Don't sync user-specific SQLite databases\n" +
+                    ".project/*.sqlite\n" +
+                    "!.project/dictionary.sqlite\n" +
+                    "\n" +
+                    "# Don't sync SQLite auxiliary files\n" +
+                    ".project/*.sqlite-wal\n" +
+                    ".project/*.sqlite-shm\n" +
+                    "\n" +
+                    "# Don't sync user-specific files\n" +
+                    ".project/complete_drafts.txt\n" +
+                    "copilot-messages.log\n" +
+                    "\n" +
+                    "# System files\n" +
+                    ".DS_Store\n",
                     "utf8"
                 );
                 await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);
