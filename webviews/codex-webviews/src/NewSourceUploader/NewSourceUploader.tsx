@@ -17,6 +17,41 @@ import {
 import "./App.css";
 import "../tailwind.css";
 
+// Add type definitions for mammoth.js
+interface MammothStyleProperties {
+    fontSize?: number;
+    fontFamily?: string;
+    color?: string;
+    backgroundColor?: string;
+    textAlign?: string;
+    lineHeight?: number;
+    marginTop?: number;
+    marginBottom?: number;
+    marginLeft?: number;
+    marginRight?: number;
+    paddingTop?: number;
+    paddingBottom?: number;
+    paddingLeft?: number;
+    paddingRight?: number;
+    borderTop?: string;
+    borderBottom?: string;
+    borderLeft?: string;
+    borderRight?: string;
+}
+
+interface MammothElement {
+    type: string;
+    styleId?: string;
+    styleProperties?: MammothStyleProperties;
+    style?: string;
+}
+
+interface MammothOptions {
+    arrayBuffer: ArrayBuffer;
+    styleMap?: string[];
+    transformDocument?: (element: MammothElement) => MammothElement;
+}
+
 interface VSCodeApi {
     postMessage: (message: NewSourceUploaderPostMessages) => void;
     setState: (state: any) => void;
@@ -293,8 +328,101 @@ const NewSourceUploader: React.FC = () => {
             }));
 
             // Convert DOCX to HTML using mammoth.js
-            const result = await mammoth.convertToHtml({ arrayBuffer });
-            console.log({ result });
+            const mammothOptions: MammothOptions = {
+                arrayBuffer,
+                styleMap: [
+                    "p[style-name='Normal'] => p:fresh",
+                    "p[style-name='Heading 1'] => h1:fresh",
+                    "p[style-name='Heading 2'] => h2:fresh",
+                    "p[style-name='Heading 3'] => h3:fresh",
+                    "p[style-name='Heading 4'] => h4:fresh",
+                    "p[style-name='Heading 5'] => h5:fresh",
+                    "p[style-name='Heading 6'] => h6:fresh",
+                    "p[style-name='Quote'] => blockquote:fresh",
+                    "p[style-name='Footnote Text'] => p.footnote:fresh",
+                    "r[style-name='Strong'] => strong",
+                    "r[style-name='Emphasis'] => em",
+                    "r[style-name='Code'] => code",
+                    "r[style-name='Superscript'] => sup",
+                    "r[style-name='Subscript'] => sub",
+                    "r[style-name='Strikethrough'] => s",
+                    "r[style-name='Underline'] => u",
+                    "table => table.table",
+                    "tr => tr",
+                    "td => td",
+                    "th => th",
+                    "ul => ul",
+                    "ol => ol",
+                    "li => li",
+                ],
+                transformDocument: (element: MammothElement) => {
+                    // Add embedded styles to each section
+                    if (
+                        element.type === "paragraph" ||
+                        element.type === "table" ||
+                        element.type === "list"
+                    ) {
+                        const style = element.styleId ? element.styleId : "Normal";
+                        const styleProperties = element.styleProperties || {};
+
+                        // Create style string based on element properties
+                        const styleString = Object.entries(styleProperties)
+                            .map(([key, value]) => {
+                                switch (key) {
+                                    case "fontSize":
+                                        return `font-size: ${value}pt;`;
+                                    case "fontFamily":
+                                        return `font-family: ${value};`;
+                                    case "color":
+                                        return `color: ${value};`;
+                                    case "backgroundColor":
+                                        return `background-color: ${value};`;
+                                    case "textAlign":
+                                        return `text-align: ${value};`;
+                                    case "lineHeight":
+                                        return `line-height: ${value};`;
+                                    case "marginTop":
+                                        return `margin-top: ${value}pt;`;
+                                    case "marginBottom":
+                                        return `margin-bottom: ${value}pt;`;
+                                    case "marginLeft":
+                                        return `margin-left: ${value}pt;`;
+                                    case "marginRight":
+                                        return `margin-right: ${value}pt;`;
+                                    case "paddingTop":
+                                        return `padding-top: ${value}pt;`;
+                                    case "paddingBottom":
+                                        return `padding-bottom: ${value}pt;`;
+                                    case "paddingLeft":
+                                        return `padding-left: ${value}pt;`;
+                                    case "paddingRight":
+                                        return `padding-right: ${value}pt;`;
+                                    case "borderTop":
+                                        return `border-top: ${value};`;
+                                    case "borderBottom":
+                                        return `border-bottom: ${value};`;
+                                    case "borderLeft":
+                                        return `border-left: ${value};`;
+                                    case "borderRight":
+                                        return `border-right: ${value};`;
+                                    default:
+                                        return "";
+                                }
+                            })
+                            .filter((style) => style !== "")
+                            .join(" ");
+
+                        // Add style attribute to the element
+                        if (styleString) {
+                            element.style = styleString;
+                        }
+                    }
+                    return element;
+                },
+            };
+
+            const result = await mammoth.convertToHtml(mammothOptions as any);
+            // console.log({ result });
             const htmlContent = result.value;
             const messages = result.messages;
 
@@ -320,11 +448,11 @@ const NewSourceUploader: React.FC = () => {
                 // Wrap HTML in a root element for proper XML parsing
                 const wrappedHtml = `<root>${htmlContent}</root>`;
                 parsedHtml = parser.parse(wrappedHtml);
-                console.log("Parsed HTML structure:", parsedHtml);
+                // console.log("Parsed HTML structure:", parsedHtml);
 
                 // Format HTML with proper indentation and line breaks
                 formattedHtml = formatHtmlLikePrettier(htmlContent);
-                console.log("Formatted HTML:", formattedHtml);
+                // console.log("Formatted HTML:", formattedHtml);
             } catch (error) {
                 parseError = error instanceof Error ? error.message : "Failed to parse HTML";
                 console.warn("Failed to parse HTML with fast-xml-parser:", error);
@@ -447,26 +575,21 @@ const NewSourceUploader: React.FC = () => {
                     // Convert this single item back to HTML
                     const itemHtml = convertItemToHtml(item);
                     return itemHtml;
-                    console.log("HTML output:", itemHtml);
-
-                    // Also log the original structure for reference
-                    console.log("Original structure:", JSON.stringify(item, null, 2));
-                    console.log("---");
                 });
-                console.log({ htmlArray });
+                // console.log({ htmlArray });
             } else {
                 console.log("parsedHtml structure is not as expected:", parsedHtml);
             }
-            console.log({
-                dataSentToExtension: {
-                    name: uploadState.selectedFile.name,
-                    content: arrayBuffer,
-                    htmlContent: htmlArray,
-                    type:
-                        uploadState.selectedFile.type ||
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                },
-            });
+            // console.log({
+            //     dataSentToExtension: {
+            //         name: uploadState.selectedFile.name,
+            //         content: arrayBuffer,
+            //         htmlContent: htmlArray,
+            //         type:
+            //             uploadState.selectedFile.type ||
+            //             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            //     },
+            // });
             // Send the result to the extension
             vscode.postMessage({
                 command: "uploadFile",
