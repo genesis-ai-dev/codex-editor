@@ -1,0 +1,175 @@
+---
+description: Dealing with audio files or recordings in the project
+globs: 
+alwaysApply: false
+---
+# Audio File Organization for Cell-by-Cell Playback
+
+## Overview
+
+The Codex Editor supports cell-by-cell audio playback, allowing users to hear audio recordings that correspond to specific translation units (cells) in their documents. This document explains the file organization system and naming conventions used for audio attachments.
+
+## Directory Structure
+
+Audio files are stored in a hierarchical structure within the workspace's `.project/attachments/` directory:
+
+```
+workspace/
+├── files/target/
+│   └── GEN.codex                           # Target translation file
+├── .project/
+│   └── attachments/
+│       └── GEN/                            # Book-specific directory
+│           ├── GEN_001_001.wav             # Chapter 1, Verse 1
+│           ├── GEN_001_002.wav             # Chapter 1, Verse 2
+│           ├── GEN_001_025.wav             # Chapter 1, Verse 25
+│           └── GEN_002_001.wav             # Chapter 2, Verse 1
+```
+
+## Naming Convention
+
+### Cell-Level Audio Files
+
+For individual cells (verses), the naming pattern is:
+
+```
+{BOOK}_{CCC}_{VVV}.{ext}
+```
+
+Where:
+
+- `{BOOK}`: Document abbreviation in uppercase (e.g., `JUD`, `MAT`, `REV`)
+- `{CCC}`: Section number, zero-padded, or not (e.g., `001`, `010`, `123`)
+- `{VVV}`: Cell id, zero-padded or not (e.g., `001`, `025`, `150`)
+- `{ext}`: File extension (`.wav`, `.mp3`, `.m4a`, `.ogg`)
+
+Note: zero-padding may be present (it is in some of the data we are using), but it is not required.
+
+### Examples
+
+| Cell ID     | Audio Filename    |
+| ----------- | ----------------- |
+| `JUD 1:1`   | `JUD_001_001.wav` |
+| `JUD 1:25`  | `JUD_001_025.wav` |
+| `MAT 5:3`   | `MAT_005_003.wav` |
+| `REV 22:21` | `REV_022_021.wav` |
+
+## Cell ID to Filename Conversion
+
+The system automatically converts cell IDs to filenames using this algorithm:
+
+1. **Parse Cell ID**: Split on space to get book and chapter:verse
+
+    - Input: `"JUD 1:25"`
+    - Book: `"JUD"`
+    - Chapter:Verse: `"1:25"`
+
+2. **Extract Numbers**: Split chapter:verse on colon
+
+    - Chapter: `1`
+    - Verse: `25`
+
+3. **Format with Zero Padding (if needed)**:
+
+    - Chapter: `1` → `"001"`
+    - Verse: `25` → `"025"`
+
+4. **Construct Filename**: `"JUD_001_025"`
+
+## Supported Audio Formats
+
+The system supports the following audio file formats:
+
+- `.wav` (recommended for best quality)
+- `.mp3`
+- `.m4a`
+- `.ogg`
+
+## File Path Resolution
+
+### For Target Files
+
+- Document: `files/target/JUD.codex`
+- Audio Directory: `.project/attachments/JUD/`
+- Example Audio: `.project/attachments/JUD/JUD_001_025.wav`
+
+### For Source Files
+
+- Document: `.project/sourceTexts/JUD.source`
+- Audio Directory: `.project/attachments/JUD/`
+- Same audio files can be shared between source and target
+
+## Implementation Details
+
+### Backend Processing
+
+1. **Directory Scanning**: The extension scans `.project/attachments/{BOOK}/` for audio files
+2. **Pattern Matching**: Looks for files matching the `{BOOK}_{CCC}_{VVV}.*` pattern
+3. **URI Conversion**: Converts file paths to webview-compatible URIs using `webview.asWebviewUri()`
+4. **Cell Mapping**: Creates a mapping of cell IDs to webview URIs
+
+### Frontend Integration
+
+1. **Audio Attachment State**: Webview maintains `audioAttachments` state mapping cell IDs to audio URIs
+2. **Play Button Display**: Audio play buttons appear automatically for cells with matching audio files
+3. **Audio Playback**: Uses HTML5 Audio API for playback control
+
+## Adding Audio Files
+
+### Manual Addition
+
+1. Create the book directory: `.project/attachments/{BOOK}/`
+2. Name files according to the convention: `{BOOK}_{CCC}_{VVV}.{ext}`
+3. Restart the webview or trigger a refresh to scan for new files
+
+### Programmatic Addition
+
+When implementing audio import/recording features:
+
+```typescript
+// Example: Adding audio for JUD 1:25
+const bookAbbr = "JUD";
+const chapter = 1;
+const verse = 25;
+const filename = `${bookAbbr}_${chapter.toString().padStart(3, "0")}_${verse.toString().padStart(3, "0")}.wav`;
+const targetPath = path.join(workspaceFolder, ".project", "attachments", bookAbbr, filename);
+```
+
+## Future Extensions
+
+### Section-Level Audio
+
+For chapter or section-level audio, the naming could be extended:
+
+- Chapter audio: `JUD_001_000.wav` (verse = 000 indicates chapter level)
+- Book audio: `JUD_000_000.wav` (chapter = 000 indicates book level)
+
+### Multi-Cell Ranges
+
+For cells spanning multiple verses:
+
+- Range audio: `JUD_001_005-007.wav` (verses 5-7)
+
+## Error Handling
+
+The system gracefully handles:
+
+- Missing audio directories
+- Malformed filenames
+- Unsupported audio formats
+- Network/file system errors
+
+Audio buttons only appear when valid audio files are found and successfully loaded.
+
+## Performance Considerations
+
+- Audio files are scanned once when the webview loads
+- File paths are converted to webview URIs for security
+- Audio elements are created on-demand to minimize memory usage
+- Only one audio file plays at a time per cell
+
+## Security
+
+- Audio files must be within the workspace `.project/attachments/` directory
+- File paths are validated before conversion to webview URIs
+- The webview cannot access files outside the allowed directories
