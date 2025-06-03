@@ -17,6 +17,7 @@ import {
     handleGlobalMessage,
     handleMessages,
     performLLMCompletion,
+    scanForAudioAttachments,
 } from "./codexCellEditorMessagehandling";
 import { GlobalProvider } from "../../globalProvider";
 import { getAuthApi } from "@/extension";
@@ -446,6 +447,26 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Performing initial webview update");
         updateWebview();
 
+        // After initial content is sent, scan for audio attachments
+        setTimeout(async () => {
+            try {
+                debug("Scanning for audio attachments after webview is ready");
+                const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+
+                if (Object.keys(audioAttachments).length > 0) {
+                    debug("Found audio attachments, sending to webview:", audioAttachments);
+                    this.postMessageToWebview(webviewPanel, {
+                        type: "providerSendsAudioAttachments",
+                        attachments: audioAttachments,
+                    });
+                } else {
+                    debug("No audio attachments found");
+                }
+            } catch (error) {
+                console.error("Error scanning for audio attachments:", error);
+            }
+        }, 1000); // Wait 1 second for webview to be fully ready
+
         // Watch for configuration changes
         const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             debug("Configuration changed");
@@ -524,7 +545,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             const syncManager = SyncManager.getInstance();
 
             // Schedule the sync operation
-            const fileName = document.uri.path.split('/').pop() || "document";
+            const fileName = document.uri.path.split("/").pop() || "document";
             syncManager.scheduleSyncOperation(`changes to ${fileName}`);
 
             // Update the file status based on source control (will check if still dirty)
@@ -764,12 +785,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private isSourceText(uri: vscode.Uri | string): boolean {
-        const path = typeof uri === 'string' ? uri : uri.path;
+        const path = typeof uri === "string" ? uri : uri.path;
         return path.toLowerCase().endsWith(".source");
     }
 
     private isCodexFile(uri: vscode.Uri | string): boolean {
-        const path = typeof uri === 'string' ? uri : uri.path;
+        const path = typeof uri === "string" ? uri : uri.path;
         return path.toLowerCase().endsWith(".codex");
     }
 
@@ -1479,7 +1500,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Process next item immediately without delay - both for individual and batch translations
                 }
             }
-            
+
             // After all translations are done and the queue is empty, trigger a reindex
             // but only if we're not in an autocompletion process (which will handle its own reindexing)
             if (!this.autocompletionState.isProcessing) {
@@ -1935,7 +1956,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         try {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             if (workspaceFolder) {
-                const localizedPath = vscode.Uri.joinPath(workspaceFolder.uri, "localized-books.json");
+                const localizedPath = vscode.Uri.joinPath(
+                    workspaceFolder.uri,
+                    "localized-books.json"
+                );
                 try {
                     await vscode.workspace.fs.stat(localizedPath);
                     console.log("Navigation: Found localized-books.json, loading...");
@@ -2055,7 +2079,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const syncManager = SyncManager.getInstance();
 
                 // Get the filename for the commit message
-                const fileName = this.currentDocument.uri.path.split('/').pop() || "document";
+                const fileName = this.currentDocument.uri.path.split("/").pop() || "document";
 
                 // Execute sync immediately rather than scheduling
                 syncManager

@@ -35,6 +35,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
+    audioAttachments?: { [cellId: string]: string };
 }
 
 const DEBUG_ENABLED = false;
@@ -43,6 +44,77 @@ function debug(message: string, ...args: any[]): void {
         console.log(`[CellContentDisplay] ${message}`, ...args);
     }
 }
+
+// Audio Play Button Component
+const AudioPlayButton: React.FC<{
+    audioPath: string;
+    cellId: string;
+    vscode: WebviewApi<unknown>;
+}> = ({ audioPath, cellId, vscode }) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    const handlePlayAudio = async () => {
+        try {
+            if (isPlaying) {
+                // Stop current audio
+                if (audioRef.current) {
+                    audioRef.current.pause();
+                    audioRef.current.currentTime = 0;
+                }
+                setIsPlaying(false);
+            } else {
+                // The audioPath should already be a webview-compatible URI from the extension
+                // Create or reuse audio element
+                if (!audioRef.current) {
+                    audioRef.current = new Audio();
+                    audioRef.current.onended = () => setIsPlaying(false);
+                    audioRef.current.onerror = () => {
+                        console.error("Error playing audio for cell:", cellId);
+                        setIsPlaying(false);
+                    };
+                }
+
+                // Use the path directly since it should be converted by the extension
+                audioRef.current.src = audioPath;
+                await audioRef.current.play();
+                setIsPlaying(true);
+            }
+        } catch (error) {
+            console.error("Error handling audio playbook:", error);
+            setIsPlaying(false);
+        }
+    };
+
+    return (
+        <button
+            onClick={handlePlayAudio}
+            className="audio-play-button"
+            title={isPlaying ? "Stop audio" : "Play audio"}
+            style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: "4px",
+                borderRadius: "4px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginLeft: "8px",
+                color: "var(--vscode-foreground)",
+                opacity: 0.7,
+                transition: "opacity 0.2s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
+        >
+            <i
+                className={`codicon ${isPlaying ? "codicon-debug-stop" : "codicon-play"}`}
+                style={{ fontSize: "16px" }}
+            />
+        </button>
+    );
+};
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cell,
@@ -60,6 +132,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     handleCellTranslation,
     handleCellClick,
     cellDisplayMode,
+    audioAttachments,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -428,6 +501,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                     )
                                 }
                             />
+
+                            {/* Audio Play Button */}
+                            {audioAttachments && audioAttachments[cellIds[0]] && (
+                                <div style={{ flexShrink: 0 }}>
+                                    <AudioPlayButton
+                                        audioPath={audioAttachments[cellIds[0]]}
+                                        cellId={cellIds[0]}
+                                        vscode={vscode}
+                                    />
+                                </div>
+                            )}
                         </div>
                         {getAlertDot()}
                     </div>

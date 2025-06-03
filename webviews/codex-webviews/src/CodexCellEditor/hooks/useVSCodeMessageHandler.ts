@@ -45,6 +45,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
+    setAudioAttachments: (attachments: { [cellId: string]: string }) => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -73,6 +74,7 @@ export const useVSCodeMessageHandler = ({
     singleCellTranslationCompleted,
     singleCellTranslationFailed,
     setChapterNumber,
+    setAudioAttachments,
 }: UseVSCodeMessageHandlerProps) => {
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -181,6 +183,11 @@ export const useVSCodeMessageHandler = ({
                         setChapterNumber(message.content);
                     }
                     break;
+                case "providerSendsAudioAttachments":
+                    if (message.attachments) {
+                        setAudioAttachments(message.attachments);
+                    }
+                    break;
             }
         };
 
@@ -215,5 +222,6 @@ export const useVSCodeMessageHandler = ({
         singleCellTranslationCompleted,
         singleCellTranslationFailed,
         setChapterNumber,
+        setAudioAttachments,
     ]);
 };

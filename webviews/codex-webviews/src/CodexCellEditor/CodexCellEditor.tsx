@@ -166,6 +166,9 @@ const CodexCellEditor: React.FC = () => {
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
 
+    // Add audio attachments state
+    const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: string }>({});
+
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
 
@@ -367,6 +370,7 @@ const CodexCellEditor: React.FC = () => {
         setChapterNumber: (chapter) => {
             setChapterNumber(chapter);
         },
+        setAudioAttachments: setAudioAttachments,
     });
 
     useEffect(() => {
@@ -432,12 +436,12 @@ const CodexCellEditor: React.FC = () => {
             content: content,
         } as EditorPostMessages);
         checkAlertCodes();
-        
+
         // Trigger reindexing after saving content
         vscode.postMessage({
             command: "triggerReindexing",
         } as EditorPostMessages);
-        
+
         handleCloseEditor();
     };
 
@@ -1343,6 +1347,7 @@ const CodexCellEditor: React.FC = () => {
                                     ? [autocompletionState.currentCellId]
                                     : []
                             }
+                            audioAttachments={audioAttachments}
                         />
                     </div>
                 </div>

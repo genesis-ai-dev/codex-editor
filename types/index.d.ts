@@ -694,7 +694,8 @@ export type EditorPostMessages =
       }
     | { command: "openBookNameEditor" }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string } }
-    | { command: "triggerSync" };
+    | { command: "triggerSync" }
+    | { command: "requestAudioAttachments" };
 
 type EditorReceiveMessages =
     | {
@@ -868,6 +869,10 @@ type EditorReceiveMessages =
     | {
           type: "setBibleBookMap";
           data: [string, { [key: string]: any; name: string }][];
+      }
+    | {
+          type: "providerSendsAudioAttachments";
+          attachments: { [cellId: string]: string }; // cellId -> audio file path
       };
 
 type AlertCodesServerResponse = {

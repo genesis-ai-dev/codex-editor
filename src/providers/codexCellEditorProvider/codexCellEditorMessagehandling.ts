@@ -19,6 +19,10 @@ import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletio
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { getAuthApi } from "@/extension";
+import { GlobalProvider } from "../../globalProvider";
+import { SyncManager } from "../../projectManager/syncManager";
+import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import * as fs from "fs";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -27,10 +31,11 @@ import { getAuthApi } from "@/extension";
 // import { generateBackTranslation, editBacktranslation, getBacktranslation, setBacktranslation } from "../../backtranslation";
 // import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
 
-const DEBUG_ENABLED = false;
+// Enable debug logging if needed
+const DEBUG_MODE = true; // Temporarily enable for testing
 function debug(...args: any[]): void {
-    if (DEBUG_ENABLED) {
-        console.log(`[CodexCellEditorMessageHandling]`, ...args);
+    if (DEBUG_MODE) {
+        console.log("[CodexCellEditorMessageHandling]", ...args);
     }
 }
 
@@ -1021,5 +1026,166 @@ export const handleMessages = async (
             await vscode.commands.executeCommand("translators-copilot.forceReindex");
             break;
         }
+        case "requestAudioAttachments": {
+            console.log("requestAudioAttachments message received");
+            try {
+                const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: audioAttachments,
+                });
+            } catch (error) {
+                console.error("Error requesting audio attachments:", error);
+                vscode.window.showErrorMessage("Failed to request audio attachments.");
+            }
+            return;
+        }
     }
 };
+
+/**
+ * Scans for audio attachments that match cells in the current document
+ * @param document The current CodexCellDocument
+ * @returns A mapping of cellId to audio file path
+ */
+export async function scanForAudioAttachments(
+    document: CodexCellDocument,
+    webviewPanel: vscode.WebviewPanel
+): Promise<{ [cellId: string]: string }> {
+    debug("Scanning for audio attachments for document:", document.uri.toString());
+
+    const audioAttachments: { [cellId: string]: string } = {};
+
+    try {
+        // Get the workspace folder
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            debug("No workspace folder found");
+            return audioAttachments;
+        }
+
+        // Get the document data to find all cell IDs
+        const documentText = document.getText();
+        const notebookData = JSON.parse(documentText);
+
+        // Extract book abbreviation from the document filename or metadata
+        const filename = path.basename(document.uri.fsPath, ".codex");
+        const bookAbbr = filename.toUpperCase();
+
+        debug("Looking for audio attachments for book:", bookAbbr);
+
+        // Build the attachments path: .project/attachments/{BOOK}/
+        const attachmentsPath = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            bookAbbr
+        );
+
+        debug("Workspace folder path:", workspaceFolder.uri.fsPath);
+        debug("Expected attachments path:", attachmentsPath);
+
+        // Check if the attachments directory exists
+        if (!fs.existsSync(attachmentsPath)) {
+            debug("Attachments directory does not exist:", attachmentsPath);
+            return audioAttachments;
+        }
+
+        // Read all files in the attachments directory
+        const files = fs.readdirSync(attachmentsPath);
+        debug("Found files in attachments directory:", files);
+
+        // Filter for audio files (.wav, .mp3, etc.)
+        const audioFiles = files.filter(
+            (file) =>
+                file.toLowerCase().endsWith(".wav") ||
+                file.toLowerCase().endsWith(".mp3") ||
+                file.toLowerCase().endsWith(".m4a") ||
+                file.toLowerCase().endsWith(".ogg")
+        );
+
+        debug("Audio files found:", audioFiles);
+
+        // Process each cell in the document
+        if (notebookData.cells && Array.isArray(notebookData.cells)) {
+            for (const cell of notebookData.cells) {
+                if (cell.metadata && cell.metadata.id) {
+                    const cellId = cell.metadata.id;
+
+                    // Convert cell ID to expected filename format
+                    // e.g., "JUD 1:25" -> "JUD_001_025.wav"
+                    const audioFileName = convertCellIdToAudioFileName(cellId);
+
+                    if (audioFileName) {
+                        // Check if corresponding audio file exists
+                        const matchingFile = audioFiles.find((file) =>
+                            file.toLowerCase().startsWith(audioFileName.toLowerCase())
+                        );
+
+                        if (matchingFile) {
+                            const fullAudioPath = path.join(attachmentsPath, matchingFile);
+                            // Convert file path to webview URI
+                            const fileUri = vscode.Uri.file(fullAudioPath);
+                            const webviewUri = webviewPanel.webview.asWebviewUri(fileUri);
+                            audioAttachments[cellId] = webviewUri.toString();
+                            debug("Found audio attachment:", {
+                                cellId,
+                                audioFile: matchingFile,
+                                webviewUri: webviewUri.toString(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        debug("Total audio attachments found:", Object.keys(audioAttachments).length);
+    } catch (error) {
+        console.error("Error scanning for audio attachments:", error);
+    }
+
+    return audioAttachments;
+}
+
+/**
+ * Converts a cell ID to the expected audio filename format
+ * @param cellId Cell ID like "JUD 1:25"
+ * @returns Filename like "JUD_001_025" (without extension)
+ */
+function convertCellIdToAudioFileName(cellId: string): string | null {
+    debug("Converting cell ID to audio filename:", cellId);
+
+    try {
+        // Parse cell ID format: "BOOK CHAPTER:VERSE"
+        const parts = cellId.split(" ");
+        if (parts.length !== 2) {
+            debug("Invalid cell ID format:", cellId);
+            return null;
+        }
+
+        const book = parts[0];
+        const chapterVerse = parts[1].split(":");
+
+        if (chapterVerse.length !== 2) {
+            debug("Invalid chapter:verse format:", parts[1]);
+            return null;
+        }
+
+        const chapter = parseInt(chapterVerse[0], 10);
+        const verse = parseInt(chapterVerse[1], 10);
+
+        if (isNaN(chapter) || isNaN(verse)) {
+            debug("Invalid chapter or verse numbers:", { chapter, verse });
+            return null;
+        }
+
+        // Format: BOOK_CCC_VVV (with zero padding)
+        const filename = `${book}_${chapter.toString().padStart(3, "0")}_${verse.toString().padStart(3, "0")}`;
+        debug("Converted to filename:", filename);
+
+        return filename;
+    } catch (error) {
+        console.error("Error converting cell ID to filename:", error);
+        return null;
+    }
+}

@@ -35,6 +35,7 @@ export interface CellListProps {
     translationQueue?: string[]; // Queue of cells waiting for translation
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
+    audioAttachments?: { [cellId: string]: string }; // Audio file paths for cells
 }
 
 const DEBUG_ENABLED = false;
@@ -63,6 +64,7 @@ const CellList: React.FC<CellListProps> = ({
     translationQueue = [],
     currentProcessingCellId,
     cellsInAutocompleteQueue = [],
+    audioAttachments,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -440,6 +442,7 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
                                 cellDisplayMode={cellDisplayMode}
+                                audioAttachments={audioAttachments}
                             />
                         </span>
                     );
@@ -461,6 +464,7 @@ const CellList: React.FC<CellListProps> = ({
             getCellTranslationState,
             allTranslationsComplete,
             handleCellTranslation,
+            audioAttachments,
         ]
     );
 
@@ -747,6 +751,7 @@ const CellList: React.FC<CellListProps> = ({
         isCellInTranslationProcess,
         getCellTranslationState,
         allTranslationsComplete,
+        audioAttachments,
     ]);
 
     // Debug log to see the structure of translationUnits
