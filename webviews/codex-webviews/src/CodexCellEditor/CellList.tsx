@@ -375,7 +375,8 @@ const CellList: React.FC<CellListProps> = ({
             // Count non-paratext cells up to and including this one
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
-                if (cells[i].cellType !== CodexCellTypes.PARATEXT) {
+                const cellIdParts = cells[i].cellMarkers[0].split(":");
+                if (cells[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
                     visibleCellCount++;
                 }
             }
