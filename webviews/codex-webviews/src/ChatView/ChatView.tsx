@@ -4,7 +4,6 @@ import { ChatInputTextForm } from "../components/ChatInputTextForm";
 import DeleteButtonWithConfirmation from "../components/DeleteButtonWithConfirmation";
 import { WebviewHeader } from "../components/WebviewHeader";
 import { MessageItem } from "../components/MessageItem";
-import "../App.css";
 import { ChatMessageThread, ChatMessageWithContext, ChatPostMessages } from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
 import { ChatRoleLabel } from "../common";
