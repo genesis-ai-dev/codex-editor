@@ -250,6 +250,11 @@ const CellList: React.FC<CellListProps> = ({
                     debug("All translations complete - starting fade timer");
                     setAllTranslationsComplete(true);
 
+                    // Trigger reindexing when all translations are complete
+                    vscode.postMessage({
+                        command: "triggerReindexing",
+                    });
+
                     // Reset completed translations after fade-out period
                     setTimeout(() => {
                         setCompletedTranslations(new Set());

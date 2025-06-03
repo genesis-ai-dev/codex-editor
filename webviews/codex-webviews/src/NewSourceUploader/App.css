@@ -1,0 +1,134 @@
+.new-source-uploader {
+    padding: 20px;
+    max-width: 800px;
+    margin: 0 auto;
+    font-family: var(--vscode-font-family);
+    color: var(--vscode-foreground);
+}
+
+.upload-section {
+    margin-bottom: 30px;
+    padding: 20px;
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 8px;
+    background-color: var(--vscode-editor-background);
+}
+
+.upload-section h2 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--vscode-foreground);
+    font-size: 1.2em;
+}
+
+.file-input-container {
+    margin-bottom: 20px;
+}
+
+.file-input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--vscode-input-border);
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border-radius: 4px;
+}
+
+.file-info {
+    margin-top: 10px;
+    padding: 10px;
+    background-color: var(--vscode-textBlockQuote-background);
+    border-left: 4px solid var(--vscode-textBlockQuote-border);
+    border-radius: 4px;
+}
+
+.file-info p {
+    margin: 5px 0;
+    font-size: 0.9em;
+}
+
+.upload-button {
+    margin-top: 15px;
+}
+
+.progress-section {
+    margin-top: 20px;
+}
+
+.progress-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    padding: 8px;
+    border-radius: 4px;
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.progress-icon {
+    margin-right: 10px;
+    width: 16px;
+    height: 16px;
+}
+
+.progress-text {
+    flex: 1;
+}
+
+.progress-status {
+    font-size: 0.8em;
+    color: var(--vscode-descriptionForeground);
+}
+
+.success {
+    color: var(--vscode-terminal-ansiGreen);
+}
+
+.error {
+    color: var(--vscode-errorForeground);
+}
+
+.processing {
+    color: var(--vscode-terminal-ansiYellow);
+}
+
+.preview-section {
+    margin-top: 20px;
+    padding: 15px;
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 8px;
+    background-color: var(--vscode-editor-background);
+}
+
+.preview-content {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 10px;
+    background-color: var(--vscode-textCodeBlock-background);
+    border-radius: 4px;
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+}
+
+.supported-formats {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: var(--vscode-textBlockQuote-background);
+    border-radius: 4px;
+}
+
+.supported-formats h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1em;
+    color: var(--vscode-foreground);
+}
+
+.supported-formats ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.supported-formats li {
+    margin-bottom: 5px;
+    font-size: 0.9em;
+}

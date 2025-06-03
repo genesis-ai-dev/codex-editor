@@ -1,9 +1,9 @@
-import * as fs from "fs";
 import { Database } from "sql.js";
 import * as vscode from "vscode";
 import { bulkAddWords } from ".";
 import { DictionaryEntry } from "types";
 import crypto from "crypto";
+import { TextDecoder } from 'util';
 
 interface WiktionaryEntry {
     word: string;
@@ -17,108 +17,75 @@ const generateId = () => {
 };
 
 export async function parseAndImportJSONL(
-    jsonlFilePath: string,
-    progress: vscode.Progress<{ message?: string; increment?: number }>,
-    db: Database
-    // limit?: number
-) {
-    return new Promise<void>((resolve, reject) => {
-        const wordsBuffer: DictionaryEntry[] = [];
-        const BATCH_SIZE = 1000;
-        let entryCount = 0;
+    filePath: string,
+    db: Database,
+    progressCallback?: (progress: number) => void
+): Promise<void> {
+    const wordsBuffer: DictionaryEntry[] = [];
+    const BATCH_SIZE = 1000;
+    let entryCount = 0;
 
-        const fileStream = fs.createReadStream(jsonlFilePath, { encoding: "utf-8" });
-        let remainder = "";
-
-        const totalSize = fs.statSync(jsonlFilePath).size;
+    try {
+        // Read the entire file content
+        const fileUri = vscode.Uri.file(filePath);
+        const content = await vscode.workspace.fs.readFile(fileUri);
+        const text = new TextDecoder().decode(content);
+        
+        // Get file size for progress calculation
+        const stats = await vscode.workspace.fs.stat(fileUri);
+        const totalSize = stats.size;
         let processedSize = 0;
+        
+        // Process the content line by line
+        const lines = text.split('\n');
+        
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            try {
+                const entry: WiktionaryEntry = JSON.parse(line);
 
-        fileStream.on("data", (chunk: string) => {
-            processedSize += chunk.length;
-            const percentComplete = (processedSize / totalSize) * 100;
-            progress.report({
-                increment: 0,
-                message: `Processing... ${percentComplete.toFixed(2)}%`,
-            });
+                // Combine all glosses into a single definition
+                const definitions = entry.senses
+                    .flatMap((sense) => sense.glosses)
+                    .filter((gloss) => gloss && !gloss.startsWith("Alternative form of"));
 
-            const lines = (remainder + chunk).split("\n");
-            remainder = lines.pop() || "";
-
-            for (const line of lines) {
-                if (!line.trim()) continue;
-
-                try {
-                    // Check if we've hit the limit
-                    // if (limit && entryCount >= limit) {
-                    //     fileStream.destroy();
-                    //     return;
-                    // }
-
-                    const entry: WiktionaryEntry = JSON.parse(line);
-
-                    // Combine all glosses into a single definition
-                    const definitions = entry.senses
-                        .flatMap((sense) => sense.glosses)
-                        .filter((gloss) => gloss && !gloss.startsWith("Alternative form of"));
-
-                    if (definitions.length > 0) {
-                        definitions.forEach((definition = "") => {
-                            wordsBuffer.push({
-                                id: generateId(),
-                                headWord: entry.word,
-                                definition,
-                                authorId: undefined,
-                                isUserEntry: false,
-                            });
-                            entryCount++;
+                if (definitions.length > 0) {
+                    definitions.forEach((definition = "") => {
+                        wordsBuffer.push({
+                            id: generateId(),
+                            headWord: entry.word,
+                            definition,
+                            authorId: undefined,
+                            isUserEntry: false,
                         });
-                    }
-
-                    // Insert in batches
-                    if (wordsBuffer.length >= BATCH_SIZE) {
-                        bulkAddWords(db, wordsBuffer);
-                        wordsBuffer.length = 0;
-                    }
-                } catch (error) {
-                    console.error("Error processing line:", error);
+                        entryCount++;
+                    });
                 }
-            }
-        });
 
-        fileStream.on("end", () => {
-            // Process any remaining partial line
-            if (remainder) {
-                try {
-                    const entry: WiktionaryEntry = JSON.parse(remainder);
-                    const definitions = entry.senses
-                        .flatMap((sense) => sense.glosses)
-                        .filter((gloss) => gloss && !gloss.startsWith("Alternative form of"));
-
-                    if (definitions.length > 0) {
-                        definitions.forEach((definition) => {
-                            wordsBuffer.push({
-                                id: generateId(),
-                                headWord: entry.word,
-                                definition,
-                                authorId: undefined,
-                                isUserEntry: false,
-                            });
-                        });
-                    }
-                } catch (error) {
-                    console.error("Error processing final line:", error);
+                // Insert in batches
+                if (wordsBuffer.length >= BATCH_SIZE) {
+                    bulkAddWords(db, wordsBuffer);
+                    wordsBuffer.length = 0;
                 }
-            }
 
-            // Insert any remaining entries
-            if (wordsBuffer.length > 0) {
-                bulkAddWords(db, wordsBuffer);
+                // Update progress
+                processedSize += line.length + 1; // +1 for newline
+                if (progressCallback) {
+                    progressCallback(processedSize / totalSize);
+                }
+            } catch (err) {
+                console.error('Error processing line:', err);
+                continue;
             }
-            resolve();
-        });
+        }
 
-        fileStream.on("error", (error) => {
-            reject(error);
-        });
-    });
+        // Insert any remaining entries
+        if (wordsBuffer.length > 0) {
+            bulkAddWords(db, wordsBuffer);
+        }
+    } catch (err) {
+        console.error('Error reading file:', err);
+        throw err;
+    }
 }

@@ -1,0 +1,13 @@
+/* Basic VSCode theme integration for webviews */
+:root {
+    --vscode-background: var(--vscode-editor-background);
+    --vscode-foreground: var(--vscode-foreground);
+}
+
+body {
+    background-color: var(--vscode-background);
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+    margin: 0;
+    padding: 0;
+}

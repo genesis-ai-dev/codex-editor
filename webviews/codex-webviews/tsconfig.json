@@ -30,7 +30,9 @@
             "types/*": ["../../types/*"],
             "webviews/*": ["./src/*"],
             "@sharedUtils/*": ["../../sharedUtils/*"],
-            "@sharedUtils": ["../../sharedUtils"]
+            "@sharedUtils": ["../../sharedUtils"],
+            "@/components/*": ["./src/components/*"],
+            "@/lib/*": ["./src/lib/*"]
         }
     },
     "include": ["src/**/*", "../../types/index.d.ts", "../../sharedUtils/**/*"],

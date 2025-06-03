@@ -1,14 +1,28 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-    VSCodeButton,
-    VSCodePanels,
-    VSCodePanelTab,
-    VSCodePanelView,
-    VSCodeTextField,
-    VSCodeBadge,
-    VSCodeDivider,
-} from "@vscode/webview-ui-toolkit/react";
-import "../App.css";
+    MessageSquare,
+    Search,
+    Plus,
+    ChevronRight,
+    ChevronDown,
+    Edit,
+    Check,
+    Circle,
+    X,
+    Trash2,
+    Undo2,
+    Send,
+    Reply,
+    Eye,
+    EyeOff,
+    ChevronUp,
+    Clock,
+    MoreHorizontal,
+} from "lucide-react";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Input } from "../components/ui/input";
 import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
 import { WebviewHeader } from "../components/WebviewHeader";
@@ -32,40 +46,18 @@ const UserAvatar = ({ username, email, size = "small", timestamp }: UserAvatar) 
 
     return (
         <div
-            style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                position: "relative",
-            }}
+            className="flex items-center gap-2 relative"
             title={email ? `${username} (${email})` : username}
         >
             <div
-                style={{
-                    ...sizeMap[size],
-                    borderRadius: "50%",
-                    backgroundColor: "var(--vscode-badge-background)",
-                    color: "var(--vscode-badge-foreground)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: "500",
-                }}
+                className="rounded-full bg-primary text-primary-foreground flex items-center justify-center font-medium"
+                style={sizeMap[size]}
             >
                 {username[0].toUpperCase()}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontWeight: "500" }}>{username}</span>
-                {timestamp && (
-                    <span
-                        style={{
-                            fontSize: "11px",
-                            color: "var(--vscode-descriptionForeground)",
-                        }}
-                    >
-                        {timestamp}
-                    </span>
-                )}
+            <div className="flex flex-col gap-0.5">
+                <span className="font-medium">{username}</span>
+                {timestamp && <span className="text-xs text-muted-foreground">{timestamp}</span>}
             </div>
         </div>
     );
@@ -379,32 +371,13 @@ function App() {
     }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads]);
 
     return (
-        <div
-            style={{
-                height: "100%",
-                width: "100%",
-                display: "flex",
-                flexDirection: "column",
-                backgroundColor: "var(--vscode-editorWidget-background)",
-                color: "var(--vscode-editorWidget-foreground)",
-                fontFamily: "var(--vscode-font-family)",
-                position: "relative", // For positioning the resolved threads banner
-            }}
-        >
+        <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
             <WebviewHeader title="Comments" vscode={vscode} />
 
             {/* Header */}
-            <div
-                style={{
-                    padding: "16px",
-                    borderBottom: "1px solid var(--vscode-widget-border)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "12px",
-                }}
-            >
+            <div className="p-4 border-b border-border flex flex-col gap-3">
                 {currentUser.isAuthenticated && (
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div className="flex items-center gap-2">
                         <UserAvatar
                             username={currentUser.username}
                             email={currentUser.email}
@@ -414,102 +387,50 @@ function App() {
                 )}
 
                 {/* View mode selector */}
-                <div
-                    style={{
-                        display: "flex",
-                        borderRadius: "4px",
-                        overflow: "hidden",
-                        border: "1px solid var(--vscode-button-background)",
-                    }}
-                >
-                    <button
-                        style={{
-                            flex: 1,
-                            padding: "8px 12px",
-                            border: "none",
-                            background:
-                                viewMode === "all"
-                                    ? "var(--vscode-button-background)"
-                                    : "transparent",
-                            color:
-                                viewMode === "all"
-                                    ? "var(--vscode-button-foreground)"
-                                    : "var(--vscode-foreground)",
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                            fontSize: "13px",
-                            fontWeight: 500,
-                            transition: "background-color 0.2s",
-                        }}
+                <div className="flex rounded border border-border overflow-hidden">
+                    <Button
+                        variant={viewMode === "all" ? "default" : "ghost"}
+                        className="flex-1 rounded-none"
                         onClick={() => {
                             setViewMode("all");
                             setSearchQuery("");
                         }}
                     >
                         All Comments
-                    </button>
-                    <button
-                        style={{
-                            flex: 1,
-                            padding: "8px 12px",
-                            border: "none",
-                            background:
-                                viewMode === "cell"
-                                    ? "var(--vscode-button-background)"
-                                    : "transparent",
-                            color:
-                                viewMode === "cell"
-                                    ? "var(--vscode-button-foreground)"
-                                    : "var(--vscode-foreground)",
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                            fontSize: "13px",
-                            fontWeight: 500,
-                            transition: "background-color 0.2s",
-                        }}
+                    </Button>
+                    <Button
+                        variant={viewMode === "cell" ? "default" : "ghost"}
+                        className="flex-1 rounded-none"
                         onClick={() => {
                             setViewMode("cell");
                             setSearchQuery(cellId.cellId);
                         }}
                     >
                         Current Cell
-                    </button>
+                    </Button>
                 </div>
 
                 {/* Search */}
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                    <VSCodeTextField
-                        placeholder={
-                            viewMode === "all"
-                                ? "Search all comments..."
-                                : `Showing comments for ${getCellId(cellId.cellId)}`
-                        }
-                        value={searchQuery}
-                        style={{ flex: 1 }}
-                        onChange={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
-                        disabled={viewMode === "cell"}
-                    >
-                        <span slot="start" className="codicon codicon-search"></span>
-                    </VSCodeTextField>
+                <div className="flex gap-2 items-center">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder={
+                                viewMode === "all"
+                                    ? "Search all comments..."
+                                    : `Showing comments for ${getCellId(cellId.cellId)}`
+                            }
+                            value={searchQuery}
+                            className="pl-10"
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            disabled={viewMode === "cell"}
+                        />
+                    </div>
                 </div>
 
-                <div
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                    }}
-                >
-                    <div
-                        style={{
-                            fontSize: "13px",
-                            color: "var(--vscode-descriptionForeground)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                        }}
-                    >
-                        <i className="codicon codicon-comment-discussion"></i>
+                <div className="flex justify-between items-center">
+                    <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+                        <MessageSquare className="h-4 w-4" />
                         <span>
                             {filteredCommentThreads.length}{" "}
                             {filteredCommentThreads.length === 1 ? "thread" : "threads"}
@@ -517,153 +438,86 @@ function App() {
                     </div>
 
                     {currentUser.isAuthenticated && (
-                        <VSCodeButton
-                            appearance="primary"
-                            onClick={() => setShowNewCommentForm(true)}
-                            style={{ fontWeight: 500 }}
-                        >
-                            <i className="codicon codicon-add" style={{ marginRight: "6px" }} />
+                        <Button onClick={() => setShowNewCommentForm(true)} className="font-medium">
+                            <Plus className="h-4 w-4 mr-1.5" />
                             Comment
-                        </VSCodeButton>
+                        </Button>
                     )}
                 </div>
             </div>
 
             {/* New comment form */}
             {showNewCommentForm && (
-                <div
-                    style={{
-                        padding: "16px",
-                        borderBottom: "1px solid var(--vscode-widget-border)",
-                        backgroundColor: "var(--vscode-editor-inactiveSelectionBackground)",
-                    }}
-                >
-                    <div
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            marginBottom: "12px",
-                            gap: "8px",
-                        }}
-                    >
-                        <i
-                            className="codicon codicon-comment-draft"
-                            style={{ fontSize: "14px" }}
-                        ></i>
-                        <span style={{ fontSize: "14px", fontWeight: 500 }}>New comment</span>
-                        {viewMode === "cell" && (
-                            <span
-                                style={{
-                                    fontSize: "12px",
-                                    color: "var(--vscode-descriptionForeground)",
-                                }}
-                            >
-                                on {getCellId(cellId.cellId)}
-                            </span>
-                        )}
-                    </div>
-                    <div
-                        style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "12px",
-                        }}
-                    >
-                        <VSCodeTextField
-                            placeholder="What do you want to say?"
-                            value={newCommentText}
-                            style={{ width: "100%" }}
-                            onKeyDown={(e) => {
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault();
-                                    handleNewComment();
-                                }
-                            }}
-                            onChange={(e) =>
-                                setNewCommentText((e.target as HTMLInputElement).value)
-                            }
-                        />
-                        <div
-                            style={{
-                                display: "flex",
-                                gap: "8px",
-                                justifyContent: "flex-end",
-                            }}
-                        >
-                            <VSCodeButton
-                                appearance="secondary"
-                                onClick={() => setShowNewCommentForm(false)}
-                            >
-                                <i className="codicon codicon-close" />
-                            </VSCodeButton>
-                            <VSCodeButton appearance="primary" onClick={handleNewComment}>
-                                <i
-                                    className="codicon codicon-comment"
-                                    style={{ marginRight: "6px" }}
-                                />
-                                Send
-                            </VSCodeButton>
+                <Card className="m-4 bg-muted/50">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center mb-3 gap-2">
+                            <MessageSquare className="h-4 w-4" />
+                            <span className="text-sm font-medium">New comment</span>
+                            {viewMode === "cell" && (
+                                <span className="text-xs text-muted-foreground">
+                                    on {getCellId(cellId.cellId)}
+                                </span>
+                            )}
                         </div>
-                    </div>
-                </div>
+                        <div className="flex flex-col gap-3">
+                            <Input
+                                placeholder="What do you want to say?"
+                                value={newCommentText}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter" && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleNewComment();
+                                    }
+                                }}
+                                onChange={(e) => setNewCommentText(e.target.value)}
+                            />
+                            <div className="flex gap-2 justify-end">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowNewCommentForm(false)}
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                                <Button size="sm" onClick={handleNewComment}>
+                                    <MessageSquare className="h-4 w-4 mr-1.5" />
+                                    Send
+                                </Button>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
             )}
 
-            {/* Empty states - make them mutually exclusive */}
+            {/* Empty states */}
             {filteredCommentThreads.length === 0 && (
-                <div
-                    style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "48px 16px",
-                        color: "var(--vscode-descriptionForeground)",
-                        textAlign: "center",
-                        gap: "16px",
-                        flex: 1,
-                    }}
-                >
+                <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
                     {viewMode === "cell" && cellId.cellId ? (
                         <>
-                            <i
-                                className="codicon codicon-comment"
-                                style={{ fontSize: "32px", opacity: 0.6 }}
-                            ></i>
+                            <MessageSquare className="h-8 w-8 opacity-60" />
                             <div>
-                                <div style={{ marginBottom: "8px", fontSize: "16px" }}>
-                                    No comments on this cell
-                                </div>
-                                <div style={{ fontSize: "13px" }}>
+                                <div className="mb-2 text-base">No comments on this cell</div>
+                                <div className="text-sm">
                                     Be the first to start a conversation here
                                 </div>
                             </div>
                         </>
                     ) : searchQuery.length > 0 ? (
                         <>
-                            <i
-                                className="codicon codicon-search-no-results"
-                                style={{ fontSize: "32px", opacity: 0.6 }}
-                            ></i>
+                            <Search className="h-8 w-8 opacity-60" />
                             <div>
-                                <div style={{ marginBottom: "8px", fontSize: "16px" }}>
-                                    No results found
-                                </div>
-                                <div style={{ fontSize: "13px" }}>
+                                <div className="mb-2 text-base">No results found</div>
+                                <div className="text-sm">
                                     Try a different search or view all comments
                                 </div>
                             </div>
                         </>
                     ) : (
                         <>
-                            <i
-                                className="codicon codicon-comments"
-                                style={{ fontSize: "32px", opacity: 0.6 }}
-                            ></i>
+                            <MessageSquare className="h-8 w-8 opacity-60" />
                             <div>
-                                <div style={{ marginBottom: "8px", fontSize: "16px" }}>
-                                    No comments yet
-                                </div>
-                                <div style={{ fontSize: "13px" }}>
+                                <div className="mb-2 text-base">No comments yet</div>
+                                <div className="text-sm">
                                     Start the conversation by adding a comment
                                 </div>
                             </div>
@@ -674,69 +528,35 @@ function App() {
 
             {/* Comment list */}
             {filteredCommentThreads.length > 0 && (
-                <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="flex-1 overflow-y-auto p-2">
+                    <div className="flex flex-col gap-4">
                         {filteredCommentThreads.map((thread) => (
-                            <div
+                            <Card
                                 key={thread.id}
-                                style={{
-                                    display: "flex",
-                                    flexDirection: "column",
-                                    borderRadius: "6px",
-                                    overflow: "hidden",
-                                    border: "1px solid var(--vscode-widget-border)",
-                                    opacity: thread.resolved ? 0.75 : 1,
-                                    transition: "opacity 0.2s ease",
-                                }}
+                                className={`overflow-hidden border transition-opacity duration-200 ${
+                                    thread.resolved ? "opacity-75" : "opacity-100"
+                                }`}
                             >
                                 {/* Thread header */}
-                                <div
-                                    style={{
-                                        padding: "12px 16px",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        gap: "6px",
-                                        backgroundColor:
-                                            "var(--vscode-editor-inactiveSelectionBackground)",
-                                        cursor: "pointer",
-                                        borderBottom: !collapsedThreads[thread.id]
-                                            ? "1px solid var(--vscode-widget-border)"
-                                            : "none",
-                                    }}
+                                <CardHeader
+                                    className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors"
                                     onClick={() => toggleCollapsed(thread.id)}
                                 >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            alignItems: "center",
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "8px",
-                                                flex: 1,
-                                                minWidth: 0,
-                                            }}
-                                        >
-                                            <i
-                                                className={`codicon codicon-chevron-${
-                                                    collapsedThreads[thread.id] ? "right" : "down"
-                                                }`}
-                                                style={{ fontSize: "14px" }}
-                                            />
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                            {collapsedThreads[thread.id] ? (
+                                                <ChevronRight className="h-4 w-4" />
+                                            ) : (
+                                                <ChevronDown className="h-4 w-4" />
+                                            )}
 
                                             {editingTitle === thread.id ? (
-                                                <VSCodeTextField
+                                                <Input
                                                     value={threadTitleEdit}
                                                     placeholder="Thread title"
-                                                    style={{ flex: 1 }}
+                                                    className="flex-1"
                                                     onChange={(e) =>
-                                                        setThreadTitleEdit(
-                                                            (e.target as HTMLInputElement).value
-                                                        )
+                                                        setThreadTitleEdit(e.target.value)
                                                     }
                                                     onKeyDown={(e) => {
                                                         if (e.key === "Enter") {
@@ -748,51 +568,27 @@ function App() {
                                                     }}
                                                 />
                                             ) : (
-                                                <span
-                                                    style={{
-                                                        fontWeight: 500,
-                                                        fontSize: "14px",
-                                                        overflow: "hidden",
-                                                        textOverflow: "ellipsis",
-                                                        whiteSpace: "nowrap",
-                                                    }}
-                                                >
+                                                <span className="font-medium text-sm truncate">
                                                     {thread.threadTitle || "Untitled Thread"}
                                                 </span>
                                             )}
                                         </div>
 
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                gap: "6px",
-                                                alignItems: "center",
-                                            }}
-                                        >
+                                        <div className="flex gap-1.5 items-center">
                                             {thread.resolved && (
-                                                <span
-                                                    style={{
-                                                        fontSize: "12px",
-                                                        padding: "2px 8px",
-                                                        borderRadius: "4px",
-                                                        backgroundColor:
-                                                            "var(--vscode-badge-background)",
-                                                        color: "var(--vscode-badge-foreground)",
-                                                    }}
-                                                >
-                                                    <i
-                                                        className="codicon codicon-check"
-                                                        style={{ marginRight: "4px" }}
-                                                    ></i>
+                                                <Badge variant="secondary" className="text-xs">
+                                                    <Check className="h-3 w-3 mr-1" />
                                                     Resolved
-                                                </span>
+                                                </Badge>
                                             )}
 
                                             {/* Action Buttons */}
                                             {!editingTitle && (
-                                                <div style={{ display: "flex", gap: "4px" }}>
-                                                    <VSCodeButton
-                                                        appearance="icon"
+                                                <div className="flex gap-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
                                                         title="Edit title"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -802,10 +598,12 @@ function App() {
                                                             );
                                                         }}
                                                     >
-                                                        <i className="codicon codicon-edit" />
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        appearance="icon"
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
                                                         title={
                                                             thread.resolved
                                                                 ? "Mark as unresolved"
@@ -819,302 +617,223 @@ function App() {
                                                             thread.id
                                                         )}
                                                     >
-                                                        <i
-                                                            className={`codicon codicon-${
-                                                                pendingResolveThreads.has(thread.id)
-                                                                    ? "loading~spin"
-                                                                    : thread.resolved
-                                                                    ? "check"
-                                                                    : "circle-outline"
-                                                            }`}
-                                                        />
-                                                    </VSCodeButton>
+                                                        {pendingResolveThreads.has(thread.id) ? (
+                                                            <Clock className="h-4 w-4 animate-spin" />
+                                                        ) : thread.resolved ? (
+                                                            <Check className="h-4 w-4" />
+                                                        ) : (
+                                                            <Circle className="h-4 w-4" />
+                                                        )}
+                                                    </Button>
                                                 </div>
                                             )}
 
-                                            {/* Edit mode actions - use icons instead of text */}
+                                            {/* Edit mode actions */}
                                             {editingTitle === thread.id && (
-                                                <div style={{ display: "flex", gap: "8px" }}>
-                                                    <VSCodeButton
-                                                        appearance="icon"
+                                                <div className="flex gap-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
                                                         title="Cancel"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setEditingTitle(null);
                                                         }}
                                                     >
-                                                        <i className="codicon codicon-close" />
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        appearance="icon"
+                                                        <X className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
                                                         title="Save"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleEditThreadTitle(thread.id);
                                                         }}
                                                     >
-                                                        <i className="codicon codicon-check" />
-                                                    </VSCodeButton>
+                                                        <Check className="h-4 w-4" />
+                                                    </Button>
                                                 </div>
                                             )}
                                         </div>
                                     </div>
 
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            justifyContent: "space-between",
-                                            fontSize: "12px",
-                                            color: "var(--vscode-descriptionForeground)",
-                                        }}
-                                    >
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                gap: "8px",
-                                                alignItems: "center",
-                                            }}
-                                        >
+                                    <div className="flex justify-between text-xs text-muted-foreground">
+                                        <div className="flex gap-2 items-center">
                                             <span
-                                                style={{
-                                                    color: "var(--vscode-textLink-foreground)",
-                                                    maxWidth: "200px",
-                                                    overflow: "hidden",
-                                                    textOverflow: "ellipsis",
-                                                    whiteSpace: "nowrap",
-                                                }}
+                                                className="text-primary max-w-48 truncate"
                                                 title={thread.cellId.cellId}
                                             >
                                                 {getCellId(thread.cellId.cellId)}
                                             </span>
                                         </div>
-                                        <span>
-                                            <i
-                                                className="codicon codicon-comment-discussion"
-                                                style={{ marginRight: "4px" }}
-                                            ></i>
+                                        <span className="flex items-center gap-1">
+                                            <MessageSquare className="h-3 w-3" />
                                             {thread.comments.length}{" "}
                                             {thread.comments.length === 1 ? "comment" : "comments"}
                                         </span>
                                     </div>
-                                </div>
+                                </CardHeader>
 
                                 {/* Comments section */}
                                 {!collapsedThreads[thread.id] && (
-                                    <div
-                                        style={{
-                                            padding: "16px",
-                                            display: "flex",
-                                            flexDirection: "column",
-                                            gap: "16px",
-                                        }}
-                                    >
-                                        {/* Comments */}
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                flexDirection: "column",
-                                                gap: "16px",
-                                            }}
-                                        >
-                                            {thread.comments.map((comment, index) => (
-                                                <div
-                                                    key={comment.id}
-                                                    style={{
-                                                        display: "flex",
-                                                        gap: "12px",
-                                                        opacity: comment.deleted ? 0.6 : 1,
-                                                    }}
-                                                >
-                                                    <UserAvatar
-                                                        username={comment.author.name}
-                                                        size="medium"
-                                                    />
-
+                                    <CardContent className="p-4">
+                                        <div className="flex flex-col gap-4">
+                                            {/* Comments */}
+                                            <div className="flex flex-col gap-4">
+                                                {thread.comments.map((comment, index) => (
                                                     <div
-                                                        style={{
-                                                            flex: 1,
-                                                            display: "flex",
-                                                            flexDirection: "column",
-                                                            gap: "6px",
-                                                        }}
+                                                        key={comment.id}
+                                                        className={`flex gap-3 ${
+                                                            comment.deleted ? "opacity-60" : ""
+                                                        }`}
                                                     >
-                                                        <div
-                                                            style={{
-                                                                display: "flex",
-                                                                justifyContent: "space-between",
-                                                            }}
-                                                        >
-                                                            <div style={{ fontWeight: 500 }}>
-                                                                {comment.author.name}
-                                                            </div>
+                                                        <UserAvatar
+                                                            username={comment.author.name}
+                                                            size="medium"
+                                                        />
 
-                                                            {!comment.deleted &&
-                                                                comment.author.name ===
-                                                                    currentUser.username && (
-                                                                    <div
-                                                                        style={{
-                                                                            display: "flex",
-                                                                            gap: "8px",
-                                                                        }}
-                                                                    >
-                                                                        <VSCodeButton
-                                                                            appearance="icon"
+                                                        <div className="flex-1 flex flex-col gap-1.5">
+                                                            <div className="flex justify-between">
+                                                                <div className="font-medium">
+                                                                    {comment.author.name}
+                                                                </div>
+
+                                                                {!comment.deleted &&
+                                                                    comment.author.name ===
+                                                                        currentUser.username && (
+                                                                        <div className="flex gap-2">
+                                                                            <Button
+                                                                                variant="ghost"
+                                                                                size="sm"
+                                                                                className="h-8 w-8 p-0"
+                                                                                onClick={() =>
+                                                                                    handleCommentDeletion(
+                                                                                        comment.id,
+                                                                                        thread.id
+                                                                                    )
+                                                                                }
+                                                                                title="Delete comment"
+                                                                            >
+                                                                                <Trash2 className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </div>
+                                                                    )}
+
+                                                                {comment.deleted &&
+                                                                    comment.author.name ===
+                                                                        currentUser.username && (
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-8 w-8 p-0"
                                                                             onClick={() =>
-                                                                                handleCommentDeletion(
+                                                                                handleUndoCommentDeletion(
                                                                                     comment.id,
                                                                                     thread.id
                                                                                 )
                                                                             }
-                                                                            title="Delete comment"
+                                                                            title="Undo deletion"
                                                                         >
-                                                                            <i className="codicon codicon-trash" />
-                                                                        </VSCodeButton>
-                                                                    </div>
-                                                                )}
+                                                                            <Undo2 className="h-4 w-4" />
+                                                                        </Button>
+                                                                    )}
+                                                            </div>
 
-                                                            {comment.deleted &&
-                                                                comment.author.name ===
-                                                                    currentUser.username && (
-                                                                    <VSCodeButton
-                                                                        appearance="icon"
-                                                                        onClick={() =>
-                                                                            handleUndoCommentDeletion(
-                                                                                comment.id,
-                                                                                thread.id
-                                                                            )
-                                                                        }
-                                                                        title="Undo deletion"
-                                                                    >
-                                                                        <i className="codicon codicon-discard" />
-                                                                    </VSCodeButton>
-                                                                )}
-                                                        </div>
-
-                                                        <div
-                                                            style={{
-                                                                fontSize: "14px",
-                                                                lineHeight: "1.5",
-                                                                wordBreak: "break-word",
-                                                                color: comment.deleted
-                                                                    ? "var(--vscode-descriptionForeground)"
-                                                                    : "inherit",
-                                                            }}
-                                                        >
-                                                            {comment.deleted ? (
-                                                                <i>This comment has been deleted</i>
-                                                            ) : (
-                                                                comment.body
-                                                            )}
+                                                            <div
+                                                                className={`text-sm leading-relaxed break-words ${
+                                                                    comment.deleted
+                                                                        ? "text-muted-foreground italic"
+                                                                        : ""
+                                                                }`}
+                                                            >
+                                                                {comment.deleted
+                                                                    ? "This comment has been deleted"
+                                                                    : comment.body}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            ))}
-                                        </div>
+                                                ))}
+                                            </div>
 
-                                        {/* Reply form */}
-                                        {currentUser.isAuthenticated && (
-                                            <div
-                                                style={{
-                                                    display: "flex",
-                                                    gap: "12px",
-                                                    alignItems: "flex-start",
-                                                    marginTop: "8px",
-                                                    borderTop:
-                                                        "1px solid var(--vscode-widget-border)",
-                                                    paddingTop: "16px",
-                                                }}
-                                            >
-                                                <UserAvatar
-                                                    username={currentUser.username}
-                                                    email={currentUser.email}
-                                                    size="medium"
-                                                />
-
-                                                <div
-                                                    style={{
-                                                        flex: 1,
-                                                        display: "flex",
-                                                        flexDirection: "column",
-                                                        gap: "8px",
-                                                    }}
-                                                >
-                                                    <VSCodeTextField
-                                                        placeholder="Add a reply..."
-                                                        value={replyText[thread.id] || ""}
-                                                        style={{ width: "100%" }}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === "Enter" && !e.shiftKey) {
-                                                                e.preventDefault();
-                                                                handleReply(thread.id);
-                                                            } else if (e.key === "Escape") {
-                                                                setReplyingTo(null);
-                                                            }
-                                                        }}
-                                                        onChange={(e) => {
-                                                            const value = (
-                                                                e.target as HTMLInputElement
-                                                            ).value;
-                                                            setReplyText((prev) => ({
-                                                                ...prev,
-                                                                [thread.id]:
-                                                                    replyingTo?.username &&
-                                                                    replyingTo.threadId ===
-                                                                        thread.id
-                                                                        ? value
-                                                                        : value,
-                                                            }));
-                                                        }}
+                                            {/* Reply form */}
+                                            {currentUser.isAuthenticated && (
+                                                <div className="flex gap-3 items-start mt-2 border-t border-border pt-4">
+                                                    <UserAvatar
+                                                        username={currentUser.username}
+                                                        email={currentUser.email}
+                                                        size="medium"
                                                     />
 
-                                                    <div
-                                                        style={{
-                                                            display: "flex",
-                                                            justifyContent: "space-between",
-                                                            alignItems: "center",
-                                                        }}
-                                                    >
-                                                        {replyingTo?.threadId === thread.id && (
-                                                            <div
-                                                                style={{
-                                                                    fontSize: "12px",
-                                                                    color: "var(--vscode-textLink-foreground)",
-                                                                }}
-                                                            >
-                                                                <i
-                                                                    className="codicon codicon-reply"
-                                                                    style={{ marginRight: "4px" }}
-                                                                ></i>
-                                                                Replying to @{replyingTo.username}
-                                                                <VSCodeButton
-                                                                    appearance="icon"
-                                                                    onClick={() =>
-                                                                        setReplyingTo(null)
-                                                                    }
-                                                                    style={{ padding: "0 4px" }}
-                                                                >
-                                                                    <i
-                                                                        className="codicon codicon-close"
-                                                                        style={{ fontSize: "10px" }}
-                                                                    />
-                                                                </VSCodeButton>
-                                                            </div>
-                                                        )}
+                                                    <div className="flex-1 flex flex-col gap-2">
+                                                        <Input
+                                                            placeholder="Add a reply..."
+                                                            value={replyText[thread.id] || ""}
+                                                            onKeyDown={(e) => {
+                                                                if (
+                                                                    e.key === "Enter" &&
+                                                                    !e.shiftKey
+                                                                ) {
+                                                                    e.preventDefault();
+                                                                    handleReply(thread.id);
+                                                                } else if (e.key === "Escape") {
+                                                                    setReplyingTo(null);
+                                                                }
+                                                            }}
+                                                            onChange={(e) => {
+                                                                const value = e.target.value;
+                                                                setReplyText((prev) => ({
+                                                                    ...prev,
+                                                                    [thread.id]:
+                                                                        replyingTo?.username &&
+                                                                        replyingTo.threadId ===
+                                                                            thread.id
+                                                                            ? value
+                                                                            : value,
+                                                                }));
+                                                            }}
+                                                        />
 
-                                                        <VSCodeButton
-                                                            appearance="icon"
-                                                            onClick={() => handleReply(thread.id)}
-                                                            title="Send reply"
-                                                        >
-                                                            <i className="codicon codicon-send" />
-                                                        </VSCodeButton>
+                                                        <div className="flex justify-between items-center">
+                                                            {replyingTo?.threadId === thread.id && (
+                                                                <div className="text-xs text-primary flex items-center gap-1">
+                                                                    <Reply className="h-3 w-3" />
+                                                                    Replying to @
+                                                                    {replyingTo.username}
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-6 w-6 p-0"
+                                                                        onClick={() =>
+                                                                            setReplyingTo(null)
+                                                                        }
+                                                                    >
+                                                                        <X className="h-3 w-3" />
+                                                                    </Button>
+                                                                </div>
+                                                            )}
+
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-8 w-8 p-0 ml-auto"
+                                                                onClick={() =>
+                                                                    handleReply(thread.id)
+                                                                }
+                                                                title="Send reply"
+                                                            >
+                                                                <Send className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                            )}
+                                        </div>
+                                    </CardContent>
                                 )}
-                            </div>
+                            </Card>
                         ))}
                     </div>
                 </div>
@@ -1123,32 +842,17 @@ function App() {
             {/* Resolved threads banner */}
             {hiddenResolvedThreadsCount > 0 && (
                 <div
-                    style={{
-                        position: "sticky",
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        padding: "8px 16px",
-                        backgroundColor: "var(--vscode-button-background)",
-                        color: "var(--vscode-button-foreground)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        cursor: "pointer",
-                        borderTop: "1px solid var(--vscode-widget-border)",
-                        fontSize: "13px",
-                        zIndex: 10,
-                    }}
+                    className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
                     onClick={() => setShowResolvedThreads(true)}
                 >
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <i className="codicon codicon-eye"></i>
+                    <div className="flex items-center gap-2">
+                        <Eye className="h-4 w-4" />
                         <span>
                             {hiddenResolvedThreadsCount} resolved{" "}
                             {hiddenResolvedThreadsCount === 1 ? "thread" : "threads"} hidden
                         </span>
                     </div>
-                    <i className="codicon codicon-chevron-up"></i>
+                    <ChevronUp className="h-4 w-4" />
                 </div>
             )}
 
@@ -1156,29 +860,14 @@ function App() {
             {showResolvedThreads &&
                 commentThreadArray.some((thread) => !thread.deleted && thread.resolved) && (
                     <div
-                        style={{
-                            position: "sticky",
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            padding: "8px 16px",
-                            backgroundColor: "var(--vscode-button-background)",
-                            color: "var(--vscode-button-foreground)",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            cursor: "pointer",
-                            borderTop: "1px solid var(--vscode-widget-border)",
-                            fontSize: "13px",
-                            zIndex: 10,
-                        }}
+                        className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
                         onClick={() => setShowResolvedThreads(false)}
                     >
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                            <i className="codicon codicon-eye-closed"></i>
+                        <div className="flex items-center gap-2">
+                            <EyeOff className="h-4 w-4" />
                             <span>Hide resolved threads</span>
                         </div>
-                        <i className="codicon codicon-chevron-down"></i>
+                        <ChevronDown className="h-4 w-4" />
                     </div>
                 )}
         </div>

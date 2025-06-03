@@ -432,6 +432,12 @@ const CodexCellEditor: React.FC = () => {
             content: content,
         } as EditorPostMessages);
         checkAlertCodes();
+        
+        // Trigger reindexing after saving content
+        vscode.postMessage({
+            command: "triggerReindexing",
+        } as EditorPostMessages);
+        
         handleCloseEditor();
     };
 

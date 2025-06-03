@@ -37,6 +37,10 @@ const extensionConfig = {
         alias: {
             "@": path.resolve(__dirname, "src"),
             "@types": path.resolve(__dirname, "types"),
+            "@newSourceUploaderTypes": path.resolve(
+                __dirname,
+                "webviews/codex-webviews/src/NewSourceUploader/types.ts"
+            ),
             sqldb: path.resolve(__dirname, "src/sqldb"),
             "sql.js": path.resolve(__dirname, "node_modules/sql.js/dist/sql-wasm.js"),
         },

@@ -9,7 +9,11 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
+<<<<<<< HEAD
     "version": "0.4.8",
+=======
+    "version": "0.4.6",
+>>>>>>> 80ec71d1a63ecc67fbe533b33ccc0e8149047687
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -188,16 +192,6 @@
                 {
                     "command": "translators-copilot.showFileStatsView",
                     "title": "Translators Copilot: Show Translation Progress View"
-                },
-                {
-                    "command": "codex-editor.openBookNameEditor",
-                    "title": "Codex: Open Book Name Editor",
-                    "category": "Codex Editor"
-                },
-                {
-                    "command": "codex-editor.openCellLabelImporter",
-                    "title": "Codex: Import Cell Labels",
-                    "category": "Codex Editor"
                 }
             ]
         },
@@ -458,6 +452,11 @@
         ],
         "commands": [
             {
+                "command": "codex-project-manager.openNewSourceUpload",
+                "title": "Open New Source Uploader",
+                "category": "Codex"
+            },
+            {
                 "command": "codex-editor-extension.JOSH_COMMAND",
                 "title": "JOSH_COMMAND"
             },
@@ -714,16 +713,6 @@
             {
                 "command": "translators-copilot.getFileInfo",
                 "title": "Translators Copilot: Show Detailed File Information"
-            },
-            {
-                "command": "codex-editor.openBookNameEditor",
-                "title": "Codex: Open Book Name Editor",
-                "category": "Codex Editor"
-            },
-            {
-                "command": "codex-editor.openCellLabelImporter",
-                "title": "Codex: Import Cell Labels",
-                "category": "Codex Editor"
             }
         ],
         "configuration": [
@@ -1092,6 +1081,17 @@
                 "priority": "default"
             },
             {
+                "viewType": "newSourceUploaderProvider",
+                "displayName": "New Source Uploader",
+                "selector": [
+                    {
+                        "filenamePattern": "*.newSourceUploaderProvider",
+                        "scheme": "newSourceUploaderProvider-scheme"
+                    }
+                ],
+                "priority": "default"
+            },
+            {
                 "viewType": "startupFlowProvider",
                 "displayName": "Startup Flow Editor",
                 "selector": [
@@ -1227,7 +1227,7 @@
         "jszip": "^3.10.1",
         "md5": "^2.3.0",
         "meilisearch": "^0.38.0",
-        "minisearch": "^6.3.0",
+        "minisearch": "^7.1.2",
         "ml-pca": "^4.1.1",
         "moment": "^2.30.1",
         "openai": "^4.67.3",

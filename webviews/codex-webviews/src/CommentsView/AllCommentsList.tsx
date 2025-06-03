@@ -1,6 +1,9 @@
 import React, { useState } from "react";
 import { NotebookCommentThread } from "../../../../types";
-import { VSCodeBadge, VSCodeButton, VSCodeTextField } from "@vscode/webview-ui-toolkit/react";
+import { Search, ChevronRight, ChevronDown, MessageSquare } from "lucide-react";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Input } from "../components/ui/input";
 import ChildComments from "./ChildComments";
 
 interface AllCommentsProps {
@@ -34,92 +37,42 @@ export const AllCommentsList = ({ comments }: AllCommentsProps) => {
     };
 
     return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                height: "100%",
-                width: "100%",
-                gap: "1rem",
-            }}
-        >
-            <div
-                style={{
-                    padding: "1rem",
-                    borderBottom: "1px solid var(--vscode-widget-border)",
-                }}
-            >
-                <VSCodeTextField
-                    placeholder="Search comments..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
-                >
-                    <span slot="start" className="codicon codicon-search"></span>
-                </VSCodeTextField>
+        <div className="flex flex-col h-full w-full gap-4">
+            <div className="p-4 border-b border-border">
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search comments..."
+                        value={searchQuery}
+                        className="pl-10"
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
             </div>
 
-            <div
-                style={{
-                    flexGrow: 1,
-                    overflowY: "auto",
-                }}
-            >
+            <div className="flex-grow overflow-y-auto">
                 {paginatedComments?.map((commentThread, threadIndex) => (
-                    <div
-                        key={threadIndex}
-                        style={{
-                            borderBottom: "1px solid var(--vscode-widget-border)",
-                        }}
-                    >
+                    <div key={threadIndex} className="border-b border-border">
                         <div
                             onClick={() => handleCollapseClick(threadIndex)}
-                            style={{
-                                width: "100%",
-                                cursor: "pointer",
-                            }}
-                            onMouseEnter={(e) => {
-                                (e.target as HTMLDivElement).style.backgroundColor =
-                                    "var(--vscode-list-hoverBackground)";
-                            }}
-                            onMouseLeave={(e) => {
-                                (e.target as HTMLDivElement).style.backgroundColor = "";
-                            }}
+                            className="w-full cursor-pointer hover:bg-muted/50 transition-colors"
                         >
-                            <div
-                                style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center",
-                                    padding: "0.5rem 1rem",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        alignItems: "center",
-                                        gap: "0.5rem",
-                                    }}
-                                >
-                                    <i
-                                        className={`codicon codicon-${
-                                            threadIndex === expandedThreadIndex
-                                                ? "chevron-down"
-                                                : "chevron-right"
-                                        }`}
-                                    />
-                                    <span>
+                            <div className="flex justify-between items-center p-2 px-4">
+                                <div className="flex items-center gap-2">
+                                    {threadIndex === expandedThreadIndex ? (
+                                        <ChevronDown className="h-4 w-4" />
+                                    ) : (
+                                        <ChevronRight className="h-4 w-4" />
+                                    )}
+                                    <span className="truncate">
                                         {commentThread.threadTitle?.slice(0, 50)} -{" "}
-                                        <VSCodeBadge>
+                                        <Badge variant="outline">
                                             {commentThread.cellId.cellId.slice(0, 25)}
-                                        </VSCodeBadge>
+                                        </Badge>
                                     </span>
                                 </div>
-                                <span
-                                    style={{
-                                        color: "var(--vscode-descriptionForeground)",
-                                        fontSize: "0.9em",
-                                    }}
-                                >
+                                <span className="text-muted-foreground text-sm flex items-center gap-1">
+                                    <MessageSquare className="h-3 w-3" />
                                     {commentThread.comments.length} comment
                                     {commentThread.comments.length !== 1 ? "s" : ""}
                                 </span>
@@ -134,37 +87,24 @@ export const AllCommentsList = ({ comments }: AllCommentsProps) => {
                 ))}
             </div>
 
-            <div
-                style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "1rem",
-                    borderTop: "1px solid var(--vscode-widget-border)",
-                }}
-            >
-                <VSCodeButton
-                    appearance="secondary"
+            <div className="flex justify-between items-center p-4 border-t border-border">
+                <Button
+                    variant="outline"
                     onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
                     disabled={currentPage === 1}
                 >
                     Previous
-                </VSCodeButton>
-                <span
-                    style={{
-                        color: "var(--vscode-descriptionForeground)",
-                        fontSize: "0.9em",
-                    }}
-                >
+                </Button>
+                <span className="text-muted-foreground text-sm">
                     Page {currentPage} of {totalPages}
                 </span>
-                <VSCodeButton
-                    appearance="secondary"
+                <Button
+                    variant="outline"
                     onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
                     disabled={currentPage === totalPages}
                 >
                     Next
-                </VSCodeButton>
+                </Button>
             </div>
         </div>
     );

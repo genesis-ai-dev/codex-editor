@@ -1,5 +1,5 @@
 import React from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { Button } from "./ui/button";
 
 interface BackToMenuButtonProps {
     className?: string;
@@ -17,30 +17,15 @@ export const BackToMenuButton: React.FC<BackToMenuButtonProps> = ({ className, s
     };
 
     return (
-        <VSCodeButton
-            appearance="secondary"
-            className={className}
-            style={{
-                width: "100%",
-                display: "flex",
-                gap: "0.5rem",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0.25rem",
-                fontVariant: "small-caps",
-                ...style,
-            }}
+        <Button
+            variant="ghost"
+            size="sm"
+            className={`flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-primary transition-colors ${className}`}
+            style={style}
             onClick={handleClick}
         >
-            <i
-                className="codicon codicon-arrow-left"
-                style={{
-                    fontSize: "0.875rem",
-                    display: "flex",
-                    alignItems: "center",
-                }}
-            ></i>{" "}
-            MAIN MENU
-        </VSCodeButton>
+            <i className="codicon codicon-arrow-left text-xs" />
+            Main Menu
+        </Button>
     );
 };

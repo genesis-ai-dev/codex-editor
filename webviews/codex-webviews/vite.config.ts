@@ -12,7 +12,16 @@ export default defineConfig({
             "@sharedUtils": path.resolve(__dirname, "../../sharedUtils"),
             // Updated anime.js alias for v4 - simplify to just point to the module root
             animejs: path.resolve(__dirname, "node_modules/animejs"),
+            // Add quill alias
+            quill: path.resolve(__dirname, "node_modules/quill"),
+            // Add shadcn/ui aliases
+            // "@": path.resolve(__dirname, "./src"),
+            // "@/components": path.resolve(__dirname, "./src/components"),
+            // "@/lib": path.resolve(__dirname, "./src/lib"),
         },
+    },
+    css: {
+        postcss: "./postcss.config.js",
     },
     build: {
         rollupOptions: {
@@ -28,5 +37,6 @@ export default defineConfig({
         },
         outDir: appToBuild ? `dist/${appToBuild}` : "dist",
         sourcemap: true,
+        // cssCodeSplit: false, // Inline CSS into JS for webview compatibility
     },
 });

@@ -189,8 +189,51 @@ export class SyncManager {
 
                 // Rebuild indexes in the background after successful sync
                 setTimeout(() => {
-                    const emptyContext = {} as vscode.ExtensionContext;
-                    createIndexWithContext(emptyContext).catch(console.error);
+                    // Create a more complete mock context with all required properties
+                    const mockContext = { 
+                        subscriptions: [],
+                        workspaceState: {
+                            get: () => undefined,
+                            update: async () => false,
+                            keys: () => []
+                        },
+                        globalState: {
+                            get: () => undefined,
+                            update: async () => false,
+                            setKeysForSync: () => {},
+                            keys: () => []
+                        },
+                        secrets: {
+                            get: async () => undefined,
+                            store: async () => {},
+                            delete: async () => {}
+                        },
+                        extensionUri: vscode.Uri.parse(''),
+                        extensionPath: '',
+                        globalStoragePath: '',
+                        logPath: '',
+                        storagePath: undefined,
+                        extensionMode: vscode.ExtensionMode.Production,
+                        environmentVariableCollection: {} as vscode.EnvironmentVariableCollection,
+                        asAbsolutePath: (relativePath: string) => relativePath,
+                        storageUri: null,
+                        globalStorageUri: vscode.Uri.parse(''),
+                        logUri: vscode.Uri.parse(''),
+                        extension: {
+                            id: 'codex-editor',
+                            extensionUri: vscode.Uri.parse(''),
+                            extensionPath: '',
+                            isActive: true,
+                            packageJSON: {},
+                            exports: undefined,
+                            activate: async () => mockContext,
+                            extensionKind: vscode.ExtensionKind.Workspace
+                        },
+                        languageModelAccessInformation: undefined
+                    };
+                    
+                    // Cast to unknown first then to ExtensionContext to avoid type checking
+                    createIndexWithContext(mockContext as unknown as vscode.ExtensionContext).catch(console.error);
                 }, 100);
             } catch (error) {
                 // Handle error as before

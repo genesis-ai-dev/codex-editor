@@ -57,16 +57,17 @@
     right: 4px !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
-    background: transparent !important;
+    background: var(--vscode-button-secondaryBackground) !important;
     border: none !important;
     padding: 4px !important;
     height: auto !important;
     min-width: auto !important;
-    color: var(--vscode-button-foreground) !important;
+    color: var(--vscode-button-secondaryForeground) !important;
 }
 
 .search-button-inline:hover {
     background: var(--vscode-button-hoverBackground) !important;
+    color: var(--vscode-button-foreground) !important;
 }
 
 /* Search toolbar */

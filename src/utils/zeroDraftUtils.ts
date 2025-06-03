@@ -4,9 +4,17 @@ import {
     CellWithMetadata,
 } from "../activationHelpers/contextAware/miniIndex/indexes/zeroDraftIndex";
 import { verseRefRegex } from "./verseRefUtils";
+import { WebPathUtils } from './webPathUtils';
+
+export interface ZeroDraftRecord {
+    id: string;
+    content: string;
+    source: string;
+    timestamp: number;
+}
 
 export function zeroDraftDocumentLoader(document: vscode.TextDocument): ZeroDraftIndexRecord[] {
-    const fileExtension = document.uri.fsPath.split(".").pop()?.toLowerCase();
+    const fileExtension = WebPathUtils.getExtension(document.uri);
     let records: ZeroDraftIndexRecord[] = [];
 
     switch (fileExtension) {
@@ -26,7 +34,7 @@ export function zeroDraftDocumentLoader(document: vscode.TextDocument): ZeroDraf
             console.warn(`Unsupported file type: ${fileExtension}`);
     }
 
-    console.log(`Loaded ${records.length} records from ${document.uri.fsPath}`);
+    console.log(`Loaded ${records.length} records from ${document.uri.toString()}`);
     return records;
 }
 
@@ -52,7 +60,7 @@ function loadTxtDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[] 
             cells: [
                 {
                     content,
-                    source: document.uri.fsPath,
+                    source: document.uri.toString(),
                     uploadedAt: new Date().toISOString(),
                     originalFileCreatedAt: "",
                     originalFileModifiedAt: "",
@@ -74,7 +82,7 @@ function loadJsonDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[]
                     cells: [
                         {
                             content: item.content,
-                            source: document.uri.fsPath,
+                            source: document.uri.toString(),
                             uploadedAt: new Date().toISOString(),
                             originalFileCreatedAt: item.originalFileCreatedAt || "",
                             originalFileModifiedAt: item.originalFileModifiedAt || "",
@@ -106,11 +114,11 @@ function loadJsonlDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[
                     cells: [
                         {
                             content: item.content,
-                            source: document.uri.fsPath,
+                            source: document.uri.toString(),
                             uploadedAt: new Date().toISOString(),
                             originalFileCreatedAt: item.originalFileCreatedAt || "",
                             originalFileModifiedAt: item.originalFileModifiedAt || "",
-                            metadata: item.metadata || {}, // Ensure metadata is always an object
+                            metadata: item.metadata || {},
                         },
                     ],
                 } as ZeroDraftIndexRecord;
@@ -139,7 +147,7 @@ function loadTsvDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[] 
                     cells: [
                         {
                             content,
-                            source: document.uri.fsPath,
+                            source: document.uri.toString(),
                             uploadedAt: new Date().toISOString(),
                             originalFileCreatedAt: "",
                             originalFileModifiedAt: "",
@@ -157,4 +165,74 @@ function loadTsvDocument(document: vscode.TextDocument): ZeroDraftIndexRecord[] 
             return null;
         })
         .filter((item): item is NonNullable<ZeroDraftIndexRecord> => item !== null);
+}
+
+export async function loadZeroDrafts(document: vscode.TextDocument): Promise<ZeroDraftRecord[]> {
+    const fileExtension = WebPathUtils.getExtension(document.uri);
+    if (fileExtension !== 'codex') {
+        return [];
+    }
+
+    try {
+        const content = await vscode.workspace.fs.readFile(document.uri);
+        const text = new TextDecoder().decode(content);
+        const records: ZeroDraftRecord[] = [];
+
+        // Parse the content and extract zero drafts
+        const lines = text.split('\n');
+        for (const line of lines) {
+            if (line.trim().startsWith('<!-- ZeroDraft:')) {
+                try {
+                    const record = JSON.parse(line.replace('<!-- ZeroDraft:', '').replace('-->', ''));
+                    records.push({
+                        ...record,
+                        source: document.uri.toString(),
+                    });
+                } catch (e) {
+                    console.warn('Failed to parse zero draft record:', e);
+                }
+            }
+        }
+
+        console.log(`Loaded ${records.length} records from ${document.uri.toString()}`);
+        return records;
+    } catch (error) {
+        console.error('Error loading zero drafts:', error);
+        return [];
+    }
+}
+
+export async function saveZeroDraft(
+    document: vscode.TextDocument,
+    content: string,
+    id: string
+): Promise<void> {
+    const fileExtension = WebPathUtils.getExtension(document.uri);
+    if (fileExtension !== 'codex') {
+        return;
+    }
+
+    try {
+        const existingContent = await vscode.workspace.fs.readFile(document.uri);
+        const text = new TextDecoder().decode(existingContent);
+        const lines = text.split('\n');
+
+        const record: ZeroDraftRecord = {
+            id,
+            content,
+            source: document.uri.toString(),
+            timestamp: Date.now(),
+        };
+
+        // Add the zero draft record
+        lines.push(`<!-- ZeroDraft:${JSON.stringify(record)}-->`);
+
+        // Write back to the file
+        await vscode.workspace.fs.writeFile(
+            document.uri,
+            new TextEncoder().encode(lines.join('\n'))
+        );
+    } catch (error) {
+        console.error('Error saving zero draft:', error);
+    }
 }
