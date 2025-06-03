@@ -203,38 +203,192 @@
 .tabs {
     margin-top: 10px;
     border-bottom: 1px solid var(--vscode-panel-border);
+    position: relative;
 }
 
 .tab-buttons {
     display: flex;
+    gap: 2px;
+    background-color: var(--vscode-tab-inactiveBackground);
+    border-radius: 6px 6px 0 0;
+    padding: 2px;
+    margin-bottom: -1px;
+    position: relative;
+}
+
+.tab-label {
+    margin-inline-start: 0.4rem;
+    font-size: 13px;
+    font-weight: 500;
 }
 
 .tab-button {
-    padding: 8px 16px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
     border: none;
-    background: none;
+    background: transparent;
     cursor: pointer;
-    font-size: 14px;
-    color: var(--vscode-foreground);
-    opacity: 0.7;
-    transition: opacity 0.2s, border-bottom 0.2s;
+    font-size: 13px;
+    color: var(--vscode-tab-inactiveForeground);
+    border-radius: 4px;
+    transition: all 0.2s cubic-bezier(0.2, 0, 0.2, 1);
+    min-height: 36px;
+    white-space: nowrap;
+    user-select: none;
 }
 
-.tab-button:hover {
-    opacity: 1;
+.tab-button:hover:not(.disabled) {
+    background-color: var(--vscode-tab-hoverBackground);
+    color: var(--vscode-tab-hoverForeground);
+    transform: translateY(-1px);
 }
 
 .tab-button.active {
-    opacity: 1;
+    background-color: var(--vscode-tab-activeBackground);
+    color: var(--vscode-tab-activeForeground);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
     border-bottom: 2px solid var(--vscode-textLink-activeForeground);
 }
 
+.tab-button.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    color: var(--vscode-disabledForeground);
+}
+
+.tab-button.disabled:hover {
+    background: transparent;
+    transform: none;
+}
+
+/* Tab badges and status indicators */
+.tab-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    background-color: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    border-radius: 9px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    margin-left: 4px;
+}
+
+.tab-badge.footnote-count {
+    background-color: var(--vscode-charts-blue);
+    color: var(--vscode-editor-background);
+}
+
+.tab-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-left: 4px;
+    font-size: 8px;
+    line-height: 1;
+}
+
+.tab-button:not(.active) .tab-status {
+    background-color: var(--vscode-notificationsWarningIcon-foreground);
+    color: transparent;
+}
+
+.tab-button.active .tab-status {
+    color: var(--vscode-notificationsWarningIcon-foreground);
+    background: transparent;
+}
+
+/* Active tab indicator animation */
+.tab-button.active::after {
+    content: "";
+    position: absolute;
+    bottom: -2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 2px;
+    background-color: var(--vscode-textLink-activeForeground);
+    animation: tabIndicator 0.3s ease-out forwards;
+}
+
+@keyframes tabIndicator {
+    from {
+        width: 0;
+    }
+    to {
+        width: calc(100% - 16px);
+    }
+}
+
+/* Smooth content transitions */
 .tab-content {
-    padding: 1rem 0.5rem;
-    background-color: var(--vscode-sideBar-background);
-    overflow: hidden; /* Prevent horizontal overflow */
+    padding: 1.5rem 1rem;
+    background-color: var(--vscode-editor-background);
+    overflow: hidden;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    min-height: 200px;
+    border-radius: 0 0 6px 6px;
+    animation: tabContentFadeIn 0.2s ease-out;
+}
+
+@keyframes tabContentFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Enhanced accessibility styles */
+.tab-button:focus-visible {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+    z-index: 1;
+}
+
+/* Responsive design for smaller screens */
+@media (max-width: 480px) {
+    .tab-buttons {
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .tab-buttons::-webkit-scrollbar {
+        display: none;
+    }
+
+    .tab-label {
+        display: none;
+    }
+
+    .tab-button {
+        padding: 10px 12px;
+        min-width: 44px;
+        justify-content: center;
+    }
+
+    .tab-badge,
+    .tab-status {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        margin-left: 0;
+    }
 }
 
 .expanded-controls {
@@ -400,6 +554,9 @@
 .footnotes-list {
     width: 100%;
     max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
 .footnote-item {
@@ -408,6 +565,66 @@
     box-sizing: border-box;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 6px;
+    padding: 12px;
+    transition: border-color 0.2s ease;
+}
+
+.footnote-item:hover {
+    border-color: var(--vscode-focusBorder);
+}
+
+.footnote-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+.footnote-id {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    background-color: var(--vscode-badge-background);
+    color: var(--vscode-badge-foreground);
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.footnote-delete,
+.footnote-confirm,
+.footnote-cancel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--vscode-foreground);
+    transition: all 0.2s ease;
+}
+
+.footnote-delete:hover {
+    background-color: var(--vscode-button-hoverBackground);
+    color: var(--vscode-errorForeground);
+}
+
+.footnote-confirm:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.footnote-cancel:hover {
+    background-color: var(--vscode-button-hoverBackground);
 }
 
 .footnote-content {
@@ -417,6 +634,24 @@
     word-wrap: break-word;
     overflow-wrap: break-word;
     white-space: pre-wrap;
+    min-height: 20px;
+    padding: 8px;
+    border-radius: 4px;
+    line-height: 1.4;
+    font-size: 14px;
+    background-color: var(--vscode-input-background);
+    border: 1px solid transparent;
+    transition: border-color 0.2s ease;
+}
+
+.footnote-content:focus {
+    outline: none;
+    border-color: var(--vscode-focusBorder);
+    background-color: var(--vscode-editor-background);
+}
+
+.footnote-content:hover {
+    border-color: var(--vscode-input-border);
 }
 
 .empty-footnotes {
@@ -424,4 +659,24 @@
     max-width: 100%;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--vscode-descriptionForeground);
+    background-color: var(--vscode-editor-background);
+    border: 2px dashed var(--vscode-panel-border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.empty-footnotes p {
+    margin: 0;
+    line-height: 1.4;
+}
+
+.empty-footnotes .codicon {
+    color: var(--vscode-charts-blue);
+    margin: 0 2px;
 }

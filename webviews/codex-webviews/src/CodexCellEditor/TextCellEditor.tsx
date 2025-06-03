@@ -148,6 +148,44 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const editorRef = useRef<HTMLDivElement>(null);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
 
+    // Add keyboard navigation for tabs
+    const handleTabKeyDown = (
+        event: React.KeyboardEvent<HTMLButtonElement>,
+        tabName: "source" | "backtranslation" | "footnotes"
+    ) => {
+        const tabs = ["source", "backtranslation", "footnotes"];
+        const currentIndex = tabs.indexOf(activeTab);
+
+        switch (event.key) {
+            case "ArrowLeft": {
+                event.preventDefault();
+                const prevIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
+                const prevTab = tabs[prevIndex];
+                // Only navigate to enabled tabs
+                if (prevTab === "source" && !sourceText) return;
+                setActiveTab(prevTab as "source" | "backtranslation" | "footnotes");
+                break;
+            }
+            case "ArrowRight": {
+                event.preventDefault();
+                const nextIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
+                const nextTab = tabs[nextIndex];
+                // Only navigate to enabled tabs
+                if (nextTab === "source" && !sourceText) return;
+                setActiveTab(nextTab as "source" | "backtranslation" | "footnotes");
+                break;
+            }
+            case "Home":
+                event.preventDefault();
+                setActiveTab("source");
+                break;
+            case "End":
+                event.preventDefault();
+                setActiveTab("footnotes");
+                break;
+        }
+    };
+
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
             debug("Scrolling to content in showFlashingBorder", {
@@ -547,6 +585,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         parseFootnotesFromContent();
     }, [editorContent]);
 
+    // Smart tab switching - switch to an available tab if current becomes unavailable
+    useEffect(() => {
+        // If source tab is active but no source text, switch to backtranslation or footnotes
+        if (activeTab === "source" && !sourceText) {
+            setActiveTab("backtranslation");
+        }
+    }, [activeTab, sourceText]);
+
     // Function to update footnote content in the editor
     const updateFootnoteInEditor = (footnoteMark: string, newContent: string) => {
         if (!editorRef.current) return;
@@ -749,24 +795,85 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </div>
 
             <div className="tabs">
-                <div className="tab-buttons">
+                <div className="tab-buttons" role="tablist">
                     <button
-                        className={`tab-button ${activeTab === "source" ? "active" : ""}`}
-                        onClick={() => setActiveTab("source")}
+                        className={`tab-button ${activeTab === "source" ? "active" : ""} ${
+                            !sourceText ? "disabled" : ""
+                        }`}
+                        onClick={() => sourceText && setActiveTab("source")}
+                        role="tab"
+                        aria-selected={activeTab === "source"}
+                        aria-controls="source-panel"
+                        id="source-tab"
+                        disabled={!sourceText}
+                        title={sourceText ? "View source text" : "No source text available"}
+                        onKeyDown={(e) => handleTabKeyDown(e, "source")}
                     >
-                        Source Text
+                        <i className="codicon codicon-file-code"></i>
+                        <span className="tab-label">Source</span>
+                        {!sourceText && <span className="tab-status">•</span>}
                     </button>
                     <button
-                        className={`tab-button ${activeTab === "backtranslation" ? "active" : ""}`}
+                        className={`tab-button ${activeTab === "backtranslation" ? "active" : ""} ${
+                            !backtranslation && !contentBeingUpdated.cellContent.trim()
+                                ? "disabled"
+                                : ""
+                        }`}
                         onClick={() => setActiveTab("backtranslation")}
+                        role="tab"
+                        aria-selected={activeTab === "backtranslation"}
+                        aria-controls="backtranslation-panel"
+                        id="backtranslation-tab"
+                        title={
+                            backtranslation
+                                ? "View backtranslation"
+                                : contentBeingUpdated.cellContent.trim()
+                                ? "Generate backtranslation"
+                                : "Add content to enable backtranslation"
+                        }
+                        onKeyDown={(e) => handleTabKeyDown(e, "backtranslation")}
                     >
-                        Backtranslation
+                        <i className="codicon codicon-sync"></i>
+                        <span className="tab-label">Backtranslate</span>
+                        {backtranslation && (
+                            <span className="tab-badge" title="Backtranslation available">
+                                ✓
+                            </span>
+                        )}
+                        {!backtranslation && contentBeingUpdated.cellContent.trim() && (
+                            <span className="tab-status" title="Generate backtranslation">
+                                !
+                            </span>
+                        )}
                     </button>
                     <button
                         className={`tab-button ${activeTab === "footnotes" ? "active" : ""}`}
                         onClick={() => setActiveTab("footnotes")}
+                        role="tab"
+                        aria-selected={activeTab === "footnotes"}
+                        aria-controls="footnotes-panel"
+                        id="footnotes-tab"
+                        title={
+                            footnotes.length > 0
+                                ? `View ${footnotes.length} footnote${
+                                      footnotes.length === 1 ? "" : "s"
+                                  }`
+                                : "No footnotes yet"
+                        }
+                        onKeyDown={(e) => handleTabKeyDown(e, "footnotes")}
                     >
-                        Footnotes
+                        <i className="codicon codicon-note"></i>
+                        <span className="tab-label">Footnotes</span>
+                        {footnotes.length > 0 && (
+                            <span
+                                className="tab-badge footnote-count"
+                                title={`${footnotes.length} footnote${
+                                    footnotes.length === 1 ? "" : "s"
+                                }`}
+                            >
+                                {footnotes.length}
+                            </span>
+                        )}
                     </button>
                 </div>
             </div>
@@ -775,13 +882,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 {activeTab === "source" && (
                     <div
                         className="source-text-content"
+                        role="tabpanel"
+                        id="source-panel"
+                        aria-labelledby="source-tab"
                         dangerouslySetInnerHTML={{
                             __html: sourceText !== null ? sourceText : "Loading source text...",
                         }}
                     />
                 )}
                 {activeTab === "backtranslation" && (
-                    <div className="backtranslation-section">
+                    <div
+                        className="backtranslation-section"
+                        role="tabpanel"
+                        id="backtranslation-panel"
+                        aria-labelledby="backtranslation-tab"
+                    >
                         <div className="backtranslation-header">
                             <h3>Backtranslation</h3>
                             <div className="backtranslation-actions">
@@ -798,6 +913,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     onClick={handleGenerateBacktranslation}
                                     appearance="icon"
                                     title="Generate Backtranslation"
+                                    disabled={!contentBeingUpdated.cellContent.trim()}
                                 >
                                     <i className="codicon codicon-refresh"></i>
                                 </VSCodeButton>
@@ -845,15 +961,35 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </>
                             ) : (
                                 <div className="backtranslation-empty">
-                                    <p>No backtranslation available for this text.</p>
-                                    <p>Click the refresh button to generate a backtranslation.</p>
+                                    {contentBeingUpdated.cellContent.trim() ? (
+                                        <>
+                                            <p>No backtranslation available for this text.</p>
+                                            <p>
+                                                Click the refresh button to generate a
+                                                backtranslation.
+                                            </p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p>Add content to this cell first.</p>
+                                            <p>
+                                                Backtranslation will be available once you have text
+                                                to translate.
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
                 )}
                 {activeTab === "footnotes" && (
-                    <div className="footnotes-content">
+                    <div
+                        className="footnotes-content"
+                        role="tabpanel"
+                        id="footnotes-panel"
+                        aria-labelledby="footnotes-tab"
+                    >
                         {footnotes.length > 0 ? (
                             <div className="footnotes-list">
                                 {footnotes.map((footnote, index) => (
