@@ -166,8 +166,10 @@ export class SyncManager {
                 message: "Starting synchronization...",
             });
 
-            // Generate and submit progress report if needed
-            await this.generateAndSubmitProgressReport();
+            // Generate and submit progress report if needed - run in parallel, don't block sync
+            const progressReportPromise = this.generateAndSubmitProgressReport().catch((error) => {
+                console.warn("Progress report generation failed (non-blocking):", error);
+            });
 
             // Let's skip the custom sync progress and just use the standard sync
             // with progress reports at key points
@@ -178,8 +180,16 @@ export class SyncManager {
                     message: "Preparing to sync...",
                 });
 
+                // Log sync timing for performance analysis
+                const syncStartTime = performance.now();
+                console.log("🔄 Starting sync operation...");
+
                 // Sync all changes
                 await stageAndCommitAllAndSync(commitMessage);
+
+                const syncEndTime = performance.now();
+                const syncDuration = syncEndTime - syncStartTime;
+                console.log(`✅ Sync completed in ${syncDuration.toFixed(2)}ms`);
 
                 // Update sync progress to 100%
                 updateSyncProgress({
@@ -187,54 +197,74 @@ export class SyncManager {
                     message: "Synchronization complete",
                 });
 
-                // Rebuild indexes in the background after successful sync
-                setTimeout(() => {
-                    // Create a more complete mock context with all required properties
-                    const mockContext = { 
-                        subscriptions: [],
-                        workspaceState: {
-                            get: () => undefined,
-                            update: async () => false,
-                            keys: () => []
-                        },
-                        globalState: {
-                            get: () => undefined,
-                            update: async () => false,
-                            setKeysForSync: () => {},
-                            keys: () => []
-                        },
-                        secrets: {
-                            get: async () => undefined,
-                            store: async () => {},
-                            delete: async () => {}
-                        },
-                        extensionUri: vscode.Uri.parse(''),
-                        extensionPath: '',
-                        globalStoragePath: '',
-                        logPath: '',
-                        storagePath: undefined,
-                        extensionMode: vscode.ExtensionMode.Production,
-                        environmentVariableCollection: {} as vscode.EnvironmentVariableCollection,
-                        asAbsolutePath: (relativePath: string) => relativePath,
-                        storageUri: null,
-                        globalStorageUri: vscode.Uri.parse(''),
-                        logUri: vscode.Uri.parse(''),
-                        extension: {
-                            id: 'codex-editor',
-                            extensionUri: vscode.Uri.parse(''),
-                            extensionPath: '',
-                            isActive: true,
-                            packageJSON: {},
-                            exports: undefined,
-                            activate: async () => mockContext,
-                            extensionKind: vscode.ExtensionKind.Workspace
-                        },
-                        languageModelAccessInformation: undefined
-                    };
-                    
-                    // Cast to unknown first then to ExtensionContext to avoid type checking
-                    createIndexWithContext(mockContext as unknown as vscode.ExtensionContext).catch(console.error);
-                }, 100);
+                // Wait for progress report to complete (if still running)
+                await progressReportPromise;
+
+                // Rebuild indexes in the background after successful sync (truly async)
+                const indexRebuildPromise = (async () => {
+                    try {
+                        const indexStartTime = performance.now();
+                        console.log("🔧 Starting index rebuild in background...");
+
+                        // Create a more complete mock context with all required properties
+                        const mockContext = {
+                            subscriptions: [],
+                            workspaceState: {
+                                get: () => undefined,
+                                update: async () => false,
+                                keys: () => [],
+                            },
+                            globalState: {
+                                get: () => undefined,
+                                update: async () => false,
+                                setKeysForSync: () => {},
+                                keys: () => [],
+                            },
+                            secrets: {
+                                get: async () => undefined,
+                                store: async () => {},
+                                delete: async () => {},
+                            },
+                            extensionUri: vscode.Uri.parse(""),
+                            extensionPath: "",
+                            globalStoragePath: "",
+                            logPath: "",
+                            storagePath: undefined,
+                            extensionMode: vscode.ExtensionMode.Production,
+                            environmentVariableCollection:
+                                {} as vscode.EnvironmentVariableCollection,
+                            asAbsolutePath: (relativePath: string) => relativePath,
+                            storageUri: null,
+                            globalStorageUri: vscode.Uri.parse(""),
+                            logUri: vscode.Uri.parse(""),
+                            extension: {
+                                id: "codex-editor",
+                                extensionUri: vscode.Uri.parse(""),
+                                extensionPath: "",
+                                isActive: true,
+                                packageJSON: {},
+                                exports: undefined,
+                                activate: async () => mockContext,
+                                extensionKind: vscode.ExtensionKind.Workspace,
+                            },
+                            languageModelAccessInformation: undefined,
+                        };
+
+                        // Cast to unknown first then to ExtensionContext to avoid type checking
+                        await createIndexWithContext(
+                            mockContext as unknown as vscode.ExtensionContext
+                        );
+
+                        const indexEndTime = performance.now();
+                        const indexDuration = indexEndTime - indexStartTime;
+                        console.log(`✅ Index rebuild completed in ${indexDuration.toFixed(2)}ms`);
+                    } catch (error) {
+                        console.error("❌ Index rebuild failed:", error);
+                    }
+                })();
+
+                // Don't wait for index rebuild to complete - let it run in background
+                indexRebuildPromise.catch(console.error);
             } catch (error) {
                 // Handle error as before
                 console.error("Error during sync operation:", error);
@@ -304,8 +334,14 @@ export class SyncManager {
 
         // Skip if we've reported recently or API is unavailable
         if (now - this.lastReportTime < this.REPORT_INTERVAL || !authApi) {
+            console.log(
+                "📊 Skipping progress report (already reported recently or API unavailable)"
+            );
             return;
         }
+
+        const reportStartTime = performance.now();
+        console.log("📊 Starting progress report generation...");
 
         try {
             const report = await this.generateProgressReport();
@@ -314,18 +350,33 @@ export class SyncManager {
                 if ("submitProgressReport" in authApi) {
                     const result = await authApi.submitProgressReport(report);
                     if (result.success) {
-                        console.log(`Progress report submitted successfully: ${result.reportId}`);
+                        const reportEndTime = performance.now();
+                        const reportDuration = reportEndTime - reportStartTime;
+                        console.log(
+                            `📊 Progress report submitted successfully in ${reportDuration.toFixed(2)}ms: ${result.reportId}`
+                        );
                         this.lastProgressReport = report;
                         this.lastReportTime = now;
                     } else {
-                        console.error("Failed to submit progress report");
+                        console.error("📊 Failed to submit progress report");
                     }
                 } else {
-                    console.log("submitProgressReport method not available in API");
+                    console.log("📊 submitProgressReport method not available in API");
                 }
+            } else {
+                const reportEndTime = performance.now();
+                const reportDuration = reportEndTime - reportStartTime;
+                console.log(
+                    `📊 Progress report generation skipped (no valid data) after ${reportDuration.toFixed(2)}ms`
+                );
             }
         } catch (error) {
-            console.error("Error generating or submitting progress report:", error);
+            const reportEndTime = performance.now();
+            const reportDuration = reportEndTime - reportStartTime;
+            console.error(
+                `📊 Error generating or submitting progress report after ${reportDuration.toFixed(2)}ms:`,
+                error
+            );
         }
     }
 
