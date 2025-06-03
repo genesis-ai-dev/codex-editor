@@ -144,7 +144,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 sourceNotebooks: [sourceNotebook],
                 codexNotebooks: [codexNotebook],
             });
-
+            await vscode.commands.executeCommand("translators-copilot.forceReindex");
             // Send processing progress update
             webviewPanel.webview.postMessage({
                 command: "progressUpdate",
