@@ -20,7 +20,10 @@ import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 
-export async function stageAndCommitAllAndSync(commitMessage: string): Promise<void> {
+export async function stageAndCommitAllAndSync(
+    commitMessage: string,
+    showCompletionMessage: boolean = true
+): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
         console.error("No workspace folder found");
@@ -63,7 +66,11 @@ export async function stageAndCommitAllAndSync(commitMessage: string): Promise<v
                 await authApi.completeMerge(resolvedFiles);
             }
         }
-        vscode.window.showInformationMessage("Project is fully synced.");
+
+        // Only show completion message if requested (not during startup with splash screen)
+        if (showCompletionMessage) {
+            vscode.window.showInformationMessage("Project is fully synced.");
+        }
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(

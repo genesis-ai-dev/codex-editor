@@ -131,10 +131,10 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
     // When isComplete becomes true, trigger animation completion after delay
     useEffect(() => {
         if (isComplete) {
-            // After animation is done (with some delay), notify extension
+            // After animation is done (with more generous delay), notify extension
             const timeoutId = setTimeout(() => {
                 notifyAnimationComplete();
-            }, 2000); // Give animations time to play
+            }, 5000); // Give animations and fade-out more time to play
 
             return () => clearTimeout(timeoutId);
         }

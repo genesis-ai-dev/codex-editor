@@ -17,7 +17,6 @@ export function showSplashScreen(activationStart: number): void {
         console.error("Splash screen provider not initialized");
         return;
     }
-
     splashScreenProvider.show(activationStart);
 }
 

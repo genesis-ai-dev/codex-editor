@@ -28,14 +28,17 @@ export class SplashScreenProvider {
 
     public async show(activationStart: number) {
         this._activationStart = activationStart;
+        console.log("[SplashScreen] Attempting to show splash screen...");
 
         // If the panel is already showing, just reveal it
         if (this._panel) {
+            console.log("[SplashScreen] Panel already exists, revealing...");
             this._panel.reveal(vscode.ViewColumn.One);
             return;
         }
 
-        // Create a new panel
+        // Create and show panel immediately - don't await UI commands that might delay visibility
+        console.log("[SplashScreen] Creating new webview panel...");
         this._panel = vscode.window.createWebviewPanel(
             SplashScreenProvider.viewType,
             "Codex Editor",
@@ -49,6 +52,7 @@ export class SplashScreenProvider {
                 retainContextWhenHidden: true,
             }
         );
+        console.log("[SplashScreen] Panel created successfully");
 
         // Set webview options
         this._panel.webview.options = {
@@ -56,17 +60,51 @@ export class SplashScreenProvider {
             localResourceRoots: [this._extensionUri],
         };
 
-        // Make the panel stay on top
-        this._panel.reveal(vscode.ViewColumn.One, true);
-
-        // Maximize editor and hide tab bar after splash is shown
-        await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-
-        // Set the initial HTML content
+        // Immediately set the HTML content and reveal the panel
         this._updateWebview();
+        this._panel.reveal(vscode.ViewColumn.One, true);
+        console.log("[SplashScreen] Panel revealed with preserveFocus=true");
+
+        // Ensure the splash screen has focus and is the active view
+        setTimeout(() => {
+            if (this._panel) {
+                this._panel.reveal(vscode.ViewColumn.One, false); // false = take focus
+                console.log("[SplashScreen] Panel re-revealed with focus");
+            }
+        }, 50);
+
+        // Keep the splash screen in focus by periodically checking
+        const focusInterval = setInterval(() => {
+            if (this._panel && this._panel.visible) {
+                // Only re-focus if we're still supposed to be showing
+                this._panel.reveal(vscode.ViewColumn.One, true); // true = preserve focus
+
+                // Check if webview content is lost (white screen) and restore if needed
+                if (!this._panel.webview.html || this._panel.webview.html.length < 100) {
+                    console.log("[SplashScreen] Webview content lost, restoring...");
+                    this._updateWebview();
+                }
+            } else {
+                // Stop checking if panel is gone
+                clearInterval(focusInterval);
+            }
+        }, 1000); // Check every second
+
+        // Execute UI commands in background after splash is visible
+        setTimeout(async () => {
+            try {
+                // Maximize editor and hide tab bar after splash is shown
+                await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+                console.log("[SplashScreen] Maximized editor layout");
+            } catch (error) {
+                console.warn("Failed to execute maximize command:", error);
+            }
+        }, 100);
 
         // Reset when the panel is disposed
         this._panel.onDidDispose(() => {
+            console.log("[SplashScreen] Panel disposed");
+            clearInterval(focusInterval); // Clean up the interval
             this._panel = undefined;
         });
 
@@ -85,32 +123,54 @@ export class SplashScreenProvider {
 
     public updateTimings(timings: ActivationTiming[]) {
         this._timings = timings;
+        if (this._panel && !this._panel.webview) {
+            console.log("[SplashScreen] Panel exists but webview is disposed, skipping update");
+            return;
+        }
         if (this._panel) {
-            // Send message to the webview to update timings
-            this._panel.webview.postMessage({
-                command: "update",
-                timings,
-            });
+            try {
+                // Send message to the webview to update timings
+                this._panel.webview.postMessage({
+                    command: "update",
+                    timings,
+                });
+            } catch (error) {
+                console.log("[SplashScreen] Error updating timings:", error);
+            }
         }
     }
 
     public updateSyncDetails(details: SyncDetails) {
         this._syncDetails = details;
+        if (this._panel && !this._panel.webview) {
+            console.log(
+                "[SplashScreen] Panel exists but webview is disposed, skipping sync update"
+            );
+            return;
+        }
         if (this._panel) {
-            // Send message to the webview to update sync progress
-            this._panel.webview.postMessage({
-                command: "syncUpdate",
-                syncDetails: details,
-            });
+            try {
+                // Send message to the webview to update sync progress
+                this._panel.webview.postMessage({
+                    command: "syncUpdate",
+                    syncDetails: details,
+                });
+            } catch (error) {
+                console.log("[SplashScreen] Error updating sync details:", error);
+            }
         }
     }
 
     public markComplete() {
+        console.log("[SplashScreen] markComplete() called");
         if (this._panel) {
             // Send message to the webview that loading is complete
             this._panel.webview.postMessage({
                 command: "complete",
             });
+            console.log("[SplashScreen] Sent 'complete' message to webview");
+        } else {
+            console.log("[SplashScreen] No panel to mark complete");
         }
     }
 

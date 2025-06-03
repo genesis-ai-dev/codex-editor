@@ -206,8 +206,8 @@ export async function activate(context: vscode.ExtensionContext) {
         stepStart = trackTiming("Register Welcome View", stepStart);
         registerWelcomeViewProvider(context);
 
-        // Now we can safely check if we need to show the welcome view
-        await showWelcomeViewIfNeeded();
+        // // Now we can safely check if we need to show the welcome view
+        // await showWelcomeViewIfNeeded();
 
         // Register startup flow commands
         stepStart = trackTiming("Register Startup Flow", stepStart);
@@ -257,6 +257,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
             let metadataExists = false;
             try {
+                // DEBUGGING: Here is where the splash screen disappears - it was visible up till now
                 await vscode.workspace.fs.stat(metadataUri);
                 metadataExists = true;
             } catch {
@@ -267,6 +268,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 console.log("metadata.json not found. Waiting for initialization.");
                 await watchForInitialization(context, metadataUri);
             } else {
+                // DEBUGGING: Here is where the splash screen reappears
                 await initializeExtension(context, metadataExists);
             }
             watchTableFiles(context);
@@ -407,8 +409,8 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         trackTiming("• Total Index Creation", indexStart);
     } else {
-        stepStart = trackTiming("• Show Project Overview (No Metadata)", stepStart);
-        vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+        // stepStart = trackTiming("• Show Project Overview (No Metadata)", stepStart);
+        // vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
     }
 
     trackTiming("Total Initialize Extension", initStart);
@@ -583,7 +585,7 @@ async function executeCommandsAfter() {
     }
 
     // Check if we need to show the welcome view after initialization
-    showWelcomeViewIfNeeded();
+    // showWelcomeViewIfNeeded();
     await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
 }
 

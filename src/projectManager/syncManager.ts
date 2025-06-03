@@ -185,7 +185,8 @@ export class SyncManager {
                 console.log("🔄 Starting sync operation...");
 
                 // Sync all changes
-                await stageAndCommitAllAndSync(commitMessage);
+                // During startup (showInfoOnConnectionIssues=false), don't show completion message
+                await stageAndCommitAllAndSync(commitMessage, showInfoOnConnectionIssues);
 
                 const syncEndTime = performance.now();
                 const syncDuration = syncEndTime - syncStartTime;
@@ -265,6 +266,15 @@ export class SyncManager {
 
                 // Don't wait for index rebuild to complete - let it run in background
                 indexRebuildPromise.catch(console.error);
+
+                // But DO update splash screen progress during index rebuild
+                indexRebuildPromise.then(() => {
+                    // Update splash screen that everything is complete
+                    updateSyncProgress({
+                        progress: 100,
+                        message: "All initialization complete",
+                    });
+                });
             } catch (error) {
                 // Handle error as before
                 console.error("Error during sync operation:", error);
