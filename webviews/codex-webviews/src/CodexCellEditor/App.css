@@ -31,18 +31,18 @@
     text-align: center;
 }
 
-.editor-container,
+/* .editor-container,
 .text-editor-container {
-    max-width: 48rem;
+    max-width: 48rem; 
     width: 100%;
     margin: 0 auto;
     border-radius: 1rem;
     box-shadow: 0 2px 4px var(--vscode-widget-border);
-}
+} */
 
-.editor-container {
+/* .editor-container {
     padding: 2rem 2rem 3rem 0rem;
-}
+} */
 
 .text-editor-container {
     padding: 2rem 2rem 3rem 2rem;

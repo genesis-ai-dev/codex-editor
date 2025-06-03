@@ -1,14 +1,13 @@
 .cell-editor {
     display: flex;
     flex-direction: column;
-    width: 100%; /* Ensure it takes the full width of the parent */
-    min-width: 100%; /* Ensure it takes the full width of the parent */
-    max-width: 100%; /* Prevent it from growing beyond the parent */
+    width: 100%;
+    max-width: 100%;
     gap: 8px;
     padding: 8px;
     margin: 0;
     box-sizing: border-box;
-    flex-shrink: 0; /* Prevent it from shrinking */
+    overflow: hidden; /* Prevent horizontal overflow */
 }
 
 .flex-row {
@@ -93,8 +92,10 @@
 
 .text-editor {
     width: 100%;
+    max-width: 100%;
     flex: 1;
     position: relative;
+    overflow: hidden; /* Prevent horizontal overflow */
 }
 
 .ql-container,
@@ -193,6 +194,10 @@
     font-size: var(--vscode-editor-font-size);
     line-height: 1.4;
     white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
+    overflow: auto;
 }
 
 .tabs {
@@ -227,6 +232,9 @@
 .tab-content {
     padding: 1rem 0.5rem;
     background-color: var(--vscode-sideBar-background);
+    overflow: hidden; /* Prevent horizontal overflow */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .expanded-controls {
@@ -258,7 +266,10 @@
     flex-direction: column;
     height: 100%;
     padding: 8px 12px;
-    overflow: auto;
+    overflow: hidden; /* Changed from auto to hidden for better control */
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 .backtranslation-header {
@@ -285,6 +296,11 @@
 .backtranslation-body {
     flex: 1;
     overflow: auto;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .backtranslation-content {
@@ -296,6 +312,27 @@
     overflow: auto;
     line-height: 1.5;
     font-size: 14px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+}
+
+/* Add styles for ReactMarkdown content to ensure proper wrapping */
+.backtranslation-content * {
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.backtranslation-content p,
+.backtranslation-content div,
+.backtranslation-content span {
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .backtranslation-edit-container {
@@ -307,6 +344,7 @@
 .backtranslation-editor {
     min-height: 150px;
     width: 100%;
+    max-width: 100%;
     padding: 12px;
     border: 1px solid var(--vscode-input-border);
     border-radius: 4px;
@@ -315,6 +353,9 @@
     font-family: var(--vscode-editor-font-family);
     font-size: 14px;
     resize: vertical;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .backtranslation-edit-actions {
@@ -336,8 +377,51 @@
     border: 1px dashed var(--vscode-panel-border);
     border-radius: 4px;
     padding: 20px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .backtranslation-empty p {
     margin: 4px 0;
+}
+
+/* Ensure footnotes content wraps properly */
+.footnotes-content {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.footnotes-list {
+    width: 100%;
+    max-width: 100%;
+}
+
+.footnote-item {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.footnote-content {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.empty-footnotes {
+    width: 100%;
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
