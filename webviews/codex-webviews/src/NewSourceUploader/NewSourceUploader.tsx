@@ -191,52 +191,68 @@ const reconstructHtmlFromParsed = (parsedData: any): string => {
         // Handle each tag type in the element
         let html = "";
         for (const [tagName, content] of Object.entries(element)) {
+            // Skip invalid tags that start with :@
+            if (tagName.startsWith(":@")) {
+                continue;
+            }
             if (tagName === "#text") {
                 html += content;
             } else if (Array.isArray(content)) {
-                // Process array of elements
                 for (const item of content) {
                     if (typeof item === "object" && item !== null) {
-                        // Check if this item has attributes
                         const attributes: string[] = [];
-                        const children: any[] = [];
-
+                        let children: any[] = [];
+                        let imgSrc: string | null = null;
                         for (const [key, value] of Object.entries(item)) {
                             if (key.startsWith("@_")) {
-                                // It's an attribute
                                 const attrName = key.substring(2);
                                 attributes.push(`${attrName}="${value}"`);
                             } else if (key === "#text") {
-                                children.push(value);
+                                // For <img> tags, treat text as src if no src attribute exists
+                                if (tagName === "img") {
+                                    imgSrc = String(value);
+                                } else {
+                                    children.push(value);
+                                }
                             } else {
-                                // It's a child element
                                 children.push({ [key]: value });
                             }
                         }
-
-                        const attrString = attributes.length > 0 ? " " + attributes.join(" ") : "";
-
-                        if (children.length === 0) {
-                            // Self-closing or empty tag
-                            html += `<${tagName}${attrString} />`;
-                        } else {
-                            html += `<${tagName}${attrString}>`;
-                            for (const child of children) {
-                                html += processElement(child);
+                        // Special handling for <img>
+                        if (tagName === "img") {
+                            // If src attribute is missing but we have imgSrc, add it
+                            if (!attributes.some((attr) => attr.startsWith("src=")) && imgSrc) {
+                                attributes.push(`src="${imgSrc}"`);
                             }
-                            html += `</${tagName}>`;
+                            const attrString =
+                                attributes.length > 0 ? " " + attributes.join(" ") : "";
+                            html += `<img${attrString} />`;
+                        } else {
+                            const attrString =
+                                attributes.length > 0 ? " " + attributes.join(" ") : "";
+                            if (children.length === 0) {
+                                html += `<${tagName}${attrString} />`;
+                            } else {
+                                html += `<${tagName}${attrString}>`;
+                                for (const child of children) {
+                                    html += processElement(child);
+                                }
+                                html += `</${tagName}>`;
+                            }
                         }
                     } else {
-                        // Simple text content
                         html += `<${tagName}>${item}</${tagName}>`;
                     }
                 }
             } else if (typeof content === "object" && content !== null) {
-                // Single object
                 html += processElement({ [tagName]: [content] });
             } else {
-                // Simple content
-                html += `<${tagName}>${content}</${tagName}>`;
+                // Special handling for <img> with text content
+                if (tagName === "img") {
+                    html += `<img src="${content}" />`;
+                } else {
+                    html += `<${tagName}>${content}</${tagName}>`;
+                }
             }
         }
 
@@ -244,6 +260,97 @@ const reconstructHtmlFromParsed = (parsedData: any): string => {
     };
 
     return parsedData.root.map(processElement).join("");
+};
+
+// Helper function to merge `:@` attributes into img tags
+const mergeImageAttributes = (parsedData: any): any => {
+    if (
+        !parsedData ||
+        !parsedData[0] ||
+        !parsedData[0].root ||
+        !Array.isArray(parsedData[0].root)
+    ) {
+        return parsedData;
+    }
+
+    const processedRoot = [];
+    const rootArray = parsedData[0].root;
+
+    for (let i = 0; i < rootArray.length; i++) {
+        const currentItem = rootArray[i];
+
+        if (currentItem && typeof currentItem === "object") {
+            const processedItem = { ...currentItem };
+
+            // Process each tag within the item to look for nested img tags
+            for (const [tagName, content] of Object.entries(currentItem)) {
+                if (Array.isArray(content)) {
+                    // Process array content (like p: [...])
+                    const processedContent = content.map((item) => {
+                        if (item && typeof item === "object") {
+                            // Check if this item has both img and :@
+                            const hasImg = "img" in item;
+                            const hasColonAt = ":@" in item;
+
+                            if (hasImg && hasColonAt) {
+                                const colonAtData = item[":@"];
+                                let imgSrc = null;
+
+                                // Extract src from :@ data
+                                if (colonAtData && colonAtData["@_src"]) {
+                                    imgSrc = colonAtData["@_src"];
+                                }
+
+                                if (imgSrc) {
+                                    // Create new item with img having src attribute, without :@
+                                    const newItem = { ...item };
+                                    delete newItem[":@"]; // Remove the :@ tag
+
+                                    // Add src to img
+                                    if (Array.isArray(newItem.img)) {
+                                        if (newItem.img.length === 0) {
+                                            newItem.img = [{ "@_src": imgSrc }];
+                                        } else {
+                                            newItem.img[0]["@_src"] = imgSrc;
+                                        }
+                                    } else {
+                                        newItem.img = [{ "@_src": imgSrc }];
+                                    }
+
+                                    return newItem;
+                                }
+                            }
+
+                            // If no img+:@ combo, just filter out :@ tags
+                            const cleanedItem = { ...item };
+                            Object.keys(cleanedItem).forEach((key) => {
+                                if (key.startsWith(":@")) {
+                                    delete cleanedItem[key];
+                                }
+                            });
+                            return cleanedItem;
+                        }
+                        return item;
+                    });
+
+                    processedItem[tagName] = processedContent;
+                }
+            }
+
+            // Remove any top-level :@ keys
+            Object.keys(processedItem).forEach((key) => {
+                if (key.startsWith(":@")) {
+                    delete processedItem[key];
+                }
+            });
+
+            processedRoot.push(processedItem);
+        } else {
+            processedRoot.push(currentItem);
+        }
+    }
+
+    return [{ root: processedRoot }];
 };
 
 const NewSourceUploader: React.FC = () => {
@@ -422,7 +529,7 @@ const NewSourceUploader: React.FC = () => {
             };
 
             const result = await mammoth.convertToHtml(mammothOptions as any);
-            // console.log({ result });
+            console.log({ result });
             const htmlContent = result.value;
             const messages = result.messages;
 
@@ -448,6 +555,10 @@ const NewSourceUploader: React.FC = () => {
                 // Wrap HTML in a root element for proper XML parsing
                 const wrappedHtml = `<root>${htmlContent}</root>`;
                 parsedHtml = parser.parse(wrappedHtml);
+
+                // Process the parsed HTML to fix image tags
+                parsedHtml = mergeImageAttributes(parsedHtml);
+
                 // console.log("Parsed HTML structure:", parsedHtml);
 
                 // Format HTML with proper indentation and line breaks
@@ -511,6 +622,10 @@ const NewSourceUploader: React.FC = () => {
 
                     let html = "";
                     for (const [tagName, content] of Object.entries(item)) {
+                        // Skip invalid tags that start with :@
+                        if (tagName.startsWith(":@")) {
+                            continue;
+                        }
                         if (tagName === "#text") {
                             html += content;
                         } else if (Array.isArray(content)) {
@@ -523,33 +638,52 @@ const NewSourceUploader: React.FC = () => {
                                     if (typeof subItem === "object" && subItem !== null) {
                                         // Check if this item has attributes
                                         const attributes: string[] = [];
-                                        const children: any[] = [];
-
+                                        let children: any[] = [];
+                                        let imgSrc: string | null = null;
                                         for (const [key, value] of Object.entries(subItem)) {
                                             if (key.startsWith("@_")) {
                                                 // It's an attribute
                                                 const attrName = key.substring(2);
                                                 attributes.push(`${attrName}="${value}"`);
                                             } else if (key === "#text") {
-                                                children.push(value);
+                                                if (tagName === "img") {
+                                                    imgSrc = String(value);
+                                                } else {
+                                                    children.push(value);
+                                                }
                                             } else {
-                                                // It's a child element
                                                 children.push({ [key]: value });
                                             }
                                         }
-
-                                        const attrString =
-                                            attributes.length > 0 ? " " + attributes.join(" ") : "";
-
-                                        if (children.length === 0) {
-                                            // Self-closing or empty tag
-                                            html += `<${tagName}${attrString}></${tagName}>`;
-                                        } else {
-                                            html += `<${tagName}${attrString}>`;
-                                            for (const child of children) {
-                                                html += convertItemToHtml(child);
+                                        // Special handling for <img>
+                                        if (tagName === "img") {
+                                            if (
+                                                !attributes.some((attr) =>
+                                                    attr.startsWith("src=")
+                                                ) &&
+                                                imgSrc
+                                            ) {
+                                                attributes.push(`src="${imgSrc}"`);
                                             }
-                                            html += `</${tagName}>`;
+                                            const attrString =
+                                                attributes.length > 0
+                                                    ? " " + attributes.join(" ")
+                                                    : "";
+                                            html += `<img${attrString} />`;
+                                        } else {
+                                            const attrString =
+                                                attributes.length > 0
+                                                    ? " " + attributes.join(" ")
+                                                    : "";
+                                            if (children.length === 0) {
+                                                html += `<${tagName}${attrString}></${tagName}>`;
+                                            } else {
+                                                html += `<${tagName}${attrString}>`;
+                                                for (const child of children) {
+                                                    html += convertItemToHtml(child);
+                                                }
+                                                html += `</${tagName}>`;
+                                            }
                                         }
                                     } else {
                                         // Simple text content
@@ -561,8 +695,12 @@ const NewSourceUploader: React.FC = () => {
                             // Single object
                             html += convertItemToHtml({ [tagName]: [content] });
                         } else {
-                            // Simple content
-                            html += `<${tagName}>${content}</${tagName}>`;
+                            // Special handling for <img> with text content
+                            if (tagName === "img") {
+                                html += `<img src="${content}" />`;
+                            } else {
+                                html += `<${tagName}>${content}</${tagName}>`;
+                            }
                         }
                     }
 
