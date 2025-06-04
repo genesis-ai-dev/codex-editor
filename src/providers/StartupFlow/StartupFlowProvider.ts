@@ -1630,16 +1630,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         async (progress) => {
                             progress.report({ increment: 0 });
 
-                            // Create a temporary directory using VS Code's temp directory
-                            const tempDir = vscode.Uri.joinPath(
-                                vscode.Uri.file(vscode.env.appRoot),
-                                "temp"
-                            );
-                            const tempZipPath = vscode.Uri.joinPath(
-                                tempDir,
-                                `${message.projectName}-temp.zip`
-                            );
-
                             // Create JSZip instance
                             const zip = new JSZip();
 
@@ -1667,17 +1657,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             const projectUri = vscode.Uri.file(message.projectPath);
                             await addToZip(projectUri, zip);
 
-                            // Generate zip content
+                            progress.report({ increment: 50 });
+
+                            // Generate zip content and write directly to target location
                             const zipContent = await zip.generateAsync({ type: "nodebuffer" });
-
-                            // Write zip file to temporary location
-                            await vscode.workspace.fs.writeFile(tempZipPath, zipContent);
-
-                            // Copy the zip file to the user's chosen location
-                            await vscode.workspace.fs.copy(tempZipPath, saveUri);
-
-                            // Clean up temporary file
-                            await vscode.workspace.fs.delete(tempZipPath);
+                            await vscode.workspace.fs.writeFile(saveUri, zipContent);
 
                             progress.report({ increment: 100 });
                         }
