@@ -23,7 +23,7 @@ import { registerSourceUploadCommands } from "./providers/SourceUpload/registerC
 import { registerNewSourceUploadCommands } from "./providers/NewSourceUploader/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
-import { Database } from "sql.js";
+import { Database } from "fts5-sql-bundle";
 import {
     importWiktionaryJSONL,
     ingestJsonlDictionaryEntries,

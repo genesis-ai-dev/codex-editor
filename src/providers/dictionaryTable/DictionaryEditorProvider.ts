@@ -8,7 +8,7 @@ import {
 } from "../../../types";
 import { getWorkSpaceUri } from "../../utils";
 import { isEqual } from "lodash";
-import { Database } from "sql.js";
+import { Database } from "fts5-sql-bundle";
 import {
     getWords,
     getDefinitions,

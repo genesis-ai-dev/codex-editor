@@ -27,7 +27,7 @@ const extensionConfig = {
     externals: {
         vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
         // modules added here also need to be added in the .vscodeignore file
-        "sql.js": "commonjs sql.js",
+        "fts5-sql-bundle": "commonjs fts5-sql-bundle",
         vm: "commonjs vm",
         encoding: "commonjs encoding",
     },
@@ -42,7 +42,6 @@ const extensionConfig = {
                 "webviews/codex-webviews/src/NewSourceUploader/types.ts"
             ),
             sqldb: path.resolve(__dirname, "src/sqldb"),
-            "sql.js": path.resolve(__dirname, "node_modules/sql.js/dist/sql-wasm.js"),
         },
         fallback: {
             path: false,
@@ -106,9 +105,21 @@ const extensionConfig = {
         new CopyWebpackPlugin({
             patterns: [
                 {
-                    from: "node_modules/sql.js/dist/sql-wasm.wasm",
-                    to: "sql-wasm.wasm",
+                    from: "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm",
+                    to: "node_modules/fts5-sql-bundle/dist/sql-wasm.wasm",
                 },
+                {
+                    from: "node_modules/fts5-sql-bundle/dist/sql-wasm.js",
+                    to: "node_modules/fts5-sql-bundle/dist/sql-wasm.js",
+                },
+                {
+                    from: "node_modules/fts5-sql-bundle/dist/index.js",
+                    to: "node_modules/fts5-sql-bundle/dist/index.js",
+                },
+                {
+                    from: "node_modules/fts5-sql-bundle/package.json",
+                    to: "node_modules/fts5-sql-bundle/package.json",
+                }
             ],
         }),
     ],

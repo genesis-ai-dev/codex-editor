@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { StatusBarItem } from "vscode";
-import initSqlJs, { Database, SqlJsStatic } from "sql.js";
+import initSqlJs, { Database, SqlJsStatic } from "fts5-sql-bundle";
 import path from "path";
 import { parseAndImportJSONL } from "./parseAndImportJSONL";
 import crypto from "crypto";
@@ -42,28 +42,26 @@ export async function lookupWord(db: Database) {
 }
 
 export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
-    // Initialize sql.js
+    // Initialize fts5-sql-bundle
     let SQL: SqlJsStatic | undefined;
     try {
-        const sqlWasmPath = vscode.Uri.joinPath(context.extensionUri, "out", "sql-wasm.wasm");
+        const sqlWasmPath = vscode.Uri.joinPath(context.extensionUri, "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm");
 
         SQL = await initSqlJs({
             locateFile: (file: string) => {
                 console.log("Locating file:", file);
                 return sqlWasmPath.fsPath;
             },
-            // Add this to ensure proper module loading
-            wasmBinary: await vscode.workspace.fs.readFile(sqlWasmPath),
         });
 
         if (!SQL) {
-            throw new Error("Failed to initialize SQL.js");
+            throw new Error("Failed to initialize fts5-sql-bundle");
         }
 
-        console.log("SQL.js initialized successfully");
+        console.log("fts5-sql-bundle initialized successfully");
     } catch (error) {
-        console.error("Error initializing sql.js:", error);
-        vscode.window.showErrorMessage(`Failed to initialize SQL.js: ${error}`);
+        console.error("Error initializing fts5-sql-bundle:", error);
+        vscode.window.showErrorMessage(`Failed to initialize fts5-sql-bundle: ${error}`);
         return;
     }
 

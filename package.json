@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.4.8",
+    "version": "0.4.9",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -1158,7 +1158,6 @@
         "@types/sax": "^1.2.7",
         "@types/semver": "^7.5.6",
         "@types/sinon": "^17.0.3",
-        "@types/sql.js": "^1.4.9",
         "@types/uuid": "^9.0.7",
         "@types/vscode": "^1.78.0",
         "@types/webpack-env": "^1.18.5",
@@ -1175,6 +1174,7 @@
         "crypto-browserify": "^3.12.1",
         "encoding": "^0.1.13",
         "eslint": "^7.27.0",
+        "fts5-sql-bundle": "^1.0.2",
         "glob": "^7.1.4",
         "html-loader": "^5.1.0",
         "install": "^0.13.0",
@@ -1215,6 +1215,7 @@
         "diff": "^7.0.0",
         "events": "^3.3.0",
         "fitty": "^2.4.2",
+        "fts5-sql-bundle": "^1.0.2",
         "hog-features": "^1.0.0",
         "i": "^0.3.7",
         "immutability-helper": "^3.1.1",
@@ -1234,7 +1235,6 @@
         "sax": "^1.4.1",
         "semver": "^7.6.0",
         "sinon": "^19.0.2",
-        "sql.js": "^1.11.0",
         "token.js": "^0.4.3",
         "url": "^0.11.4",
         "usfm-grammar": "^2.3.1",
