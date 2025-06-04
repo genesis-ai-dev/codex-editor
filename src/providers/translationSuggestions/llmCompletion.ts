@@ -174,6 +174,8 @@ export async function llmCompletion(
 
             // FIXME: now that we are tracking validations on cells, perhaps we should use a validatedTranslationPairsIndex
             // and only use validated translation pairs in the few-shot examples and preceding translation pairs
+            // perhaps on importing a file, we should have a checkbox as to whether the AI should learn from the
+            // file contents.
 
             const userMessage = [
                 "## Instructions",

@@ -87,6 +87,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     });
 
     // Register file stats webview provider
+    // FIXME: why is this here? Do we need this?
     const fileStatsProvider = registerFileStatsWebviewProvider(context, filesIndex);
 
     // Debounced functions for individual indexes
