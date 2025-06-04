@@ -1,7 +1,7 @@
 import { getWorkSpaceUri } from "./../utils/index";
 import * as vscode from "vscode";
 import { CustomNotebookMetadata, FileType, SupportedFileExtension } from "../../types";
-import { fileTypeMap } from "./translationImporter";
+import { fileTypeMap } from "./fileTypeMap_deprecated";
 import { importLocalUsfmSourceBible, splitSourceFileByBook } from "../utils/codexNotebookUtils";
 import {
     NotebookMetadataManager,

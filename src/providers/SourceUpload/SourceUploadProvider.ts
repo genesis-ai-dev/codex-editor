@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { importTranslations } from "../../projectManager/translationImporter";
+import { importTranslations } from "../../projectManager/fileTypeMap_deprecated";
 import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
@@ -149,7 +149,6 @@ export class SourceUploadProvider
     constructor(private readonly context: vscode.ExtensionContext) {
         this.context = context;
     }
-
 
     public async resolveCustomDocument(
         document: vscode.CustomDocument,

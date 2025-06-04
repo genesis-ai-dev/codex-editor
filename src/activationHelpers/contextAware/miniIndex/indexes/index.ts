@@ -18,14 +18,7 @@ import {
     searchTranslationPairs,
 } from "./search";
 import MiniSearch, { SearchResult } from "minisearch";
-import {
-    createZeroDraftIndex,
-    ZeroDraftIndexRecord,
-    getContentOptionsForCellId,
-    insertDraftsIntoTargetNotebooks,
-    insertDraftsInCurrentEditor,
-    CellWithMetadata,
-} from "./zeroDraftIndex";
+
 import {
     initializeWordsIndex,
     getWordFrequencies,
@@ -85,12 +78,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         idField: "cellId",
     });
 
-    const zeroDraftIndex = new MiniSearch<ZeroDraftIndexRecord>({
-        fields: ["content", "cells"],
-        storeFields: ["cellId", "content", "modelVersions", "cells"],
-        idField: "cellId",
-    });
-
     let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
     let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
@@ -136,12 +123,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }, 3000);
 
-    const debouncedUpdateZeroDraftIndex = debounce(async (uri: vscode.Uri) => {
-        if (!(await isDocumentAlreadyOpen(uri))) {
-            await createZeroDraftIndex(zeroDraftIndex, zeroDraftIndex.documentCount === 0);
-        }
-    }, 3000);
-
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
@@ -151,7 +132,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             if (force) {
                 translationPairsIndex?.removeAll();
                 sourceTextIndex?.removeAll();
-                zeroDraftIndex?.removeAll();
                 wordsIndex.clear();
                 filesIndex.clear();
             }
@@ -176,7 +156,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             );
             wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
             filesIndex = await initializeFilesIndex();
-            await createZeroDraftIndex(zeroDraftIndex, force || zeroDraftIndex.documentCount === 0);
 
             // Update the file stats webview
             updateFileStatsWebview(filesIndex);
@@ -206,7 +185,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     await rebuildIndexes();
-    console.log("Zero Draft index contents:", zeroDraftIndex.documentCount);
 
     // Define individual command variables
     const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(async (document) => {
@@ -224,15 +202,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             debouncedUpdateFilesIndex(doc);
         }
     });
-
-    const zeroDraftFolder = vscode.Uri.joinPath(workspaceUri || "", "files", "zero_drafts");
-    const zeroDraftWatcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(zeroDraftFolder, "*.{jsonl,json,tsv,txt}")
-    );
-    zeroDraftWatcher.onDidChange(debouncedUpdateZeroDraftIndex);
-    zeroDraftWatcher.onDidCreate(debouncedUpdateZeroDraftIndex);
-    // FIXME: need to remove deleted docs
-    // zeroDraftWatcher.onDidDelete(async (uri) => await removeFromIndex(uri, zeroDraftIndex));
 
     const searchTargetCellsByQueryCommand = vscode.commands.registerCommand(
         "translators-copilot.searchTargetCellsByQuery",
@@ -353,109 +322,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             if (option === "Force Reindex") {
                 await rebuildIndexes();
             }
-        }
-    );
-
-    const getZeroDraftContentOptionsCommand = vscode.commands.registerCommand(
-        "translators-copilot.getZeroDraftContentOptions",
-        async (cellId?: string) => {
-            if (!cellId) {
-                cellId = await vscode.window.showInputBox({
-                    prompt: "Enter a cell ID",
-                    placeHolder: "e.g. GEN 1:1",
-                });
-                if (!cellId) return; // User cancelled the input
-            }
-            const contentOptions = getContentOptionsForCellId(zeroDraftIndex, cellId);
-            if (contentOptions) {
-                vscode.window.showInformationMessage(
-                    `Found ${contentOptions?.cells?.length} content options for ${cellId}`,
-                    {
-                        detail: contentOptions?.cells
-                            ?.map((cell: MinimalCellResult) => cell.content)
-                            .join("\n"),
-                    }
-                );
-                console.log("Content options for", cellId, { contentOptions });
-            } else {
-                vscode.window.showInformationMessage(`No content options found for ${cellId}`);
-            }
-            return contentOptions;
-        }
-    );
-
-    const insertZeroDraftsIntoNotebooksCommand = vscode.commands.registerCommand(
-        "translators-copilot.insertZeroDraftsIntoNotebooks",
-        async () => {
-            const workspaceFolders = vscode.workspace.workspaceFolders;
-            if (!workspaceFolders) {
-                return;
-            }
-
-            const zeroDraftFolder = vscode.Uri.joinPath(
-                workspaceFolders[0].uri,
-                "files",
-                "zero_drafts"
-            );
-            const zeroDraftFiles = await vscode.workspace.findFiles(
-                new vscode.RelativePattern(zeroDraftFolder, "*.{jsonl,json,tsv,txt}")
-            );
-
-            const zeroDraftFileOptions = zeroDraftFiles.map((file) => ({
-                label: vscode.workspace.asRelativePath(file),
-                description: "Select a zero draft file to insert into notebooks",
-                detail: file.fsPath,
-            }));
-
-            const selectedFile = await vscode.window.showQuickPick(zeroDraftFileOptions, {
-                placeHolder: "Select a zero draft file to insert into notebooks",
-            });
-
-            let forceInsert: string | undefined;
-
-            if (selectedFile) {
-                forceInsert = await vscode.window.showQuickPick(["No", "Yes"], {
-                    placeHolder: "Force insert and overwrite existing cell drafts?",
-                });
-
-                if (forceInsert === "Yes") {
-                    const confirm = await vscode.window.showWarningMessage(
-                        "This will overwrite existing cell drafts. Are you sure?",
-                        { modal: true },
-                        "Yes",
-                        "No"
-                    );
-                    if (confirm !== "Yes") {
-                        forceInsert = "No";
-                    }
-                }
-
-                await insertDraftsIntoTargetNotebooks({
-                    zeroDraftFilePath: selectedFile.detail,
-                    forceInsert: forceInsert === "Yes",
-                });
-            }
-        }
-    );
-
-    const insertZeroDraftsInCurrentEditorCommand = vscode.commands.registerCommand(
-        "translators-copilot.insertZeroDraftsInCurrentEditor",
-        async () => {
-            const forceInsert = await vscode.window.showQuickPick(["No", "Yes"], {
-                placeHolder: "Force insert and overwrite existing cell drafts?",
-            });
-
-            if (forceInsert === "Yes") {
-                const confirm = await vscode.window.showWarningMessage(
-                    "This will overwrite existing cell drafts in the current editor. Are you sure?",
-                    { modal: true },
-                    "Yes",
-                    "No"
-                );
-                if (confirm !== "Yes") return;
-            }
-
-            await insertDraftsInCurrentEditor(zeroDraftIndex, forceInsert === "Yes");
         }
     );
 
@@ -782,7 +648,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         ...[
             onDidSaveTextDocument,
             onDidChangeTextDocument,
-            zeroDraftWatcher,
             searchTargetCellsByQueryCommand,
             getTranslationPairsFromSourceCellQueryCommand,
             getSourceCellByCellIdFromAllSourceCellsCommand,
@@ -790,9 +655,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             getTranslationPairFromProjectCommand,
             forceReindexCommand,
             showIndexOptionsCommand,
-            getZeroDraftContentOptionsCommand,
-            insertZeroDraftsIntoNotebooksCommand,
-            insertZeroDraftsInCurrentEditorCommand,
             getWordFrequenciesCommand,
             refreshWordIndexCommand,
             getWordsAboveThresholdCommand,
