@@ -1,4 +1,3 @@
-import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { verseRefRegex } from "../../../../utils/verseRefUtils";
 import { getWorkSpaceUri } from "../../../../utils";
@@ -8,7 +7,7 @@ import { TranslationPair } from "../../../../../types";
 import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { SQLiteIndexManager } from "./sqliteIndex";
 
-export interface minisearchDoc {
+export interface searchResult {
     id: string;
     cellId: string;
     document: string;
@@ -24,8 +23,7 @@ interface TranslationPairsIndex {
     [cellId: string]: TranslationPair[];
 }
 
-// Type that can be either MiniSearch or SQLiteIndexManager
-type IndexType = MiniSearch<minisearchDoc> | SQLiteIndexManager;
+type IndexType = SQLiteIndexManager;
 
 export async function createTranslationPairsIndex(
     context: vscode.ExtensionContext,
@@ -147,7 +145,7 @@ export async function createTranslationPairsIndex(
         const uri = document.uri.toString();
         let indexedCount = 0;
         const batchSize = 1000;
-        let batch: minisearchDoc[] = [];
+        let batch: searchResult[] = [];
 
         const processBatch = async () => {
             if (batch.length > 0) {
@@ -165,7 +163,7 @@ export async function createTranslationPairsIndex(
             }
         };
 
-        const processBatchRecursively = async (currentBatch: minisearchDoc[]) => {
+        const processBatchRecursively = async (currentBatch: searchResult[]) => {
             if (currentBatch.length === 0) return;
             const smallerBatch = currentBatch.filter((_, index) => index % 10 === 0);
             try {
@@ -215,7 +213,7 @@ export async function createTranslationPairsIndex(
         lineIndex: number,
         uri: string,
         targetVerseMap: Map<string, { content: string }>
-    ): minisearchDoc | null {
+    ): searchResult | null {
         const match = line.match(verseRefRegex);
         if (match) {
             const [cellId] = match;

@@ -1,4 +1,3 @@
-import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { SourceCellVersions } from "../../../../../types";
 import { FileData } from "./fileReaders";
@@ -6,8 +5,7 @@ import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManag
 import { initializeStateStore } from "../../../../stateStore";
 import { SQLiteIndexManager } from "./sqliteIndex";
 
-// Type that can be either MiniSearch or SQLiteIndexManager
-type IndexType = MiniSearch<SourceCellVersions> | SQLiteIndexManager;
+type IndexType = SQLiteIndexManager;
 
 export async function createSourceTextIndex(
     sourceTextIndex: IndexType,
@@ -47,35 +45,12 @@ export async function createSourceTextIndex(
 
     // Update the index with all cells from all .source files
     for (const [cellId, { content, versions, notebookId }] of cellMap.entries()) {
-        if (sourceTextIndex instanceof SQLiteIndexManager) {
-            // For SQLiteIndexManager, use the add method
-            await sourceTextIndex.add({
-                cellId,
-                content,
-                versions,
-                notebookId,
-            });
-        } else {
-            // For MiniSearch
-            const existingDoc = (sourceTextIndex as MiniSearch<SourceCellVersions>).getStoredFields(
-                cellId
-            );
-            if (
-                !existingDoc ||
-                existingDoc.content !== content ||
-                !versions.every((v) => (existingDoc.versions as string[]).includes(v))
-            ) {
-                if (existingDoc) {
-                    (sourceTextIndex as MiniSearch<SourceCellVersions>).remove(cellId as any);
-                }
-                (sourceTextIndex as MiniSearch<SourceCellVersions>).add({
-                    cellId,
-                    content,
-                    versions,
-                    notebookId,
-                });
-            }
-        }
+        await sourceTextIndex.add({
+            cellId,
+            content,
+            versions,
+            notebookId,
+        });
     }
 
     console.log(

@@ -1,11 +1,9 @@
-import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
 import { searchTranslationPairs } from "./translationPairsIndex";
 import { SQLiteIndexManager } from "./sqliteIndex";
 
-// Create a type that can be either MiniSearch or SQLiteIndexManager
-type IndexType = MiniSearch | SQLiteIndexManager;
+type IndexType = SQLiteIndexManager;
 
 export function searchTargetCellsByQuery(
     translationPairsIndex: IndexType,
@@ -39,23 +37,7 @@ export async function getSourceCellByCellIdFromAllSourceCells(
                 notebookId: result.notebookId || "",
             };
         }
-        return null;
     }
-
-    // Handle MiniSearch
-    const searchResults: SourceCellVersions | null = (
-        sourceTextIndex as MiniSearch
-    ).getStoredFields(cellId) as SourceCellVersions | null;
-
-    if (searchResults) {
-        return {
-            cellId: searchResults?.cellId as string,
-            content: searchResults?.content as string,
-            versions: searchResults?.versions as string[],
-            notebookId: searchResults?.notebookId as string,
-        };
-    }
-    console.log(`No result found for cellId: ${cellId}`);
     return null;
 }
 
@@ -101,10 +83,6 @@ export async function getTranslationPairFromProject(
 
     if (sourceTextIndex instanceof SQLiteIndexManager) {
         sourceOnlyResult = await sourceTextIndex.getById(cellId);
-    } else {
-        sourceOnlyResult = (sourceTextIndex as MiniSearch).getStoredFields(
-            cellId
-        ) as SourceCellVersions | null;
     }
 
     if (sourceOnlyResult) {

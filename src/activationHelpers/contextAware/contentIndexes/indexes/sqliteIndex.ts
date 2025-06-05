@@ -303,7 +303,7 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Add a single document (for MiniSearch compatibility)
+    // Add a single document
     async add(doc: any): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -337,7 +337,7 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Add multiple documents (for MiniSearch compatibility)
+    // Add multiple documents
     async addAll(documents: any[]): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -348,7 +348,7 @@ export class SQLiteIndexManager {
         });
     }
 
-    // Remove all documents (for MiniSearch compatibility)
+    // Remove all documents
     async removeAll(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -375,7 +375,7 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Search with MiniSearch-compatible interface
+    // Search with MiniSearch-compatible interface (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
     search(query: string, options?: any): any[] {
         if (!this.db) return [];
 
@@ -449,12 +449,12 @@ export class SQLiteIndexManager {
                 const row = stmt.getAsObject();
                 const metadata = row.metadata ? JSON.parse(row.metadata as string) : {};
 
-                // Format result to match MiniSearch output
+                // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
                 const result: any = {
                     id: row.cell_id,
                     cellId: row.cell_id,
                     score: row.score,
-                    match: {}, // MiniSearch compatibility
+                    match: {}, // MiniSearch compatibility (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
                     uri: row.uri,
                     line: row.line,
                 };

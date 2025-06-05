@@ -2,10 +2,7 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import * as xlsx from "xlsx";
-import MiniSearch from "minisearch";
-import { SourceCellVersions } from "../../types";
 import { FileData } from "../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
-import { createSourceTextIndex } from "../activationHelpers/contextAware/contentIndexes/indexes/sourceTextIndex";
 import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
@@ -182,11 +179,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
-    const sourceTextIndex = new MiniSearch<SourceCellVersions>({
-        fields: ["cellId", "content"],
-        storeFields: ["cellId", "content", "versions", "notebookId"],
-        idField: "cellId",
-    });
+
 
     panel.webview.html = await getHtmlForCellLabelImporterView(panel.webview, context);
 
@@ -334,13 +327,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             );
                         }
 
-                        sourceTextIndex.removeAll();
-                        await createSourceTextIndex(
-                            sourceTextIndex,
-                            filesToProcess,
-                            metadataManager,
-                            true
-                        );
+
                         const matchedLabels = await matchCellLabels(
                             data, // Data already has normalized headers from importFile
                             filesToProcess,
