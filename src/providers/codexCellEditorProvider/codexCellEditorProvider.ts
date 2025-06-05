@@ -1503,15 +1503,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             // After all translations are done and the queue is empty, trigger a reindex
             // but only if we're not in an autocompletion process (which will handle its own reindexing)
-            if (!this.autocompletionState.isProcessing) {
-                debug("Translation queue empty, triggering reindexing");
-                try {
-                    // We don't await this to avoid blocking the queue processing completion
-                    vscode.commands.executeCommand("translators-copilot.forceReindex");
-                } catch (error) {
-                    console.error("Error triggering reindex after translations:", error);
-                }
-            }
+            // if (!this.autocompletionState.isProcessing) {
+            //     debug("Translation queue empty, triggering reindexing");
+            //     try {
+            //         // We don't await this to avoid blocking the queue processing completion
+            //         vscode.commands.executeCommand("translators-copilot.forceReindex");
+            //     } catch (error) {
+            //         console.error("Error triggering reindex after translations:", error);
+            //     }
+            // }
         } finally {
             this.isProcessingQueue = false;
             debug("Finished processing translation queue");

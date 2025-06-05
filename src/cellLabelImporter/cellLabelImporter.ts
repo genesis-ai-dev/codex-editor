@@ -4,8 +4,8 @@ import * as path from "path";
 import * as xlsx from "xlsx";
 import MiniSearch from "minisearch";
 import { SourceCellVersions } from "../../types";
-import { FileData } from "../activationHelpers/contextAware/miniIndex/indexes/fileReaders";
-import { createSourceTextIndex } from "../activationHelpers/contextAware/miniIndex/indexes/sourceTextIndex";
+import { FileData } from "../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
+import { createSourceTextIndex } from "../activationHelpers/contextAware/contentIndexes/indexes/sourceTextIndex";
 import {
     NotebookMetadataManager,
     getNotebookMetadataManager,
@@ -481,7 +481,7 @@ async function loadSourceAndTargetFiles(): Promise<{
     targetFiles: FileData[];
 }> {
     const { readSourceAndTargetFiles } = await import(
-        "../activationHelpers/contextAware/miniIndex/indexes/fileReaders"
+        "../activationHelpers/contextAware/contentIndexes/indexes/fileReaders"
     );
     const files = await readSourceAndTargetFiles();
     console.log(

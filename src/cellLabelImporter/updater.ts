@@ -8,7 +8,7 @@ import { CodexContentSerializer } from "../serializer";
 export async function updateCellLabels(labels: CellLabelData[]): Promise<void> {
     // Use the dynamic import to avoid TS errors
     const { readSourceAndTargetFiles } = await import(
-        "../activationHelpers/contextAware/miniIndex/indexes/fileReaders"
+        "../activationHelpers/contextAware/contentIndexes/indexes/fileReaders"
     );
     const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
 

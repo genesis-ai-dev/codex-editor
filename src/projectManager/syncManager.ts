@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 import { stageAndCommitAllAndSync } from "./utils/merge";
 import { getAuthApi } from "../extension";
-import { createIndexWithContext } from "../activationHelpers/contextAware/miniIndex/indexes";
+import { createIndexWithContext } from "../activationHelpers/contextAware/contentIndexes/indexes";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 import * as path from "path";
-import { updateSyncProgress } from "../providers/SplashScreen/register";
+import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
@@ -161,10 +161,7 @@ export class SyncManager {
             console.log("Executing sync operation with message:", commitMessage);
 
             // Update splash screen with initial sync status
-            updateSyncProgress({
-                progress: 0,
-                message: "Starting synchronization...",
-            });
+            updateSplashScreenSync(0, "Starting synchronization...");
 
             // Generate and submit progress report if needed - run in parallel, don't block sync
             const progressReportPromise = this.generateAndSubmitProgressReport().catch((error) => {
@@ -175,10 +172,7 @@ export class SyncManager {
             // with progress reports at key points
             try {
                 // Update sync progress to 30%
-                updateSyncProgress({
-                    progress: 30,
-                    message: "Preparing to sync...",
-                });
+                updateSplashScreenSync(30, "Preparing to sync...");
 
                 // Log sync timing for performance analysis
                 const syncStartTime = performance.now();
@@ -193,10 +187,7 @@ export class SyncManager {
                 console.log(`✅ Sync completed in ${syncDuration.toFixed(2)}ms`);
 
                 // Update sync progress to 100%
-                updateSyncProgress({
-                    progress: 100,
-                    message: "Synchronization complete",
-                });
+                updateSplashScreenSync(100, "Synchronization complete");
 
                 // Wait for progress report to complete (if still running)
                 await progressReportPromise;
@@ -270,10 +261,7 @@ export class SyncManager {
                 // But DO update splash screen progress during index rebuild
                 indexRebuildPromise.then(() => {
                     // Update splash screen that everything is complete
-                    updateSyncProgress({
-                        progress: 100,
-                        message: "All initialization complete",
-                    });
+                    updateSplashScreenSync(100, "All initialization complete");
                 });
             } catch (error) {
                 // Handle error as before
@@ -281,10 +269,7 @@ export class SyncManager {
                 const errorMessage = error instanceof Error ? error.message : String(error);
 
                 // Update sync progress to indicate error
-                updateSyncProgress({
-                    progress: 100,
-                    message: `Sync failed: ${errorMessage}`,
-                });
+                updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
 
                 // Show error messages
                 if (
@@ -311,10 +296,7 @@ export class SyncManager {
             const errorMessage = error instanceof Error ? error.message : String(error);
 
             // Update sync progress to indicate error
-            updateSyncProgress({
-                progress: 100,
-                message: `Sync failed: ${errorMessage}`,
-            });
+            updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
 
             // Check if this is a connection-related error
             if (

@@ -1,13 +1,20 @@
 import * as vscode from "vscode";
 import { FileStatsWebviewProvider } from "./FileStatsWebviewProvider";
-import { FileInfo } from "../../activationHelpers/contextAware/miniIndex/indexes/filesIndex";
+import { FileInfo } from "../../activationHelpers/contextAware/contentIndexes/indexes/filesIndex";
 
 let provider: FileStatsWebviewProvider;
+let isRegistered = false;
 
 export function registerFileStatsWebviewProvider(
     context: vscode.ExtensionContext,
     filesIndex: Map<string, FileInfo>
 ): FileStatsWebviewProvider {
+    // If already registered, just update the provider and return
+    if (isRegistered && provider) {
+        provider.updateFilesIndex(filesIndex);
+        return provider;
+    }
+
     provider = new FileStatsWebviewProvider(context.extensionUri, filesIndex);
 
     // Register a command to show the file stats panel
@@ -25,6 +32,7 @@ export function registerFileStatsWebviewProvider(
         })
     );
 
+    isRegistered = true;
     return provider;
 }
 

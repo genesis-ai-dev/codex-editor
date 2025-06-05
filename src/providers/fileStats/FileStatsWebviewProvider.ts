@@ -4,7 +4,7 @@ import {
     getFilePairs,
     getWordCountStats,
     FileInfo,
-} from "../../activationHelpers/contextAware/miniIndex/indexes/filesIndex";
+} from "../../activationHelpers/contextAware/contentIndexes/indexes/filesIndex";
 
 export class FileStatsWebviewProvider {
     public static readonly viewType = "file-stats-webview";

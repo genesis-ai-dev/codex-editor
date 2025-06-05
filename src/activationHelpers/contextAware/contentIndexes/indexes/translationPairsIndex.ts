@@ -6,6 +6,7 @@ import { FileData } from "./fileReaders";
 import { debounce } from "lodash";
 import { TranslationPair } from "../../../../../types";
 import { NotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import { SQLiteIndexManager } from "./sqliteIndex";
 
 export interface minisearchDoc {
     id: string;
@@ -23,9 +24,12 @@ interface TranslationPairsIndex {
     [cellId: string]: TranslationPair[];
 }
 
+// Type that can be either MiniSearch or SQLiteIndexManager
+type IndexType = MiniSearch<minisearchDoc> | SQLiteIndexManager;
+
 export async function createTranslationPairsIndex(
     context: vscode.ExtensionContext,
-    translationPairsIndex: MiniSearch<minisearchDoc>,
+    translationPairsIndex: IndexType,
     sourceFiles: FileData[],
     targetFiles: FileData[],
     metadataManager: NotebookMetadataManager,
@@ -42,8 +46,9 @@ export async function createTranslationPairsIndex(
 
     const index = await indexAllDocuments(sourceFiles, targetFiles, metadataManager);
 
-    translationPairsIndex.removeAll();
-    // Update the configuration
+    await translationPairsIndex.removeAll();
+
+    // Prepare documents for indexing
     const documents = Object.values(index)
         .flat()
         .map((pair) => ({
@@ -59,29 +64,7 @@ export async function createTranslationPairsIndex(
             hasTargetContent: !!pair.targetCell.content,
         }));
 
-    translationPairsIndex.addAll(documents);
-
-    // Configure index options
-    const indexOptions = {
-        fields: ["cellId", "document", "section", "sourceContent", "targetContent"],
-        storeFields: [
-            "id",
-            "cellId",
-            "document",
-            "section",
-            "sourceContent",
-            "targetContent",
-            "uri",
-            "line",
-        ],
-        // ... other options ...
-    };
-
-    // Create a new MiniSearch instance with the configured options
-    translationPairsIndex = new MiniSearch(indexOptions);
-
-    // Re-add all documents to the new index
-    translationPairsIndex.addAll(documents);
+    await translationPairsIndex.addAll(documents);
 
     console.log(
         "Translation pairs index created with",
@@ -159,21 +142,21 @@ export async function createTranslationPairsIndex(
     async function indexDocument(
         document: vscode.TextDocument,
         targetVerseMap: Map<string, { content: string }>,
-        translationPairsIndex: MiniSearch<minisearchDoc>
+        translationPairsIndex: IndexType
     ): Promise<number> {
         const uri = document.uri.toString();
         let indexedCount = 0;
         const batchSize = 1000;
         let batch: minisearchDoc[] = [];
 
-        const processBatch = () => {
+        const processBatch = async () => {
             if (batch.length > 0) {
                 try {
-                    translationPairsIndex.addAll(batch);
+                    await translationPairsIndex.addAll(batch);
                     indexedCount += batch.length;
                 } catch (error) {
                     if (error instanceof Error && error.message.includes("duplicate ID")) {
-                        processBatchRecursively(batch);
+                        await processBatchRecursively(batch);
                     } else {
                         throw error;
                     }
@@ -182,17 +165,17 @@ export async function createTranslationPairsIndex(
             }
         };
 
-        const processBatchRecursively = (currentBatch: minisearchDoc[]) => {
+        const processBatchRecursively = async (currentBatch: minisearchDoc[]) => {
             if (currentBatch.length === 0) return;
             const smallerBatch = currentBatch.filter((_, index) => index % 10 === 0);
             try {
-                translationPairsIndex.addAll(smallerBatch);
+                await translationPairsIndex.addAll(smallerBatch);
                 indexedCount += smallerBatch.length;
             } catch (error) {
                 if (error instanceof Error && error.message.includes("duplicate ID")) {
                     for (const doc of smallerBatch) {
                         try {
-                            translationPairsIndex.add(doc);
+                            await translationPairsIndex.add(doc);
                             indexedCount++;
                         } catch (innerError) {
                             if (
@@ -209,7 +192,7 @@ export async function createTranslationPairsIndex(
                     throw error;
                 }
             }
-            processBatchRecursively(currentBatch.filter((_, index) => index % 10 !== 0));
+            await processBatchRecursively(currentBatch.filter((_, index) => index % 10 !== 0));
         };
 
         const lines = document.getText().split("\n");
@@ -218,12 +201,12 @@ export async function createTranslationPairsIndex(
             if (indexedDoc) {
                 batch.push(indexedDoc);
                 if (batch.length >= batchSize) {
-                    processBatch();
+                    await processBatch();
                 }
             }
         }
 
-        processBatch();
+        await processBatch();
         return indexedCount;
     }
 
@@ -284,7 +267,7 @@ export async function createTranslationPairsIndex(
 }
 
 export function searchTranslationPairs(
-    translationPairsIndex: MiniSearch<minisearchDoc>,
+    translationPairsIndex: IndexType,
     query: string,
     includeIncomplete: boolean = false,
     k: number = 15,
@@ -301,10 +284,10 @@ export function searchTranslationPairs(
             sourceContent: 2,
             targetContent: 2 * targetContentBoost,
         },
-        filter: includeIncomplete ? undefined : (doc) => !!doc.targetContent,
+        filter: includeIncomplete ? undefined : (doc: any) => !!doc.targetContent,
     });
 
-    const results = searchResults.map((result) => ({
+    const results = searchResults.map((result: any) => ({
         cellId: result.cellId,
         sourceCell: {
             cellId: result.cellId,

@@ -4,8 +4,8 @@ import {
     initializeWordsIndex,
     WordFrequency,
     WordOccurrence,
-} from "../../activationHelpers/contextAware/miniIndex/indexes/wordsIndex";
-import { readSourceAndTargetFiles } from "../../activationHelpers/contextAware/miniIndex/indexes/fileReaders";
+} from "../../activationHelpers/contextAware/contentIndexes/indexes/wordsIndex";
+import { readSourceAndTargetFiles } from "../../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
 
 export class WordsViewProvider implements vscode.Disposable {
     public static readonly viewType = "frontier.wordsView";
