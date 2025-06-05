@@ -8,10 +8,6 @@ import {
     updateProjectNotebooksToUseCellsForVerseContent,
 } from "../../utils/codexNotebookUtils";
 import { jumpToCellInNotebook } from "../../utils";
-// import {
-//     searchVerseRefPositionIndex,
-//     indexVerseRefsInSourceText,
-// } from "../../commands/indexVrefsCommand";
 import { setTargetFont } from "../../projectManager/projectInitializers";
 import {
     generateVerseContext,
@@ -44,11 +40,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // const indexVrefsCommand = vscode.commands.registerCommand(
-    //     "codex-editor-extension.indexVrefs",
-    //     indexVerseRefsInSourceText
-    // );
-
     const analyzeEditsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.analyzeEdits",
         async () => {
@@ -61,18 +52,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             }
         }
     );
-    // const searchIndexCommand = vscode.commands.registerCommand(
-    //     "codex-editor-extension.searchIndex",
-    //     async () => {
-    //         const searchString = await vscode.window.showInputBox({
-    //             prompt: "Enter the task number to check its status",
-    //             placeHolder: "Task number",
-    //         });
-    //         if (searchString !== undefined) {
-    //             searchVerseRefPositionIndex(searchString);
-    //         }
-    //     }
-    // );
 
     const notebookSerializer = vscode.workspace.registerNotebookSerializer(
         NOTEBOOK_TYPE,
@@ -314,8 +293,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
-        // indexVrefsCommand,
-        // searchIndexCommand,
         notebookSerializer,
         codexKernel,
         openChapterCommand,

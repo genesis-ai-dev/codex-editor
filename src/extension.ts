@@ -1,12 +1,7 @@
 import * as vscode from "vscode";
-// import { registerTextSelectionHandler } from "./handlers/textSelectionHandler";
-// import { registerReferencesCodeLens } from "./referencesCodeLensProvider";
-// import { registerSourceCodeLens } from "./sourceCodeLensProvider";
-// import { indexVerseRefsInSourceText } from "./commands/indexVrefsCommand";
 import { registerProviders } from "./providers/registerProviders";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-// import { registerCompletionsCodeLensProviders } from "./activationHelpers/contextAware/completionsCodeLensProviders";
 import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
 import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
@@ -30,11 +25,6 @@ import {
     initializeSqlJs,
     registerLookupWordCommand,
 } from "./sqldb";
-// import {
-//     createTableIndexes,
-//     parseTableFile,
-//     TableRecord,
-// } from "./activationHelpers/contextAware/contentIndexes/indexes/dynamicTableIndex";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
@@ -269,7 +259,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 // DEBUGGING: Here is where the splash screen reappears
                 await initializeExtension(context, metadataExists);
             }
-            // watchTableFiles(context);
         } else {
             console.log("No workspace folder found");
             vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
@@ -372,9 +361,6 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
     console.log("Initializing extension");
 
     if (metadataExists) {
-        // stepStart = trackTiming("• Register Text Selection Handler", stepStart);
-        // registerTextSelectionHandler(context, () => undefined);
-
         // Break down language server initialization
         const lsStart = globalThis.performance.now();
         client = await registerLanguageServer(context);
@@ -397,81 +383,17 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         // Break down index creation
         const indexStart = globalThis.performance.now();
         stepStart = trackTiming("  • Index Verse Refs", indexStart);
-        // await indexVerseRefsInSourceText();
 
         stepStart = trackTiming("  • Create Context Index", stepStart);
         await createIndexWithContext(context);
 
-        // stepStart = trackTiming("  • Create Table Indexes", stepStart);
-
         trackTiming("• Total Index Creation", indexStart);
-    } else {
-        // stepStart = trackTiming("• Show Project Overview (No Metadata)", stepStart);
-        // vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
     }
 
     trackTiming("Total Initialize Extension", initStart);
 }
 
 let watcher: vscode.FileSystemWatcher | undefined;
-
-// function watchTableFiles(context: vscode.ExtensionContext) {
-//     const watcher = vscode.workspace.createFileSystemWatcher("**/*.{csv,tsv,tab}");
-
-//     watcher.onDidChange(async (uri) => {
-//         // Recreate the index for the changed file
-//         const [records, fields] = await parseTableFile(uri);
-
-//         if (fields.length === 0) {
-//             tableIndexMap.delete(uri.fsPath);
-//             console.warn(`Headers missing after change in ${uri.fsPath}. Index removed.`);
-//             return;
-//         }
-
-//         const tableIndex = new MiniSearch<TableRecord>({
-//             fields: fields,
-//             storeFields: ["id", ...fields],
-//             idField: "id",
-//         });
-
-//         tableIndex.addAll(records);
-
-//         tableIndexMap.set(uri.fsPath, tableIndex);
-
-//         console.log(`Updated index for file: ${uri.fsPath}`);
-//     });
-
-//     watcher.onDidCreate(async (uri) => {
-//         // Create an index for the new file
-//         const [records, fields] = await parseTableFile(uri);
-
-//         if (fields.length === 0) {
-//             console.warn(`No headers found in new table file: ${uri.fsPath}. Skipping file.`);
-//             return;
-//         }
-
-//         const tableIndex = new MiniSearch<TableRecord>({
-//             fields: fields,
-//             storeFields: ["id", ...fields],
-//             idField: "id",
-//         });
-
-//         tableIndex.addAll(records);
-
-//         tableIndexMap.set(uri.fsPath, tableIndex);
-
-//         console.log(`Created index for new file: ${uri.fsPath}`);
-//     });
-
-//     watcher.onDidDelete((uri) => {
-//         // Remove the index for the deleted file
-//         if (tableIndexMap.delete(uri.fsPath)) {
-//             console.log(`Removed index for deleted file: ${uri.fsPath}`);
-//         }
-//     });
-
-//     context.subscriptions.push(watcher);
-// }
 
 async function watchForInitialization(context: vscode.ExtensionContext, metadataUri: vscode.Uri) {
     watcher = vscode.workspace.createFileSystemWatcher("**/*");
@@ -496,12 +418,6 @@ async function watchForInitialization(context: vscode.ExtensionContext, metadata
     watcher.onDidDelete(checkInitialization);
 
     context.subscriptions.push(watcher);
-}
-
-function registerCodeLensProviders(context: vscode.ExtensionContext) {
-    // registerReferencesCodeLens(context);
-    // registerSourceCodeLens(context);
-    // registerCompletionsCodeLensProviders(context);
 }
 
 async function executeCommandsBefore(context: vscode.ExtensionContext) {

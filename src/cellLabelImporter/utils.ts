@@ -75,7 +75,7 @@ export function getColumnHeaders(importedData: any[]): string[] {
 }
 
 /**
- * Generate a nonce for CSP
+ * Generate a nonce for CSP (pure utility, no VS Code dependency)
  */
 export function getNonce(): string {
     let text = "";

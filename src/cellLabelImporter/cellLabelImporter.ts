@@ -179,8 +179,6 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
-
-
     panel.webview.html = await getHtmlForCellLabelImporterView(panel.webview, context);
 
     // Initial data load for the webview (if any part needs to be ready immediately)
@@ -326,7 +324,6 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                                 (file) => !excludedFilePaths.includes(file.uri.fsPath)
                             );
                         }
-
 
                         const matchedLabels = await matchCellLabels(
                             data, // Data already has normalized headers from importFile
