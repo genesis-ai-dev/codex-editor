@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { analyzeEditHistory } from "../../activationHelpers/contextAware/miniIndex/indexes/editHistory";
+import { analyzeEditHistory } from "../../activationHelpers/contextAware/contentIndexes/indexes/editHistory";
 
 export class EditAnalysisProvider implements vscode.Disposable {
     public static readonly viewType = "codex-editor.editAnalysis";
@@ -234,7 +234,7 @@ export class EditAnalysisProvider implements vscode.Disposable {
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">METEOR Score</div>
-                        <div class="stat-value">${analysis.meteorScore?.toFixed(2) ?? 'N/A'}</div>
+                        <div class="stat-value">${analysis.meteorScore?.toFixed(2) ?? "N/A"}</div>
                         <div class="stat-tooltip">METEOR (Metric for Evaluation of Translation with Explicit Ordering) score ranges from 0 to 1. Higher scores indicate better alignment between LLM output and user edits, considering synonyms and word order.</div>
                     </div>
                     ${analysis.timeSnapshots

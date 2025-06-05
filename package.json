@@ -557,21 +557,6 @@
                 "category": "Translators Copilot"
             },
             {
-                "command": "translators-copilot.getZeroDraftContentOptions",
-                "title": "Get Zero Draft Content Options for Vref",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.insertZeroDraftsIntoNotebooks",
-                "title": "Insert Zero Drafts into Notebooks",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.insertZeroDraftsInCurrentEditor",
-                "title": "Insert Zero Drafts into Current Editor",
-                "category": "Translators Copilot"
-            },
-            {
                 "command": "codex-editor-extension.setEditorFontToTargetLanguage",
                 "title": "Set Editor Font to Target Language",
                 "category": "Codex Editor"
@@ -664,10 +649,6 @@
             {
                 "command": "translators-copilot.getTargetCellByCellId",
                 "title": "Get Target Cell by Cell ID"
-            },
-            {
-                "command": "translators-copilot.getZeroDraftContentOptions",
-                "title": "Get Zero Draft Content Options for Cell ID"
             },
             {
                 "command": "extension.lookupWord",
@@ -1224,7 +1205,6 @@
         "jszip": "^3.10.1",
         "md5": "^2.3.0",
         "meilisearch": "^0.38.0",
-        "minisearch": "^7.1.2",
         "ml-pca": "^4.1.1",
         "moment": "^2.30.1",
         "openai": "^4.67.3",

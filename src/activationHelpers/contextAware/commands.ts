@@ -21,7 +21,7 @@ import {
 import { CodexExportFormat, exportCodexContent } from "../../exportHandler/exportHandler";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
-import { analyzeEditHistory } from "./miniIndex/indexes/editHistory";
+import { analyzeEditHistory } from "./contentIndexes/indexes/editHistory";
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
 import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";

@@ -1,80 +1,67 @@
 import * as vscode from "vscode";
-import { SplashScreenProvider, SyncDetails } from "./SplashScreenProvider";
+import { SplashScreenProvider } from "./SplashScreenProvider";
+import { ActivationTiming } from "../../extension";
 
 let splashScreenProvider: SplashScreenProvider | undefined;
-let isClosing = false;
-let onSplashScreenClosedCallback: (() => Promise<void>) | undefined;
+let splashScreenTimer: NodeJS.Timer | undefined;
 
-export function registerSplashScreenProvider(
-    context: vscode.ExtensionContext
-): SplashScreenProvider {
+export function registerSplashScreenProvider(context: vscode.ExtensionContext) {
     splashScreenProvider = new SplashScreenProvider(context.extensionUri);
-    return splashScreenProvider;
+    context.subscriptions.push(splashScreenProvider);
 }
 
-export function showSplashScreen(activationStart: number): void {
+export async function showSplashScreen(activationStart: number) {
     if (!splashScreenProvider) {
-        console.error("Splash screen provider not initialized");
-        return;
-    }
-    splashScreenProvider.show(activationStart);
-}
-
-export function updateSplashScreenTimings(timings: any[]): void {
-    if (!splashScreenProvider) return;
-
-    splashScreenProvider.updateTimings(timings);
-}
-
-export function updateSyncProgress(details: SyncDetails): void {
-    if (!splashScreenProvider) return;
-
-    splashScreenProvider.updateSyncDetails(details);
-}
-
-export function closeSplashScreen(callback?: () => Promise<void>): void {
-    if (isClosing) return;
-    isClosing = true;
-
-    if (callback) {
-        onSplashScreenClosedCallback = callback;
-    }
-
-    if (!splashScreenProvider) {
-        // Provider not available, but we should still call callback
-        if (onSplashScreenClosedCallback) {
-            onSplashScreenClosedCallback().catch((error) => {
-                console.error("Error in splash screen closed callback:", error);
-            });
-            onSplashScreenClosedCallback = undefined;
-        }
+        console.error("[SplashScreen] Provider not registered");
         return;
     }
 
-    splashScreenProvider.markComplete();
+    await splashScreenProvider.show(activationStart);
 
-    // Check if panel exists before setting up the listener
-    if (!splashScreenProvider.panel) {
-        if (onSplashScreenClosedCallback) {
-            onSplashScreenClosedCallback().catch((error) => {
-                console.error("Error in splash screen closed callback:", error);
-            });
-            onSplashScreenClosedCallback = undefined;
+    // Keep the splash screen focused by periodically checking
+    splashScreenTimer = setInterval(() => {
+        if (splashScreenProvider?.panel?.visible) {
+            // Ensure the splash screen stays visible and in focus
+            splashScreenProvider.panel.reveal(vscode.ViewColumn.One, true);
+        } else {
+            // Stop checking if panel is gone
+            if (splashScreenTimer) {
+                clearInterval(splashScreenTimer);
+                splashScreenTimer = undefined;
+            }
         }
-        isClosing = false;
-        return;
+    }, 500);
+}
+
+export function updateSplashScreenTimings(timings: ActivationTiming[]) {
+    if (splashScreenProvider) {
+        splashScreenProvider.updateTimings(timings);
+    }
+}
+
+export function updateSplashScreenSync(progress: number, message: string, currentFile?: string) {
+    if (splashScreenProvider) {
+        splashScreenProvider.updateSyncDetails({ progress, message, currentFile });
+    }
+}
+
+export function closeSplashScreen(callback?: () => void | Promise<void>) {
+    if (splashScreenTimer) {
+        clearInterval(splashScreenTimer);
+        splashScreenTimer = undefined;
     }
 
-    // Listen for the panel being disposed
-    const disposable = splashScreenProvider.panel.onDidDispose(() => {
-        disposable.dispose();
-        isClosing = false;
+    if (splashScreenProvider) {
+        splashScreenProvider.markComplete();
 
-        if (onSplashScreenClosedCallback) {
-            onSplashScreenClosedCallback().catch((error) => {
-                console.error("Error in splash screen closed callback:", error);
-            });
-            onSplashScreenClosedCallback = undefined;
-        }
-    });
+        // Give the animation time to complete before closing
+        setTimeout(async () => {
+            splashScreenProvider?.close();
+            if (callback) {
+                await callback();
+            }
+        }, 1500);
+    } else if (callback) {
+        callback();
+    }
 }

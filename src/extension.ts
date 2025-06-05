@@ -18,7 +18,7 @@ import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
 } from "./projectManager/utils/migrationUtils";
-import { createIndexWithContext } from "./activationHelpers/contextAware/miniIndex/indexes";
+import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
 import { registerNewSourceUploadCommands } from "./providers/NewSourceUploader/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
@@ -34,7 +34,7 @@ import {
     createTableIndexes,
     parseTableFile,
     TableRecord,
-} from "./activationHelpers/contextAware/miniIndex/indexes/dynamicTableIndex";
+} from "./activationHelpers/contextAware/contentIndexes/indexes/dynamicTableIndex";
 import MiniSearch from "minisearch";
 import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCommands";
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";

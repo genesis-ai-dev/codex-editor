@@ -14,7 +14,7 @@ import {
     CodexNotebookAsJSONData,
 } from "../../types";
 import { CodexCellTypes } from "../../types/enums";
-import { fileTypeMap } from "../projectManager/translationImporter";
+import { fileTypeMap } from "../projectManager/fileTypeMap_deprecated";
 import { WebVTTParser } from "webvtt-parser";
 import * as path from "path";
 import { generateChildCellId } from "../providers/codexCellEditorProvider/utils/cellUtils";

@@ -23,6 +23,14 @@ function debug(...args: any[]): void {
     }
 }
 
+interface AlignedCell {
+    notebookCell: vscode.NotebookCell | null;
+    importedContent: ImportedContent;
+    isParatext?: boolean;
+    // Added: Indicates if this cell is an additional overlap
+    isAdditionalOverlap?: boolean;
+}
+
 type CellAligner = (
     notebookCells: vscode.NotebookCell[],
     importedContent: ImportedContent[]
@@ -39,13 +47,13 @@ export const fileTypeMap: FileTypeMap = {
     codex: "codex",
 };
 
-interface AlignedCell {
-    notebookCell: vscode.NotebookCell | null;
-    importedContent: ImportedContent;
-    isParatext?: boolean;
-    // Added: Indicates if this cell is an additional overlap
-    isAdditionalOverlap?: boolean;
-}
+// interface AlignedCell {
+//     notebookCell: vscode.NotebookCell | null;
+//     importedContent: ImportedContent;
+//     isParatext?: boolean;
+//     // Added: Indicates if this cell is an additional overlap
+//     isAdditionalOverlap?: boolean;
+// }
 
 export async function importTranslations(
     context: vscode.ExtensionContext,
@@ -73,7 +81,7 @@ export async function importTranslations(
         debug("File content (first 100 characters):", fileContentString.substring(0, 100));
         debug("File content length:", fileContentString.length);
 
-        const fileType = fileExtension as FileType || "plaintext";
+        const fileType = (fileExtension as FileType) || "plaintext";
 
         debug("File type", fileType);
 

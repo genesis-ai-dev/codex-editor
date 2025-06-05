@@ -2,9 +2,13 @@ import MiniSearch from "minisearch";
 import * as vscode from "vscode";
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
 import { searchTranslationPairs } from "./translationPairsIndex";
+import { SQLiteIndexManager } from "./sqliteIndex";
+
+// Create a type that can be either MiniSearch or SQLiteIndexManager
+type IndexType = MiniSearch | SQLiteIndexManager;
 
 export function searchTargetCellsByQuery(
-    translationPairsIndex: MiniSearch,
+    translationPairsIndex: IndexType,
     query: string,
     k: number = 5,
     fuzziness: number = 0.2
@@ -20,13 +24,28 @@ export function searchTargetCellsByQuery(
         .slice(0, k);
 }
 
-export function getSourceCellByCellIdFromAllSourceCells(
-    sourceTextIndex: MiniSearch,
+export async function getSourceCellByCellIdFromAllSourceCells(
+    sourceTextIndex: IndexType,
     cellId: string
-): SourceCellVersions | null {
-    const searchResults: SourceCellVersions | null = sourceTextIndex.getStoredFields(
-        cellId
-    ) as SourceCellVersions | null;
+): Promise<SourceCellVersions | null> {
+    // Handle SQLiteIndexManager
+    if (sourceTextIndex instanceof SQLiteIndexManager) {
+        const result = await sourceTextIndex.getById(cellId);
+        if (result) {
+            return {
+                cellId: result.cellId,
+                content: result.content,
+                versions: result.versions || [],
+                notebookId: result.notebookId || "",
+            };
+        }
+        return null;
+    }
+
+    // Handle MiniSearch
+    const searchResults: SourceCellVersions | null = (
+        sourceTextIndex as MiniSearch
+    ).getStoredFields(cellId) as SourceCellVersions | null;
 
     if (searchResults) {
         return {
@@ -40,23 +59,24 @@ export function getSourceCellByCellIdFromAllSourceCells(
     return null;
 }
 
-export function getTargetCellByCellId(translationPairsIndex: MiniSearch, cellId: string) {
-    const results = translationPairsIndex.search(cellId);
-    const result = results.find((result) => result.cellId === cellId);
+export async function getTargetCellByCellId(translationPairsIndex: IndexType, cellId: string) {
+    const results = await translationPairsIndex.search(cellId);
+    const result = results.find((result: any) => result.cellId === cellId);
     return result ? result : null;
 }
 
-export function getTranslationPairFromProject(
-    translationPairsIndex: MiniSearch,
-    sourceTextIndex: MiniSearch,
+export async function getTranslationPairFromProject(
+    translationPairsIndex: IndexType,
+    sourceTextIndex: IndexType,
     cellId: string
-): TranslationPair | null {
+): Promise<TranslationPair | null> {
     // First, try to find a complete pair in the translationPairsIndex
-    const translationPairResult = translationPairsIndex.search(cellId, {
+    const searchResults = await translationPairsIndex.search(cellId, {
         fields: ["cellId"],
         combineWith: "AND",
-        filter: (result) => result.cellId === cellId,
-    })[0];
+        filter: (result: any) => result.cellId === cellId,
+    });
+    const translationPairResult = searchResults[0];
 
     if (translationPairResult) {
         return {
@@ -77,7 +97,15 @@ export function getTranslationPairFromProject(
     }
 
     // If no complete pair is found, look for an incomplete pair in the sourceTextIndex
-    const sourceOnlyResult = sourceTextIndex.getStoredFields(cellId) as SourceCellVersions | null;
+    let sourceOnlyResult: SourceCellVersions | null = null;
+
+    if (sourceTextIndex instanceof SQLiteIndexManager) {
+        sourceOnlyResult = await sourceTextIndex.getById(cellId);
+    } else {
+        sourceOnlyResult = (sourceTextIndex as MiniSearch).getStoredFields(
+            cellId
+        ) as SourceCellVersions | null;
+    }
 
     if (sourceOnlyResult) {
         return {
@@ -99,7 +127,7 @@ export function getTranslationPairFromProject(
 }
 
 export function getTranslationPairsFromSourceCellQuery(
-    translationPairsIndex: MiniSearch,
+    translationPairsIndex: IndexType,
     query: string,
     k: number = 5
 ): TranslationPair[] {
@@ -133,7 +161,7 @@ export function getTranslationPairsFromSourceCellQuery(
         });
     }
 
-    return results.slice(0, k).map((result) => ({
+    return results.slice(0, k).map((result: any) => ({
         cellId: result.cellId,
         sourceCell: {
             cellId: result.cellId,
@@ -150,22 +178,22 @@ export function getTranslationPairsFromSourceCellQuery(
     }));
 }
 
-export function handleTextSelection(translationPairsIndex: MiniSearch, selectedText: string) {
+export function handleTextSelection(translationPairsIndex: IndexType, selectedText: string) {
     return searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
 export function searchParallelCells(
-    translationPairsIndex: MiniSearch,
-    sourceTextIndex: MiniSearch,
+    translationPairsIndex: IndexType,
+    sourceTextIndex: IndexType,
     query: string,
     k: number = 15
 ): TranslationPair[] {
     // Search only for complete translation pairs
-    return searchTranslationPairs(translationPairsIndex, query, false, k);
+    return searchTranslationPairs(translationPairsIndex as any, query, false, k);
 }
 
 export function searchSimilarCellIds(
-    translationPairsIndex: MiniSearch,
+    translationPairsIndex: IndexType,
     cellId: string,
     k: number = 5,
     fuzziness: number = 0.2
@@ -182,7 +210,7 @@ export function searchSimilarCellIds(
                 boost: { cellId: 2 },
             })
             .slice(0, k)
-            .map((result) => ({
+            .map((result: any) => ({
                 cellId: result.cellId,
                 score: result.score,
             }));
@@ -197,20 +225,20 @@ export function searchSimilarCellIds(
             combineWith: "AND",
         })
         .slice(0, k)
-        .map((result) => ({
+        .map((result: any) => ({
             cellId: result.cellId,
             score: result.score,
         }));
 }
 
 export async function findNextUntranslatedSourceCell(
-    sourceTextIndex: MiniSearch,
-    translationPairsIndex: MiniSearch,
+    sourceTextIndex: IndexType,
+    translationPairsIndex: IndexType,
     query: string,
     currentCellId: string
 ): Promise<{ cellId: string; content: string } | null> {
     // Search for similar source cells
-    const searchResults = sourceTextIndex.search(query, {
+    const searchResults = await sourceTextIndex.search(query, {
         boost: { content: 2 },
         fuzzy: 0.2,
     });
@@ -218,11 +246,11 @@ export async function findNextUntranslatedSourceCell(
     // Filter out the current cell and cells that already have translations
     for (const result of searchResults) {
         if (result.cellId !== currentCellId) {
-            const hasTranslation =
-                translationPairsIndex.search(result.cellId, {
-                    fields: ["cellId"],
-                    combineWith: "AND",
-                }).length > 0;
+            const translationResults = await translationPairsIndex.search(result.cellId, {
+                fields: ["cellId"],
+                combineWith: "AND",
+            });
+            const hasTranslation = translationResults.length > 0;
 
             if (!hasTranslation) {
                 return {
@@ -237,15 +265,15 @@ export async function findNextUntranslatedSourceCell(
 }
 
 export function searchAllCells(
-    translationPairsIndex: MiniSearch,
-    sourceTextIndex: MiniSearch,
+    translationPairsIndex: IndexType,
+    sourceTextIndex: IndexType,
     query: string,
     k: number = 15,
     includeIncomplete: boolean = true
 ): TranslationPair[] {
     // Search translation pairs with boosted weights for complete pairs and target content
     const translationPairs = searchTranslationPairs(
-        translationPairsIndex,
+        translationPairsIndex as any,
         query,
         includeIncomplete,
         k,
@@ -264,7 +292,7 @@ export function searchAllCells(
                 fuzzy: 0.2,
                 boost: { content: 2 },
             })
-            .map((result) => ({
+            .map((result: any) => ({
                 cellId: result.cellId,
                 sourceCell: {
                     cellId: result.cellId,

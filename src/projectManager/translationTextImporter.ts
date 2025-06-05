@@ -1,10 +1,13 @@
 import * as vscode from "vscode";
-import { NotebookMetadataManager, getNotebookMetadataManager } from "../utils/notebookMetadataManager";
+import {
+    NotebookMetadataManager,
+    getNotebookMetadataManager,
+} from "../utils/notebookMetadataManager";
 import { CodexContentSerializer } from "../serializer";
 import * as path from "path";
 import { WebVTTParser } from "webvtt-parser";
 import { SupportedFileExtension, FileTypeMap, ImportedContent } from "../../types";
-import { fileTypeMap } from "./translationImporter";
+import { fileTypeMap } from "./fileTypeMap_deprecated";
 
 export async function importTranslations(
     context: vscode.ExtensionContext,

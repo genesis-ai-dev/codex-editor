@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { llmCompletion } from "./llmCompletion";
-// import { getAiTranslation } from "./aiZeroDraftProvider";
 import { meshCompletion } from "../../utils/completionUtils";
 import { CodexNotebookReader } from "../../serializer";
 
