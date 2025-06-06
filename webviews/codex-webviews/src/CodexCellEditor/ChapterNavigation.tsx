@@ -715,7 +715,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
                         {renderCellTypeCard(
                             'fully-validated',
                             'Fully Validated',
-                            'Cells already fully validated by other users',
+                            'Cells already fully validated by other users, but not by you',
                             <i className="codicon codicon-check-all" style={{ 
                                 fontSize: "16px",
                                 color: includeFullyValidatedByOthers 
