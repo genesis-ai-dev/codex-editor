@@ -58,7 +58,7 @@ export async function openBookNameEditor() {
     }
 
     // Load localized books if present
-    let localizedBooks: Record<string, string> = {};
+    const localizedBooks: Record<string, string> = {};
     try {
         if (fs.existsSync(localizedPath)) {
             const raw = fs.readFileSync(localizedPath, "utf8");
@@ -201,7 +201,7 @@ export async function openBookNameEditor() {
                             const xmlBooks: Record<string, any> = {};
                             books.forEach((book: any) => {
                                 const abbr = book.code;
-                                let name = book[nameType]; // Use the selected name type
+                                const name = book[nameType]; // Use the selected name type
 
                                 if (abbr && name) {
                                     xmlBooks[abbr] = name;

@@ -19,6 +19,7 @@ interface AutocompleteModalProps {
     onClose: () => void;
     onConfirm: (
         numberOfCells: number,
+        includeEmptyCells: boolean,
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean,
         includeFullyValidatedByOthers: boolean
@@ -367,27 +368,45 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
 
     // Calculate the effective total cells based on selected options
     useEffect(() => {
-        let total = 0;
+        // Now that we handle selections additively, we need to calculate the total differently
+        // We need to avoid double-counting overlapping cells
         
+        let total = 0;
+        const cellIdsSeen = new Set<string>();
+        
+        // Helper to count unique cells from a set
+        const countUniqueCells = (cells: any[]) => {
+            const uniqueCells = cells.filter(cell => {
+                const cellId = cell.cellMarkers?.[0] || cell.id;
+                if (cellIdsSeen.has(cellId)) {
+                    return false;
+                }
+                cellIdsSeen.add(cellId);
+                return true;
+            });
+            total += uniqueCells.length;
+        };
+        
+        // Note: We don't have access to the actual cell arrays here, so we'll approximate
+        // This is not perfect but gives a reasonable estimate for the UI
         if (includeEmptyCells) {
             total += totalUntranslatedCells;
         }
         
         if (includeNotValidatedByAnyUser) {
-            // Add cells with content but no validation
-            total += totalCellsToAutocomplete - totalUntranslatedCells;
+            // Add cells with content but no validators (approximate)
+            const cellsWithContentButNoValidators = totalCellsToAutocomplete - totalUntranslatedCells;
+            total += cellsWithContentButNoValidators;
         }
-
+        
         if (includeNotValidatedByCurrentUser) {
-            // Add cells validated by others but not by current user
-            // Avoid double-counting
-            const additionalCells = totalCellsWithCurrentUserOption - 
-                (includeNotValidatedByAnyUser ? totalCellsToAutocomplete : totalUntranslatedCells);
-            total += Math.max(0, additionalCells);
+            // Add cells validated by others but not current user (approximate)
+            const cellsValidatedByOthersButNotCurrentUser = totalCellsWithCurrentUserOption - totalCellsToAutocomplete;
+            total += cellsValidatedByOthersButNotCurrentUser;
         }
         
         if (includeFullyValidatedByOthers) {
-            // Add fully validated cells by others
+            // Add fully validated cells (these don't overlap with the above)
             total += totalFullyValidatedByOthers;
         }
 
@@ -442,6 +461,7 @@ const AutocompleteModal: React.FC<AutocompleteModalProps> = ({
     const handleConfirm = () => {
         onConfirm(
             numberOfCellsToAutocomplete,
+            includeEmptyCells,
             includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser,
             includeFullyValidatedByOthers
@@ -1428,6 +1448,7 @@ interface ChapterNavigationProps {
     unsavedChanges: boolean;
     onAutocompleteChapter: (
         numberOfCells: number,
+        includeEmptyCells: boolean,
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean,
         includeFullyValidatedByOthers: boolean
@@ -1443,6 +1464,7 @@ interface ChapterNavigationProps {
     totalUntranslatedCells: number;
     totalCellsToAutocomplete: number;
     totalCellsWithCurrentUserOption: number;
+    totalFullyValidatedCells: number;
     openSourceText: (chapterNumber: number) => void;
     shouldShowVideoPlayer: boolean;
     setShouldShowVideoPlayer: React.Dispatch<React.SetStateAction<boolean>>;
@@ -1484,6 +1506,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
     totalUntranslatedCells,
     totalCellsToAutocomplete,
     totalCellsWithCurrentUserOption,
+    totalFullyValidatedCells,
     openSourceText,
     shouldShowVideoPlayer,
     setShouldShowVideoPlayer,
@@ -1548,12 +1571,14 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
 
     const handleConfirmAutocomplete = (
         numberOfCells: number,
+        includeEmptyCells: boolean,
         includeNotValidatedByAnyUser: boolean,
         includeNotValidatedByCurrentUser: boolean,
         includeFullyValidatedByOthers = false
     ) => {
         console.log("Confirm autocomplete:", {
             numberOfCells,
+            includeEmptyCells,
             includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser,
             includeFullyValidatedByOthers,
@@ -1562,6 +1587,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
         });
         onAutocompleteChapter(
             numberOfCells,
+            includeEmptyCells,
             includeNotValidatedByAnyUser,
             includeNotValidatedByCurrentUser,
             includeFullyValidatedByOthers
@@ -2015,7 +2041,7 @@ const ChapterNavigation: React.FC<ChapterNavigationProps> = ({
                             totalUntranslatedCells={totalUntranslatedCells}
                             totalCellsToAutocomplete={totalCellsToAutocomplete}
                             totalCellsWithCurrentUserOption={totalCellsWithCurrentUserOption}
-                            totalFullyValidatedByOthers={Math.round(totalCellsWithCurrentUserOption * 0.2)}
+                            totalFullyValidatedByOthers={totalFullyValidatedCells}
                             defaultValue={Math.min(
                                 5,
                                 totalUntranslatedCells > 0 ? totalUntranslatedCells : 5

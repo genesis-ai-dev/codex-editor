@@ -538,9 +538,10 @@ const CodexCellEditor: React.FC = () => {
                     ? unit.editHistory[unit.editHistory.length - 1]
                     : null;
 
-            // Check if the latest edit has no validators
-            const hasNoValidators =
-                latestEdit && (!latestEdit.validatedBy || latestEdit.validatedBy.length === 0);
+            // Check if the latest edit has no active (non-deleted) validators
+            const hasNoValidators = !latestEdit || 
+                !latestEdit.validatedBy || 
+                latestEdit.validatedBy.filter(v => v && typeof v === 'object' && !v.isDeleted).length === 0;
 
             return hasNoContent || hasNoValidators;
         });
@@ -549,36 +550,10 @@ const CodexCellEditor: React.FC = () => {
         return result;
     }, [translationUnitsForSection]);
 
-    // Cells with no content, no validators, or not validated by current user
+    // Cells with no content, no validators, or not validated by current user (but not fully validated)
     const untranslatedOrNotValidatedByCurrentUserUnitsForSection = useMemo(() => {
         const currentUsername = username || "anonymous";
-        debug("autocomplete", "Calculating cells including not validated by current user...");
-        debug("autocomplete", "Current username:", currentUsername);
-        debug("autocomplete", "Total cells to process:", translationUnitsForSection.length);
-
-        // For debugging, show details of each cell's validation
-        translationUnitsForSection.forEach((unit, index) => {
-            const latestEdit =
-                unit.editHistory && unit.editHistory.length > 0
-                    ? unit.editHistory[unit.editHistory.length - 1]
-                    : null;
-
-            debug("autocomplete", `Cell ${index + 1} details:`, {
-                content:
-                    unit.cellContent.substring(0, 30) + (unit.cellContent.length > 30 ? "..." : ""),
-                hasContent: !!unit.cellContent.trim(),
-                hasLatestEdit: !!latestEdit,
-                hasValidators:
-                    latestEdit && latestEdit.validatedBy && latestEdit.validatedBy.length > 0,
-                validatorCount: latestEdit?.validatedBy?.length || 0,
-                validators:
-                    latestEdit?.validatedBy?.map((v) => ({
-                        username: v.username,
-                        isDeleted: v.isDeleted,
-                        isCurrentUser: v.username === currentUsername,
-                    })) || [],
-            });
-        });
+        const VALIDATION_THRESHOLD = 2;
 
         const result = translationUnitsForSection.filter((unit, index) => {
             // Check if the cell is empty
@@ -590,35 +565,82 @@ const CodexCellEditor: React.FC = () => {
                     ? unit.editHistory[unit.editHistory.length - 1]
                     : null;
 
-            // Check if the latest edit has no validators
-            const hasNoValidators =
-                latestEdit && (!latestEdit.validatedBy || latestEdit.validatedBy.length === 0);
+            // Check if the latest edit has no active (non-deleted) validators
+            const activeValidators = latestEdit?.validatedBy?.filter(v => 
+                v && typeof v === 'object' && !v.isDeleted
+            ) || [];
+            const hasNoValidators = activeValidators.length === 0;
+
+            // Check if cell is fully validated (exclude from this category)
+            const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
 
             // Check if the cell is not validated by the current user
             let notValidatedByCurrentUser = false;
 
-            // Only check for user validation if we have a valid username
-            if (
-                latestEdit &&
-                latestEdit.validatedBy &&
-                latestEdit.validatedBy.length > 0 &&
-                currentUsername
-            ) {
-                // Cell is not validated by current user if:
-                // 1. Current user is not in the validatedBy array, OR
-                // 2. Current user is in the array but with isDeleted=true
-                const currentUserValidation = latestEdit.validatedBy.find(
-                    (v) => v.username === currentUsername
-                );
-
-                notValidatedByCurrentUser =
-                    !currentUserValidation || currentUserValidation.isDeleted;
+            // Only check for user validation if we have a valid username and the cell has content
+            if (latestEdit && currentUsername && !hasNoContent) {
+                if (activeValidators.length === 0) {
+                    // If there are no validators at all, current user hasn't validated it
+                    notValidatedByCurrentUser = true;
+                } else {
+                    // If there are validators, check if current user is among them
+                    const currentUserValidation = activeValidators.find(
+                        (v) => v.username === currentUsername
+                    );
+                    notValidatedByCurrentUser = !currentUserValidation;
+                }
             }
 
-            const shouldInclude = hasNoContent || hasNoValidators || notValidatedByCurrentUser;
+            // Include cell if it's empty, has no validators, or not validated by current user
+            // BUT exclude fully validated cells (they go in their own category)
+            const shouldInclude = (hasNoContent || hasNoValidators || notValidatedByCurrentUser) && !isFullyValidated;
+            
             return shouldInclude;
         });
 
+        return result;
+    }, [translationUnitsForSection, username]);
+
+    // Cells that are fully validated but not by the current user
+    const fullyValidatedUnitsForSection = useMemo(() => {
+        const VALIDATION_THRESHOLD = 2; // Require 2 checkmarks for full validation
+        const currentUsername = username || "anonymous";
+        
+        const result = translationUnitsForSection.filter((unit, index) => {
+            // Skip empty cells
+            if (!unit.cellContent.trim()) {
+                return false;
+            }
+
+            // Get the latest edit
+            const latestEdit = unit.editHistory && unit.editHistory.length > 0
+                ? unit.editHistory[unit.editHistory.length - 1]
+                : null;
+
+            if (!latestEdit) {
+                return false;
+            }
+
+            // Count only active (non-deleted) validators
+            const activeValidators = latestEdit.validatedBy?.filter(v => 
+                v && typeof v === 'object' && !v.isDeleted
+            ) || [];
+
+            // Check if cell has reached the validation threshold (is fully validated)
+            const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
+            
+            // Check if current user is among the validators
+            const currentUserHasValidated = activeValidators.some(v => v.username === currentUsername);
+            
+            // Include cell if:
+            // 1. It is fully validated (reached threshold) AND
+            // 2. Current user has NOT validated it
+            const shouldInclude = isFullyValidated && !currentUserHasValidated;
+
+            return shouldInclude;
+        });
+
+        debug("autocomplete", "Fully validated cells not validated by current user:", result.length);
         return result;
     }, [translationUnitsForSection, username]);
 
@@ -638,37 +660,107 @@ const CodexCellEditor: React.FC = () => {
 
     const handleAutocompleteChapter = (
         numberOfCells: number,
+        includeEmptyCells: boolean,
         includeNotValidatedByAnyUser: boolean,
-        includeNotValidatedByCurrentUser: boolean
+        includeNotValidatedByCurrentUser: boolean,
+        includeFullyValidatedByOthers: boolean = false
     ) => {
-        debug("autocomplete", "Requesting autocomplete chapter:", {
-            numberOfCells,
-            includeNotValidatedByAnyUser,
-            includeNotValidatedByCurrentUser,
-        });
+        // Build the cell list based on selected options
+        let cellsToAutocomplete: QuillCellContent[] = [];
+        const cellIdsSeen = new Set<string>();
 
-        // Choose which set of cells to use based on the include options
-        let cellsToAutocomplete;
+        // Helper function to add cells without duplicates
+        const addCells = (cells: QuillCellContent[]) => {
+            const newCells = cells.filter(cell => {
+                const cellId = cell.cellMarkers[0];
+                if (cellIdsSeen.has(cellId)) {
+                    return false;
+                }
+                cellIdsSeen.add(cellId);
+                return true;
+            });
+            cellsToAutocomplete.push(...newCells);
+        };
 
-        if (includeNotValidatedByCurrentUser) {
-            // Include cells not validated by current user (most inclusive option)
-            cellsToAutocomplete = untranslatedOrNotValidatedByCurrentUserUnitsForSection.slice(
-                0,
-                numberOfCells
-            );
-        } else if (includeNotValidatedByAnyUser) {
-            // Include cells not validated by any user (middle option)
-            cellsToAutocomplete = untranslatedOrUnvalidatedUnitsForSection.slice(0, numberOfCells);
-        } else {
-            // Only include cells with no content (least inclusive option)
-            cellsToAutocomplete = untranslatedCellsForSection.slice(0, numberOfCells);
+        // Add cells based on individual selections
+        // We need to create specific filtered sets for each option to avoid overlaps
+        
+        if (includeEmptyCells) {
+            // Add only empty cells
+            addCells(untranslatedCellsForSection);
         }
 
-        // Send the request to the provider - it will handle all state updates
+        if (includeNotValidatedByAnyUser) {
+            // Add cells with content but no validators (excluding empty cells if already added)
+            const cellsWithContentButNoValidators = untranslatedOrUnvalidatedUnitsForSection.filter(unit => {
+                // Only include if it has content (not empty)
+                return unit.cellContent.trim() !== "";
+            });
+            addCells(cellsWithContentButNoValidators);
+        }
+
+        if (includeNotValidatedByCurrentUser) {
+            // Add cells not validated by current user BUT exclude fully validated cells
+            const currentUsername = username || "anonymous";
+            const VALIDATION_THRESHOLD = 2;
+            
+            const cellsNotValidatedByCurrentUser = translationUnitsForSection.filter(unit => {
+                // Must have content
+                if (!unit.cellContent.trim()) {
+                    return false;
+                }
+
+                // Get the latest edit
+                const latestEdit = unit.editHistory && unit.editHistory.length > 0
+                    ? unit.editHistory[unit.editHistory.length - 1]
+                    : null;
+
+                if (!latestEdit) {
+                    return false;
+                }
+
+                // Get active validators
+                const activeValidators = latestEdit.validatedBy?.filter(v => 
+                    v && typeof v === 'object' && !v.isDeleted
+                ) || [];
+
+                // Skip cells that are fully validated (regardless of who validated them)
+                if (activeValidators.length >= VALIDATION_THRESHOLD) {
+                    return false;
+                }
+
+                // Must have some validators (otherwise it would be in "no validators" category)
+                if (activeValidators.length === 0) {
+                    return false;
+                }
+
+                // Current user must not be among the validators
+                return !activeValidators.some(v => v.username === currentUsername);
+            });
+            
+            addCells(cellsNotValidatedByCurrentUser);
+        }
+
+        // Add fully validated cells if requested
+        if (includeFullyValidatedByOthers) {
+            addCells(fullyValidatedUnitsForSection);
+        }
+
+        // Limit to the requested number of cells
+        const selectedCells = cellsToAutocomplete.slice(0, numberOfCells);
+
+        if (selectedCells.length === 0) {
+            vscode.postMessage({
+                command: "showInformationMessage",
+                message: "No cells found matching the selected criteria.",
+            });
+            return;
+        }
+
         vscode.postMessage({
             command: "requestAutocompleteChapter",
-            content: cellsToAutocomplete,
-        } as EditorPostMessages);
+            content: selectedCells,
+        });
     };
 
     const handleStopAutocomplete = () => {
@@ -1245,18 +1337,23 @@ const CodexCellEditor: React.FC = () => {
                             totalCellsWithCurrentUserOption={
                                 untranslatedOrNotValidatedByCurrentUserUnitsForSection.length
                             }
+                            totalFullyValidatedCells={fullyValidatedUnitsForSection.length}
                             setShouldShowVideoPlayer={setShouldShowVideoPlayer}
                             shouldShowVideoPlayer={shouldShowVideoPlayer}
                             unsavedChanges={!!contentBeingUpdated.cellContent}
                             onAutocompleteChapter={(
                                 numberOfCells,
+                                includeEmptyCells,
                                 includeNotValidatedByAnyUser,
-                                includeNotValidatedByCurrentUser
+                                includeNotValidatedByCurrentUser,
+                                includeFullyValidatedByOthers
                             ) => {
                                 debug("autocomplete", "Autocomplete requested with:", {
                                     numberOfCells,
+                                    includeEmptyCells,
                                     includeNotValidatedByAnyUser,
                                     includeNotValidatedByCurrentUser,
+                                    includeFullyValidatedByOthers,
                                     countNoValidators:
                                         untranslatedOrUnvalidatedUnitsForSection.length,
                                     countWithCurrentUser:
@@ -1264,8 +1361,10 @@ const CodexCellEditor: React.FC = () => {
                                 });
                                 handleAutocompleteChapter(
                                     numberOfCells,
+                                    includeEmptyCells,
                                     includeNotValidatedByAnyUser,
-                                    includeNotValidatedByCurrentUser
+                                    includeNotValidatedByCurrentUser,
+                                    includeFullyValidatedByOthers
                                 );
                             }}
                             onStopAutocomplete={handleStopAutocomplete}
