@@ -404,7 +404,7 @@ export class SQLiteIndexManager {
                         if (cleanToken) {
                             return cleanToken
                                 .split(/\s+/)
-                                .map((t) => `${t}*`)
+                                .map((t) => `"${t}"*`)  // Wrap in quotes BEFORE adding wildcard
                                 .join(" ");
                         }
                         return null;
@@ -685,17 +685,21 @@ export class SQLiteIndexManager {
             WHERE cells_fts MATCH ?
         `;
 
+        const params: any[] = [ftsQuery];
+
         if (cellType) {
-            sql += ` AND c.cell_type = '${cellType}'`;
+            sql += ` AND c.cell_type = ?`;
+            params.push(cellType);
         }
 
         sql += ` ORDER BY rank LIMIT ?`;
+        params.push(limit);
 
         const stmt = this.db.prepare(sql);
         const results = [];
 
         try {
-            stmt.bind([ftsQuery, limit]);
+            stmt.bind(params);
             while (stmt.step()) {
                 results.push(stmt.getAsObject());
             }
