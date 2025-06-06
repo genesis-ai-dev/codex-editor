@@ -1030,13 +1030,127 @@ export const handleMessages = async (
             console.log("requestAudioAttachments message received");
             try {
                 const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+
+                // Convert to boolean mapping for webview
+                const audioCells: { [cellId: string]: boolean } = {};
+                for (const cellId of Object.keys(audioAttachments)) {
+                    audioCells[cellId] = true;
+                }
+
                 provider.postMessageToWebview(webviewPanel, {
                     type: "providerSendsAudioAttachments",
-                    attachments: audioAttachments,
+                    attachments: audioCells,
                 });
             } catch (error) {
                 console.error("Error requesting audio attachments:", error);
                 vscode.window.showErrorMessage("Failed to request audio attachments.");
+            }
+            return;
+        }
+        case "requestAudioForCell": {
+            console.log("requestAudioForCell message received for cell:", event.content.cellId);
+            try {
+                const cellId = event.content.cellId;
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    debug("No workspace folder found");
+                    return;
+                }
+
+                // Get the document data to check cell metadata
+                const documentText = document.getText();
+                const notebookData = JSON.parse(documentText);
+
+                // Find the specific cell
+                if (notebookData.cells && Array.isArray(notebookData.cells)) {
+                    const cell = notebookData.cells.find((c: any) => c.metadata?.id === cellId);
+
+                    if (cell?.metadata?.attachments) {
+                        // Check for audio attachments in metadata
+                        for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                            if (attachment && (attachment as any).type === "audio") {
+                                const attachmentPath = (attachment as any).url;
+                                const fullPath = path.isAbsolute(attachmentPath)
+                                    ? attachmentPath
+                                    : path.join(workspaceFolder.uri.fsPath, attachmentPath);
+
+                                try {
+                                    if (fs.existsSync(fullPath)) {
+                                        const fileData = await fs.promises.readFile(fullPath);
+                                        const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
+
+                                        // Send the audio data to the webview
+                                        webviewPanel.webview.postMessage({
+                                            type: "providerSendsAudioData",
+                                            content: {
+                                                cellId: cellId,
+                                                audioId: attachmentId,
+                                                audioData: base64Data
+                                            }
+                                        });
+
+                                        debug("Sent audio data for cell:", cellId);
+                                        return; // Found and sent, we're done
+                                    }
+                                } catch (err) {
+                                    console.error(`Error reading audio file ${fullPath}:`, err);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If no attachment in metadata, check filesystem for legacy files
+                const bookAbbr = cellId.split(' ')[0];
+                const attachmentsPath = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    bookAbbr
+                );
+
+                if (fs.existsSync(attachmentsPath)) {
+                    const files = fs.readdirSync(attachmentsPath);
+                    const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+
+                    for (const audioFile of files) {
+                        if (audioExtensions.some(ext => audioFile.toLowerCase().endsWith(ext))) {
+                            // Check if this file matches the cell
+                            const cellIdPattern = cellId.replace(/[:\s]/g, '_');
+                            if (audioFile.includes(cellIdPattern) || audioFile.includes(cellId)) {
+                                const fullPath = path.join(attachmentsPath, audioFile);
+
+                                try {
+                                    const fileData = await fs.promises.readFile(fullPath);
+                                    const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
+                                        audioFile.endsWith('.mp3') ? 'audio/mp3' :
+                                            audioFile.endsWith('.m4a') ? 'audio/mp4' :
+                                                audioFile.endsWith('.ogg') ? 'audio/ogg' :
+                                                    'audio/wav';
+                                    const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
+
+                                    webviewPanel.webview.postMessage({
+                                        type: "providerSendsAudioData",
+                                        content: {
+                                            cellId: cellId,
+                                            audioId: audioFile.replace(/\.[^/.]+$/, ""),
+                                            audioData: base64Data
+                                        }
+                                    });
+
+                                    debug("Sent legacy audio data for cell:", cellId);
+                                    return; // Found and sent
+                                } catch (err) {
+                                    console.error(`Error reading audio file ${fullPath}:`, err);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                debug("No audio attachment found for cell:", cellId);
+            } catch (error) {
+                console.error("Error requesting audio for cell:", error);
             }
             return;
         }
@@ -1093,6 +1207,18 @@ export const handleMessages = async (
                         audioId: event.content.audioId,
                         success: true
                     }
+                });
+
+                // Rescan and send updated audio attachments
+                const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+                const audioCells: { [cellId: string]: boolean } = {};
+                for (const cellId of Object.keys(updatedAudioAttachments)) {
+                    audioCells[cellId] = true;
+                }
+
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: audioCells as any,
                 });
 
                 debug("Audio attachment saved successfully:", filePath);
@@ -1160,6 +1286,18 @@ export const handleMessages = async (
                         audioId: event.content.audioId,
                         success: true
                     }
+                });
+
+                // Rescan and send updated audio attachments
+                const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+                const audioCells: { [cellId: string]: boolean } = {};
+                for (const cellId of Object.keys(updatedAudioAttachments)) {
+                    audioCells[cellId] = true;
+                }
+
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: audioCells as any,
                 });
 
                 debug("Audio attachment deleted successfully");

@@ -546,7 +546,7 @@ const CellList: React.FC<CellListProps> = ({
                 result.push(
                     <span
                         key={cellMarkers.join(" ")}
-                        style={{ display: "inline-flex", alignItems: "center" }}
+                        style={{ display: "inline-flex", alignItems: "center", width: "100%" }}
                     >
                         <CellEditor
                             cell={translationUnits[i]}

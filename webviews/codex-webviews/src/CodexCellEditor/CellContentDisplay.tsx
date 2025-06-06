@@ -53,8 +53,17 @@ const AudioPlayButton: React.FC<{
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [hasRequested, setHasRequested] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Pre-load audio data when component mounts
+    useEffect(() => {
+        // Request audio data for this specific cell when component mounts
+        vscode.postMessage({
+            command: "requestAudioForCell",
+            content: { cellId },
+        } as EditorPostMessages);
+        setIsLoading(true);
+    }, [cellId, vscode]);
 
     // Listen for audio data messages
     useEffect(() => {
@@ -74,7 +83,6 @@ const AudioPlayButton: React.FC<{
                             const blobUrl = URL.createObjectURL(blob);
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
-                            setHasRequested(true); // Mark as successfully loaded
                         })
                         .catch((error) => {
                             console.error("Error converting audio data:", error);
@@ -94,8 +102,12 @@ const AudioPlayButton: React.FC<{
             if (audioUrl && audioUrl.startsWith("blob:")) {
                 URL.revokeObjectURL(audioUrl);
             }
+            // Stop audio if playing when unmounting
+            if (audioRef.current && isPlaying) {
+                audioRef.current.pause();
+            }
         };
-    }, [audioUrl]);
+    }, [audioUrl, isPlaying]);
 
     const handlePlayAudio = async () => {
         try {
@@ -107,16 +119,6 @@ const AudioPlayButton: React.FC<{
                 }
                 setIsPlaying(false);
             } else {
-                // Request audio data if we don't have it yet and haven't requested before
-                if (!audioUrl && !hasRequested && !isLoading) {
-                    setIsLoading(true);
-                    setHasRequested(true);
-                    vscode.postMessage({
-                        command: "requestAudioAttachments",
-                    });
-                    return;
-                }
-
                 // If we're still loading or don't have audio URL, just return
                 if (!audioUrl || isLoading) {
                     return;
@@ -147,11 +149,11 @@ const AudioPlayButton: React.FC<{
             onClick={handlePlayAudio}
             className="audio-play-button"
             title={isPlaying ? "Stop audio" : isLoading ? "Loading audio..." : "Play audio"}
-            disabled={isLoading}
+            disabled={isLoading || !audioUrl}
             style={{
                 background: "none",
                 border: "none",
-                cursor: isLoading ? "wait" : "pointer",
+                cursor: isLoading || !audioUrl ? "wait" : "pointer",
                 padding: "4px",
                 borderRadius: "4px",
                 display: "flex",
@@ -159,11 +161,11 @@ const AudioPlayButton: React.FC<{
                 justifyContent: "center",
                 marginLeft: "8px",
                 color: "var(--vscode-foreground)",
-                opacity: isLoading ? 0.5 : 0.7,
+                opacity: isLoading || !audioUrl ? 0.5 : 0.7,
                 transition: "opacity 0.2s",
             }}
-            onMouseEnter={(e) => !isLoading && (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => !isLoading && (e.currentTarget.style.opacity = "0.7")}
+            onMouseEnter={(e) => !isLoading && audioUrl && (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => !isLoading && audioUrl && (e.currentTarget.style.opacity = "0.7")}
         >
             <i
                 className={`codicon ${

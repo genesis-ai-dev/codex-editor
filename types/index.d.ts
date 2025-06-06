@@ -696,6 +696,7 @@ export type EditorPostMessages =
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string } }
     | { command: "triggerSync" }
     | { command: "requestAudioAttachments" }
+    | { command: "requestAudioForCell"; content: { cellId: string } }
     | {
         command: "saveAudioAttachment";
         content: {
@@ -888,7 +889,7 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: string }; // cellId -> audio file path
+        attachments: { [cellId: string]: boolean }; // true if cell has audio
     }
     | {
         type: "providerSendsAudioData";

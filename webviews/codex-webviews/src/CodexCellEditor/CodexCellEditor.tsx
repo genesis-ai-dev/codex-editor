@@ -426,6 +426,11 @@ const CodexCellEditor: React.FC = () => {
         debug("editor", "Closing editor");
         setContentBeingUpdated({} as EditorCellContent);
         setUnsavedChanges(false);
+
+        // Request updated audio attachments when closing editor
+        vscode.postMessage({
+            command: "requestAudioAttachments",
+        } as EditorPostMessages);
     };
 
     const handleSaveHtml = () => {
@@ -539,9 +544,11 @@ const CodexCellEditor: React.FC = () => {
                     : null;
 
             // Check if the latest edit has no active (non-deleted) validators
-            const hasNoValidators = !latestEdit || 
-                !latestEdit.validatedBy || 
-                latestEdit.validatedBy.filter(v => v && typeof v === 'object' && !v.isDeleted).length === 0;
+            const hasNoValidators =
+                !latestEdit ||
+                !latestEdit.validatedBy ||
+                latestEdit.validatedBy.filter((v) => v && typeof v === "object" && !v.isDeleted)
+                    .length === 0;
 
             return hasNoContent || hasNoValidators;
         });
@@ -566,9 +573,10 @@ const CodexCellEditor: React.FC = () => {
                     : null;
 
             // Check if the latest edit has no active (non-deleted) validators
-            const activeValidators = latestEdit?.validatedBy?.filter(v => 
-                v && typeof v === 'object' && !v.isDeleted
-            ) || [];
+            const activeValidators =
+                latestEdit?.validatedBy?.filter(
+                    (v) => v && typeof v === "object" && !v.isDeleted
+                ) || [];
             const hasNoValidators = activeValidators.length === 0;
 
             // Check if cell is fully validated (exclude from this category)
@@ -593,8 +601,9 @@ const CodexCellEditor: React.FC = () => {
 
             // Include cell if it's empty, has no validators, or not validated by current user
             // BUT exclude fully validated cells (they go in their own category)
-            const shouldInclude = (hasNoContent || hasNoValidators || notValidatedByCurrentUser) && !isFullyValidated;
-            
+            const shouldInclude =
+                (hasNoContent || hasNoValidators || notValidatedByCurrentUser) && !isFullyValidated;
+
             return shouldInclude;
         });
 
@@ -605,7 +614,7 @@ const CodexCellEditor: React.FC = () => {
     const fullyValidatedUnitsForSection = useMemo(() => {
         const VALIDATION_THRESHOLD = 2; // Require 2 checkmarks for full validation
         const currentUsername = username || "anonymous";
-        
+
         const result = translationUnitsForSection.filter((unit, index) => {
             // Skip empty cells
             if (!unit.cellContent.trim()) {
@@ -613,25 +622,28 @@ const CodexCellEditor: React.FC = () => {
             }
 
             // Get the latest edit
-            const latestEdit = unit.editHistory && unit.editHistory.length > 0
-                ? unit.editHistory[unit.editHistory.length - 1]
-                : null;
+            const latestEdit =
+                unit.editHistory && unit.editHistory.length > 0
+                    ? unit.editHistory[unit.editHistory.length - 1]
+                    : null;
 
             if (!latestEdit) {
                 return false;
             }
 
             // Count only active (non-deleted) validators
-            const activeValidators = latestEdit.validatedBy?.filter(v => 
-                v && typeof v === 'object' && !v.isDeleted
-            ) || [];
+            const activeValidators =
+                latestEdit.validatedBy?.filter((v) => v && typeof v === "object" && !v.isDeleted) ||
+                [];
 
             // Check if cell has reached the validation threshold (is fully validated)
             const isFullyValidated = activeValidators.length >= VALIDATION_THRESHOLD;
-            
+
             // Check if current user is among the validators
-            const currentUserHasValidated = activeValidators.some(v => v.username === currentUsername);
-            
+            const currentUserHasValidated = activeValidators.some(
+                (v) => v.username === currentUsername
+            );
+
             // Include cell if:
             // 1. It is fully validated (reached threshold) AND
             // 2. Current user has NOT validated it
@@ -640,7 +652,11 @@ const CodexCellEditor: React.FC = () => {
             return shouldInclude;
         });
 
-        debug("autocomplete", "Fully validated cells not validated by current user:", result.length);
+        debug(
+            "autocomplete",
+            "Fully validated cells not validated by current user:",
+            result.length
+        );
         return result;
     }, [translationUnitsForSection, username]);
 
@@ -666,12 +682,12 @@ const CodexCellEditor: React.FC = () => {
         includeFullyValidatedByOthers: boolean = false
     ) => {
         // Build the cell list based on selected options
-        let cellsToAutocomplete: QuillCellContent[] = [];
+        const cellsToAutocomplete: QuillCellContent[] = [];
         const cellIdsSeen = new Set<string>();
 
         // Helper function to add cells without duplicates
         const addCells = (cells: QuillCellContent[]) => {
-            const newCells = cells.filter(cell => {
+            const newCells = cells.filter((cell) => {
                 const cellId = cell.cellMarkers[0];
                 if (cellIdsSeen.has(cellId)) {
                     return false;
@@ -684,7 +700,7 @@ const CodexCellEditor: React.FC = () => {
 
         // Add cells based on individual selections
         // We need to create specific filtered sets for each option to avoid overlaps
-        
+
         if (includeEmptyCells) {
             // Add only empty cells
             addCells(untranslatedCellsForSection);
@@ -692,10 +708,12 @@ const CodexCellEditor: React.FC = () => {
 
         if (includeNotValidatedByAnyUser) {
             // Add cells with content but no validators (excluding empty cells if already added)
-            const cellsWithContentButNoValidators = untranslatedOrUnvalidatedUnitsForSection.filter(unit => {
-                // Only include if it has content (not empty)
-                return unit.cellContent.trim() !== "";
-            });
+            const cellsWithContentButNoValidators = untranslatedOrUnvalidatedUnitsForSection.filter(
+                (unit) => {
+                    // Only include if it has content (not empty)
+                    return unit.cellContent.trim() !== "";
+                }
+            );
             addCells(cellsWithContentButNoValidators);
         }
 
@@ -703,26 +721,28 @@ const CodexCellEditor: React.FC = () => {
             // Add cells not validated by current user BUT exclude fully validated cells
             const currentUsername = username || "anonymous";
             const VALIDATION_THRESHOLD = 2;
-            
-            const cellsNotValidatedByCurrentUser = translationUnitsForSection.filter(unit => {
+
+            const cellsNotValidatedByCurrentUser = translationUnitsForSection.filter((unit) => {
                 // Must have content
                 if (!unit.cellContent.trim()) {
                     return false;
                 }
 
                 // Get the latest edit
-                const latestEdit = unit.editHistory && unit.editHistory.length > 0
-                    ? unit.editHistory[unit.editHistory.length - 1]
-                    : null;
+                const latestEdit =
+                    unit.editHistory && unit.editHistory.length > 0
+                        ? unit.editHistory[unit.editHistory.length - 1]
+                        : null;
 
                 if (!latestEdit) {
                     return false;
                 }
 
                 // Get active validators
-                const activeValidators = latestEdit.validatedBy?.filter(v => 
-                    v && typeof v === 'object' && !v.isDeleted
-                ) || [];
+                const activeValidators =
+                    latestEdit.validatedBy?.filter(
+                        (v) => v && typeof v === "object" && !v.isDeleted
+                    ) || [];
 
                 // Skip cells that are fully validated (regardless of who validated them)
                 if (activeValidators.length >= VALIDATION_THRESHOLD) {
@@ -735,9 +755,9 @@ const CodexCellEditor: React.FC = () => {
                 }
 
                 // Current user must not be among the validators
-                return !activeValidators.some(v => v.username === currentUsername);
+                return !activeValidators.some((v) => v.username === currentUsername);
             });
-            
+
             addCells(cellsNotValidatedByCurrentUser);
         }
 

@@ -786,7 +786,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // Don't try to load from session storage or cell data directly
         // Just request audio attachments from the provider which will send proper base64 data
         const messageContent: EditorPostMessages = {
-            command: "requestAudioAttachments",
+            command: "requestAudioForCell",
+            content: { cellId: cellMarkers[0] },
         };
         window.vscodeApi.postMessage(messageContent);
     }, [cellMarkers]);
@@ -1481,7 +1482,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                                                 // Request audio attachments again to reload with proper base64 data
                                                 const messageContent: EditorPostMessages = {
-                                                    command: "requestAudioAttachments",
+                                                    command: "requestAudioForCell",
+                                                    content: { cellId: cellMarkers[0] },
                                                 };
                                                 window.vscodeApi.postMessage(messageContent);
                                             }}
