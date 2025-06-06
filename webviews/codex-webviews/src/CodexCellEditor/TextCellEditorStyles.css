@@ -489,6 +489,61 @@
     overflow-wrap: break-word;
 }
 
+/* Add specific styles for code blocks in backtranslation */
+.backtranslation-content pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    background-color: var(--vscode-textCodeBlock-background);
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    padding: 8px;
+    margin: 8px 0;
+}
+
+.backtranslation-content code {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-all;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 0.9em;
+}
+
+/* Inline code should not break layout */
+.backtranslation-content p code,
+.backtranslation-content li code {
+    display: inline;
+    padding: 2px 4px;
+    background-color: var(--vscode-textCodeBlock-background);
+    border-radius: 3px;
+}
+
+/* Ensure blockquotes also handle overflow */
+.backtranslation-content blockquote {
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    margin: 8px 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--vscode-textBlockQuote-border);
+    background-color: var(--vscode-textBlockQuote-background);
+}
+
+/* Lists should also wrap properly */
+.backtranslation-content ul,
+.backtranslation-content ol {
+    max-width: 100%;
+    padding-left: 20px;
+}
+
+.backtranslation-content li {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
 .backtranslation-edit-container {
     display: flex;
     flex-direction: column;
