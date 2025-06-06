@@ -84,13 +84,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cellsToProcess: string[];
         progress: number;
     } = {
-        isProcessing: false,
-        totalCells: 0,
-        completedCells: 0,
-        currentCellId: undefined,
-        cellsToProcess: [],
-        progress: 0,
-    };
+            isProcessing: false,
+            totalCells: 0,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: [],
+            progress: 0,
+        };
 
     // Single cell translation state
     public singleCellTranslationState: {
@@ -98,10 +98,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cellId?: string;
         progress: number;
     } = {
-        isProcessing: false,
-        cellId: undefined,
-        progress: 0,
-    };
+            isProcessing: false,
+            cellId: undefined,
+            progress: 0,
+        };
 
     // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
     private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
@@ -116,7 +116,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public syncChapterCommandRegistered = false;
 
     // Add bibleBookMap state to the provider
-    private bibleBookMap: Map<string, { name: string; [key: string]: any }> | undefined;
+    private bibleBookMap: Map<string, { name: string;[key: string]: any }> | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -497,7 +497,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             message as EditorPostMessages,
             activePanel,
             this.currentDocument,
-            updateWebview ?? (() => {}),
+            updateWebview ?? (() => { }),
             this
         );
     }
@@ -664,15 +664,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
-                    webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${
-                    webview.cspSource
-                }; connect-src https://languagetool.org/api/; img-src ${
-                    webview.cspSource
-                } https:; font-src ${webview.cspSource}; media-src ${
-                    webview.cspSource
-                } https: blob:;">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource
+            } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource
+            }; connect-src https://languagetool.org/api/; img-src ${webview.cspSource
+            } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource
+            } https: blob:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -887,7 +883,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     this.autocompletionState.progress = 1.0;
                     this.broadcastAutocompletionState();
 
-                    // After a short delay, reset state
+                    // After a short delay, reset state and clean up cancellation token
                     setTimeout(() => {
                         this.autocompletionState = {
                             isProcessing: false,
@@ -898,21 +894,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             progress: 0,
                         };
                         this.broadcastAutocompletionState();
+
+                        // Clean up cancellation token when autocompletion is actually complete
+                        if (this.autocompleteCancellation) {
+                            this.autocompleteCancellation.dispose();
+                            this.autocompleteCancellation = undefined;
+                            debug("Autocompletion cancellation token disposed after completion");
+                        }
                     }, 1500);
                 }
             };
 
             // Start monitoring
             checkQueueStatus();
-        } finally {
-            // Clean up cancellation token when method exits
-            // Note: This doesn't mean processing is complete
-            setTimeout(() => {
-                if (this.autocompleteCancellation) {
-                    this.autocompleteCancellation.dispose();
-                    this.autocompleteCancellation = undefined;
-                }
-            }, 2000);
+        } catch (error) {
+            // If there's an error during setup, clean up the cancellation token
+            console.error("Error in performAutocompleteChapter:", error);
+            if (this.autocompleteCancellation) {
+                this.autocompleteCancellation.dispose();
+                this.autocompleteCancellation = undefined;
+            }
+            throw error;
         }
     }
 
@@ -952,17 +954,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // Get current cell IDs in the batch
                 const batchCellIds = this.autocompletionState.cellsToProcess;
 
-                // Keep the current processing cell if any
-                const currentRequest = this.isProcessingQueue ? this.translationQueue[0] : null;
+                // Keep the current processing cell if any, but only if it's not actively processing
+                // If the queue is actively processing, we want to let the cancellation token handle it
+                const shouldKeepCurrentRequest = this.isProcessingQueue ? false : true;
+                const currentRequest = shouldKeepCurrentRequest && this.translationQueue.length > 0 ?
+                    this.translationQueue[0] : null;
 
-                // Filter out all batch requests except the current one
+                // Filter out all batch requests
                 const remainingRequests = this.translationQueue.filter((req, index) => {
-                    // Keep the current request (first in queue) if it's actively processing
-                    if (index === 0 && this.isProcessingQueue) {
-                        return true;
+                    // If we're keeping the current request and this is the first item
+                    if (index === 0 && shouldKeepCurrentRequest && currentRequest) {
+                        return !batchCellIds.includes(req.cellId);
                     }
 
-                    // Reject all other batch requests
+                    // Reject all batch requests
                     if (batchCellIds.includes(req.cellId)) {
                         req.reject(new Error("Translation cancelled"));
                         return false;
@@ -974,6 +979,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Update the queue
                 this.translationQueue = remainingRequests;
+
+                debug(`Queue updated after cancellation. Remaining requests: ${remainingRequests.length}`);
             }
 
             // Reset autocompletion state
@@ -987,8 +994,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             };
             this.broadcastAutocompletionState();
 
+            // Dispose of the cancellation token since we're manually cancelling
+            this.autocompleteCancellation.dispose();
+            this.autocompleteCancellation = undefined;
+
+            debug("Chapter autocompletion cancelled successfully");
             return true;
         }
+        debug("No active autocompletion to cancel");
         return false;
     }
 
@@ -1387,6 +1400,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         try {
             while (this.translationQueue.length > 0) {
+                // Check if autocomplete has been cancelled before processing each item
+                if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                    debug("Autocomplete cancellation detected, stopping queue processing");
+                    break;
+                }
+
                 const request = this.translationQueue[0];
 
                 // Handle validation request first if that's what it is
@@ -1465,6 +1484,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 try {
                     debug(`Processing translation for cell ${request.cellId}`);
 
+                    // Check again for cancellation before starting LLM completion
+                    if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                        debug("Autocomplete cancellation detected before LLM completion, rejecting request");
+                        this.translationQueue.shift();
+                        request.reject(new Error("Translation cancelled"));
+                        continue;
+                    }
+
                     // Start the actual translation process
                     const result = await this.performLLMCompletionInternal(
                         request.cellId,
@@ -1540,6 +1567,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             },
             async (progress) => {
                 try {
+                    // Check for cancellation at the start
+                    if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                        throw new Error("Translation cancelled");
+                    }
+
                     // Find the webview panel for this document
                     const webviewPanel = this.webviewPanels.get(currentDocument.uri.toString());
 
@@ -1550,6 +1582,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.2);
+
+                    // Check for cancellation before fetching config
+                    if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                        throw new Error("Translation cancelled");
+                    }
 
                     // Fetch completion configuration
                     const completionConfig = await fetchCompletionConfig();
@@ -1563,13 +1600,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslationProgress(0.5);
 
+                    // Check for cancellation before starting LLM completion
+                    if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                        throw new Error("Translation cancelled");
+                    }
+
+                    // Use the existing cancellation token if available, otherwise create a new one
+                    const cancellationToken = this.autocompleteCancellation?.token ||
+                        new vscode.CancellationTokenSource().token;
+
                     // Perform LLM completion
                     const result = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
-                        new vscode.CancellationTokenSource().token
+                        cancellationToken
                     );
+
+                    // Check for cancellation before updating document
+                    if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                        throw new Error("Translation cancelled");
+                    }
 
                     progress.report({ message: "Updating document...", increment: 40 });
 
@@ -1979,7 +2030,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Create the map
-        this.bibleBookMap = new Map<string, { name: string; [key: string]: any }>();
+        this.bibleBookMap = new Map<string, { name: string;[key: string]: any }>();
         bookData.forEach((book) => {
             if (book.abbr) {
                 // Ensure abbreviation exists
