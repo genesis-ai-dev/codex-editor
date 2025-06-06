@@ -1040,6 +1040,144 @@ export const handleMessages = async (
             }
             return;
         }
+        case "saveAudioAttachment": {
+            console.log("saveAudioAttachment message received", {
+                cellId: event.content.cellId,
+                audioId: event.content.audioId,
+                fileExtension: event.content.fileExtension
+            });
+            try {
+                // Extract document segment from cellId (e.g., "JUD" from "JUD 1:1")
+                const documentSegment = event.content.cellId.split(' ')[0];
+
+                // Get workspace folder
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+
+                // Build the attachments directory path
+                const attachmentsDir = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    documentSegment
+                );
+
+                // Ensure directory exists
+                await fs.promises.mkdir(attachmentsDir, { recursive: true });
+
+                // Build the full file path
+                const fileName = `${event.content.audioId}.${event.content.fileExtension}`;
+                const filePath = path.join(attachmentsDir, fileName);
+
+                // Extract base64 data (remove data URL prefix)
+                const base64Data = event.content.audioData.split(',')[1] || event.content.audioData;
+                const buffer = Buffer.from(base64Data, 'base64');
+
+                // Write the file
+                await fs.promises.writeFile(filePath, buffer);
+
+                // Update cell metadata with attachment reference
+                const relativePath = path.relative(workspaceFolder.uri.fsPath, filePath);
+                await document.updateCellAttachment(event.content.cellId, event.content.audioId, {
+                    url: relativePath,
+                    type: "audio"
+                });
+
+                // Send success response
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioAttachmentSaved",
+                    content: {
+                        cellId: event.content.cellId,
+                        audioId: event.content.audioId,
+                        success: true
+                    }
+                });
+
+                debug("Audio attachment saved successfully:", filePath);
+            } catch (error) {
+                console.error("Error saving audio attachment:", error);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioAttachmentSaved",
+                    content: {
+                        cellId: event.content.cellId,
+                        audioId: event.content.audioId,
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error)
+                    }
+                });
+                vscode.window.showErrorMessage("Failed to save audio attachment.");
+            }
+            return;
+        }
+        case "deleteAudioAttachment": {
+            console.log("deleteAudioAttachment message received", {
+                cellId: event.content.cellId,
+                audioId: event.content.audioId
+            });
+            try {
+                // Get workspace folder
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+
+                // Extract document segment from cellId
+                const documentSegment = event.content.cellId.split(' ')[0];
+
+                // Build the attachments directory path
+                const attachmentsDir = path.join(
+                    workspaceFolder.uri.fsPath,
+                    ".project",
+                    "attachments",
+                    documentSegment
+                );
+
+                // Find and delete the file with the given audioId
+                try {
+                    const files = await fs.promises.readdir(attachmentsDir);
+                    const audioFile = files.find(file => file.startsWith(event.content.audioId));
+
+                    if (audioFile) {
+                        const filePath = path.join(attachmentsDir, audioFile);
+                        await fs.promises.unlink(filePath);
+                        debug("Deleted audio file:", filePath);
+                    }
+                } catch (err) {
+                    // Directory might not exist if no attachments
+                    debug("Error reading attachments directory:", err);
+                }
+
+                // Remove attachment from cell metadata
+                await document.removeCellAttachment(event.content.cellId, event.content.audioId);
+
+                // Send success response
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioAttachmentDeleted",
+                    content: {
+                        cellId: event.content.cellId,
+                        audioId: event.content.audioId,
+                        success: true
+                    }
+                });
+
+                debug("Audio attachment deleted successfully");
+            } catch (error) {
+                console.error("Error deleting audio attachment:", error);
+                provider.postMessageToWebview(webviewPanel, {
+                    type: "audioAttachmentDeleted",
+                    content: {
+                        cellId: event.content.cellId,
+                        audioId: event.content.audioId,
+                        success: false,
+                        error: error instanceof Error ? error.message : String(error)
+                    }
+                });
+                vscode.window.showErrorMessage("Failed to delete audio attachment.");
+            }
+            return;
+        }
     }
 };
 
@@ -1068,71 +1206,114 @@ export async function scanForAudioAttachments(
         const documentText = document.getText();
         const notebookData = JSON.parse(documentText);
 
-        // Extract book abbreviation from the document filename or metadata
-        const filename = path.basename(document.uri.fsPath, ".codex");
-        const bookAbbr = filename.toUpperCase();
-
-        debug("Looking for audio attachments for book:", bookAbbr);
-
-        // Build the attachments path: .project/attachments/{BOOK}/
-        const attachmentsPath = path.join(
-            workspaceFolder.uri.fsPath,
-            ".project",
-            "attachments",
-            bookAbbr
-        );
-
-        debug("Workspace folder path:", workspaceFolder.uri.fsPath);
-        debug("Expected attachments path:", attachmentsPath);
-
-        // Check if the attachments directory exists
-        if (!fs.existsSync(attachmentsPath)) {
-            debug("Attachments directory does not exist:", attachmentsPath);
-            return audioAttachments;
-        }
-
-        // Read all files in the attachments directory
-        const files = fs.readdirSync(attachmentsPath);
-        debug("Found files in attachments directory:", files);
-
-        // Filter for audio files (.wav, .mp3, etc.)
-        const audioFiles = files.filter(
-            (file) =>
-                file.toLowerCase().endsWith(".wav") ||
-                file.toLowerCase().endsWith(".mp3") ||
-                file.toLowerCase().endsWith(".m4a") ||
-                file.toLowerCase().endsWith(".ogg")
-        );
-
-        debug("Audio files found:", audioFiles);
-
         // Process each cell in the document
         if (notebookData.cells && Array.isArray(notebookData.cells)) {
             for (const cell of notebookData.cells) {
                 if (cell.metadata && cell.metadata.id) {
                     const cellId = cell.metadata.id;
 
-                    // Convert cell ID to expected filename format
-                    // e.g., "JUD 1:25" -> "JUD_001_025.wav"
-                    const audioFileName = convertCellIdToAudioFileName(cellId);
+                    // Check if cell has attachments in metadata
+                    if (cell.metadata.attachments) {
+                        for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                            if (attachment && (attachment as any).type === "audio") {
+                                const attachmentPath = (attachment as any).url;
 
-                    if (audioFileName) {
-                        // Check if corresponding audio file exists
-                        const matchingFile = audioFiles.find((file) =>
-                            file.toLowerCase().startsWith(audioFileName.toLowerCase())
-                        );
+                                // Build full path
+                                const fullPath = path.isAbsolute(attachmentPath)
+                                    ? attachmentPath
+                                    : path.join(workspaceFolder.uri.fsPath, attachmentPath);
 
-                        if (matchingFile) {
-                            const fullAudioPath = path.join(attachmentsPath, matchingFile);
-                            // Convert file path to webview URI
-                            const fileUri = vscode.Uri.file(fullAudioPath);
-                            const webviewUri = webviewPanel.webview.asWebviewUri(fileUri);
-                            audioAttachments[cellId] = webviewUri.toString();
-                            debug("Found audio attachment:", {
-                                cellId,
-                                audioFile: matchingFile,
-                                webviewUri: webviewUri.toString(),
-                            });
+                                try {
+                                    // Check if file exists and read it
+                                    if (fs.existsSync(fullPath)) {
+                                        const fileData = await fs.promises.readFile(fullPath);
+                                        const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
+
+                                        // Send the audio data to the webview
+                                        webviewPanel.webview.postMessage({
+                                            type: "providerSendsAudioData",
+                                            content: {
+                                                cellId: cellId,
+                                                audioId: attachmentId,
+                                                audioData: base64Data
+                                            }
+                                        });
+
+                                        audioAttachments[cellId] = fullPath;
+                                        debug("Found audio attachment in metadata:", {
+                                            cellId,
+                                            attachmentId,
+                                            path: fullPath
+                                        });
+                                    }
+                                } catch (err) {
+                                    console.error(`Error reading audio file ${fullPath}:`, err);
+                                }
+                            }
+                        }
+                    }
+
+                    // Also check the filesystem for legacy audio files
+                    const bookAbbr = cellId.split(' ')[0];
+                    const attachmentsPath = path.join(
+                        workspaceFolder.uri.fsPath,
+                        ".project",
+                        "attachments",
+                        bookAbbr
+                    );
+
+                    if (fs.existsSync(attachmentsPath)) {
+                        try {
+                            const files = fs.readdirSync(attachmentsPath);
+
+                            // Look for any audio files that might match this cell
+                            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+                            const audioFiles = files.filter(file =>
+                                audioExtensions.some(ext => file.toLowerCase().endsWith(ext))
+                            );
+
+                            for (const audioFile of audioFiles) {
+                                // Check if the file name contains the cell ID pattern
+                                const cellIdPattern = cellId.replace(/[:\s]/g, '_');
+                                if (audioFile.includes(cellIdPattern) || audioFile.includes(cellId)) {
+                                    const fullAudioPath = path.join(attachmentsPath, audioFile);
+
+                                    // Only process if not already found in metadata
+                                    if (!audioAttachments[cellId]) {
+                                        try {
+                                            // Read the file and send as base64
+                                            const fileData = await fs.promises.readFile(fullAudioPath);
+                                            const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
+                                                audioFile.endsWith('.mp3') ? 'audio/mp3' :
+                                                    audioFile.endsWith('.m4a') ? 'audio/mp4' :
+                                                        audioFile.endsWith('.ogg') ? 'audio/ogg' :
+                                                            'audio/wav';
+                                            const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
+
+                                            // Send the audio data to the webview
+                                            webviewPanel.webview.postMessage({
+                                                type: "providerSendsAudioData",
+                                                content: {
+                                                    cellId: cellId,
+                                                    audioId: audioFile.replace(/\.[^/.]+$/, ""), // Remove extension
+                                                    audioData: base64Data
+                                                }
+                                            });
+
+                                            audioAttachments[cellId] = fullAudioPath;
+                                            debug("Found and sent legacy audio file:", {
+                                                cellId,
+                                                audioFile,
+                                                path: fullAudioPath
+                                            });
+                                        } catch (err) {
+                                            console.error(`Error reading legacy audio file ${fullAudioPath}:`, err);
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            debug("Error reading attachments directory:", err);
                         }
                     }
                 }
@@ -1145,47 +1326,4 @@ export async function scanForAudioAttachments(
     }
 
     return audioAttachments;
-}
-
-/**
- * Converts a cell ID to the expected audio filename format
- * @param cellId Cell ID like "JUD 1:25"
- * @returns Filename like "JUD_001_025" (without extension)
- */
-function convertCellIdToAudioFileName(cellId: string): string | null {
-    debug("Converting cell ID to audio filename:", cellId);
-
-    try {
-        // Parse cell ID format: "BOOK CHAPTER:VERSE"
-        const parts = cellId.split(" ");
-        if (parts.length !== 2) {
-            debug("Invalid cell ID format:", cellId);
-            return null;
-        }
-
-        const book = parts[0];
-        const chapterVerse = parts[1].split(":");
-
-        if (chapterVerse.length !== 2) {
-            debug("Invalid chapter:verse format:", parts[1]);
-            return null;
-        }
-
-        const chapter = parseInt(chapterVerse[0], 10);
-        const verse = parseInt(chapterVerse[1], 10);
-
-        if (isNaN(chapter) || isNaN(verse)) {
-            debug("Invalid chapter or verse numbers:", { chapter, verse });
-            return null;
-        }
-
-        // Format: BOOK_CCC_VVV (with zero padding)
-        const filename = `${book}_${chapter.toString().padStart(3, "0")}_${verse.toString().padStart(3, "0")}`;
-        debug("Converted to filename:", filename);
-
-        return filename;
-    } catch (error) {
-        console.error("Error converting cell ID to filename:", error);
-        return null;
-    }
 }

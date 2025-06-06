@@ -84,13 +84,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cellsToProcess: string[];
         progress: number;
     } = {
-        isProcessing: false,
-        totalCells: 0,
-        completedCells: 0,
-        currentCellId: undefined,
-        cellsToProcess: [],
-        progress: 0,
-    };
+            isProcessing: false,
+            totalCells: 0,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: [],
+            progress: 0,
+        };
 
     // Single cell translation state
     public singleCellTranslationState: {
@@ -98,10 +98,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         cellId?: string;
         progress: number;
     } = {
-        isProcessing: false,
-        cellId: undefined,
-        progress: 0,
-    };
+            isProcessing: false,
+            cellId: undefined,
+            progress: 0,
+        };
 
     // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
     private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
@@ -116,7 +116,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public syncChapterCommandRegistered = false;
 
     // Add bibleBookMap state to the provider
-    private bibleBookMap: Map<string, { name: string; [key: string]: any }> | undefined;
+    private bibleBookMap: Map<string, { name: string;[key: string]: any }> | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -454,10 +454,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
 
                 if (Object.keys(audioAttachments).length > 0) {
-                    debug("Found audio attachments, sending to webview:", audioAttachments);
+                    debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
+                    // Send only the cell IDs that have audio, not the file paths
+                    const audioCells: { [cellId: string]: boolean } = {};
+                    for (const cellId of Object.keys(audioAttachments)) {
+                        audioCells[cellId] = true;
+                    }
+
                     this.postMessageToWebview(webviewPanel, {
                         type: "providerSendsAudioAttachments",
-                        attachments: audioAttachments,
+                        attachments: audioCells as any, // Send boolean flags instead of paths
                     });
                 } else {
                     debug("No audio attachments found");
@@ -497,7 +503,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             message as EditorPostMessages,
             activePanel,
             this.currentDocument,
-            updateWebview ?? (() => {}),
+            updateWebview ?? (() => { }),
             this
         );
     }
@@ -664,15 +670,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
-                    webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${
-                    webview.cspSource
-                }; connect-src https://languagetool.org/api/; img-src ${
-                    webview.cspSource
-                } https:; font-src ${webview.cspSource}; media-src ${
-                    webview.cspSource
-                } https: blob:;">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource
+            } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource
+            }; connect-src https://languagetool.org/api/ data:; img-src ${webview.cspSource
+            } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource
+            } https: blob: data:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
@@ -1979,7 +1981,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Create the map
-        this.bibleBookMap = new Map<string, { name: string; [key: string]: any }>();
+        this.bibleBookMap = new Map<string, { name: string;[key: string]: any }>();
         bookData.forEach((book) => {
             if (book.abbr) {
                 // Ensure abbreviation exists

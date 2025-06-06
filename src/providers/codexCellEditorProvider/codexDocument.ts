@@ -249,13 +249,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const validatedBy: ValidationEntry[] =
             editType === EditType.USER_EDIT
                 ? [
-                      {
-                          username: this._author,
-                          creationTimestamp: currentTimestamp,
-                          updatedTimestamp: currentTimestamp,
-                          isDeleted: false,
-                      },
-                  ]
+                    {
+                        username: this._author,
+                        creationTimestamp: currentTimestamp,
+                        updatedTimestamp: currentTimestamp,
+                        isDeleted: false,
+                    },
+                ]
                 : [];
 
         cellToUpdate.metadata.edits.push({
@@ -967,6 +967,98 @@ export class CodexCellDocument implements vscode.CustomDocument {
             edits: this._edits,
         });
         this._onDidChangeForWebview.fire({
+            edits: this._edits,
+        });
+    }
+
+    /**
+     * Updates or adds an attachment to a cell's metadata
+     * @param cellId The ID of the cell to update
+     * @param attachmentId The unique ID of the attachment
+     * @param attachmentData The attachment data (url and type)
+     */
+    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string }): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to update attachment`);
+        }
+
+        const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Ensure metadata exists
+        if (!cell.metadata) {
+            cell.metadata = {
+                id: cellId,
+                type: CodexCellTypes.TEXT,
+            };
+        }
+
+        // Ensure attachments object exists
+        if (!cell.metadata.attachments) {
+            cell.metadata.attachments = {};
+        }
+
+        // Add or update the attachment
+        cell.metadata.attachments[attachmentId] = attachmentData;
+
+        // Record the edit
+        this._edits.push({
+            type: "updateCellAttachment",
+            cellId,
+            attachmentId,
+            attachmentData,
+        });
+
+        // Mark as dirty and notify listeners
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: this._edits,
+        });
+    }
+
+    /**
+     * Removes an attachment from a cell's metadata
+     * @param cellId The ID of the cell to update
+     * @param attachmentId The unique ID of the attachment to remove
+     */
+    public removeCellAttachment(cellId: string, attachmentId: string): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to remove attachment`);
+        }
+
+        const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Check if attachments exist
+        if (!cell.metadata?.attachments || !cell.metadata.attachments[attachmentId]) {
+            console.warn(`Attachment ${attachmentId} not found in cell ${cellId}`);
+            return;
+        }
+
+        // Remove the attachment
+        delete cell.metadata.attachments[attachmentId];
+
+        // If no attachments left, remove the attachments object
+        if (Object.keys(cell.metadata.attachments).length === 0) {
+            delete cell.metadata.attachments;
+        }
+
+        // Record the edit
+        this._edits.push({
+            type: "removeCellAttachment",
+            cellId,
+            attachmentId,
+        });
+
+        // Mark as dirty and notify listeners
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
     }

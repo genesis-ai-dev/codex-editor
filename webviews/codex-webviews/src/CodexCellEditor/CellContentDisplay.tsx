@@ -35,7 +35,7 @@ interface CellContentDisplayProps {
     handleCellTranslation?: (cellId: string) => void;
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
-    audioAttachments?: { [cellId: string]: string };
+    audioAttachments?: { [cellId: string]: boolean };
 }
 
 const DEBUG_ENABLED = false;
@@ -47,12 +47,55 @@ function debug(message: string, ...args: any[]): void {
 
 // Audio Play Button Component
 const AudioPlayButton: React.FC<{
-    audioPath: string;
     cellId: string;
     vscode: WebviewApi<unknown>;
-}> = ({ audioPath, cellId, vscode }) => {
+}> = ({ cellId, vscode }) => {
     const [isPlaying, setIsPlaying] = useState(false);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [hasRequested, setHasRequested] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+
+    // Listen for audio data messages
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
+                if (message.content.audioData) {
+                    // Clean up previous URL if exists
+                    if (audioUrl && audioUrl.startsWith("blob:")) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+
+                    // Convert base64 to blob URL
+                    fetch(message.content.audioData)
+                        .then((res) => res.blob())
+                        .then((blob) => {
+                            const blobUrl = URL.createObjectURL(blob);
+                            setAudioUrl(blobUrl);
+                            setIsLoading(false);
+                            setHasRequested(true); // Mark as successfully loaded
+                        })
+                        .catch((error) => {
+                            console.error("Error converting audio data:", error);
+                            setIsLoading(false);
+                        });
+                }
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, [cellId]); // Remove audioUrl from dependencies to prevent re-registration
+
+    // Clean up blob URL on unmount
+    useEffect(() => {
+        return () => {
+            if (audioUrl && audioUrl.startsWith("blob:")) {
+                URL.revokeObjectURL(audioUrl);
+            }
+        };
+    }, [audioUrl]);
 
     const handlePlayAudio = async () => {
         try {
@@ -64,7 +107,21 @@ const AudioPlayButton: React.FC<{
                 }
                 setIsPlaying(false);
             } else {
-                // The audioPath should already be a webview-compatible URI from the extension
+                // Request audio data if we don't have it yet and haven't requested before
+                if (!audioUrl && !hasRequested && !isLoading) {
+                    setIsLoading(true);
+                    setHasRequested(true);
+                    vscode.postMessage({
+                        command: "requestAudioAttachments",
+                    });
+                    return;
+                }
+
+                // If we're still loading or don't have audio URL, just return
+                if (!audioUrl || isLoading) {
+                    return;
+                }
+
                 // Create or reuse audio element
                 if (!audioRef.current) {
                     audioRef.current = new Audio();
@@ -75,13 +132,12 @@ const AudioPlayButton: React.FC<{
                     };
                 }
 
-                // Use the path directly since it should be converted by the extension
-                audioRef.current.src = audioPath;
+                audioRef.current.src = audioUrl;
                 await audioRef.current.play();
                 setIsPlaying(true);
             }
         } catch (error) {
-            console.error("Error handling audio playbook:", error);
+            console.error("Error handling audio playback:", error);
             setIsPlaying(false);
         }
     };
@@ -90,11 +146,12 @@ const AudioPlayButton: React.FC<{
         <button
             onClick={handlePlayAudio}
             className="audio-play-button"
-            title={isPlaying ? "Stop audio" : "Play audio"}
+            title={isPlaying ? "Stop audio" : isLoading ? "Loading audio..." : "Play audio"}
+            disabled={isLoading}
             style={{
                 background: "none",
                 border: "none",
-                cursor: "pointer",
+                cursor: isLoading ? "wait" : "pointer",
                 padding: "4px",
                 borderRadius: "4px",
                 display: "flex",
@@ -102,14 +159,20 @@ const AudioPlayButton: React.FC<{
                 justifyContent: "center",
                 marginLeft: "8px",
                 color: "var(--vscode-foreground)",
-                opacity: 0.7,
+                opacity: isLoading ? 0.5 : 0.7,
                 transition: "opacity 0.2s",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
+            onMouseEnter={(e) => !isLoading && (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => !isLoading && (e.currentTarget.style.opacity = "0.7")}
         >
             <i
-                className={`codicon ${isPlaying ? "codicon-debug-stop" : "codicon-play"}`}
+                className={`codicon ${
+                    isLoading
+                        ? "codicon-loading codicon-modifier-spin"
+                        : isPlaying
+                        ? "codicon-debug-stop"
+                        : "codicon-play"
+                }`}
                 style={{ fontSize: "16px" }}
             />
         </button>
@@ -505,11 +568,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             {/* Audio Play Button */}
                             {audioAttachments && audioAttachments[cellIds[0]] && (
                                 <div style={{ flexShrink: 0 }}>
-                                    <AudioPlayButton
-                                        audioPath={audioAttachments[cellIds[0]]}
-                                        cellId={cellIds[0]}
-                                        vscode={vscode}
-                                    />
+                                    <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
                                 </div>
                             )}
                         </div>

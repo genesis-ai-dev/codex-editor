@@ -35,7 +35,7 @@ export interface CellListProps {
     translationQueue?: string[]; // Queue of cells waiting for translation
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
-    audioAttachments?: { [cellId: string]: string }; // Audio file paths for cells
+    audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
 }
 
 const DEBUG_ENABLED = false;

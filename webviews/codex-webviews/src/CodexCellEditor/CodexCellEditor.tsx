@@ -167,7 +167,7 @@ const CodexCellEditor: React.FC = () => {
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
 
     // Add audio attachments state
-    const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: string }>({});
+    const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: boolean }>({});
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);

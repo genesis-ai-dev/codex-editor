@@ -150,11 +150,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [_audioUrl, _setAudioUrl] = useState<string | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const audioChunksRef = useRef<Blob[]>([]);
+    const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+
+    // Use the internal state with validation
+    const audioUrl = _audioUrl;
+    const setAudioUrl = _setAudioUrl;
+
+    // Safe setter for audio URL that prevents file paths
+    const safeSetAudioUrl = (url: string | null) => {
+        if (!url) {
+            setAudioUrl(null);
+            return;
+        }
+
+        // Only allow valid URL schemes
+        if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("http")) {
+            setAudioUrl(url);
+        } else {
+            console.error(`[Audio] Blocked invalid audio URL (likely a file path): ${url}`);
+            setRecordingStatus("Error: Invalid audio source");
+            // Don't set the URL, wait for proper base64 data
+        }
+    };
+
+    // Debug audio URL changes
+    useEffect(() => {
+        if (audioUrl) {
+            console.log(`[Audio Debug] audioUrl changed for cell ${cellMarkers[0]}:`, audioUrl);
+            console.trace(); // This will show the call stack
+        }
+    }, [audioUrl, cellMarkers]);
 
     // Add keyboard navigation for tabs
     const handleTabKeyDown = (
@@ -636,7 +666,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
 
                 const url = URL.createObjectURL(blob);
-                setAudioUrl(url);
+                safeSetAudioUrl(url);
                 setRecordingStatus("Recording complete");
 
                 // Stop all tracks to release microphone
@@ -661,17 +691,73 @@ const CellEditor: React.FC<CellEditorProps> = ({
     };
 
     const saveAudioToCell = (blob: Blob) => {
-        // Convert blob to base64 for storage
+        // Generate a unique ID for the audio file
+        const uniqueId = `audio-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const documentSegment = cellMarkers[0].split(" ")[0]; // Extract "JUD" from "JUD 1:1"
+
+        // Determine file extension based on blob type
+        const fileExtension = blob.type.split("/")[1] || "webm"; // Default to webm
+
+        // Convert blob to base64 for transfer to provider
         const reader = new FileReader();
         reader.onloadend = () => {
             const base64data = reader.result as string;
-            // Store audio data in session storage temporarily
-            sessionStorage.setItem(`audio-${cellMarkers[0]}`, base64data);
 
-            // Notify that audio has been attached
-            setRecordingStatus("Audio saved to cell");
+            // Send to provider to save file
+            const messageContent: EditorPostMessages = {
+                command: "saveAudioAttachment",
+                content: {
+                    cellId: cellMarkers[0],
+                    audioData: base64data,
+                    audioId: uniqueId,
+                    fileExtension: fileExtension,
+                },
+            };
+
+            window.vscodeApi.postMessage(messageContent);
+
+            // Store the audio ID temporarily
+            sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
+
+            // Clean up previous blob URL if it exists
+            if (audioUrl && audioUrl.startsWith("blob:")) {
+                URL.revokeObjectURL(audioUrl);
+            }
+
+            // Create a new blob URL for immediate playback
+            const blobUrl = URL.createObjectURL(blob);
+            safeSetAudioUrl(blobUrl);
+            setAudioBlob(blob);
         };
         reader.readAsDataURL(blob);
+    };
+
+    const discardAudio = () => {
+        if (audioUrl) {
+            URL.revokeObjectURL(audioUrl);
+        }
+        safeSetAudioUrl(null);
+        setAudioBlob(null);
+        setRecordingStatus("");
+
+        // Get the stored audio ID if it exists
+        const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
+
+        // Clear session storage
+        sessionStorage.removeItem(`audio-${cellMarkers[0]}`);
+        sessionStorage.removeItem(`audio-id-${cellMarkers[0]}`);
+
+        // If we have an audio ID, notify provider to delete the file
+        if (audioId) {
+            const messageContent: EditorPostMessages = {
+                command: "deleteAudioAttachment",
+                content: {
+                    cellId: cellMarkers[0],
+                    audioId: audioId,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
     };
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -685,7 +771,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             }
 
             const url = URL.createObjectURL(file);
-            setAudioUrl(url);
+            safeSetAudioUrl(url);
             setRecordingStatus("Audio file loaded");
 
             // Save to cell
@@ -697,23 +783,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Load existing audio when component mounts
     useEffect(() => {
-        // Check session storage first
-        const storedAudio = sessionStorage.getItem(`audio-${cellMarkers[0]}`);
-        if (storedAudio) {
-            fetch(storedAudio)
-                .then((res) => res.blob())
-                .then((blob) => {
-                    setAudioBlob(blob);
-                    if (audioUrl) {
-                        URL.revokeObjectURL(audioUrl);
-                    }
-                    const url = URL.createObjectURL(blob);
-                    setAudioUrl(url);
-                    setRecordingStatus("Audio loaded from cache");
-                });
-        }
-
-        // Also request audio attachments from the provider
+        // Don't try to load from session storage or cell data directly
+        // Just request audio attachments from the provider which will send proper base64 data
         const messageContent: EditorPostMessages = {
             command: "requestAudioAttachments",
         };
@@ -722,30 +793,125 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Handle audio data response
     useEffect(() => {
-        const handleAudioResponse = (event: MessageEvent) => {
+        const handleAudioResponse = async (event: MessageEvent) => {
             const message = event.data;
+
+            // Handle audio attachments list
             if (message.type === "providerSendsAudioAttachments") {
                 const audioPath = message.attachments[cellMarkers[0]];
                 if (audioPath) {
-                    // We have an audio file path, but in webview we can't directly access files
-                    // We would need the provider to send the actual data
-                    setRecordingStatus("Audio file attached to cell");
+                    // We have an audio file path, but don't use it directly
+                    // Just update status - the actual data will come through providerSendsAudioData
+                    setRecordingStatus("Loading audio...");
+                    // Don't set audioUrl here! Wait for the base64 data
+                }
+            }
+
+            // Handle specific audio data
+            if (
+                message.type === "providerSendsAudioData" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                if (message.content.audioData) {
+                    try {
+                        // Convert base64 to blob to avoid CSP issues
+                        const base64Response = await fetch(message.content.audioData);
+                        const blob = await base64Response.blob();
+
+                        // Clean up previous blob URL if it exists
+                        if (audioUrl && audioUrl.startsWith("blob:")) {
+                            URL.revokeObjectURL(audioUrl);
+                        }
+
+                        const blobUrl = URL.createObjectURL(blob);
+
+                        setAudioBlob(blob);
+                        safeSetAudioUrl(blobUrl);
+                        setRecordingStatus("Audio loaded");
+
+                        // Store the audio ID
+                        if (message.content.audioId) {
+                            sessionStorage.setItem(
+                                `audio-id-${cellMarkers[0]}`,
+                                message.content.audioId
+                            );
+                        }
+                    } catch (error) {
+                        console.error("Error converting audio data to blob:", error);
+                        setRecordingStatus("Error loading audio");
+                    }
+                } else if (message.content.audioUrl) {
+                    // Validate that this is a proper URL the webview can access
+                    const url = message.content.audioUrl;
+                    if (
+                        url.startsWith("blob:") ||
+                        url.startsWith("data:") ||
+                        url.startsWith("http")
+                    ) {
+                        safeSetAudioUrl(url);
+                        setRecordingStatus("Audio loaded");
+                    } else {
+                        // This is likely a file path, which won't work in the webview
+                        console.error("Received invalid audio URL (file path?):", url);
+                        setRecordingStatus("Error: Invalid audio URL");
+                    }
+
+                    // Store the audio ID
+                    if (message.content.audioId) {
+                        sessionStorage.setItem(
+                            `audio-id-${cellMarkers[0]}`,
+                            message.content.audioId
+                        );
+                    }
+                }
+            }
+
+            // Handle save confirmation
+            if (
+                message.type === "audioAttachmentSaved" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                if (message.content.success) {
+                    setRecordingStatus("Audio saved successfully");
+                } else {
+                    setRecordingStatus(
+                        `Error saving audio: ${message.content.error || "Unknown error"}`
+                    );
+                }
+            }
+
+            // Handle delete confirmation
+            if (
+                message.type === "audioAttachmentDeleted" &&
+                message.content.cellId === cellMarkers[0]
+            ) {
+                if (message.content.success) {
+                    setRecordingStatus("Audio deleted");
+                } else {
+                    setRecordingStatus(
+                        `Error deleting audio: ${message.content.error || "Unknown error"}`
+                    );
                 }
             }
         };
 
         window.addEventListener("message", handleAudioResponse);
         return () => window.removeEventListener("message", handleAudioResponse);
-    }, [cellMarkers]);
+    }, [cellMarkers, audioUrl]);
 
-    // Cleanup audio URL on unmount
+    // Clean up media recorder and stream on unmount
     useEffect(() => {
         return () => {
-            if (audioUrl) {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+            }
+            // Clean up blob URL if it exists
+            if (audioUrl && audioUrl.startsWith("blob:")) {
                 URL.revokeObjectURL(audioUrl);
             }
         };
-    }, [audioUrl]);
+    }, [mediaRecorder, audioUrl]);
 
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
@@ -1019,11 +1185,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     >
                         <i className="codicon codicon-mic"></i>
                         <span className="tab-label">Audio</span>
-                        {audioUrl && (
-                            <span className="tab-badge" title="Audio attached">
-                                ✓
-                            </span>
-                        )}
+                        {audioUrl &&
+                            (audioUrl.startsWith("blob:") ||
+                                audioUrl.startsWith("data:") ||
+                                audioUrl.startsWith("http")) && (
+                                <span className="tab-badge" title="Audio attached">
+                                    ✓
+                                </span>
+                            )}
                     </button>
                 </div>
             </div>
@@ -1242,7 +1411,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </div>
 
                             <div className="audio-controls">
-                                {!audioUrl ? (
+                                {!audioUrl ||
+                                !(
+                                    audioUrl.startsWith("blob:") ||
+                                    audioUrl.startsWith("data:") ||
+                                    audioUrl.startsWith("http")
+                                ) ? (
                                     <div className="no-audio">
                                         <p>No audio attached to this cell yet.</p>
                                         <div className="audio-actions">
@@ -1279,43 +1453,95 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     </div>
                                 ) : (
                                     <div className="audio-player-section">
-                                        <audio controls src={audioUrl} className="audio-player" />
-                                        <div className="audio-player-actions">
-                                            <VSCodeButton
-                                                onClick={() => {
-                                                    if (audioUrl) {
-                                                        URL.revokeObjectURL(audioUrl);
-                                                    }
-                                                    setAudioUrl(null);
-                                                    setAudioBlob(null);
-                                                    setRecordingStatus("");
-                                                    sessionStorage.removeItem(
-                                                        `audio-${cellMarkers[0]}`
+                                        <audio
+                                            controls
+                                            src={
+                                                audioUrl &&
+                                                (audioUrl.startsWith("blob:") ||
+                                                    audioUrl.startsWith("data:") ||
+                                                    audioUrl.startsWith("http"))
+                                                    ? audioUrl
+                                                    : undefined
+                                            }
+                                            className="audio-player"
+                                            onError={(e) => {
+                                                console.error(
+                                                    "Error playing audio for cell:",
+                                                    cellMarkers[0]
+                                                );
+                                                const audioElement =
+                                                    e.currentTarget as HTMLAudioElement;
+                                                if (audioElement.error) {
+                                                    console.error(
+                                                        "Error handling audio playbook:",
+                                                        audioElement.error
                                                     );
-                                                }}
-                                                appearance="secondary"
-                                                title="Remove audio"
-                                            >
-                                                <i className="codicon codicon-trash"></i>
-                                                Remove Audio
-                                            </VSCodeButton>
-                                            <VSCodeButton
-                                                onClick={
-                                                    isRecording ? stopRecording : startRecording
                                                 }
-                                                appearance="secondary"
-                                                className={isRecording ? "recording-button" : ""}
-                                                title="Record new audio"
-                                            >
-                                                <i
-                                                    className={`codicon ${
-                                                        isRecording
-                                                            ? "codicon-stop-circle"
-                                                            : "codicon-record"
-                                                    }`}
-                                                ></i>
-                                                {isRecording ? "Stop" : "Re-record"}
-                                            </VSCodeButton>
+                                                setRecordingStatus("Error loading audio file");
+
+                                                // Request audio attachments again to reload with proper base64 data
+                                                const messageContent: EditorPostMessages = {
+                                                    command: "requestAudioAttachments",
+                                                };
+                                                window.vscodeApi.postMessage(messageContent);
+                                            }}
+                                        />
+                                        <div className="audio-player-actions">
+                                            {confirmingDiscard ? (
+                                                <>
+                                                    <VSCodeButton
+                                                        onClick={() => {
+                                                            discardAudio();
+                                                            setConfirmingDiscard(false);
+                                                        }}
+                                                        appearance="secondary"
+                                                        title="Confirm removal"
+                                                    >
+                                                        <i className="codicon codicon-check"></i>
+                                                        Confirm
+                                                    </VSCodeButton>
+                                                    <VSCodeButton
+                                                        onClick={() => setConfirmingDiscard(false)}
+                                                        appearance="primary"
+                                                        title="Cancel"
+                                                    >
+                                                        <i className="codicon codicon-close"></i>
+                                                        Cancel
+                                                    </VSCodeButton>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <VSCodeButton
+                                                        onClick={() => setConfirmingDiscard(true)}
+                                                        appearance="secondary"
+                                                        title="Remove audio"
+                                                    >
+                                                        <i className="codicon codicon-trash"></i>
+                                                        Remove Audio
+                                                    </VSCodeButton>
+                                                    <VSCodeButton
+                                                        onClick={
+                                                            isRecording
+                                                                ? stopRecording
+                                                                : startRecording
+                                                        }
+                                                        appearance="secondary"
+                                                        className={
+                                                            isRecording ? "recording-button" : ""
+                                                        }
+                                                        title="Record new audio"
+                                                    >
+                                                        <i
+                                                            className={`codicon ${
+                                                                isRecording
+                                                                    ? "codicon-stop-circle"
+                                                                    : "codicon-record"
+                                                            }`}
+                                                        ></i>
+                                                        {isRecording ? "Stop" : "Re-record"}
+                                                    </VSCodeButton>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 )}

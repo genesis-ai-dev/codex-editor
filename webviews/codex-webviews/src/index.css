@@ -138,44 +138,6 @@ button:focus-visible {
     color: #666;
 }
 
-/* VerseEditor styles */
-.cell-editor {
-    border: 1px solid #ccc;
-    border-radius: 0.25rem;
-    padding: 1rem;
-    background-color: #f9f9f9;
-}
-
-.cell-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-
-.cell-header h3 {
-    margin: 0;
-}
-
-.text-editor {
-    margin-top: 0.5rem;
-}
-
-.text-editor button {
-    margin-top: 0.5rem;
-    padding: 0.25rem 0.5rem;
-    background-color: #4caf50;
-    color: white;
-    border: none;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    transition: background-color 0.3s ease;
-}
-
-.text-editor button:hover {
-    background-color: #45a049;
-}
-
 /* EmptyVerseDisplay styles */
 .empty-cell-display {
     display: flex;

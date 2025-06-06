@@ -45,7 +45,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: (attachments: { [cellId: string]: string }) => void;
+    setAudioAttachments: (attachments: { [cellId: string]: boolean }) => void;
 }
 
 export const useVSCodeMessageHandler = ({
