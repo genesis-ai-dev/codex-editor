@@ -139,21 +139,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [backtranslation, setBacktranslation] = useState<SavedBacktranslation | null>(null);
     const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<"source" | "backtranslation" | "footnotes">(
-        "source"
-    );
+    const [activeTab, setActiveTab] = useState<
+        "source" | "backtranslation" | "footnotes" | "audio"
+    >("source");
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
     const editorRef = useRef<HTMLDivElement>(null);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
 
+    // Audio-related state
+    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
+    const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+    const [recordingStatus, setRecordingStatus] = useState<string>("");
+    const audioChunksRef = useRef<Blob[]>([]);
+
     // Add keyboard navigation for tabs
     const handleTabKeyDown = (
         event: React.KeyboardEvent<HTMLButtonElement>,
-        tabName: "source" | "backtranslation" | "footnotes"
+        tabName: "source" | "backtranslation" | "footnotes" | "audio"
     ) => {
-        const tabs = ["source", "backtranslation", "footnotes"];
+        const tabs = ["source", "backtranslation", "footnotes", "audio"];
         const currentIndex = tabs.indexOf(activeTab);
 
         switch (event.key) {
@@ -163,7 +171,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const prevTab = tabs[prevIndex];
                 // Only navigate to enabled tabs
                 if (prevTab === "source" && !sourceText) return;
-                setActiveTab(prevTab as "source" | "backtranslation" | "footnotes");
+                setActiveTab(prevTab as "source" | "backtranslation" | "footnotes" | "audio");
                 break;
             }
             case "ArrowRight": {
@@ -172,7 +180,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const nextTab = tabs[nextIndex];
                 // Only navigate to enabled tabs
                 if (nextTab === "source" && !sourceText) return;
-                setActiveTab(nextTab as "source" | "backtranslation" | "footnotes");
+                setActiveTab(nextTab as "source" | "backtranslation" | "footnotes" | "audio");
                 break;
             }
             case "Home":
@@ -593,27 +601,151 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     }, [activeTab, sourceText]);
 
-    // Function to update footnote content in the editor
-    const updateFootnoteInEditor = (footnoteMark: string, newContent: string) => {
-        if (!editorRef.current) return;
+    // Audio recording functions
+    const startRecording = async () => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setRecordingStatus("Microphone not supported in this browser");
+            return;
+        }
 
-        // Get the editor content
-        const editorDom = document.createElement("div");
-        editorDom.innerHTML = editorContent;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const recorder = new MediaRecorder(stream);
 
-        // Find the footnote marker
-        const footnoteElement = Array.from(editorDom.querySelectorAll("sup.footnote-marker")).find(
-            (el) => el.textContent === footnoteMark
-        );
+            audioChunksRef.current = [];
 
-        if (footnoteElement) {
-            // Update the data-footnote attribute
-            footnoteElement.setAttribute("data-footnote", newContent);
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
+            };
 
-            // Update the editor content
-            handleContentUpdate(editorDom.innerHTML);
+            recorder.onstart = () => {
+                setIsRecording(true);
+                setRecordingStatus("Recording...");
+            };
+
+            recorder.onstop = () => {
+                setIsRecording(false);
+                const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+                setAudioBlob(blob);
+
+                // Clean up old URL if exists
+                if (audioUrl) {
+                    URL.revokeObjectURL(audioUrl);
+                }
+
+                const url = URL.createObjectURL(blob);
+                setAudioUrl(url);
+                setRecordingStatus("Recording complete");
+
+                // Stop all tracks to release microphone
+                stream.getTracks().forEach((track) => track.stop());
+
+                // Save audio to cell data
+                saveAudioToCell(blob);
+            };
+
+            recorder.start();
+            setMediaRecorder(recorder);
+        } catch (err) {
+            setRecordingStatus("Microphone access denied");
+            console.error("Error accessing microphone:", err);
         }
     };
+
+    const stopRecording = () => {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+            mediaRecorder.stop();
+        }
+    };
+
+    const saveAudioToCell = (blob: Blob) => {
+        // Convert blob to base64 for storage
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64data = reader.result as string;
+            // Store audio data in session storage temporarily
+            sessionStorage.setItem(`audio-${cellMarkers[0]}`, base64data);
+
+            // Notify that audio has been attached
+            setRecordingStatus("Audio saved to cell");
+        };
+        reader.readAsDataURL(blob);
+    };
+
+    const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file && file.type.startsWith("audio/")) {
+            setAudioBlob(file);
+
+            // Clean up old URL if exists
+            if (audioUrl) {
+                URL.revokeObjectURL(audioUrl);
+            }
+
+            const url = URL.createObjectURL(file);
+            setAudioUrl(url);
+            setRecordingStatus("Audio file loaded");
+
+            // Save to cell
+            saveAudioToCell(file);
+        } else {
+            setRecordingStatus("Please select a valid audio file");
+        }
+    };
+
+    // Load existing audio when component mounts
+    useEffect(() => {
+        // Check session storage first
+        const storedAudio = sessionStorage.getItem(`audio-${cellMarkers[0]}`);
+        if (storedAudio) {
+            fetch(storedAudio)
+                .then((res) => res.blob())
+                .then((blob) => {
+                    setAudioBlob(blob);
+                    if (audioUrl) {
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    const url = URL.createObjectURL(blob);
+                    setAudioUrl(url);
+                    setRecordingStatus("Audio loaded from cache");
+                });
+        }
+
+        // Also request audio attachments from the provider
+        const messageContent: EditorPostMessages = {
+            command: "requestAudioAttachments",
+        };
+        window.vscodeApi.postMessage(messageContent);
+    }, [cellMarkers]);
+
+    // Handle audio data response
+    useEffect(() => {
+        const handleAudioResponse = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "providerSendsAudioAttachments") {
+                const audioPath = message.attachments[cellMarkers[0]];
+                if (audioPath) {
+                    // We have an audio file path, but in webview we can't directly access files
+                    // We would need the provider to send the actual data
+                    setRecordingStatus("Audio file attached to cell");
+                }
+            }
+        };
+
+        window.addEventListener("message", handleAudioResponse);
+        return () => window.removeEventListener("message", handleAudioResponse);
+    }, [cellMarkers]);
+
+    // Cleanup audio URL on unmount
+    useEffect(() => {
+        return () => {
+            if (audioUrl) {
+                URL.revokeObjectURL(audioUrl);
+            }
+        };
+    }, [audioUrl]);
 
     return (
         <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
@@ -875,6 +1007,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             </span>
                         )}
                     </button>
+                    <button
+                        className={`tab-button ${activeTab === "audio" ? "active" : ""}`}
+                        onClick={() => setActiveTab("audio")}
+                        role="tab"
+                        aria-selected={activeTab === "audio"}
+                        aria-controls="audio-panel"
+                        id="audio-tab"
+                        title={audioUrl ? "Audio attached" : "Record or attach audio"}
+                        onKeyDown={(e) => handleTabKeyDown(e, "audio")}
+                    >
+                        <i className="codicon codicon-mic"></i>
+                        <span className="tab-label">Audio</span>
+                        {audioUrl && (
+                            <span className="tab-badge" title="Audio attached">
+                                ✓
+                            </span>
+                        )}
+                    </button>
                 </div>
             </div>
 
@@ -1077,6 +1227,110 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </p>
                             </div>
                         )}
+                    </div>
+                )}
+                {activeTab === "audio" && (
+                    <div
+                        className="audio-content"
+                        role="tabpanel"
+                        id="audio-panel"
+                        aria-labelledby="audio-tab"
+                    >
+                        <div className="audio-section">
+                            <div className="audio-header">
+                                <h3>Audio Recording</h3>
+                            </div>
+
+                            <div className="audio-controls">
+                                {!audioUrl ? (
+                                    <div className="no-audio">
+                                        <p>No audio attached to this cell yet.</p>
+                                        <div className="audio-actions">
+                                            <VSCodeButton
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
+                                                appearance={isRecording ? "secondary" : "primary"}
+                                                className={isRecording ? "recording-button" : ""}
+                                            >
+                                                <i
+                                                    className={`codicon ${
+                                                        isRecording
+                                                            ? "codicon-stop-circle"
+                                                            : "codicon-record"
+                                                    }`}
+                                                ></i>
+                                                {isRecording ? "Stop Recording" : "Start Recording"}
+                                            </VSCodeButton>
+                                            <VSCodeDivider />
+                                            <label className="file-upload-label">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/*"
+                                                    onChange={handleFileUpload}
+                                                    style={{ display: "none" }}
+                                                />
+                                                <VSCodeButton appearance="secondary">
+                                                    <i className="codicon codicon-folder-opened"></i>
+                                                    Upload Audio File
+                                                </VSCodeButton>
+                                            </label>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="audio-player-section">
+                                        <audio controls src={audioUrl} className="audio-player" />
+                                        <div className="audio-player-actions">
+                                            <VSCodeButton
+                                                onClick={() => {
+                                                    if (audioUrl) {
+                                                        URL.revokeObjectURL(audioUrl);
+                                                    }
+                                                    setAudioUrl(null);
+                                                    setAudioBlob(null);
+                                                    setRecordingStatus("");
+                                                    sessionStorage.removeItem(
+                                                        `audio-${cellMarkers[0]}`
+                                                    );
+                                                }}
+                                                appearance="secondary"
+                                                title="Remove audio"
+                                            >
+                                                <i className="codicon codicon-trash"></i>
+                                                Remove Audio
+                                            </VSCodeButton>
+                                            <VSCodeButton
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
+                                                appearance="secondary"
+                                                className={isRecording ? "recording-button" : ""}
+                                                title="Record new audio"
+                                            >
+                                                <i
+                                                    className={`codicon ${
+                                                        isRecording
+                                                            ? "codicon-stop-circle"
+                                                            : "codicon-record"
+                                                    }`}
+                                                ></i>
+                                                {isRecording ? "Stop" : "Re-record"}
+                                            </VSCodeButton>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {recordingStatus && (
+                                    <div
+                                        className={`recording-status ${
+                                            isRecording ? "recording" : ""
+                                        }`}
+                                    >
+                                        {recordingStatus}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

@@ -735,3 +735,139 @@
     color: var(--vscode-charts-blue);
     margin: 0 2px;
 }
+
+/* Audio tab styles */
+.audio-content {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.audio-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 8px 12px;
+}
+
+.audio-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    padding-bottom: 8px;
+}
+
+.audio-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+}
+
+.audio-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.no-audio {
+    text-align: center;
+    padding: 20px;
+}
+
+.no-audio p {
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 20px;
+}
+
+.audio-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+}
+
+.file-upload-label {
+    display: inline-block;
+    cursor: pointer;
+}
+
+.audio-player-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: center;
+}
+
+.audio-player {
+    width: 100%;
+    max-width: 400px;
+    height: 40px;
+    background-color: var(--vscode-input-background);
+    border-radius: 4px;
+}
+
+.audio-player-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.recording-status {
+    text-align: center;
+    padding: 8px;
+    border-radius: 4px;
+    background-color: var(--vscode-inputValidation-infoBackground);
+    color: var(--vscode-inputValidation-infoForeground);
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.recording-status.recording {
+    background-color: var(--vscode-statusBarItem-warningBackground);
+    color: var(--vscode-statusBarItem-warningForeground);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+.recording-button {
+    animation: recordPulse 1.5s infinite;
+}
+
+@keyframes recordPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(255, 0, 0, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(255, 0, 0, 0);
+    }
+}
+
+/* Responsive adjustments for audio controls */
+@media (max-width: 480px) {
+    .audio-player {
+        max-width: 100%;
+    }
+
+    .audio-player-actions {
+        flex-wrap: wrap;
+    }
+}

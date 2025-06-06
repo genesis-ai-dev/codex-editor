@@ -1,0 +1,156 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+The following is a really simple demo example of what a vscode webview needs in terms of permissions to record in our app. 
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Microphone Record & Playback Proof of Concept</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    background: #f0f2f5;
+    display: flex;
+    height: 100vh;
+    margin: 0;
+    align-items: center;
+    justify-content: center;
+  }
+  .container {
+    background: white;
+    border-radius: 8px;
+    padding: 20px 30px;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.1);
+    text-align: center;
+    width: 300px;
+  }
+  button {
+    background-color: #007bff;
+    border: none;
+    color: white;
+    padding: 14px 22px;
+    margin: 10px 5px;
+    font-size: 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.3s ease;
+  }
+  button:disabled {
+    background-color: #a3c5fd;
+    cursor: not-allowed;
+  }
+  button:hover:not(:disabled) {
+    background-color: #0056b3;
+  }
+  #recordBtn.recording {
+    background-color: #dc3545;
+  }
+  #recordBtn.recording:hover {
+    background-color: #a71d2a;
+  }
+  #status {
+    margin-top: 15px;
+    font-weight: bold;
+    height: 20px;
+    color: #28a745; /* green */
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h2>Microphone Recorder</h2>
+  <div>
+    <button id="recordBtn">Record</button>
+    <button id="playBtn" disabled>Play</button>
+  </div>
+  <div id="status"></div>
+</div>
+
+<script>
+  (function() {
+    const recordBtn = document.getElementById('recordBtn');
+    const playBtn = document.getElementById('playBtn');
+    const status = document.getElementById('status');
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let audioBlob = null;
+    let audioUrl = null;
+    let audio = null;
+    let isRecording = false;
+
+    // Utility to update status text safely
+    function updateStatus(text, color = '#28a745') {
+      status.textContent = text;
+      status.style.color = color;
+    }
+
+    recordBtn.addEventListener('click', async () => {
+      if (isRecording) {
+        // Stop recording
+        mediaRecorder.stop();
+      } else {
+        // Start recording
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          updateStatus('getUserMedia not supported in this browser', '#dc3545');
+          return;
+        }
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+
+          audioChunks = [];
+          mediaRecorder.ondataavailable = e => {
+            if(e.data.size > 0) {
+              audioChunks.push(e.data);
+            }
+          };
+
+          mediaRecorder.onstart = () => {
+            isRecording = true;
+            recordBtn.textContent = 'Stop';
+            recordBtn.classList.add('recording');
+            playBtn.disabled = true;
+            updateStatus('Recording...', '#dc3545'); // red while recording
+          };
+
+          mediaRecorder.onstop = () => {
+            isRecording = false;
+            recordBtn.textContent = 'Record';
+            recordBtn.classList.remove('recording');
+            audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            if (audioUrl) {
+              URL.revokeObjectURL(audioUrl);
+            }
+            audioUrl = URL.createObjectURL(audioBlob);
+            audio = new Audio(audioUrl);
+            playBtn.disabled = false;
+            updateStatus('Recording complete');
+            // Stop all tracks to release microphone
+            stream.getTracks().forEach(track => track.stop());
+          };
+
+          mediaRecorder.start();
+        } catch (err) {
+          updateStatus('Microphone access denied or error occurred', '#dc3545');
+          console.error(err);
+        }
+      }
+    });
+
+    playBtn.addEventListener('click', () => {
+      if (audio) {
+        audio.play();
+      }
+    });
+  })();
+</script>
+
+</body>
+</html>
