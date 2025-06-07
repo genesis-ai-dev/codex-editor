@@ -906,6 +906,11 @@ type EditorReceiveMessages =
             audioId: string;
             audioUrl?: string; // URL to access the audio file
             audioData?: string; // base64 data if needed
+            transcription?: {
+                content: string;
+                timestamp: number;
+                language?: string;
+            };
         };
     }
     | {

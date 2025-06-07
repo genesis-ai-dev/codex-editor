@@ -204,6 +204,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [transcriptionProgress, setTranscriptionProgress] = useState(0);
     const [transcriptionStatus, setTranscriptionStatus] = useState<string>("");
+    const [savedTranscription, setSavedTranscription] = useState<{
+        content: string;
+        timestamp: number;
+        language?: string;
+    } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
 
     // Use the internal state with validation
@@ -863,6 +868,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const newContent = `<span>${newText}</span>`;
                 handleContentUpdate(newContent);
 
+                // Save transcription to cell metadata
+                const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
+                if (audioId) {
+                    const transcriptionData = {
+                        content: transcribedText,
+                        timestamp: Date.now(),
+                        language: result.language,
+                    };
+
+                    // Save to cell metadata via provider
+                    const messageContent: EditorPostMessages = {
+                        command: "updateCellAfterTranscription",
+                        content: {
+                            cellId: cellMarkers[0],
+                            transcribedText: transcribedText,
+                            language: result.language || "unknown",
+                        },
+                    };
+                    window.vscodeApi.postMessage(messageContent);
+
+                    // Update local state
+                    setSavedTranscription(transcriptionData);
+                }
+
                 setTranscriptionStatus(`Transcription complete (${result.language})`);
             } else {
                 setTranscriptionStatus("No speech detected in audio");
@@ -876,7 +905,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
             setIsTranscribing(false);
             transcriptionClientRef.current = null;
 
-            // Clear status after a delay
+            // Clear status after a delay, but keep savedTranscription
             setTimeout(() => {
                 setTranscriptionStatus("");
                 setTranscriptionProgress(0);
@@ -954,6 +983,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         safeSetAudioUrl(blobUrl);
                         setRecordingStatus("Audio loaded");
 
+                        // Check for existing transcription in the audio attachment metadata
+                        if (message.content.transcription) {
+                            setSavedTranscription({
+                                content: message.content.transcription.content,
+                                timestamp: message.content.transcription.timestamp,
+                                language: message.content.transcription.language,
+                            });
+                        }
+
                         // Store the audio ID
                         if (message.content.audioId) {
                             sessionStorage.setItem(
@@ -979,6 +1017,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // This is likely a file path, which won't work in the webview
                         console.error("Received invalid audio URL (file path?):", url);
                         setRecordingStatus("Error: Invalid audio URL");
+                    }
+
+                    // Check for existing transcription in the audio attachment metadata
+                    if (message.content.transcription) {
+                        setSavedTranscription({
+                            content: message.content.transcription.content,
+                            timestamp: message.content.transcription.timestamp,
+                            language: message.content.transcription.language,
+                        });
                     }
 
                     // Store the audio ID
@@ -1341,17 +1388,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TabsTrigger>
                     </TabsList>
 
-                    <TabsContent value="source" className="p-4 border rounded-b-md">
-                        <div
-                            className="prose prose-sm max-w-none"
-                            dangerouslySetInnerHTML={{
-                                __html: sourceText !== null ? sourceText : "Loading source text...",
-                            }}
-                        />
+                    <TabsContent value="source">
+                        <div className="content-section">
+                            <div
+                                className="prose prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{
+                                    __html:
+                                        sourceText !== null ? sourceText : "Loading source text...",
+                                }}
+                            />
+                        </div>
                     </TabsContent>
 
-                    <TabsContent value="backtranslation" className="p-0">
-                        <div className="border rounded-b-md p-4 space-y-4">
+                    <TabsContent value="backtranslation">
+                        <div className="content-section space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-lg font-medium">Backtranslation</h3>
                                 <div className="flex items-center gap-2">
@@ -1392,6 +1442,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             <div className="flex gap-2 justify-end">
                                                 <Button
                                                     onClick={handleSaveBacktranslation}
+                                                    size="sm"
                                                     title="Save Backtranslation"
                                                 >
                                                     Save
@@ -1401,6 +1452,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         setIsEditingBacktranslation(false)
                                                     }
                                                     variant="secondary"
+                                                    size="sm"
                                                     title="Cancel Editing"
                                                 >
                                                     Cancel
@@ -1439,8 +1491,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="footnotes" className="p-0">
-                        <div className="border rounded-b-md p-4">
+                    <TabsContent value="footnotes">
+                        <div className="content-section">
                             {footnotes.length > 0 ? (
                                 <div className="space-y-3">
                                     {footnotes.map((footnote, index) => (
@@ -1535,8 +1587,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="audio" className="p-0">
-                        <div className="border rounded-b-md p-4 space-y-4">
+                    <TabsContent value="audio">
+                        <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
 
                             {!audioUrl ||
@@ -1594,12 +1646,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    <Card className="p-4 bg-muted/50">
-                                        <div className="flex items-center gap-3">
+                                    {/* Audio player container matching reference design */}
+                                    <div className="audio-player-container">
+                                        <div className="audio-controls">
                                             <Button variant="outline" size="icon" disabled>
                                                 <Play className="h-4 w-4" />
                                             </Button>
-                                            <div className="flex-grow space-y-2">
+                                            <div className="flex-grow space-y-1">
+                                                <div className="audio-filename">
+                                                    sample_audio.mp3
+                                                </div>
                                                 <audio
                                                     controls
                                                     src={
@@ -1610,7 +1666,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             ? audioUrl
                                                             : undefined
                                                     }
-                                                    className="w-full h-12"
+                                                    className="w-full h-8"
                                                     onError={(e) => {
                                                         console.error(
                                                             "Error playing audio for cell:",
@@ -1638,12 +1694,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         );
                                                     }}
                                                 />
+                                                <div className="flex justify-between items-center">
+                                                    <span className="audio-time">0:14</span>
+                                                    <span className="audio-time">0:45</span>
+                                                </div>
                                             </div>
                                             <Button variant="ghost" size="icon">
                                                 <Volume2 className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                    </Card>
+                                    </div>
 
                                     <div className="flex flex-wrap gap-2">
                                         {confirmingDiscard ? (
@@ -1675,7 +1735,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     variant="outline"
                                                     size="sm"
                                                 >
-                                                    <Trash2 className="mr-2 h-4 w-4" />
                                                     Remove Audio
                                                 </Button>
                                                 <Button
@@ -1692,10 +1751,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             Stop
                                                         </>
                                                     ) : (
-                                                        <>
-                                                            <CircleDotDashed className="mr-2 h-4 w-4" />
-                                                            Re-record
-                                                        </>
+                                                        <>Re-record / Load New</>
                                                     )}
                                                 </Button>
                                                 <Button
@@ -1720,22 +1776,51 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         )}
                                     </div>
 
-                                    {/* Transcription progress */}
-                                    {(isTranscribing || transcriptionStatus) && (
-                                        <Card className="p-4">
-                                            {isTranscribing && transcriptionProgress > 0 && (
-                                                <Progress
-                                                    value={transcriptionProgress}
-                                                    className="mb-2"
-                                                />
-                                            )}
-                                            {transcriptionStatus && (
-                                                <p className="text-sm text-center text-muted-foreground">
-                                                    {transcriptionStatus}
-                                                </p>
-                                            )}
-                                        </Card>
-                                    )}
+                                    {/* Transcription section */}
+                                    <div className="space-y-3">
+                                        <h4 className="font-medium">Transcription</h4>
+
+                                        {/* Transcription progress */}
+                                        {(isTranscribing || transcriptionStatus) && (
+                                            <div className="space-y-2">
+                                                {isTranscribing && transcriptionProgress > 0 && (
+                                                    <Progress
+                                                        value={transcriptionProgress}
+                                                        className="mb-2"
+                                                    />
+                                                )}
+                                                {transcriptionStatus && (
+                                                    <p className="text-sm text-center text-muted-foreground">
+                                                        {transcriptionStatus}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {!isTranscribing && !transcriptionStatus && (
+                                            <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground">
+                                                {savedTranscription ? (
+                                                    <div className="space-y-2 text-left">
+                                                        <div className="text-sm font-medium">
+                                                            Transcription:
+                                                        </div>
+                                                        <div className="text-sm">
+                                                            {savedTranscription.content}
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            Language: {savedTranscription.language}{" "}
+                                                            •{" "}
+                                                            {new Date(
+                                                                savedTranscription.timestamp
+                                                            ).toLocaleString()}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    "Audio loaded (sample_audio.mp3). Click 'Transcribe' to generate text."
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
 
                                     {recordingStatus && !isTranscribing && (
                                         <Badge

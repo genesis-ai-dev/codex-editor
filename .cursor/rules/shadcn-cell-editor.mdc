@@ -1,0 +1,276 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+Here is a sample of an ideal ShadCN TextCellEditor (note it's build like a nextjs component, but we are just using vite + react ts in a vscode webview, so we need to account for those differences):
+
+```
+"use client"
+
+import * as React from "react"
+import {
+  BookOpen,
+  Sparkles,
+  History,
+  ListFilter,
+  Settings,
+  X,
+  Pencil,
+  Wrench,
+  FileCode,
+  RefreshCcw,
+  ListOrdered,
+  Mic,
+  Play,
+  Volume2,
+  Trash2,
+  CircleDotDashed,
+  MessageCircle,
+  Copy,
+  CheckSquare,
+  Loader2,
+} from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
+import { Progress } from "@/components/ui/progress"
+import { Separator } from "@/components/ui/separator"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+
+interface TranslationCellEditorProps {
+  itemNumber: number
+  initialText: string
+  initialAudioFile?: string // Optional: name of an initially loaded audio file
+}
+
+export default function TranslationCellEditor({
+  itemNumber,
+  initialText,
+  initialAudioFile,
+}: TranslationCellEditorProps) {
+  const [mainText, setMainText] = React.useState(initialText)
+  const [audioAvailable, setAudioAvailable] = React.useState(!!initialAudioFile)
+  const [audioFileName, setAudioFileName] = React.useState(initialAudioFile || "sample_audio.mp3")
+  const [transcription, setTranscription] = React.useState<string | null>(null)
+  const [isTranscribing, setIsTranscribing] = React.useState(false)
+  const [progressValue, setProgressValue] = React.useState(30) // Static progress for demo
+
+  const handleLoadAudio = () => {
+    setAudioAvailable(true)
+    setAudioFileName("new_audio_clip.wav")
+    setTranscription(null) // Clear previous transcription
+    setProgressValue(0) // Reset progress for new audio
+    // In a real app, you'd open a file picker or start recording
+    console.log("Simulating audio load/re-record...")
+  }
+
+  const handleRemoveAudio = () => {
+    setAudioAvailable(false)
+    setAudioFileName("")
+    setTranscription(null)
+    setIsTranscribing(false)
+    setProgressValue(0)
+  }
+
+  const handleTranscribe = async () => {
+    if (!audioAvailable) return
+    setIsTranscribing(true)
+    setTranscription(null) // Clear previous transcription while new one is generating
+
+    // Simulate API call for transcription
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+
+    const mockTranscription = `This is a simulated transcription of ${audioFileName}. Le temps est accompli et le royaume de Dieu est proche. Repentez-vous et croyez à l'Évangile.`
+    setTranscription(mockTranscription)
+    setIsTranscribing(false)
+  }
+
+  const handleCopyTranscription = () => {
+    if (transcription) {
+      navigator.clipboard.writeText(transcription)
+      // Add toast notification here in a real app
+      console.log("Transcription copied to clipboard")
+    }
+  }
+
+  const handleUseTranscription = () => {
+    if (transcription) {
+      setMainText(transcription) // Example action: replace main text with transcription
+      // Add toast notification here
+      console.log("Transcription used as main text")
+    }
+  }
+
+  const getTranscriptionAreaContent = () => {
+    if (isTranscribing) {
+      return (
+        <div className="flex flex-col items-center justify-center space-y-2 text-muted-foreground">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p>Transcribing audio...</p>
+        </div>
+      )
+    }
+    if (transcription) {
+      return <p className="text-sm whitespace-pre-wrap">{transcription}</p>
+    }
+    if (audioAvailable) {
+      return (
+        <p className="text-muted-foreground">Audio loaded ({audioFileName}). Click 'Transcribe' to generate text.</p>
+      )
+    }
+    return <p className="text-muted-foreground">Load or record audio to enable transcription.</p>
+  }
+
+  return (
+    <Card className="w-full max-w-2xl shadow-xl">
+      <CardHeader className="border-b p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-semibold">{itemNumber}</span>
+            <Button variant="ghost" size="icon" aria-label="Edit item number">
+              <Pencil className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex items-center gap-1">
+            {[
+              { icon: BookOpen, label: "Open" },
+              { icon: Sparkles, label: "Enhance" },
+              { icon: History, label: "History" },
+              { icon: ListFilter, label: "Filters" },
+              { icon: Settings, label: "Settings" },
+              { icon: X, label: "Close" },
+            ].map((item, idx) => (
+              <TooltipProvider key={idx}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" aria-label={item.label}>
+                      <item.icon className="h-5 w-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>{item.label}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-start gap-2">
+          <Wrench className="h-5 w-5 mt-2 text-muted-foreground flex-shrink-0" />
+          <Textarea
+            value={mainText}
+            onChange={(e) => setMainText(e.target.value)}
+            placeholder="Enter translation..."
+            className="min-h-[100px] text-base"
+          />
+        </div>
+
+        <Tabs defaultValue="audio" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="source">
+              <FileCode className="mr-2 h-4 w-4" /> Source
+            </TabsTrigger>
+            <TabsTrigger value="backtranslate">
+              <RefreshCcw className="mr-2 h-4 w-4" /> Backtranslate
+              <span className="ml-2 h-2 w-2 rounded-full bg-yellow-400" />
+            </TabsTrigger>
+            <TabsTrigger value="footnotes">
+              <ListOrdered className="mr-2 h-4 w-4" /> Footnotes
+            </TabsTrigger>
+            <TabsTrigger value="audio">
+              <Mic className="mr-2 h-4 w-4" /> Audio
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="source" className="p-4 border rounded-b-md">
+            Source content placeholder.
+          </TabsContent>
+          <TabsContent value="backtranslate" className="p-4 border rounded-b-md">
+            Backtranslate content placeholder.
+          </TabsContent>
+          <TabsContent value="footnotes" className="p-4 border rounded-b-md">
+            Footnotes content placeholder.
+          </TabsContent>
+
+          <TabsContent value="audio" className="p-0">
+            <div className="border rounded-b-md p-4 space-y-4">
+              <h3 className="text-lg font-medium">Audio Recording</h3>
+
+              {audioAvailable ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                    <Button variant="outline" size="icon" aria-label="Play/Pause">
+                      <Play className="h-5 w-5" />
+                    </Button>
+                    <div className="flex-grow space-y-1">
+                      <span className="text-xs text-muted-foreground">{audioFileName}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono">
+                          0:{String(Math.round(45 * (progressValue / 100))).padStart(2, "0")}
+                        </span>
+                        <Progress value={progressValue} className="w-full h-2" />
+                        <span className="text-xs font-mono">0:45</span>
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="icon" aria-label="Volume">
+                      <Volume2 className="h-5 w-5" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={handleRemoveAudio}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Remove Audio
+                    </Button>
+                    <Button variant="outline" onClick={handleLoadAudio}>
+                      <CircleDotDashed className="mr-2 h-4 w-4" /> Re-record / Load New
+                    </Button>
+                    <Button
+                      onClick={handleTranscribe}
+                      disabled={isTranscribing || !audioAvailable}
+                      className="flex-grow sm:flex-grow-0"
+                    >
+                      {isTranscribing ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <MessageCircle className="mr-2 h-4 w-4" />
+                      )}
+                      {transcription && !isTranscribing ? "Re-transcribe" : "Transcribe"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button onClick={handleLoadAudio}>
+                  <Mic className="mr-2 h-4 w-4" /> Load or Record Audio
+                </Button>
+              )}
+
+              <Separator />
+
+              <div>
+                <h4 className="text-md font-medium mb-2">Transcription</h4>
+                <div className="min-h-[120px] rounded-md border bg-muted/20 p-3 flex items-center justify-center">
+                  {getTranscriptionAreaContent()}
+                </div>
+                {transcription && !isTranscribing && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="secondary" onClick={handleCopyTranscription}>
+                      <Copy className="mr-2 h-4 w-4" /> Copy Transcription
+                    </Button>
+                    <Button variant="secondary" onClick={handleUseTranscription}>
+                      <CheckSquare className="mr-2 h-4 w-4" /> Use for Translation
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  )
+}
+```

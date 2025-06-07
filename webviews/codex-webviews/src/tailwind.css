@@ -36,29 +36,19 @@
         --ring: var(--vscode-focusBorder, #0078d4);
         --radius: 0.5rem;
 
-        /* Additional VSCode-specific colors */
-        --tab-active-background: var(
-            --vscode-tab-activeBackground,
-            var(--vscode-editor-background, #ffffff)
-        );
-        --tab-active-foreground: var(
-            --vscode-tab-activeForeground,
-            var(--vscode-editor-foreground, #1f2937)
-        );
-        --tab-inactive-background: var(
-            --vscode-tab-inactiveBackground,
-            var(--vscode-sideBar-background, #f8fafc)
-        );
-        --tab-inactive-foreground: var(
-            --vscode-tab-inactiveForeground,
-            var(--vscode-descriptionForeground, #64748b)
-        );
-        --tab-border: var(--vscode-tab-border, var(--vscode-panel-border, #e2e8f0));
-        --tab-active-border: var(--vscode-tab-activeBorder, var(--vscode-focusBorder, #0078d4));
+        /* Additional VSCode-specific colors - More subtle */
+        --tab-active-background: var(--vscode-editor-background, #ffffff);
+        --tab-active-foreground: var(--vscode-editor-foreground, #1f2937);
+        --tab-inactive-background: transparent;
+        --tab-inactive-foreground: var(--vscode-descriptionForeground, #6b7280);
+        --tab-border: var(--vscode-panel-border, #e5e7eb);
+        --tab-active-border: var(--vscode-focusBorder, #0078d4);
 
-        /* Button variations */
-        --button-ghost-hover: var(--vscode-list-hoverBackground, #f1f5f9);
+        /* Button variations - More subtle */
+        --button-ghost-hover: var(--vscode-toolbar-hoverBackground, rgba(0, 0, 0, 0.05));
         --button-outline-border: var(--vscode-button-border, var(--vscode-panel-border, #d1d5db));
+        --button-subtle: var(--vscode-button-secondaryBackground, #f8f9fa);
+        --button-subtle-foreground: var(--vscode-button-secondaryForeground, #374151);
     }
 }
 
@@ -79,170 +69,176 @@
 }
 
 @layer components {
-    /* Enhanced Tab Styling */
+    /* Subtle Tab Styling - More like reference */
     .tabs-list {
-        background-color: var(--tab-inactive-background);
-        border: 1px solid var(--tab-border);
-        border-radius: 0.5rem;
-        padding: 0.25rem;
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        background-color: transparent;
+        border: none;
+        border-bottom: 1px solid var(--tab-border);
+        border-radius: 0;
+        padding: 0;
+        gap: 0;
     }
 
     .tabs-trigger {
         background-color: transparent;
         color: var(--tab-inactive-foreground);
-        border: 1px solid transparent;
-        border-radius: 0.375rem;
-        padding: 0.5rem 1rem;
+        border: none;
+        border-bottom: 2px solid transparent;
+        border-radius: 0;
+        padding: 0.75rem 1rem;
         font-size: 0.875rem;
-        font-weight: 500;
+        font-weight: 400;
         transition: all 0.2s ease-in-out;
         position: relative;
-        min-height: 2.5rem;
+        min-height: auto;
+        margin-bottom: -1px;
     }
 
     .tabs-trigger:hover {
         background-color: var(--button-ghost-hover);
         color: var(--tab-active-foreground);
-        transform: translateY(-1px);
+        transform: none;
     }
 
     .tabs-trigger[data-state="active"] {
-        background-color: var(--tab-active-background);
+        background-color: transparent;
         color: var(--tab-active-foreground);
-        border-color: var(--tab-active-border);
-        box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-        transform: translateY(-1px);
+        border-bottom-color: var(--tab-active-border);
+        box-shadow: none;
+        transform: none;
         z-index: 1;
+        font-weight: 500;
     }
 
     .tabs-trigger[data-state="active"]::after {
-        content: "";
-        position: absolute;
-        bottom: -1px;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background-color: var(--tab-active-border);
-        border-radius: 1px 1px 0 0;
+        display: none;
     }
 
     .tabs-content {
-        border: 1px solid var(--tab-border);
-        border-radius: 0.5rem;
-        background-color: var(--tab-active-background);
-        margin-top: 0.5rem;
-        box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+        border: none;
+        border-radius: 0;
+        background-color: transparent;
+        margin-top: 0;
+        box-shadow: none;
+        padding: 1rem 0;
     }
 
-    /* Enhanced Button Styling */
+    /* Subtle Button Styling - More VSCode-like */
     .button-primary {
         background-color: var(--primary);
         color: var(--primary-foreground);
         border: 1px solid var(--primary);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        box-shadow: none;
+        font-size: 0.875rem;
     }
 
     .button-primary:hover {
         background-color: color-mix(in srgb, var(--primary) 90%, black);
         border-color: color-mix(in srgb, var(--primary) 90%, black);
-        box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
-        transform: translateY(-1px);
+        box-shadow: none;
+        transform: none;
     }
 
     .button-secondary {
-        background-color: var(--secondary);
-        color: var(--secondary-foreground);
+        background-color: var(--button-subtle);
+        color: var(--button-subtle-foreground);
         border: 1px solid var(--button-outline-border);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        box-shadow: none;
+        font-size: 0.875rem;
     }
 
     .button-secondary:hover {
         background-color: var(--accent);
         color: var(--accent-foreground);
-        box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
-        transform: translateY(-1px);
+        box-shadow: none;
+        transform: none;
     }
 
     .button-ghost {
         background-color: transparent;
         color: var(--foreground);
         border: 1px solid transparent;
+        font-size: 0.875rem;
     }
 
     .button-ghost:hover {
         background-color: var(--button-ghost-hover);
         color: var(--foreground);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        box-shadow: none;
+        transform: none;
     }
 
     .button-outline {
         background-color: transparent;
         color: var(--foreground);
         border: 1px solid var(--button-outline-border);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        box-shadow: none;
+        font-size: 0.875rem;
     }
 
     .button-outline:hover {
         background-color: var(--accent);
         color: var(--accent-foreground);
-        box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
-        transform: translateY(-1px);
+        box-shadow: none;
+        transform: none;
     }
 
     .button-destructive {
         background-color: var(--destructive);
         color: var(--destructive-foreground);
         border: 1px solid var(--destructive);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        box-shadow: none;
+        font-size: 0.875rem;
     }
 
     .button-destructive:hover {
         background-color: color-mix(in srgb, var(--destructive) 90%, black);
         border-color: color-mix(in srgb, var(--destructive) 90%, black);
-        box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
-        transform: translateY(-1px);
+        box-shadow: none;
+        transform: none;
     }
 
-    /* Card Styling */
+    /* Minimal Card Styling */
     .card {
         background-color: var(--card);
         color: var(--card-foreground);
         border: 1px solid var(--border);
-        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        box-shadow: none;
     }
 
     .card-header {
         border-bottom: 1px solid var(--border);
-        background-color: color-mix(in srgb, var(--card) 95%, var(--border));
+        background-color: var(--card);
     }
 
-    /* Input Styling */
+    /* Subtle Input Styling */
     .input {
         background-color: var(--input);
         color: var(--foreground);
         border: 1px solid var(--border);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) inset;
+        box-shadow: none;
+        font-size: 0.875rem;
     }
 
     .input:focus {
         border-color: var(--ring);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent),
-            0 1px 2px 0 rgb(0 0 0 / 0.05) inset;
+        box-shadow: 0 0 0 1px var(--ring);
     }
 
-    /* Badge Styling */
+    /* Subtle Badge Styling */
     .badge-secondary {
         background-color: var(--secondary);
         color: var(--secondary-foreground);
         border: 1px solid var(--border);
-        box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+        box-shadow: none;
+        font-size: 0.75rem;
     }
 
     .badge-outline {
         background-color: transparent;
         color: var(--foreground);
         border: 1px solid var(--border);
+        font-size: 0.75rem;
     }
 
     /* Progress Bar */
@@ -256,45 +252,38 @@
         background-color: var(--border);
     }
 
-    /* Additional UI Polish */
-    .shadow-soft {
-        box-shadow: 0 2px 8px 0 rgb(0 0 0 / 0.08);
+    /* Content sections */
+    .content-section {
+        padding: 1rem;
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        background-color: var(--card);
     }
 
-    .shadow-medium {
-        box-shadow: 0 4px 12px 0 rgb(0 0 0 / 0.12);
+    /* Audio player styling to match reference */
+    .audio-player-container {
+        border: 1px solid var(--border);
+        border-radius: 0.375rem;
+        padding: 1rem;
+        background-color: var(--muted);
     }
 
-    /* Animation improvements */
-    @keyframes subtle-bounce {
-        0%,
-        100% {
-            transform: translateY(0);
-        }
-        50% {
-            transform: translateY(-2px);
-        }
+    .audio-controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
     }
 
-    .animate-subtle-bounce {
-        animation: subtle-bounce 0.3s ease-in-out;
+    .audio-filename {
+        font-size: 0.875rem;
+        color: var(--foreground);
+        font-weight: 500;
     }
 
-    /* Focus improvements */
-    .focus-ring {
-        outline: 2px solid var(--ring);
-        outline-offset: 2px;
-    }
-
-    /* Interactive element improvements */
-    .interactive {
-        transition: all 0.2s ease-in-out;
-        cursor: pointer;
-    }
-
-    .interactive:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px 0 rgb(0 0 0 / 0.15);
+    .audio-time {
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+        font-family: monospace;
     }
 }
 
@@ -323,84 +312,6 @@
     --color-ring: var(--ring);
 }
 
-:root {
-    --radius: 0.625rem;
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.646 0.222 41.116);
-    --chart-2: oklch(0.6 0.118 184.704);
-    --chart-3: oklch(0.398 0.07 227.392);
-    --chart-4: oklch(0.828 0.189 84.429);
-    --chart-5: oklch(0.769 0.188 70.08);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.488 0.243 264.376);
-    --chart-2: oklch(0.696 0.17 162.48);
-    --chart-3: oklch(0.769 0.188 70.08);
-    --chart-4: oklch(0.627 0.265 303.9);
-    --chart-5: oklch(0.645 0.246 16.439);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
-}
-
-@layer base {
-    * {
-        @apply border-border outline-ring/50;
-    }
-    body {
-        @apply bg-background text-foreground;
-    }
-}
-
 /* Dark theme adjustments for better VSCode integration */
 @media (prefers-color-scheme: dark) {
     :root {
@@ -417,13 +328,8 @@
         );
         --muted: var(--vscode-input-background, #2d2d30);
         --border: var(--vscode-panel-border, var(--vscode-widget-border, #454545));
-        --tab-inactive-background: var(
-            --vscode-tab-inactiveBackground,
-            var(--vscode-sideBar-background, #2d2d30)
-        );
-        --tab-active-background: var(
-            --vscode-tab-activeBackground,
-            var(--vscode-editor-background, #1e1e1e)
-        );
+        --tab-inactive-background: transparent;
+        --tab-active-background: transparent;
+        --button-ghost-hover: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1));
     }
 }
