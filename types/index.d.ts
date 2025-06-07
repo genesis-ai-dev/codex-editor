@@ -712,6 +712,14 @@ export type EditorPostMessages =
             cellId: string;
             audioId: string;
         };
+    }
+    | {
+        command: "updateCellAfterTranscription";
+        content: {
+            cellId: string;
+            transcribedText: string;
+            language: string;
+        };
     };
 
 type EditorReceiveMessages =

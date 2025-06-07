@@ -829,7 +829,39 @@
 .recording-status.recording {
     background-color: var(--vscode-statusBarItem-warningBackground);
     color: var(--vscode-statusBarItem-warningForeground);
-    animation: pulse 1.5s infinite;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Transcription styles */
+.transcription-progress {
+    margin-top: 12px;
+    width: 100%;
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 4px;
+    background-color: var(--vscode-progressBar-background);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: var(--vscode-progressBar-foreground);
+    transition: width 0.3s ease;
+    border-radius: 2px;
+}
+
+.transcription-status {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    text-align: center;
+    padding: 4px 8px;
+    background-color: var(--vscode-editor-background);
+    border-radius: 4px;
+    border: 1px solid var(--vscode-panel-border);
 }
 
 @keyframes pulse {

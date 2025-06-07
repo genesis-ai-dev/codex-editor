@@ -25,6 +25,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
 import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import Quill from "quill";
+import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -156,6 +157,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const audioChunksRef = useRef<Blob[]>([]);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+
+    // Transcription state
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    const [transcriptionProgress, setTranscriptionProgress] = useState(0);
+    const [transcriptionStatus, setTranscriptionStatus] = useState<string>("");
+    const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
 
     // Use the internal state with validation
     const audioUrl = _audioUrl;
@@ -740,6 +747,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setAudioBlob(null);
         setRecordingStatus("");
 
+        // Cancel any ongoing transcription
+        if (transcriptionClientRef.current) {
+            transcriptionClientRef.current.abort();
+            transcriptionClientRef.current = null;
+        }
+        setIsTranscribing(false);
+        setTranscriptionProgress(0);
+        setTranscriptionStatus("");
+
         // Get the stored audio ID if it exists
         const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
 
@@ -757,6 +773,72 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 },
             };
             window.vscodeApi.postMessage(messageContent);
+        }
+    };
+
+    const handleTranscribeAudio = async () => {
+        if (!audioBlob) {
+            setTranscriptionStatus("No audio to transcribe");
+            return;
+        }
+
+        setIsTranscribing(true);
+        setTranscriptionProgress(0);
+        setTranscriptionStatus("Connecting to transcription service...");
+
+        try {
+            // Create transcription client
+            const client = new WhisperTranscriptionClient(
+                "wss://ryderwishart--whisper-websocket-transcription-fastapi-asgi.modal.run/ws/transcribe"
+            );
+            transcriptionClientRef.current = client;
+
+            // Set up progress handler
+            client.onProgress = (message, percentage) => {
+                setTranscriptionStatus(message);
+                setTranscriptionProgress(percentage);
+            };
+
+            client.onError = (error) => {
+                setTranscriptionStatus(`Error: ${error}`);
+            };
+
+            // Perform transcription
+            const result = await client.transcribe(audioBlob);
+
+            // Success - append transcribed text to cell content
+            const transcribedText = result.text.trim();
+            if (transcribedText) {
+                // Get current content without HTML tags
+                const currentContent = editorContent;
+                const doc = new DOMParser().parseFromString(currentContent, "text/html");
+                const currentText = doc.body.textContent || "";
+
+                // Append transcribed text with a space if there's existing content
+                const newText = currentText ? `${currentText} ${transcribedText}` : transcribedText;
+
+                // Update the content as HTML
+                const newContent = `<span>${newText}</span>`;
+                handleContentUpdate(newContent);
+
+                setTranscriptionStatus(`Transcription complete (${result.language})`);
+            } else {
+                setTranscriptionStatus("No speech detected in audio");
+            }
+        } catch (error) {
+            console.error("Transcription error:", error);
+            setTranscriptionStatus(
+                `Transcription failed: ${error instanceof Error ? error.message : "Unknown error"}`
+            );
+        } finally {
+            setIsTranscribing(false);
+            transcriptionClientRef.current = null;
+
+            // Clear status after a delay
+            setTimeout(() => {
+                setTranscriptionStatus("");
+                setTranscriptionProgress(0);
+            }, 5000);
         }
     };
 
@@ -910,6 +992,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // Clean up blob URL if it exists
             if (audioUrl && audioUrl.startsWith("blob:")) {
                 URL.revokeObjectURL(audioUrl);
+            }
+            // Clean up transcription client if active
+            if (transcriptionClientRef.current) {
+                transcriptionClientRef.current.abort();
+                transcriptionClientRef.current = null;
             }
         };
     }, [mediaRecorder, audioUrl]);
@@ -1542,13 +1629,51 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         ></i>
                                                         {isRecording ? "Stop" : "Re-record"}
                                                     </VSCodeButton>
+                                                    <VSCodeButton
+                                                        onClick={handleTranscribeAudio}
+                                                        appearance="primary"
+                                                        title="Transcribe audio to text"
+                                                        disabled={isTranscribing || !audioBlob}
+                                                    >
+                                                        <i
+                                                            className={`codicon ${
+                                                                isTranscribing
+                                                                    ? "codicon-loading codicon-modifier-spin"
+                                                                    : "codicon-comment"
+                                                            }`}
+                                                        ></i>
+                                                        {isTranscribing
+                                                            ? "Transcribing..."
+                                                            : "Transcribe"}
+                                                    </VSCodeButton>
                                                 </>
                                             )}
                                         </div>
+
+                                        {/* Transcription progress */}
+                                        {(isTranscribing || transcriptionStatus) && (
+                                            <div className="transcription-progress">
+                                                {isTranscribing && transcriptionProgress > 0 && (
+                                                    <div className="progress-bar-container">
+                                                        <div
+                                                            className="progress-bar"
+                                                            style={{
+                                                                width: `${transcriptionProgress}%`,
+                                                            }}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {transcriptionStatus && (
+                                                    <div className="transcription-status">
+                                                        {transcriptionStatus}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {recordingStatus && (
+                                {recordingStatus && !isTranscribing && (
                                     <div
                                         className={`recording-status ${
                                             isRecording ? "recording" : ""
