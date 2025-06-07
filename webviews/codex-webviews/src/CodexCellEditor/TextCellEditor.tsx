@@ -64,6 +64,7 @@ import {
     Save,
     RotateCcw,
 } from "lucide-react";
+import { cn } from "../lib/utils";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -853,21 +854,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // Perform transcription
             const result = await client.transcribe(audioBlob);
 
-            // Success - append transcribed text to cell content
+            // Success - save transcription but don't automatically insert
             const transcribedText = result.text.trim();
             if (transcribedText) {
-                // Get current content without HTML tags
-                const currentContent = editorContent;
-                const doc = new DOMParser().parseFromString(currentContent, "text/html");
-                const currentText = doc.body.textContent || "";
-
-                // Append transcribed text with a space if there's existing content
-                const newText = currentText ? `${currentText} ${transcribedText}` : transcribedText;
-
-                // Update the content as HTML
-                const newContent = `<span>${newText}</span>`;
-                handleContentUpdate(newContent);
-
                 // Save transcription to cell metadata
                 const audioId = sessionStorage.getItem(`audio-id-${cellMarkers[0]}`);
                 if (audioId) {
@@ -911,6 +900,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 setTranscriptionProgress(0);
             }, 5000);
         }
+    };
+
+    const handleInsertTranscription = () => {
+        if (!savedTranscription) return;
+
+        // Get current content without HTML tags
+        const currentContent = editorContent;
+        const doc = new DOMParser().parseFromString(currentContent, "text/html");
+        const currentText = doc.body.textContent || "";
+
+        // Append transcribed text with a space if there's existing content
+        const newText = currentText
+            ? `${currentText} ${savedTranscription.content}`
+            : savedTranscription.content;
+
+        // Update the content as HTML
+        const newContent = `<span>${newText}</span>`;
+        handleContentUpdate(newContent);
+
+        setTranscriptionStatus("Transcription inserted into cell");
+
+        // Clear status after a delay
+        setTimeout(() => {
+            setTranscriptionStatus("");
+        }, 3000);
     };
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1341,7 +1355,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     className="w-full"
                 >
                     <TabsList className="grid w-full grid-cols-4">
-                        <TabsTrigger value="source" disabled={!sourceText}>
+                        <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
                             Source
                             {!sourceText && (
@@ -1729,13 +1743,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             </>
                                         ) : (
-                                            <>
+                                            <div className="grid grid-cols-3 gap-2 w-full">
                                                 <Button
                                                     onClick={() => setConfirmingDiscard(true)}
                                                     variant="outline"
                                                     size="sm"
+                                                    className="w-full"
                                                 >
-                                                    Remove Audio
+                                                    <Trash2 className="h-4 w-4" />
+                                                    <span className="hidden sm:inline ml-2">
+                                                        Remove Audio
+                                                    </span>
                                                 </Button>
                                                 <Button
                                                     onClick={
@@ -1743,36 +1761,50 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     }
                                                     variant="outline"
                                                     size="sm"
-                                                    className={isRecording ? "animate-pulse" : ""}
+                                                    className={cn(
+                                                        "w-full",
+                                                        isRecording && "animate-pulse"
+                                                    )}
                                                 >
                                                     {isRecording ? (
                                                         <>
-                                                            <Square className="mr-2 h-4 w-4" />
-                                                            Stop
+                                                            <Square className="h-4 w-4" />
+                                                            <span className="hidden sm:inline ml-2">
+                                                                Stop
+                                                            </span>
                                                         </>
                                                     ) : (
-                                                        <>Re-record / Load New</>
+                                                        <>
+                                                            <Mic className="h-4 w-4" />
+                                                            <span className="hidden sm:inline ml-2">
+                                                                Re-record / Load New
+                                                            </span>
+                                                        </>
                                                     )}
                                                 </Button>
                                                 <Button
                                                     onClick={handleTranscribeAudio}
-                                                    variant="default"
+                                                    variant="outline"
                                                     disabled={isTranscribing || !audioBlob}
-                                                    className="flex-grow sm:flex-grow-0"
+                                                    className="w-full"
                                                 >
                                                     {isTranscribing ? (
                                                         <>
-                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                            Transcribing...
+                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                            <span className="hidden sm:inline ml-2">
+                                                                Transcribing...
+                                                            </span>
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <MessageCircle className="mr-2 h-4 w-4" />
-                                                            Transcribe
+                                                            <MessageCircle className="h-4 w-4" />
+                                                            <span className="hidden sm:inline ml-2">
+                                                                Transcribe
+                                                            </span>
                                                         </>
                                                     )}
                                                 </Button>
-                                            </>
+                                            </div>
                                         )}
                                     </div>
 
@@ -1813,6 +1845,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             {new Date(
                                                                 savedTranscription.timestamp
                                                             ).toLocaleString()}
+                                                        </div>
+                                                        <div className="mt-3">
+                                                            <Button
+                                                                onClick={handleInsertTranscription}
+                                                                variant="default"
+                                                                size="sm"
+                                                                className="w-full"
+                                                            >
+                                                                <Copy className="mr-2 h-4 w-4" />
+                                                                Insert Transcription into Cell
+                                                            </Button>
                                                         </div>
                                                     </div>
                                                 ) : (
