@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../components/ui/button";
+import { Plus, ArrowUpCircle, ArrowDownCircle } from "lucide-react";
 import { EditorPostMessages } from "../../../../types";
 import { CodexCellTypes } from "../../../../types/enums";
 
@@ -55,45 +56,42 @@ export const AddParatextButton: React.FC<AddParatextButtonProps> = ({ cellId, ce
             },
         };
         window.vscodeApi.postMessage(messageContent);
+        setButtonsVisible(false);
     };
 
     if (!buttonsVisible) {
         return (
-            <VSCodeButton
+            <Button
                 onClick={() => setButtonsVisible(true)}
-                appearance="icon"
+                variant="ghost"
+                size="icon"
                 title="Add Paratext Cell"
             >
-                <i className="codicon codicon-diff-added"></i>
-            </VSCodeButton>
+                <Plus className="h-4 w-4" />
+            </Button>
         );
     }
 
     return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "row",
-                gap: "0.5rem",
-                flexWrap: "nowrap",
-                border: "1px solid gray",
-                borderRadius: "4px",
-            }}
-        >
-            <VSCodeButton
+        <div className="flex gap-1 border border-border rounded-md p-0.5">
+            <Button
                 onClick={() => addParatextCell("above")}
-                appearance="icon"
-                title="Add Paratext Cell"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                title="Add Paratext Cell Above"
             >
-                <i className="codicon codicon-arrow-circle-up"></i>
-            </VSCodeButton>
-            <VSCodeButton
+                <ArrowUpCircle className="h-4 w-4" />
+            </Button>
+            <Button
                 onClick={() => addParatextCell("below")}
-                appearance="icon"
-                title="Add Paratext Cell"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                title="Add Paratext Cell Below"
             >
-                <i className="codicon codicon-arrow-circle-down"></i>
-            </VSCodeButton>
+                <ArrowDownCircle className="h-4 w-4" />
+            </Button>
         </div>
     );
 };

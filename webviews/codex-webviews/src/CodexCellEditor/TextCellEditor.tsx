@@ -12,7 +12,6 @@ import { getCleanedHtml } from "./react-quill-spellcheck";
 import createQuillDeltaOpsFromHtml from "./react-quill-spellcheck";
 import createQuillDeltaFromDeltaOps from "./react-quill-spellcheck";
 import { CodexCellTypes } from "../../../../types/enums";
-import { VSCodeButton, VSCodeDivider } from "@vscode/webview-ui-toolkit/react";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
 import "./TextCellEditorStyles.css";
@@ -22,10 +21,49 @@ import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
-import { VSCodeCheckbox } from "@vscode/webview-ui-toolkit/react";
-import CloseButtonWithConfirmation from "../components/CloseButtonWithConfirmation";
 import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
+
+// ShadCN UI components
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardHeader } from "../components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Textarea } from "../components/ui/textarea";
+import { Input } from "../components/ui/input";
+import { Badge } from "../components/ui/badge";
+import { Progress } from "../components/ui/progress";
+import { Separator } from "../components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+
+// Icons from lucide-react (already installed with ShadCN)
+import {
+    Pencil,
+    Book,
+    Sparkles,
+    History,
+    ListFilter,
+    Settings,
+    X,
+    Check,
+    FileCode,
+    RefreshCcw,
+    ListOrdered,
+    Mic,
+    Play,
+    Trash2,
+    CircleDotDashed,
+    MessageCircle,
+    Loader2,
+    Volume2,
+    TypeIcon,
+    Pin,
+    Copy,
+    Square,
+    FolderOpen,
+    NotebookPen,
+    Save,
+    RotateCcw,
+} from "lucide-react";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -76,38 +114,42 @@ const FootnoteDeleteButton: React.FC<{ onConfirm: () => void }> = ({ onConfirm }
 
     if (isDeleting) {
         return (
-            <div style={{ display: "flex", alignItems: "center" }}>
-                <button
-                    className="footnote-confirm"
+            <div className="flex items-center gap-1">
+                <Button
                     onClick={() => {
                         onConfirm();
                         setIsDeleting(false);
                     }}
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
                     title="Confirm Delete"
-                    style={{ marginRight: "4px", color: "var(--vscode-debugIcon-startForeground)" }}
                 >
-                    <i className="codicon codicon-check"></i>
-                </button>
-                <button
-                    className="footnote-cancel"
+                    <Check className="h-4 w-4 text-green-600" />
+                </Button>
+                <Button
                     onClick={() => setIsDeleting(false)}
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
                     title="Cancel"
-                    style={{ color: "var(--vscode-debugIcon-stopForeground)" }}
                 >
-                    <i className="codicon codicon-close"></i>
-                </button>
+                    <X className="h-4 w-4 text-red-600" />
+                </Button>
             </div>
         );
     }
 
     return (
-        <button
-            className="footnote-delete"
+        <Button
             onClick={() => setIsDeleting(true)}
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
             title="Delete Footnote"
         >
-            <i className="codicon codicon-trash"></i>
-        </button>
+            <Trash2 className="h-4 w-4" />
+        </Button>
     );
 };
 
@@ -1002,376 +1044,383 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [mediaRecorder, audioUrl]);
 
     return (
-        <div ref={cellEditorRef} className="cell-editor" style={{ direction: textDirection }}>
-            <div className="editor-controls-header">
-                <div
-                    className="header-content"
-                    onClick={() => setIsEditorControlsExpanded(!isEditorControlsExpanded)}
-                    style={{ cursor: "pointer" }}
-                >
-                    {isEditorControlsExpanded ? (
-                        <i className="codicon codicon-close"></i>
-                    ) : (
-                        <div className="header-label">
-                            <h3></h3>
-                            {editableLabel} <i className="codicon codicon-edit"></i>
-                        </div>
-                    )}
-                </div>
-                <div className="action-buttons">
-                    <VSCodeButton
-                        onClick={() => editorHandlesRef.current?.openLibrary()}
-                        appearance="icon"
-                        title="Add All Words to Dictionary"
-                    >
-                        <i className="codicon codicon-book"></i>
-                    </VSCodeButton>
-                    <VSCodeButton
-                        onClick={() => editorHandlesRef.current?.autocomplete()}
-                        appearance="icon"
-                        title="Autocomplete with AI"
-                    >
-                        <i className="codicon codicon-sparkle"></i>
-                    </VSCodeButton>
-                    <VSCodeButton
-                        onClick={() => editorHandlesRef.current?.showEditHistory()}
-                        appearance="icon"
-                        title="Show Edit History"
-                    >
-                        <i className="codicon codicon-history"></i>
-                    </VSCodeButton>
-                    <VSCodeButton
-                        onClick={() => editorHandlesRef.current?.addFootnote()}
-                        appearance="icon"
-                        title="Add Footnote"
-                    >
-                        <i className="codicon codicon-note"></i>
-                    </VSCodeButton>
-                    {showAdvancedControls ? (
-                        <div>
-                            <AddParatextButton
-                                cellId={cellMarkers[0]}
-                                cellTimestamps={cellTimestamps}
-                            />
-                            {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
-                                <VSCodeButton
-                                    onClick={makeChild}
-                                    appearance="icon"
-                                    title="Add Child Cell"
-                                >
-                                    <i className="codicon codicon-type-hierarchy-sub"></i>
-                                </VSCodeButton>
-                            )}
-                            {!sourceCellContent && (
-                                <ConfirmationButton
-                                    icon="trash"
-                                    onClick={deleteCell}
-                                    disabled={cellHasContent}
-                                />
-                            )}
-                            <VSCodeButton
-                                onClick={handlePinCell}
-                                appearance="icon"
-                                title={
-                                    isPinned ? "Unpin from Parallel View" : "Pin in Parallel View"
+        <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
+            <CardHeader className="border-b p-4">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        {isEditorControlsExpanded ? (
+                            <X
+                                className="h-4 w-4 cursor-pointer"
+                                onClick={() =>
+                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
                                 }
-                                style={{
-                                    backgroundColor: isPinned
-                                        ? "var(--vscode-button-background)"
-                                        : "transparent",
-                                    color: isPinned
-                                        ? "var(--vscode-button-foreground)"
-                                        : "var(--vscode-editor-foreground)",
-                                    marginLeft: "auto", // This pushes it to the right
-                                }}
+                            />
+                        ) : (
+                            <div
+                                className="flex items-center gap-2 cursor-pointer"
+                                onClick={() =>
+                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
+                                }
                             >
-                                <i
-                                    className={`codicon ${
-                                        isPinned ? "codicon-pinned" : "codicon-pin"
-                                    }`}
-                                ></i>
-                            </VSCodeButton>
-                        </div>
-                    ) : (
-                        <VSCodeButton
-                            onClick={() => setShowAdvancedControls(!showAdvancedControls)}
-                            appearance="icon"
-                            title="Show Advanced Controls"
-                        >
-                            <i className="codicon codicon-gear"></i>
-                        </VSCodeButton>
-                    )}
-                    {unsavedChanges ? (
-                        <>
-                            <VSCodeButton
+                                <span className="text-lg font-semibold">{cellMarkers[0]}</span>
+                                {editableLabel && (
+                                    <span className="text-sm text-muted-foreground">
+                                        {editableLabel}
+                                    </span>
+                                )}
+                                <Pencil className="h-4 w-4" />
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        onClick={() => editorHandlesRef.current?.openLibrary()}
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Add All Words to Dictionary"
+                                    >
+                                        <Book className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Add All Words to Dictionary</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        onClick={() => editorHandlesRef.current?.autocomplete()}
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Autocomplete with AI"
+                                    >
+                                        <Sparkles className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Autocomplete with AI</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        onClick={() => editorHandlesRef.current?.showEditHistory()}
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Show Edit History"
+                                    >
+                                        <History className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Show Edit History</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        onClick={() => editorHandlesRef.current?.addFootnote()}
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Add Footnote"
+                                    >
+                                        <NotebookPen className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Add Footnote</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                        {showAdvancedControls ? (
+                            <div className="flex items-center gap-1">
+                                <AddParatextButton
+                                    cellId={cellMarkers[0]}
+                                    cellTimestamps={cellTimestamps}
+                                />
+                                {cellType !== CodexCellTypes.PARATEXT && !cellIsChild && (
+                                    <Button
+                                        onClick={makeChild}
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Add Child Cell"
+                                    >
+                                        <ListOrdered className="h-4 w-4" />
+                                    </Button>
+                                )}
+                                {!sourceCellContent && (
+                                    <ConfirmationButton
+                                        icon="trash"
+                                        onClick={deleteCell}
+                                        disabled={cellHasContent}
+                                    />
+                                )}
+                                <Button
+                                    onClick={handlePinCell}
+                                    variant="ghost"
+                                    size="icon"
+                                    title={
+                                        isPinned
+                                            ? "Unpin from Parallel View"
+                                            : "Pin in Parallel View"
+                                    }
+                                    className={isPinned ? "text-blue-500" : ""}
+                                >
+                                    <Pin className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        ) : (
+                            <Button
+                                onClick={() => setShowAdvancedControls(!showAdvancedControls)}
+                                variant="ghost"
+                                size="icon"
+                                title="Show Advanced Controls"
+                            >
+                                <Settings className="h-4 w-4" />
+                            </Button>
+                        )}
+                        {unsavedChanges ? (
+                            <>
+                                <Button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveHtml();
+                                    }}
+                                    variant="default"
+                                    size="icon"
+                                    title="Save changes"
+                                >
+                                    <Check className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                    onClick={handleCloseEditor}
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Discard changes"
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </>
+                        ) : (
+                            <Button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleSaveHtml();
+                                    handleCloseEditor();
                                 }}
-                                appearance="primary"
-                                className="save-button"
+                                variant="ghost"
+                                size="icon"
+                                title="Close editor"
                             >
-                                <i className="codicon codicon-check"></i>
-                            </VSCodeButton>
-                            <CloseButtonWithConfirmation
-                                handleDeleteButtonClick={handleCloseEditor}
-                            />
-                        </>
-                    ) : (
-                        <VSCodeButton
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                handleCloseEditor();
-                            }}
-                            appearance="icon"
-                            className="close-button"
-                        >
-                            <i className="codicon codicon-close"></i>
-                        </VSCodeButton>
-                    )}
+                                <X className="h-4 w-4" />
+                            </Button>
+                        )}
+                    </div>
                 </div>
-            </div>
+            </CardHeader>
 
-            {isEditorControlsExpanded && (
-                <div className="expanded-controls">
-                    <div className="input-group">
-                        <div className="input-row">
-                            <input
+            <CardContent className="p-4 space-y-4">
+                {isEditorControlsExpanded && (
+                    <div className="space-y-4 pb-4 border-b">
+                        <div className="flex items-center gap-2">
+                            <Input
                                 type="text"
                                 value={editableLabel}
                                 onChange={handleLabelChange}
                                 onBlur={handleLabelBlur}
-                                placeholder="Label"
-                                className="label-input"
+                                placeholder="Enter label..."
+                                className="flex-1"
                             />
-                            <VSCodeButton
+                            <Button
                                 onClick={handleLabelSave}
-                                appearance="icon"
+                                variant="ghost"
+                                size="icon"
                                 title="Save Label"
                             >
-                                <i className="codicon codicon-save"></i>
-                            </VSCodeButton>
+                                <Save className="h-4 w-4" />
+                            </Button>
                         </div>
                     </div>
-                </div>
-            )}
-
-            <div className={`text-editor ${showFlashingBorder ? "flashing-border" : ""}`}>
-                <Editor
-                    currentLineId={cellMarkers[0]}
-                    key={`${cellIndex}-quill`}
-                    initialValue={editorContent}
-                    spellCheckResponse={spellCheckResponse}
-                    editHistory={editHistory}
-                    onChange={({ html }) => {
-                        setEditorContent(html);
-
-                        debug("html", { html, cellMarkers, editableLabel });
-
-                        setContentBeingUpdated({
-                            cellMarkers,
-                            cellContent: html,
-                            cellChanged: true,
-                            cellLabel: editableLabel,
-                        });
-                    }}
-                    textDirection={textDirection}
-                    ref={editorHandlesRef}
-                />
-            </div>
-
-            <div className="tabs">
-                <div className="tab-buttons" role="tablist">
-                    <button
-                        className={`tab-button ${activeTab === "source" ? "active" : ""} ${
-                            !sourceText ? "disabled" : ""
-                        }`}
-                        onClick={() => sourceText && setActiveTab("source")}
-                        role="tab"
-                        aria-selected={activeTab === "source"}
-                        aria-controls="source-panel"
-                        id="source-tab"
-                        disabled={!sourceText}
-                        title={sourceText ? "View source text" : "No source text available"}
-                        onKeyDown={(e) => handleTabKeyDown(e, "source")}
-                    >
-                        <i className="codicon codicon-file-code"></i>
-                        <span className="tab-label">Source</span>
-                        {!sourceText && <span className="tab-status">•</span>}
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === "backtranslation" ? "active" : ""} ${
-                            !backtranslation && !contentBeingUpdated.cellContent.trim()
-                                ? "disabled"
-                                : ""
-                        }`}
-                        onClick={() => setActiveTab("backtranslation")}
-                        role="tab"
-                        aria-selected={activeTab === "backtranslation"}
-                        aria-controls="backtranslation-panel"
-                        id="backtranslation-tab"
-                        title={
-                            backtranslation
-                                ? "View backtranslation"
-                                : contentBeingUpdated.cellContent.trim()
-                                ? "Generate backtranslation"
-                                : "Add content to enable backtranslation"
-                        }
-                        onKeyDown={(e) => handleTabKeyDown(e, "backtranslation")}
-                    >
-                        <i className="codicon codicon-sync"></i>
-                        <span className="tab-label">Backtranslate</span>
-                        {backtranslation && (
-                            <span className="tab-badge" title="Backtranslation available">
-                                ✓
-                            </span>
-                        )}
-                        {!backtranslation && contentBeingUpdated.cellContent.trim() && (
-                            <span className="tab-status" title="Generate backtranslation">
-                                !
-                            </span>
-                        )}
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === "footnotes" ? "active" : ""}`}
-                        onClick={() => setActiveTab("footnotes")}
-                        role="tab"
-                        aria-selected={activeTab === "footnotes"}
-                        aria-controls="footnotes-panel"
-                        id="footnotes-tab"
-                        title={
-                            footnotes.length > 0
-                                ? `View ${footnotes.length} footnote${
-                                      footnotes.length === 1 ? "" : "s"
-                                  }`
-                                : "No footnotes yet"
-                        }
-                        onKeyDown={(e) => handleTabKeyDown(e, "footnotes")}
-                    >
-                        <i className="codicon codicon-note"></i>
-                        <span className="tab-label">Footnotes</span>
-                        {footnotes.length > 0 && (
-                            <span
-                                className="tab-badge footnote-count"
-                                title={`${footnotes.length} footnote${
-                                    footnotes.length === 1 ? "" : "s"
-                                }`}
-                            >
-                                {footnotes.length}
-                            </span>
-                        )}
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === "audio" ? "active" : ""}`}
-                        onClick={() => setActiveTab("audio")}
-                        role="tab"
-                        aria-selected={activeTab === "audio"}
-                        aria-controls="audio-panel"
-                        id="audio-tab"
-                        title={audioUrl ? "Audio attached" : "Record or attach audio"}
-                        onKeyDown={(e) => handleTabKeyDown(e, "audio")}
-                    >
-                        <i className="codicon codicon-mic"></i>
-                        <span className="tab-label">Audio</span>
-                        {audioUrl &&
-                            (audioUrl.startsWith("blob:") ||
-                                audioUrl.startsWith("data:") ||
-                                audioUrl.startsWith("http")) && (
-                                <span className="tab-badge" title="Audio attached">
-                                    ✓
-                                </span>
-                            )}
-                    </button>
-                </div>
-            </div>
-
-            <div className="tab-content">
-                {activeTab === "source" && (
-                    <div
-                        className="source-text-content"
-                        role="tabpanel"
-                        id="source-panel"
-                        aria-labelledby="source-tab"
-                        dangerouslySetInnerHTML={{
-                            __html: sourceText !== null ? sourceText : "Loading source text...",
-                        }}
-                    />
                 )}
-                {activeTab === "backtranslation" && (
-                    <div
-                        className="backtranslation-section"
-                        role="tabpanel"
-                        id="backtranslation-panel"
-                        aria-labelledby="backtranslation-tab"
-                    >
-                        <div className="backtranslation-header">
-                            <h3>Backtranslation</h3>
-                            <div className="backtranslation-actions">
-                                {backtranslation && !isEditingBacktranslation && (
-                                    <VSCodeButton
-                                        onClick={() => setIsEditingBacktranslation(true)}
-                                        appearance="icon"
-                                        title="Edit Backtranslation"
-                                    >
-                                        <i className="codicon codicon-edit"></i>
-                                    </VSCodeButton>
-                                )}
-                                <VSCodeButton
-                                    onClick={handleGenerateBacktranslation}
-                                    appearance="icon"
-                                    title="Generate Backtranslation"
-                                    disabled={!contentBeingUpdated.cellContent.trim()}
-                                >
-                                    <i className="codicon codicon-refresh"></i>
-                                </VSCodeButton>
-                            </div>
-                        </div>
 
-                        <div className="backtranslation-body">
+                <div
+                    className={`flex items-start gap-2 ${
+                        showFlashingBorder
+                            ? "ring-2 ring-blue-500 ring-opacity-50 animate-pulse rounded-lg p-2"
+                            : ""
+                    }`}
+                    ref={cellEditorRef}
+                >
+                    <TypeIcon className="h-5 w-5 mt-2 text-muted-foreground flex-shrink-0" />
+                    <div className="flex-1">
+                        <Editor
+                            currentLineId={cellMarkers[0]}
+                            key={`${cellIndex}-quill`}
+                            initialValue={editorContent}
+                            spellCheckResponse={spellCheckResponse}
+                            editHistory={editHistory}
+                            onChange={({ html }) => {
+                                setEditorContent(html);
+
+                                debug("html", { html, cellMarkers, editableLabel });
+
+                                setContentBeingUpdated({
+                                    cellMarkers,
+                                    cellContent: html,
+                                    cellChanged: true,
+                                    cellLabel: editableLabel,
+                                });
+                            }}
+                            textDirection={textDirection}
+                            ref={editorHandlesRef}
+                        />
+                    </div>
+                </div>
+
+                <Tabs
+                    defaultValue={activeTab}
+                    value={activeTab}
+                    onValueChange={(value) =>
+                        setActiveTab(value as "source" | "backtranslation" | "footnotes" | "audio")
+                    }
+                    className="w-full"
+                >
+                    <TabsList className="grid w-full grid-cols-4">
+                        <TabsTrigger value="source" disabled={!sourceText}>
+                            <FileCode className="mr-2 h-4 w-4" />
+                            Source
+                            {!sourceText && (
+                                <span className="ml-2 h-2 w-2 rounded-full bg-gray-400" />
+                            )}
+                        </TabsTrigger>
+                        <TabsTrigger value="backtranslation">
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            Backtranslate
+                            {backtranslation && (
+                                <span
+                                    className="ml-2 h-2 w-2 rounded-full bg-green-400"
+                                    title="Backtranslation available"
+                                />
+                            )}
+                            {!backtranslation && contentBeingUpdated.cellContent.trim() && (
+                                <span
+                                    className="ml-2 h-2 w-2 rounded-full bg-yellow-400"
+                                    title="Generate backtranslation"
+                                />
+                            )}
+                        </TabsTrigger>
+                        <TabsTrigger value="footnotes">
+                            <NotebookPen className="mr-2 h-4 w-4" />
+                            Footnotes
+                            {footnotes.length > 0 && (
+                                <Badge variant="secondary" className="ml-2 h-5 px-1.5">
+                                    {footnotes.length}
+                                </Badge>
+                            )}
+                        </TabsTrigger>
+                        <TabsTrigger value="audio">
+                            <Mic className="mr-2 h-4 w-4" />
+                            Audio
+                            {audioUrl &&
+                                (audioUrl.startsWith("blob:") ||
+                                    audioUrl.startsWith("data:") ||
+                                    audioUrl.startsWith("http")) && (
+                                    <span
+                                        className="ml-2 h-2 w-2 rounded-full bg-green-400"
+                                        title="Audio attached"
+                                    />
+                                )}
+                        </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="source" className="p-4 border rounded-b-md">
+                        <div
+                            className="prose prose-sm max-w-none"
+                            dangerouslySetInnerHTML={{
+                                __html: sourceText !== null ? sourceText : "Loading source text...",
+                            }}
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="backtranslation" className="p-0">
+                        <div className="border rounded-b-md p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-medium">Backtranslation</h3>
+                                <div className="flex items-center gap-2">
+                                    {backtranslation && !isEditingBacktranslation && (
+                                        <Button
+                                            onClick={() => setIsEditingBacktranslation(true)}
+                                            variant="ghost"
+                                            size="icon"
+                                            title="Edit Backtranslation"
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                    )}
+                                    <Button
+                                        onClick={handleGenerateBacktranslation}
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Generate Backtranslation"
+                                        disabled={!contentBeingUpdated.cellContent.trim()}
+                                    >
+                                        <RefreshCcw className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+
                             {backtranslation ? (
                                 <>
                                     {isEditingBacktranslation ? (
-                                        <div className="backtranslation-edit-container">
-                                            <textarea
+                                        <div className="space-y-3">
+                                            <Textarea
                                                 value={editedBacktranslation || ""}
                                                 onChange={(e) =>
                                                     setEditedBacktranslation(e.target.value)
                                                 }
-                                                className="backtranslation-editor"
+                                                className="min-h-[150px]"
                                                 placeholder="Enter backtranslation text..."
                                             />
-                                            <div className="backtranslation-edit-actions">
-                                                <VSCodeButton
+                                            <div className="flex gap-2 justify-end">
+                                                <Button
                                                     onClick={handleSaveBacktranslation}
                                                     title="Save Backtranslation"
                                                 >
                                                     Save
-                                                </VSCodeButton>
-                                                <VSCodeButton
+                                                </Button>
+                                                <Button
                                                     onClick={() =>
                                                         setIsEditingBacktranslation(false)
                                                     }
-                                                    appearance="secondary"
+                                                    variant="secondary"
                                                     title="Cancel Editing"
                                                 >
                                                     Cancel
-                                                </VSCodeButton>
+                                                </Button>
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="backtranslation-content">
-                                            <ReactMarkdown>
+                                        <div className="p-4 rounded-lg bg-muted">
+                                            <ReactMarkdown className="prose prose-sm max-w-none">
                                                 {backtranslation.backtranslation}
                                             </ReactMarkdown>
                                         </div>
                                     )}
                                 </>
                             ) : (
-                                <div className="backtranslation-empty">
+                                <div className="text-center p-8 text-muted-foreground">
                                     {contentBeingUpdated.cellContent.trim() ? (
                                         <>
                                             <p>No backtranslation available for this text.</p>
-                                            <p>
+                                            <p className="mt-2">
                                                 Click the refresh button to generate a
                                                 backtranslation.
                                             </p>
@@ -1379,7 +1428,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     ) : (
                                         <>
                                             <p>Add content to this cell first.</p>
-                                            <p>
+                                            <p className="mt-2">
                                                 Backtranslation will be available once you have text
                                                 to translate.
                                             </p>
@@ -1388,23 +1437,56 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </div>
                             )}
                         </div>
-                    </div>
-                )}
-                {activeTab === "footnotes" && (
-                    <div
-                        className="footnotes-content"
-                        role="tabpanel"
-                        id="footnotes-panel"
-                        aria-labelledby="footnotes-tab"
-                    >
-                        {footnotes.length > 0 ? (
-                            <div className="footnotes-list">
-                                {footnotes.map((footnote, index) => (
-                                    <div key={footnote.id} className="footnote-item">
-                                        <div className="footnote-header">
-                                            <strong className="footnote-id">{index + 1}</strong>
-                                            <FootnoteDeleteButton
-                                                onConfirm={() => {
+                    </TabsContent>
+
+                    <TabsContent value="footnotes" className="p-0">
+                        <div className="border rounded-b-md p-4">
+                            {footnotes.length > 0 ? (
+                                <div className="space-y-3">
+                                    {footnotes.map((footnote, index) => (
+                                        <Card key={footnote.id} className="p-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <Badge variant="outline" className="font-mono">
+                                                    {index + 1}
+                                                </Badge>
+                                                <FootnoteDeleteButton
+                                                    onConfirm={() => {
+                                                        // Create DOM parser to edit the HTML directly
+                                                        const parser = new DOMParser();
+                                                        const doc = parser.parseFromString(
+                                                            editorContent,
+                                                            "text/html"
+                                                        );
+
+                                                        // Find and remove footnote markers
+                                                        doc.querySelectorAll(
+                                                            "sup.footnote-marker"
+                                                        ).forEach((el) => {
+                                                            if (el.textContent === footnote.id) {
+                                                                el.remove();
+                                                            }
+                                                        });
+
+                                                        // Update editor content
+                                                        const updatedContent = doc.body.innerHTML;
+                                                        handleContentUpdate(updatedContent);
+
+                                                        // Force parse footnotes again
+                                                        setTimeout(parseFootnotesFromContent, 50);
+                                                    }}
+                                                />
+                                            </div>
+                                            <div
+                                                className="text-sm p-2 rounded bg-muted"
+                                                contentEditable
+                                                suppressContentEditableWarning
+                                                dangerouslySetInnerHTML={{
+                                                    __html: footnote.content,
+                                                }}
+                                                onBlur={(e) => {
+                                                    const updatedContent =
+                                                        e.currentTarget.innerHTML;
+
                                                     // Create DOM parser to edit the HTML directly
                                                     const parser = new DOMParser();
                                                     const doc = parser.parseFromString(
@@ -1412,282 +1494,266 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         "text/html"
                                                     );
 
-                                                    // Find and remove footnote markers
+                                                    // Find and update footnote content attributes
                                                     doc.querySelectorAll(
                                                         "sup.footnote-marker"
                                                     ).forEach((el) => {
-                                                        if (el.textContent === footnote.id) {
-                                                            el.remove();
-                                                        }
-                                                    });
-
-                                                    // Update editor content
-                                                    const updatedContent = doc.body.innerHTML;
-                                                    handleContentUpdate(updatedContent);
-
-                                                    // Force parse footnotes again
-                                                    setTimeout(parseFootnotesFromContent, 50);
-                                                }}
-                                            />
-                                        </div>
-                                        <div
-                                            className="footnote-content"
-                                            contentEditable
-                                            suppressContentEditableWarning
-                                            dangerouslySetInnerHTML={{ __html: footnote.content }}
-                                            onBlur={(e) => {
-                                                const updatedContent = e.currentTarget.innerHTML;
-
-                                                // Create DOM parser to edit the HTML directly
-                                                const parser = new DOMParser();
-                                                const doc = parser.parseFromString(
-                                                    editorContent,
-                                                    "text/html"
-                                                );
-
-                                                // Find and update footnote content attributes
-                                                doc.querySelectorAll("sup.footnote-marker").forEach(
-                                                    (el) => {
                                                         if (el.textContent === footnote.id) {
                                                             el.setAttribute(
                                                                 "data-footnote",
                                                                 updatedContent
                                                             );
                                                         }
-                                                    }
-                                                );
+                                                    });
 
-                                                // Update editor content
-                                                const newHtml = doc.body.innerHTML;
-                                                handleContentUpdate(newHtml);
+                                                    // Update editor content
+                                                    const newHtml = doc.body.innerHTML;
+                                                    handleContentUpdate(newHtml);
 
-                                                // Update footnotes array for immediate UI feedback
-                                                setFootnotes(
-                                                    footnotes.map((fn) =>
-                                                        fn.id === footnote.id
-                                                            ? { ...fn, content: updatedContent }
-                                                            : fn
-                                                    )
-                                                );
-                                            }}
-                                        ></div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="empty-footnotes">
-                                <p>No footnotes in this cell yet.</p>
-                                <p>
-                                    Use the footnote button (
-                                    <i className="codicon codicon-note"></i>) in the editor toolbar
-                                    to add footnotes.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                )}
-                {activeTab === "audio" && (
-                    <div
-                        className="audio-content"
-                        role="tabpanel"
-                        id="audio-panel"
-                        aria-labelledby="audio-tab"
-                    >
-                        <div className="audio-section">
-                            <div className="audio-header">
-                                <h3>Audio Recording</h3>
-                            </div>
-
-                            <div className="audio-controls">
-                                {!audioUrl ||
-                                !(
-                                    audioUrl.startsWith("blob:") ||
-                                    audioUrl.startsWith("data:") ||
-                                    audioUrl.startsWith("http")
-                                ) ? (
-                                    <div className="no-audio">
-                                        <p>No audio attached to this cell yet.</p>
-                                        <div className="audio-actions">
-                                            <VSCodeButton
-                                                onClick={
-                                                    isRecording ? stopRecording : startRecording
-                                                }
-                                                appearance={isRecording ? "secondary" : "primary"}
-                                                className={isRecording ? "recording-button" : ""}
-                                            >
-                                                <i
-                                                    className={`codicon ${
-                                                        isRecording
-                                                            ? "codicon-stop-circle"
-                                                            : "codicon-record"
-                                                    }`}
-                                                ></i>
-                                                {isRecording ? "Stop Recording" : "Start Recording"}
-                                            </VSCodeButton>
-                                            <VSCodeDivider />
-                                            <label className="file-upload-label">
-                                                <input
-                                                    type="file"
-                                                    accept="audio/*"
-                                                    onChange={handleFileUpload}
-                                                    style={{ display: "none" }}
-                                                />
-                                                <VSCodeButton appearance="secondary">
-                                                    <i className="codicon codicon-folder-opened"></i>
-                                                    Upload Audio File
-                                                </VSCodeButton>
-                                            </label>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="audio-player-section">
-                                        <audio
-                                            controls
-                                            src={
-                                                audioUrl &&
-                                                (audioUrl.startsWith("blob:") ||
-                                                    audioUrl.startsWith("data:") ||
-                                                    audioUrl.startsWith("http"))
-                                                    ? audioUrl
-                                                    : undefined
-                                            }
-                                            className="audio-player"
-                                            onError={(e) => {
-                                                console.error(
-                                                    "Error playing audio for cell:",
-                                                    cellMarkers[0]
-                                                );
-                                                const audioElement =
-                                                    e.currentTarget as HTMLAudioElement;
-                                                if (audioElement.error) {
-                                                    console.error(
-                                                        "Error handling audio playbook:",
-                                                        audioElement.error
+                                                    // Update footnotes array for immediate UI feedback
+                                                    setFootnotes(
+                                                        footnotes.map((fn) =>
+                                                            fn.id === footnote.id
+                                                                ? { ...fn, content: updatedContent }
+                                                                : fn
+                                                        )
                                                     );
-                                                }
-                                                setRecordingStatus("Error loading audio file");
+                                                }}
+                                            />
+                                        </Card>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center p-8 text-muted-foreground">
+                                    <p>No footnotes in this cell yet.</p>
+                                    <p className="mt-2 flex items-center justify-center gap-2">
+                                        Use the footnote button <NotebookPen className="h-4 w-4" />{" "}
+                                        in the editor toolbar to add footnotes.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
 
-                                                // Request audio attachments again to reload with proper base64 data
-                                                const messageContent: EditorPostMessages = {
-                                                    command: "requestAudioForCell",
-                                                    content: { cellId: cellMarkers[0] },
-                                                };
-                                                window.vscodeApi.postMessage(messageContent);
-                                            }}
-                                        />
-                                        <div className="audio-player-actions">
-                                            {confirmingDiscard ? (
+                    <TabsContent value="audio" className="p-0">
+                        <div className="border rounded-b-md p-4 space-y-4">
+                            <h3 className="text-lg font-medium">Audio Recording</h3>
+
+                            {!audioUrl ||
+                            !(
+                                audioUrl.startsWith("blob:") ||
+                                audioUrl.startsWith("data:") ||
+                                audioUrl.startsWith("http")
+                            ) ? (
+                                <div className="space-y-4">
+                                    <p className="text-center text-muted-foreground">
+                                        No audio attached to this cell yet.
+                                    </p>
+                                    <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                                        <Button
+                                            onClick={isRecording ? stopRecording : startRecording}
+                                            variant={isRecording ? "secondary" : "default"}
+                                            className={isRecording ? "animate-pulse" : ""}
+                                        >
+                                            {isRecording ? (
                                                 <>
-                                                    <VSCodeButton
-                                                        onClick={() => {
-                                                            discardAudio();
-                                                            setConfirmingDiscard(false);
-                                                        }}
-                                                        appearance="secondary"
-                                                        title="Confirm removal"
-                                                    >
-                                                        <i className="codicon codicon-check"></i>
-                                                        Confirm
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        onClick={() => setConfirmingDiscard(false)}
-                                                        appearance="primary"
-                                                        title="Cancel"
-                                                    >
-                                                        <i className="codicon codicon-close"></i>
-                                                        Cancel
-                                                    </VSCodeButton>
+                                                    <Square className="mr-2 h-4 w-4" />
+                                                    Stop Recording
                                                 </>
                                             ) : (
                                                 <>
-                                                    <VSCodeButton
-                                                        onClick={() => setConfirmingDiscard(true)}
-                                                        appearance="secondary"
-                                                        title="Remove audio"
-                                                    >
-                                                        <i className="codicon codicon-trash"></i>
-                                                        Remove Audio
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        onClick={
-                                                            isRecording
-                                                                ? stopRecording
-                                                                : startRecording
-                                                        }
-                                                        appearance="secondary"
-                                                        className={
-                                                            isRecording ? "recording-button" : ""
-                                                        }
-                                                        title="Record new audio"
-                                                    >
-                                                        <i
-                                                            className={`codicon ${
-                                                                isRecording
-                                                                    ? "codicon-stop-circle"
-                                                                    : "codicon-record"
-                                                            }`}
-                                                        ></i>
-                                                        {isRecording ? "Stop" : "Re-record"}
-                                                    </VSCodeButton>
-                                                    <VSCodeButton
-                                                        onClick={handleTranscribeAudio}
-                                                        appearance="primary"
-                                                        title="Transcribe audio to text"
-                                                        disabled={isTranscribing || !audioBlob}
-                                                    >
-                                                        <i
-                                                            className={`codicon ${
-                                                                isTranscribing
-                                                                    ? "codicon-loading codicon-modifier-spin"
-                                                                    : "codicon-comment"
-                                                            }`}
-                                                        ></i>
-                                                        {isTranscribing
-                                                            ? "Transcribing..."
-                                                            : "Transcribe"}
-                                                    </VSCodeButton>
+                                                    <CircleDotDashed className="mr-2 h-4 w-4" />
+                                                    Start Recording
                                                 </>
                                             )}
+                                        </Button>
+
+                                        <div className="flex items-center gap-2">
+                                            <Separator orientation="vertical" className="h-8" />
+                                            <span className="text-sm text-muted-foreground">
+                                                or
+                                            </span>
+                                            <Separator orientation="vertical" className="h-8" />
                                         </div>
 
-                                        {/* Transcription progress */}
-                                        {(isTranscribing || transcriptionStatus) && (
-                                            <div className="transcription-progress">
-                                                {isTranscribing && transcriptionProgress > 0 && (
-                                                    <div className="progress-bar-container">
-                                                        <div
-                                                            className="progress-bar"
-                                                            style={{
-                                                                width: `${transcriptionProgress}%`,
-                                                            }}
-                                                        />
-                                                    </div>
-                                                )}
-                                                {transcriptionStatus && (
-                                                    <div className="transcription-status">
-                                                        {transcriptionStatus}
-                                                    </div>
-                                                )}
+                                        <label className="cursor-pointer">
+                                            <input
+                                                type="file"
+                                                accept="audio/*"
+                                                onChange={handleFileUpload}
+                                                className="sr-only"
+                                            />
+                                            <Button variant="outline" asChild>
+                                                <span>
+                                                    <FolderOpen className="mr-2 h-4 w-4" />
+                                                    Upload Audio File
+                                                </span>
+                                            </Button>
+                                        </label>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <Card className="p-4 bg-muted/50">
+                                        <div className="flex items-center gap-3">
+                                            <Button variant="outline" size="icon" disabled>
+                                                <Play className="h-4 w-4" />
+                                            </Button>
+                                            <div className="flex-grow space-y-2">
+                                                <audio
+                                                    controls
+                                                    src={
+                                                        audioUrl &&
+                                                        (audioUrl.startsWith("blob:") ||
+                                                            audioUrl.startsWith("data:") ||
+                                                            audioUrl.startsWith("http"))
+                                                            ? audioUrl
+                                                            : undefined
+                                                    }
+                                                    className="w-full h-12"
+                                                    onError={(e) => {
+                                                        console.error(
+                                                            "Error playing audio for cell:",
+                                                            cellMarkers[0]
+                                                        );
+                                                        const audioElement =
+                                                            e.currentTarget as HTMLAudioElement;
+                                                        if (audioElement.error) {
+                                                            console.error(
+                                                                "Error handling audio playbook:",
+                                                                audioElement.error
+                                                            );
+                                                        }
+                                                        setRecordingStatus(
+                                                            "Error loading audio file"
+                                                        );
+
+                                                        // Request audio attachments again to reload with proper base64 data
+                                                        const messageContent: EditorPostMessages = {
+                                                            command: "requestAudioForCell",
+                                                            content: { cellId: cellMarkers[0] },
+                                                        };
+                                                        window.vscodeApi.postMessage(
+                                                            messageContent
+                                                        );
+                                                    }}
+                                                />
                                             </div>
+                                            <Button variant="ghost" size="icon">
+                                                <Volume2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </Card>
+
+                                    <div className="flex flex-wrap gap-2">
+                                        {confirmingDiscard ? (
+                                            <>
+                                                <Button
+                                                    onClick={() => {
+                                                        discardAudio();
+                                                        setConfirmingDiscard(false);
+                                                    }}
+                                                    variant="destructive"
+                                                    size="sm"
+                                                >
+                                                    <Check className="mr-2 h-4 w-4" />
+                                                    Confirm
+                                                </Button>
+                                                <Button
+                                                    onClick={() => setConfirmingDiscard(false)}
+                                                    variant="outline"
+                                                    size="sm"
+                                                >
+                                                    <X className="mr-2 h-4 w-4" />
+                                                    Cancel
+                                                </Button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Button
+                                                    onClick={() => setConfirmingDiscard(true)}
+                                                    variant="outline"
+                                                    size="sm"
+                                                >
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    Remove Audio
+                                                </Button>
+                                                <Button
+                                                    onClick={
+                                                        isRecording ? stopRecording : startRecording
+                                                    }
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className={isRecording ? "animate-pulse" : ""}
+                                                >
+                                                    {isRecording ? (
+                                                        <>
+                                                            <Square className="mr-2 h-4 w-4" />
+                                                            Stop
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <CircleDotDashed className="mr-2 h-4 w-4" />
+                                                            Re-record
+                                                        </>
+                                                    )}
+                                                </Button>
+                                                <Button
+                                                    onClick={handleTranscribeAudio}
+                                                    variant="default"
+                                                    disabled={isTranscribing || !audioBlob}
+                                                    className="flex-grow sm:flex-grow-0"
+                                                >
+                                                    {isTranscribing ? (
+                                                        <>
+                                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                            Transcribing...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <MessageCircle className="mr-2 h-4 w-4" />
+                                                            Transcribe
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </>
                                         )}
                                     </div>
-                                )}
 
-                                {recordingStatus && !isTranscribing && (
-                                    <div
-                                        className={`recording-status ${
-                                            isRecording ? "recording" : ""
-                                        }`}
-                                    >
-                                        {recordingStatus}
-                                    </div>
-                                )}
-                            </div>
+                                    {/* Transcription progress */}
+                                    {(isTranscribing || transcriptionStatus) && (
+                                        <Card className="p-4">
+                                            {isTranscribing && transcriptionProgress > 0 && (
+                                                <Progress
+                                                    value={transcriptionProgress}
+                                                    className="mb-2"
+                                                />
+                                            )}
+                                            {transcriptionStatus && (
+                                                <p className="text-sm text-center text-muted-foreground">
+                                                    {transcriptionStatus}
+                                                </p>
+                                            )}
+                                        </Card>
+                                    )}
+
+                                    {recordingStatus && !isTranscribing && (
+                                        <Badge
+                                            variant={isRecording ? "destructive" : "secondary"}
+                                            className={`self-center ${
+                                                isRecording ? "animate-pulse" : ""
+                                            }`}
+                                        >
+                                            {recordingStatus}
+                                        </Badge>
+                                    )}
+                                </div>
+                            )}
                         </div>
-                    </div>
-                )}
-            </div>
-        </div>
+                    </TabsContent>
+                </Tabs>
+            </CardContent>
+        </Card>
     );
 };
 
