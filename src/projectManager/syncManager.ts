@@ -72,6 +72,7 @@ export class SyncManager {
     private isSyncInProgress: boolean = false;
     private lastConnectionErrorTime: number = 0;
     private CONNECTION_ERROR_COOLDOWN = 60000; // 1 minute cooldown for connection messages
+    private currentSyncStage: string = "";
 
     private constructor() {
         // Initialize with configuration values
@@ -119,7 +120,9 @@ export class SyncManager {
         if (this.isSyncInProgress) {
             console.log("Sync already in progress, skipping");
             if (showInfoOnConnectionIssues) {
-                vscode.window.showInformationMessage("Sync already in progress...");
+                vscode.window.showInformationMessage(
+                    "Sync already in progress. Please wait for the current synchronization to complete."
+                );
             }
             return;
         }
@@ -162,9 +165,9 @@ export class SyncManager {
         this.isSyncInProgress = true;
         console.log("Starting sync operation in background with message:", commitMessage);
 
-        // Show immediate feedback to user
+        // Show progress indicator to user instead of simple message
         if (showInfoOnConnectionIssues) {
-            vscode.window.showInformationMessage("Checking files are up to date...");
+            this.showSyncProgress(commitMessage);
         }
 
         // Update splash screen with initial sync status
@@ -192,25 +195,21 @@ export class SyncManager {
             const syncStartTime = performance.now();
             console.log("🔄 Starting background sync operation...");
 
-            // Update splash screen with progress
-            updateSplashScreenSync(60, "Synchronizing changes...");
+            // Update sync stage and splash screen
+            this.currentSyncStage = "Preparing synchronization...";
+            updateSplashScreenSync(60, this.currentSyncStage);
 
             // Sync all changes in background
+            this.currentSyncStage = "Synchronizing changes...";
             await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
 
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;
             console.log(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
 
-            // Update splash screen with completion
+            // Update sync stage and splash screen
+            this.currentSyncStage = "Synchronization complete!";
             updateSplashScreenSync(100, "Synchronization complete");
-
-            // Show completion notification if user should see it
-            if (showInfoOnConnectionIssues) {
-                vscode.window.showInformationMessage(
-                    `Files synchronized successfully (${Math.round(syncDuration)}ms)`
-                );
-            }
 
             // Rebuild indexes in the background after successful sync (truly async)
             this.rebuildIndexesInBackground();
@@ -219,7 +218,8 @@ export class SyncManager {
             console.error("Error during background sync operation:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
 
-            // Update splash screen to indicate error
+            // Update sync stage and splash screen
+            this.currentSyncStage = "Sync failed";
             updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
 
             // Show error messages to user
@@ -239,6 +239,7 @@ export class SyncManager {
                 vscode.window.showErrorMessage(`Sync failed: ${errorMessage}`);
             }
         } finally {
+            this.currentSyncStage = "";
             this.isSyncInProgress = false;
         }
     }
@@ -347,6 +348,51 @@ export class SyncManager {
     public async forceProgressReport(): Promise<boolean> {
         const progressReportingService = ProgressReportingService.getInstance();
         return await progressReportingService.forceProgressReport();
+    }
+
+    // Show progress indicator for sync operation
+    private showSyncProgress(commitMessage: string): void {
+        vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Synchronizing Project",
+                cancellable: false,
+            },
+            async (progress, token) => {
+                let progressValue = 0;
+
+                // Initial progress
+                progress.report({
+                    increment: 0,
+                    message: "Checking files are up to date..."
+                });
+
+                // Wait for sync to complete by polling the sync status
+                while (this.isSyncInProgress) {
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Check every 500ms
+
+                    // Update progress message based on current sync stage
+                    if (this.isSyncInProgress && this.currentSyncStage) {
+                        const increment = Math.min(20, 90 - progressValue); // Gradual progress up to 90%
+                        progressValue += increment;
+
+                        progress.report({
+                            increment,
+                            message: this.currentSyncStage
+                        });
+                    }
+                }
+
+                // Final completion
+                progress.report({
+                    increment: 100 - progressValue,
+                    message: this.currentSyncStage || "Synchronization complete!"
+                });
+
+                // Brief delay to show completion before closing
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+        );
     }
 }
 

@@ -53,17 +53,26 @@ Workspace Startup -> "Checking files are up to date..." -> [UI immediately ready
 ### During Startup
 
 1. Extension activates immediately
-2. User sees "Checking files are up to date..." message
-3. UI is fully responsive - user can start working
-4. Background sync and progress reporting happen silently
-5. Success/failure notifications appear when complete
+2. User sees **VS Code progress notification** with "Synchronizing Project"
+3. Real-time progress updates: "Checking files are up to date..." → "Synchronizing changes..." → "Synchronization complete!"
+4. UI is fully responsive - user can start working while progress indicator shows status
+5. Background sync and progress reporting happen silently
+6. Progress notification closes automatically when complete
 
 ### During Manual Sync
 
 1. User triggers sync command
-2. Immediate "Checking files are up to date..." feedback
+2. **VS Code progress notification** appears immediately with real-time updates
 3. User can continue working while sync happens
-4. "Files synchronized successfully (XXXms)" notification when done
+4. Progress indicator shows completion and disappears automatically
+
+### Progress Indicator Features
+
+- **Real-time updates**: Shows current sync stage ("Preparing...", "Synchronizing...", etc.)
+- **Non-blocking**: User can work normally while progress is shown
+- **Automatic completion**: Progress indicator disappears when sync is done
+- **Error handling**: Shows error states if sync fails
+- **Graceful handling**: Multiple sync attempts show appropriate messages
 
 ## Usage
 
