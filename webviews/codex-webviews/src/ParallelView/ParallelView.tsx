@@ -205,7 +205,7 @@ function ParallelView() {
             uri,
             word: word,
         } as OpenFileMessage);
-    };
+};
 
     const searchBoth = (query: string, event?: React.FormEvent) => {
         if (event) {
