@@ -622,6 +622,11 @@
                 "category": "Codex Project Management"
             },
             {
+                "command": "codex-project-manager.updateGitignore",
+                "title": "Update .gitignore",
+                "category": "Codex Project Management"
+            },
+            {
                 "command": "codex-project-manager.openSourceUpload",
                 "title": "Open Source Upload"
             },

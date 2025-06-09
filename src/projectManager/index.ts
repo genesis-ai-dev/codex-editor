@@ -9,6 +9,7 @@ import {
     accessMetadataFile,
     reopenWalkthrough,
     disableSyncTemporarily,
+    ensureGitignoreIsUpToDate,
 } from "./utils/projectUtils";
 import { setTargetFont } from "./projectInitializers";
 import { migration_changeDraftFolderToFilesFolder } from "./utils/migrationUtils";
@@ -570,6 +571,13 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         importLocalUsfmSourceBible
     );
 
+    const updateGitignoreCommand = vscode.commands.registerCommand(
+        "codex-project-manager.updateGitignore",
+        executeWithRedirecting(async () => {
+            await ensureGitignoreIsUpToDate();
+        })
+    );
+
     // Register event listener for configuration changes
     const onDidChangeConfigurationListener = vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("codex-project-manager")) {
@@ -599,6 +607,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openLicenseSettingsCommand,
         openBookNameEditorCommand,
         importLocalUsfmSourceBibleCommand,
+        updateGitignoreCommand,
         changeUserEmailCommand,
         onDidChangeConfigurationListener,
         toggleSpellcheckCommand

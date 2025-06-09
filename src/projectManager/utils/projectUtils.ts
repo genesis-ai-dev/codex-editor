@@ -17,7 +17,7 @@ import { stageAndCommitAllAndSync } from "./merge";
 import { SyncManager } from "../syncManager";
 
 const DEBUG = false;
-const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => {};
+const debug = DEBUG ? (...args: any[]) => console.log("[ProjectUtils]", ...args) : () => { };
 
 // Flag to temporarily disable metadata to config sync during direct updates
 let syncDisabled = false;
@@ -244,13 +244,13 @@ export function generateProjectScope(
 
     skipNonCanonical
         ? books
-              .filter((book) => !nonCanonicalBookRefs.includes(book))
-              .forEach((book) => {
-                  projectScope[book] = [];
-              })
+            .filter((book) => !nonCanonicalBookRefs.includes(book))
+            .forEach((book) => {
+                projectScope[book] = [];
+            })
         : books.forEach((book) => {
-              projectScope[book] = [];
-          });
+            projectScope[book] = [];
+        });
     return projectScope;
 }
 
@@ -397,30 +397,8 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     defaultBranch: "main",
                 });
 
-                // Create .gitignore file
-                const gitignorePath = vscode.Uri.joinPath(WORKSPACE_FOLDER.uri, ".gitignore");
-                const gitignoreContent = Buffer.from(
-                    "# Sync dictionary.sqlite (shared dictionary data)\n" +
-                        "# Sync .project/sourceTexts/ folder (source text files)\n" +
-                        "\n" +
-                        "# Don't sync user-specific SQLite databases\n" +
-                        ".project/*.sqlite\n" +
-                        "!.project/dictionary.sqlite\n" +
-                        "\n" +
-                        "# Don't sync SQLite auxiliary files\n" +
-                        ".project/*.sqlite-wal\n" +
-                        ".project/*.sqlite-shm\n" +
-                        "\n" +
-                        "# Don't sync user-specific files\n" +
-                        ".project/complete_drafts.txt\n" +
-                        "copilot-messages.log\n" +
-                        "\n" +
-                        "# System files\n" +
-                        ".DS_Store\n" +
-                        ".project/attachments/\n" +
-                        "utf8"
-                );
-                await vscode.workspace.fs.writeFile(gitignorePath, gitignoreContent);
+                // Create .gitignore file using the centralized function
+                await ensureGitignoreIsUpToDate();
 
                 // Add files to git
                 await git.add({
@@ -776,6 +754,11 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
             ref: "HEAD",
         });
         gitExists = true;
+
+        // If both metadata and git exist, ensure gitignore is up-to-date
+        if (metadataExists) {
+            await ensureGitignoreIsUpToDate();
+        }
     } catch {
         debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
     }
@@ -1011,3 +994,111 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
 }
 
 export { stageAndCommitAllAndSync };
+
+/**
+ * Ensures that the project has an up-to-date .gitignore file
+ * Creates or updates the .gitignore file with the latest ignore patterns
+ * Checks each line individually to ensure patterns are active (not commented out)
+ */
+export async function ensureGitignoreIsUpToDate(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        console.error("No workspace folder found.");
+        return;
+    }
+
+    const gitignorePath = vscode.Uri.joinPath(workspaceFolder.uri, ".gitignore");
+
+    // Define the standard gitignore content for Codex projects
+    const standardGitignoreContent = [
+        "# Sync dictionary.sqlite (shared dictionary data)",
+        "# Sync .project/sourceTexts/ folder (source text files)",
+        "",
+        "# Don't sync user-specific SQLite databases",
+        ".project/*.sqlite",
+        "!.project/dictionary.sqlite",
+        "",
+        "# Don't sync SQLite auxiliary files",
+        ".project/*.sqlite-wal",
+        ".project/*.sqlite-shm",
+        "",
+        "# Don't sync user-specific files",
+        ".project/complete_drafts.txt",
+        "copilot-messages.log",
+        "",
+        "# System files",
+        ".DS_Store",
+        ".project/attachments/",
+    ].join("\n");
+
+    let existingContent = "";
+    let gitignoreExists = false;
+
+    try {
+        const existingFile = await vscode.workspace.fs.readFile(gitignorePath);
+        existingContent = Buffer.from(existingFile).toString("utf8");
+        gitignoreExists = true;
+        debug("Found existing .gitignore file");
+    } catch (error) {
+        debug("No existing .gitignore file found, will create one");
+    }
+
+    // Define required ignore patterns that must be present and active
+    const requiredPatterns = [
+        ".project/*.sqlite",
+        "!.project/dictionary.sqlite",
+        ".project/*.sqlite-wal",
+        ".project/*.sqlite-shm",
+        ".project/complete_drafts.txt",
+        "copilot-messages.log",
+        ".DS_Store",
+        ".project/attachments/",
+    ];
+
+    if (!gitignoreExists) {
+        // Create new gitignore file
+        try {
+            await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(standardGitignoreContent, "utf8"));
+            debug("Created new .gitignore file");
+            vscode.window.showInformationMessage("Created .gitignore file with standard ignore patterns");
+        } catch (error) {
+            console.error("Failed to create .gitignore file:", error);
+        }
+        return;
+    }
+
+    // Parse existing gitignore file line by line
+    const existingLines = existingContent.split('\n');
+    const activePatterns = new Set<string>();
+
+    // Extract active (non-commented) patterns
+    for (const line of existingLines) {
+        const trimmedLine = line.trim();
+        // Skip empty lines and comments
+        if (trimmedLine && !trimmedLine.startsWith('#')) {
+            activePatterns.add(trimmedLine);
+        }
+    }
+
+    // Find missing patterns
+    const missingPatterns = requiredPatterns.filter(pattern =>
+        !activePatterns.has(pattern)
+    );
+
+    if (missingPatterns.length > 0) {
+        // Update existing gitignore by appending missing patterns
+        const updatedContent = existingContent.trim() +
+            "\n\n# Updated Codex Editor ignore patterns\n" +
+            missingPatterns.join("\n");
+
+        try {
+            await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(updatedContent, "utf8"));
+            debug("Updated existing .gitignore file with missing patterns:", missingPatterns);
+            vscode.window.showInformationMessage(`Updated .gitignore with ${missingPatterns.length} missing pattern(s)`);
+        } catch (error) {
+            console.error("Failed to update .gitignore file:", error);
+        }
+    } else {
+        debug(".gitignore file is up-to-date - all required patterns are active");
+    }
+}
