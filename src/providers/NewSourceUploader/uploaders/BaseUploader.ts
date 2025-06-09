@@ -1,3 +1,5 @@
+// DELETEME?: Seems like this file is unused
+
 import * as vscode from "vscode";
 import { SourcePreview } from "../../../../types/index.d";
 
