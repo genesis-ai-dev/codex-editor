@@ -997,8 +997,7 @@ export { stageAndCommitAllAndSync };
 
 /**
  * Ensures that the project has an up-to-date .gitignore file
- * Creates or updates the .gitignore file with the latest ignore patterns
- * Checks each line individually to ensure patterns are active (not commented out)
+ * Rewrites the .gitignore file if it doesn't match the standard content exactly
  */
 export async function ensureGitignoreIsUpToDate(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -1011,12 +1010,10 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
 
     // Define the standard gitignore content for Codex projects
     const standardGitignoreContent = [
-        "# Sync dictionary.sqlite (shared dictionary data)",
         "# Sync .project/sourceTexts/ folder (source text files)",
         "",
         "# Don't sync user-specific SQLite databases",
         ".project/*.sqlite",
-        "!.project/dictionary.sqlite",
         "",
         "# Don't sync SQLite auxiliary files",
         ".project/*.sqlite-wal",
@@ -1036,69 +1033,31 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
 
     try {
         const existingFile = await vscode.workspace.fs.readFile(gitignorePath);
-        existingContent = Buffer.from(existingFile).toString("utf8");
+        existingContent = Buffer.from(existingFile).toString("utf8").trim();
         gitignoreExists = true;
         debug("Found existing .gitignore file");
     } catch (error) {
         debug("No existing .gitignore file found, will create one");
     }
 
-    // Define required ignore patterns that must be present and active
-    const requiredPatterns = [
-        ".project/*.sqlite",
-        "!.project/dictionary.sqlite",
-        ".project/*.sqlite-wal",
-        ".project/*.sqlite-shm",
-        ".project/complete_drafts.txt",
-        "copilot-messages.log",
-        ".DS_Store",
-        ".project/attachments/",
-    ];
+    // Check if the existing content matches the standard content exactly
+    const needsUpdate = !gitignoreExists || existingContent !== standardGitignoreContent;
 
-    if (!gitignoreExists) {
-        // Create new gitignore file
+    if (needsUpdate) {
         try {
             await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(standardGitignoreContent, "utf8"));
-            debug("Created new .gitignore file");
-            vscode.window.showInformationMessage("Created .gitignore file with standard ignore patterns");
+
+            if (gitignoreExists) {
+                debug("Rewrote .gitignore file to match standard format");
+                vscode.window.showInformationMessage("Updated .gitignore to standard format");
+            } else {
+                debug("Created new .gitignore file");
+                vscode.window.showInformationMessage("Created .gitignore file with standard ignore patterns");
+            }
         } catch (error) {
-            console.error("Failed to create .gitignore file:", error);
-        }
-        return;
-    }
-
-    // Parse existing gitignore file line by line
-    const existingLines = existingContent.split('\n');
-    const activePatterns = new Set<string>();
-
-    // Extract active (non-commented) patterns
-    for (const line of existingLines) {
-        const trimmedLine = line.trim();
-        // Skip empty lines and comments
-        if (trimmedLine && !trimmedLine.startsWith('#')) {
-            activePatterns.add(trimmedLine);
-        }
-    }
-
-    // Find missing patterns
-    const missingPatterns = requiredPatterns.filter(pattern =>
-        !activePatterns.has(pattern)
-    );
-
-    if (missingPatterns.length > 0) {
-        // Update existing gitignore by appending missing patterns
-        const updatedContent = existingContent.trim() +
-            "\n\n# Updated Codex Editor ignore patterns\n" +
-            missingPatterns.join("\n");
-
-        try {
-            await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(updatedContent, "utf8"));
-            debug("Updated existing .gitignore file with missing patterns:", missingPatterns);
-            vscode.window.showInformationMessage(`Updated .gitignore with ${missingPatterns.length} missing pattern(s)`);
-        } catch (error) {
-            console.error("Failed to update .gitignore file:", error);
+            console.error("Failed to write .gitignore file:", error);
         }
     } else {
-        debug(".gitignore file is up-to-date - all required patterns are active");
+        debug(".gitignore file is up-to-date and matches standard format");
     }
 }
