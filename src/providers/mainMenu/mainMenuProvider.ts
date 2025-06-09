@@ -50,13 +50,7 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
                     viewId: "parallel-passages-sidebar",
                     description: "Compare passages across texts",
                 },
-                // { // FIXME: we should re-implement this dynamic thesaurus view
-                //     id: "semantic-view",
-                //     label: "Semantic View",
-                //     icon: "unfold",
-                //     viewId: "semantic-view-sidebar",
-                //     description: "View semantic structure of text",
-                // },
+               // removed semantic view for now as it needs complete redo
             ],
         },
         {

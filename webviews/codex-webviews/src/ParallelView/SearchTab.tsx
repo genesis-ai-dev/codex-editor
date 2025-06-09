@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { VSCodeDivider, VSCodeCheckbox, VSCodeButton, VSCodeProgressRing, VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
+import {
+    VSCodeProgressRing,
+} from "@vscode/webview-ui-toolkit/react";
 import VerseItem from "./CellItem";
 import { TranslationPair } from "../../../../types";
-import "./SearchStyles.css";
-import "./SharedStyles.css";
 
 interface SearchTabProps {
     verses: TranslationPair[];
@@ -73,13 +73,11 @@ function SearchTab({
     };
     
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        // Implement Ctrl+Enter and Enter to search
         if (e.key === "Enter") {
             e.preventDefault();
             handleSearch();
         }
         
-        // Escape key to close recent searches dropdown
         if (e.key === "Escape") {
             if (showRecentSearches) {
                 setShowRecentSearches(false);
@@ -87,7 +85,6 @@ function SearchTab({
             e.stopPropagation();
         }
         
-        // Arrow down to focus the recent searches
         if (e.key === "ArrowDown" && showRecentSearches) {
             e.preventDefault();
             const recentSearchElements = document.querySelectorAll('.recent-search-item');
@@ -111,50 +108,57 @@ function SearchTab({
     
     const handleClickOutside = (e: React.MouseEvent) => {
         const target = e.target as HTMLElement;
-        if (!target.closest('.search-input-container') && !target.closest('.recent-searches-dropdown')) {
+        if (
+            !target.closest(".search-input-container") &&
+            !target.closest(".recent-searches-dropdown")
+        ) {
             setShowRecentSearches(false);
         }
     };
 
     return (
-        <div className="search-container" onClick={handleClickOutside}>
-            <div className="search-bar-container">
-                <form onSubmit={handleSearch} className="search-form">
+        <div className="flex flex-col h-full p-4 gap-4" onClick={handleClickOutside}>
+            <div className="card p-4">
+                <form onSubmit={handleSearch} className="flex flex-col gap-4">
                     <div className="search-input-container">
                         <input
                             ref={searchInputRef}
                             type="text"
                             className="search-input"
-                            placeholder="Search Bible text (words or phrases)..."
+                            placeholder="Search Bible text..."
                             value={lastQuery}
                             onChange={(e) => onQueryChange(e.target.value)}
                             onFocus={handleSearchFocus}
                             onKeyDown={handleKeyDown}
-                            aria-label="Search Bible text (words or phrases)"
+                            aria-label="Search Bible text"
                         />
+                        
                         {isLoading ? (
-                            <VSCodeProgressRing className="search-loading" aria-label="Searching"></VSCodeProgressRing>
+                            <div className="search-loading">
+                                <VSCodeProgressRing aria-label="Searching"></VSCodeProgressRing>
+                            </div>
                         ) : (
-                            <VSCodeButton 
-                                type="submit" 
-                                appearance="icon" 
-                                className="search-button-inline"
+                            <button
+                                type="submit"
+                                className="search-button"
+                                disabled={!lastQuery.trim()}
                                 aria-label="Search"
                             >
-                                <span className="codicon codicon-arrow-right" aria-hidden="true"></span>
-                            </VSCodeButton>
+                                <span className="codicon codicon-search"></span>
+                            </button>
                         )}
-                        
-                        {/* Recent searches dropdown */}
+
                         {showRecentSearches && recentSearches.length > 0 && (
                             <div className="recent-searches-dropdown">
-                                <div className="recent-searches-header">
-                                    <span>Recent Searches</span>
-                                    <button 
-                                        className="clear-recent-searches" 
+                                <div className="dropdown-header">
+                                    <span className="dropdown-header-text">
+                                        Recent Searches
+                                    </span>
+                                    <button
+                                        className="clear-all-button"
                                         onClick={() => {
                                             setRecentSearches([]);
-                                            localStorage.removeItem('recentBibleSearches');
+                                            localStorage.removeItem("recentBibleSearches");
                                             setShowRecentSearches(false);
                                         }}
                                         aria-label="Clear all recent searches"
@@ -162,81 +166,81 @@ function SearchTab({
                                         Clear All
                                     </button>
                                 </div>
-                                <ul className="recent-searches-list">
+                                <div>
                                     {recentSearches.map((search, index) => (
-                                        <li key={`recent-${index}`}>
-                                            <button 
-                                                className="recent-search-item"
-                                                onClick={() => handleRecentSearchClick(search)}
-                                            >
-                                                <span className="codicon codicon-history" aria-hidden="true"></span>
-                                                <span>{search}</span>
-                                            </button>
-                                        </li>
+                                        <button
+                                            key={`recent-${index}`}
+                                            className="recent-search-item"
+                                            onClick={() => handleRecentSearchClick(search)}
+                                        >
+                                            <span className="codicon codicon-history" style={{ color: 'var(--gray-400)', fontSize: '14px' }}></span>
+                                            <span>{search}</span>
+                                        </button>
                                     ))}
-                                </ul>
+                                </div>
                             </div>
                         )}
                     </div>
-                    
-                    <div className="search-toolbar">
-                        <div className="search-toolbar-left">
-                            <VSCodeButton 
-                                appearance="icon" 
-                                className="search-toolbar-button"
-                                onClick={() => setIsSettingsExpanded(!isSettingsExpanded)} 
-                                title="Search Settings"
-                                aria-label="Toggle search settings"
-                                aria-expanded={isSettingsExpanded}
+
+                    <div className="flex items-center justify-between gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
+                            className="settings-toggle"
+                            aria-label="Toggle search settings"
+                            aria-expanded={isSettingsExpanded}
+                        >
+                            <span className="codicon codicon-settings-gear"></span>
+                            <span>Settings</span>
+                            <span className={`codicon codicon-chevron-${isSettingsExpanded ? 'up' : 'down'}`}></span>
+                        </button>
+
+                        {verses.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={onPinAll}
+                                className="action-button"
+                                aria-label="Pin all verses"
                             >
-                                <span className="codicon codicon-gear" aria-hidden="true"></span>
-                                <span className="button-label">{isSettingsExpanded ? 'Hide Settings' : 'Settings'}</span>
-                            </VSCodeButton>
-                        </div>
-                        
-                        <div className="search-toolbar-right">
-                            {verses.length > 0 && (
-                                <VSCodeButton 
-                                    appearance="icon" 
-                                    className="search-toolbar-button"
-                                    onClick={onPinAll} 
-                                    title="Pin All Verses"
-                                    aria-label="Pin all verses"
-                                >
-                                    <span className="codicon codicon-pin" aria-hidden="true"></span>
-                                    <span className="button-label">Pin All</span>
-                                    <VSCodeBadge>{verses.length}</VSCodeBadge>
-                                </VSCodeButton>
-                            )}
-                        </div>
+                                <span className="codicon codicon-pin"></span>
+                                <span>Pin All</span>
+                                <span className="badge">
+                                    {verses.length}
+                                </span>
+                            </button>
+                        )}
                     </div>
                 </form>
 
                 {isSettingsExpanded && (
-                    <div className="settings-panel" role="region" aria-label="Search settings">
-                        <VSCodeDivider />
-                        <div className="settings-option">
-                            <VSCodeCheckbox
-                                id="complete-only-checkbox"
+                    <div className="settings-section">
+                        <div className="settings-divider" />
+                        <label className="custom-checkbox">
+                            <input
+                                type="checkbox"
+                                className="checkbox-input"
                                 checked={completeOnly}
-                                onChange={(e) => onCompleteOnlyChange((e.target as HTMLInputElement).checked)}
+                                onChange={(e) => onCompleteOnlyChange(e.target.checked)}
                             />
-                            <label htmlFor="complete-only-checkbox" className="settings-label">
+                            <span className="checkbox-label">
                                 Show translated verses only
-                            </label>
-                        </div>
+                            </span>
+                        </label>
                     </div>
                 )}
             </div>
 
-            <div className="search-results" role="region" aria-label="Search results">
+            <div className="flex-1 overflow-y-auto p-4">
                 {isLoading ? (
-                    <div className="loading-state">
+                    <div className="empty-state">
                         <VSCodeProgressRing aria-label="Loading search results"></VSCodeProgressRing>
-                        <p>Searching verses...</p>
+                        <div className="empty-state-title">Searching verses...</div>
+                        <div className="empty-state-description">
+                            Finding relevant passages in your Bible text
+                        </div>
                     </div>
                 ) : verses.length > 0 ? (
-                    <div className="verses-container">
+                    <div className="flex flex-col gap-3">
                         {verses.map((item, index) => (
                             <VerseItem
                                 key={index}
@@ -249,67 +253,18 @@ function SearchTab({
                     </div>
                 ) : lastQuery ? (
                     <div className="empty-state">
-                        <div className="empty-state-icon codicon codicon-search" aria-hidden="true"></div>
-                        <h2 className="empty-state-title">No verses found</h2>
-                        <p className="empty-state-description">
-                            Try a different search term or reference
-                        </p>
+                        <span className="empty-state-icon codicon codicon-search"></span>
+                        <div className="empty-state-title">No results found</div>
+                        <div className="empty-state-description">
+                            No verses found for "{lastQuery}". Try different keywords or check your spelling.
+                        </div>
                     </div>
                 ) : (
                     <div className="empty-state">
-                        <div className="empty-state-icon codicon codicon-book" aria-hidden="true"></div>
-                        <h2 className="empty-state-title">Search Bible Verses</h2>
-                        <p className="empty-state-description">
-                            Enter a word or phrase to find relevant verses
-                        </p>
-                        <div className="search-suggestions">
-                            <div className="suggestion-chips">
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("love");
-                                        handleSearch();
-                                    }}
-                                >
-                                    love
-                                </button>
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("faith");
-                                        handleSearch();
-                                    }}
-                                >
-                                    faith
-                                </button>
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("hope");
-                                        handleSearch();
-                                    }}
-                                >
-                                    hope
-                                </button>
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("forgive");
-                                        handleSearch();
-                                    }}
-                                >
-                                    forgive
-                                </button>
-                                <button 
-                                    className="prompt-chip" 
-                                    onClick={() => {
-                                        onQueryChange("mercy");
-                                        handleSearch();
-                                    }}
-                                >
-                                    mercy
-                                </button>
-                            </div>
+                        <span className="empty-state-icon codicon codicon-search"></span>
+                        <div className="empty-state-title">Search the Bible</div>
+                        <div className="empty-state-description">
+                            Enter words or phrases to find relevant verses in your translation project.
                         </div>
                     </div>
                 )}
