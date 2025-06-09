@@ -1,35 +1,10 @@
 import * as vscode from "vscode";
 import {
     GlobalMessage,
-    ParallelViewPostMessages,
-    SourceCellVersions,
     TranslationPair,
 } from "../../../types";
 import { GlobalProvider } from "../../globalProvider";
-
-// Local type definitions
-interface AssistantMessage {
-    role: "assistant";
-    content: string;
-    thinking: string;
-    translation: string;
-    memoriesUsed: { memory: string }[];
-    addMemory: { memory: string };
-}
-
-async function simpleOpen(uri: string) {
-    try {
-        const parsedUri = vscode.Uri.parse(uri);
-        if (parsedUri.toString().includes(".codex")) {
-            // jumpToCellInNotebook(context, uri.toString(), 0);
-            vscode.window.showErrorMessage(
-                "Note: you need to pass the cellId to updateWorkspaceState for the cell with the content you want to open"
-            );
-        }
-    } catch (error) {
-        console.error(`Failed to open file: ${uri}`, error);
-    }
-}
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 async function openFileAtLocation(uri: string, cellId: string) {
     try {
@@ -46,68 +21,6 @@ async function openFileAtLocation(uri: string, cellId: string) {
     } catch (error) {
         console.error(`Failed to open file: ${uri}`, error);
         vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
-    }
-}
-
-async function handleChatStream(
-    webviewView: vscode.WebviewView,
-    cellIds: string[],
-    query: string,
-    editIndex?: number
-) {
-    try {
-        const result = await vscode.commands.executeCommand(
-            "codex-smart-edits.chatStream",
-            cellIds,
-            query,
-            (chunk: string | object) => {
-                let parsedChunk;
-                if (typeof chunk === "string") {
-                    try {
-                        parsedChunk = JSON.parse(chunk);
-                    } catch (error) {
-                        console.error("Error parsing chunk:", error);
-                        parsedChunk = { index: -1, content: chunk, isLast: false };
-                    }
-                } else if (typeof chunk === "object" && chunk !== null) {
-                    parsedChunk = chunk;
-                } else {
-                    console.error("Unexpected chunk format:", chunk);
-                    return;
-                }
-
-                // Check if the chunk contains session info
-                if (parsedChunk.sessionInfo) {
-                    webviewView.webview.postMessage({
-                        command: "updateSessionInfo",
-                        data: parsedChunk.sessionInfo,
-                    });
-                } else {
-                    webviewView.webview.postMessage({
-                        command: "chatResponseStream",
-                        data: JSON.stringify(parsedChunk),
-                    });
-                }
-
-                // No need to handle isLast here as the frontend will process it accordingly
-            },
-            editIndex
-        );
-
-        // Handle the result if needed
-        console.log("Chat stream completed:", result);
-    } catch (error) {
-        console.error("Error in chat stream:", error);
-        webviewView.webview.postMessage({
-            command: "chatResponseStream",
-            data: JSON.stringify({
-                index: -1,
-                content: `Error: Failed to process chat request. ${
-                    error instanceof Error ? error.message : "Unknown error"
-                }`,
-                isLast: true,
-            }),
-        });
     }
 }
 
@@ -137,14 +50,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             "index.js"
         )
     );
-    function getNonce() {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
-    }
     const nonce = getNonce();
     // FIXME: the api base url below is hardcoded to localhost:3002. This should probably be dynamic at least.
     const html = /*html*/ `<!DOCTYPE html>
@@ -293,29 +198,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "requestPinning":
                 await this.pinCellById(message.content.cellId);
                 break;
-            case "chatStream":
-                await handleChatStream(
-                    this._view,
-                    message.context,
-                    message.query,
-                    message.editIndex
-                );
-                break;
-            case "navigateToMainMenu":
-                try {
-                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                } catch (error) {
-                    console.error("Error navigating to main menu:", error);
-                }
-                break;
-            case "addedFeedback":
-                console.log("addedFeedback", message.feedback, message.cellId);
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.updateFeedback",
-                    message.cellId,
-                    message.feedback
-                );
-                break;
             case "search":
                 try {
                     const command = message.completeOnly
@@ -337,78 +219,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     console.error("Error searching cells:", error);
                 }
                 break;
-            case "deleteChatSession":
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.deleteChatSession",
-                    message.sessionId
-                );
-                break;
-            case "startNewChatSession":
-                try {
-                    const sessionInfo = await vscode.commands.executeCommand(
-                        "codex-smart-edits.startNewChatSession"
-                    );
-                    this._view.webview.postMessage({
-                        command: "updateSessionInfo",
-                        data: sessionInfo,
-                    });
-                } catch (error) {
-                    console.error("Error starting new chat session:", error);
-                }
-                break;
 
-            case "getCurrentChatSessionInfo":
-                try {
-                    const sessionInfo = await vscode.commands.executeCommand(
-                        "codex-smart-edits.getCurrentChatSessionInfo"
-                    );
-                    this._view.webview.postMessage({
-                        command: "updateSessionInfo",
-                        data: sessionInfo,
-                    });
-                } catch (error) {
-                    console.error("Error getting current chat session info:", error);
-                }
-                break;
-
-            case "getAllChatSessions":
-                try {
-                    const sessions = await vscode.commands.executeCommand(
-                        "codex-smart-edits.getAllChatSessions"
-                    );
-                    this._view.webview.postMessage({
-                        command: "updateAllSessions",
-                        data: sessions,
-                    });
-                } catch (error) {
-                    console.error("Error getting all chat sessions:", error);
-                }
-                break;
-
-            case "loadChatSession":
-                try {
-                    const result = await vscode.commands.executeCommand(
-                        "codex-smart-edits.loadChatSession",
-                        message.sessionId
-                    );
-                    if (
-                        result &&
-                        typeof result === "object" &&
-                        "sessionInfo" in result &&
-                        "messages" in result
-                    ) {
-                        const { sessionInfo, messages } = result;
-                        this._view.webview.postMessage({
-                            command: "loadedSessionData",
-                            data: { sessionInfo, messages },
-                        });
-                    } else {
-                        console.error("Unexpected result format from loadChatSession");
-                    }
-                } catch (error) {
-                    console.error("Error loading chat session:", error);
-                }
-                break;
             default:
                 console.log(`Unknown command: ${message.command}`);
         }
