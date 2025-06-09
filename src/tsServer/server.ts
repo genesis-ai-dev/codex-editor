@@ -8,14 +8,9 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
     SpellChecker,
-    SpellCheckDiagnosticsProvider,
-    SpellCheckCodeActionProvider,
-    SpellCheckCompletionItemProvider,
 } from "./spellCheck";
-import { WordSuggestionProvider } from "./forecasting";
 import {
     MatchesEntity,
-    ReplacementsEntity,
 } from "../../webviews/codex-webviews/src/CodexCellEditor/react-quill-spellcheck/types";
 import { RequestType } from "vscode-languageserver";
 import { tokenizeText } from "../utils/nlpUtils";
@@ -30,11 +25,6 @@ const ExecuteCommandRequest = new RequestType<{ command: string; args: any[] }, 
 );
 
 let spellChecker: SpellChecker;
-let diagnosticsProvider: SpellCheckDiagnosticsProvider;
-let codeActionProvider: SpellCheckCodeActionProvider;
-let completionItemProvider: SpellCheckCompletionItemProvider;
-let wordSuggestionProvider: WordSuggestionProvider;
-const pendingSmartEditsPromise: Promise<any> | null = null;
 let lastSmartEditsText: string | null = null;
 let lastSmartEditResults: any[] | null = null;
 
@@ -75,30 +65,11 @@ connection.onInitialize((params: InitializeParams) => {
     spellChecker = new SpellChecker(connection);
     debugLog("SpellChecker initialized.");
 
-    debugLog("Initializing SpellCheckDiagnosticsProvider...");
-    diagnosticsProvider = new SpellCheckDiagnosticsProvider(spellChecker);
-    debugLog("SpellCheckDiagnosticsProvider initialized.");
-
-    debugLog("Initializing SpellCheckCodeActionProvider...");
-    codeActionProvider = new SpellCheckCodeActionProvider(spellChecker);
-    debugLog("SpellCheckCodeActionProvider initialized.");
-
-    debugLog("Initializing SpellCheckCompletionItemProvider...");
-    completionItemProvider = new SpellCheckCompletionItemProvider(spellChecker);
-    debugLog("SpellCheckCompletionItemProvider initialized.");
-
-    debugLog("Initializing WordSuggestionProvider...");
-    wordSuggestionProvider = new WordSuggestionProvider(workspaceFolder || "");
-    debugLog("WordSuggestionProvider initialized.");
-
     return {
         capabilities: {
             textDocumentSync: {
                 openClose: true,
                 change: 1, // Incremental
-            },
-            completionProvider: {
-                resolveProvider: true,
             },
             // Add other capabilities as needed
         },
@@ -165,7 +136,7 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
 
     // Start parallel requests for both smart edits and ICE suggestions
     const [smartEditsPromise, iceEditsPromise] = [
-        !pendingSmartEditsPromise || lastSmartEditsText !== text
+        lastSmartEditsText !== text
             ? connection.sendRequest(ExecuteCommandRequest, {
                   command: "codex-smart-edits.getEdits",
                   args: [text, params.cellId],
@@ -312,12 +283,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
                 });
             }
         }
-    }
-
-    // Update smart edits cache and process results
-    if (lastSmartEditsText !== text) {
-        lastSmartEditsText = text;
-        lastSmartEditResults = smartEditResults;
     }
 
     debugLog(`Returning matches: ${JSON.stringify(matches)}`);

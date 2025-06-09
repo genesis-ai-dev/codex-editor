@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 import { SmartEdits } from "./smartEdits";
 import { getWorkSpaceFolder } from "../utils";
-import { SmartPassages } from "./smartPassages";
 import { SmartBacktranslation, SavedBacktranslation } from "./smartBacktranslation";
 import { ICEEdits } from "./iceEdits";
 
@@ -14,7 +13,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
 
     const workspaceUri = vscode.Uri.file(workspaceFolder);
     const smartEdits = new SmartEdits(workspaceUri);
-    const smartPassages = new SmartPassages();
     const smartBacktranslation = new SmartBacktranslation(workspaceUri);
     const iceEdits = new ICEEdits(workspaceFolder);
 
@@ -70,52 +68,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
-
-    // Add new command for SmartPassages chat
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.chat",
-            async (cellIds: string[], query: string) => {
-                try {
-                    const response = await smartPassages.chat(cellIds, query);
-                    const sessionInfo = smartPassages.getCurrentSessionInfo();
-                    return { response, sessionInfo };
-                } catch (error) {
-                    console.error("Error in smart passages chat:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to process chat request. Please check the console for more details."
-                    );
-                    return null;
-                }
-            }
-        )
-    );
-
-    // Add new command for SmartPassages chat with streaming
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.chatStream",
-            async (
-                cellIds: string[],
-                query: string,
-                onChunk: (chunk: string) => void,
-                editIndex?: number
-            ) => {
-                try {
-                    const sessionInfo = smartPassages.getCurrentSessionInfo();
-                    onChunk(JSON.stringify({ sessionInfo })); // Send session info as the first chunk
-
-                    await smartPassages.chatStream(cellIds, query, onChunk, editIndex);
-                } catch (error) {
-                    console.error("Error in smart passages chat stream:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to process chat request. Please check the console for more details."
-                    );
-                    onChunk(JSON.stringify({ error: "Error processing request." }));
-                }
-            }
-        )
-    );
+    
 
     // Add new commands for SmartBacktranslation
     context.subscriptions.push(
@@ -202,86 +155,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
         )
     );
 
-    // Add new command for updating/creating feedback
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.updateFeedback",
-            async (cellId: string, content: string) => {
-                try {
-                    await smartPassages.updateFeedback(cellId, content);
-                    console.log(`Feedback updated for cellId: ${cellId}`);
-                    return true;
-                } catch (error) {
-                    console.error("Error updating feedback:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to update feedback. Please check the console for more details."
-                    );
-                    return false;
-                }
-            }
-        )
-    );
-
-    // Add command to start a new chat session
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-smart-edits.startNewChatSession", () => {
-            smartPassages.startNewSession();
-            return smartPassages.getCurrentSessionInfo();
-        })
-    );
-
-    // Add command to get current session info
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-smart-edits.getCurrentChatSessionInfo", () => {
-            return smartPassages.getCurrentSessionInfo();
-        })
-    );
-
-    // Add command to get all saved chat sessions
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-smart-edits.getAllChatSessions", async () => {
-            return await smartPassages.getAllSessions();
-        })
-    );
-
-    // Add command to load a specific chat session
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.loadChatSession",
-            async (sessionId: string) => {
-                const loadedSession = await smartPassages.loadChatHistory(sessionId);
-                return {
-                    sessionInfo: smartPassages.getCurrentSessionInfo(),
-                    messages: loadedSession ? loadedSession.messages : [],
-                };
-            }
-        )
-    );
-
-    // Add command to delete a specific chat session
-    context.subscriptions.push(
-        vscode.commands.registerCommand(
-            "codex-smart-edits.deleteChatSession",
-            async (sessionId: string) => {
-                try {
-                    const success = await smartPassages.deleteChatSession(sessionId);
-                    if (success) {
-                        console.log(`Chat session ${sessionId} deleted successfully`);
-                        return true;
-                    } else {
-                        console.log(`Failed to delete chat session ${sessionId}`);
-                        return false;
-                    }
-                } catch (error) {
-                    console.error("Error deleting chat session:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to delete chat session. Please check the console for more details."
-                    );
-                    return false;
-                }
-            }
-        )
-    );
 
     // Test command for ICE edits
     context.subscriptions.push(

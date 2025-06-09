@@ -37,12 +37,6 @@ export interface MatchesEntity {
     leftToken?: string;
     rightToken?: string;
 }
-export interface ReplacementsEntity {
-    value: string;
-    confidence?: "high" | "low";
-    source?: "llm" | "ice" | "spellcheck";
-    frequency?: number;
-}
 
 export interface SpellCheckerApi {
     check: (text: string) => Promise<MatchesEntity[]>;
