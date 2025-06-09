@@ -672,7 +672,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource
             } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource
-            }; connect-src https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src ${webview.cspSource
+            }; connect-src https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource
             } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource
             } https: blob: data:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
