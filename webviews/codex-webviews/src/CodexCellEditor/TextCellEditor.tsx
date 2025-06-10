@@ -183,6 +183,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [backtranslation, setBacktranslation] = useState<SavedBacktranslation | null>(null);
     const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
     const [editedBacktranslation, setEditedBacktranslation] = useState<string | null>(null);
+    const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
+    const [backtranslationProgress, setBacktranslationProgress] = useState(0);
     const [activeTab, setActiveTab] = useState<
         "source" | "backtranslation" | "footnotes" | "audio"
     >("source");
@@ -486,6 +488,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handleSourceTextResponse);
     }, []);
 
+    // Pseudo progress bar for backtranslation generation
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+
+        if (isGeneratingBacktranslation && backtranslationProgress < 85) {
+            interval = setInterval(() => {
+                setBacktranslationProgress((prev) => {
+                    // Slow increments that get slower as we approach 85%
+                    const increment = Math.max(0.5, 3 - prev / 30);
+                    return Math.min(85, prev + increment);
+                });
+            }, 200); // Update every 200ms
+        }
+
+        return () => {
+            if (interval) {
+                clearInterval(interval);
+            }
+        };
+    }, [isGeneratingBacktranslation, backtranslationProgress]);
+
     useEffect(() => {
         const handleBacktranslationResponse = (event: MessageEvent) => {
             const message = event.data;
@@ -497,12 +520,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
             ) {
                 setBacktranslation(message.content || null);
                 setEditedBacktranslation(message.content?.backtranslation || null);
+
+                // Complete the progress bar and reset loading state
+                if (isGeneratingBacktranslation) {
+                    setBacktranslationProgress(100);
+                    setTimeout(() => {
+                        setIsGeneratingBacktranslation(false);
+                        setBacktranslationProgress(0);
+                    }, 500); // Brief delay to show completion
+                }
             }
         };
 
         window.addEventListener("message", handleBacktranslationResponse);
         return () => window.removeEventListener("message", handleBacktranslationResponse);
-    }, []);
+    }, [isGeneratingBacktranslation]);
 
     useEffect(() => {
         // Fetch existing backtranslation when component mounts
@@ -516,6 +548,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     }, [cellMarkers]);
 
     const handleGenerateBacktranslation = () => {
+        // Start loading state
+        setIsGeneratingBacktranslation(true);
+        setBacktranslationProgress(0);
+
         const messageContent: EditorPostMessages = {
             command: "generateBacktranslation",
             content: {
@@ -1434,14 +1470,39 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         variant="ghost"
                                         size="icon"
                                         title="Generate Backtranslation"
-                                        disabled={!contentBeingUpdated.cellContent.trim()}
+                                        disabled={
+                                            !contentBeingUpdated.cellContent.trim() ||
+                                            isGeneratingBacktranslation
+                                        }
                                     >
-                                        <RefreshCcw className="h-4 w-4" />
+                                        {isGeneratingBacktranslation ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <RefreshCcw className="h-4 w-4" />
+                                        )}
                                     </Button>
                                 </div>
                             </div>
 
-                            {backtranslation ? (
+                            {/* Loading indicator for backtranslation generation */}
+                            {isGeneratingBacktranslation && (
+                                <div className="space-y-3">
+                                    <div className="text-center">
+                                        <p className="text-sm text-muted-foreground mb-2">
+                                            Generating backtranslation...
+                                        </p>
+                                        <Progress
+                                            value={backtranslationProgress}
+                                            className="w-full"
+                                        />
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            {Math.round(backtranslationProgress)}%
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!isGeneratingBacktranslation && backtranslation ? (
                                 <>
                                     {isEditingBacktranslation ? (
                                         <div className="space-y-3">
@@ -1482,25 +1543,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     )}
                                 </>
                             ) : (
-                                <div className="text-center p-8 text-muted-foreground">
-                                    {contentBeingUpdated.cellContent.trim() ? (
-                                        <>
-                                            <p>No backtranslation available for this text.</p>
-                                            <p className="mt-2">
-                                                Click the refresh button to generate a
-                                                backtranslation.
-                                            </p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <p>Add content to this cell first.</p>
-                                            <p className="mt-2">
-                                                Backtranslation will be available once you have text
-                                                to translate.
-                                            </p>
-                                        </>
-                                    )}
-                                </div>
+                                !isGeneratingBacktranslation && (
+                                    <div className="text-center p-8 text-muted-foreground">
+                                        {contentBeingUpdated.cellContent.trim() ? (
+                                            <>
+                                                <p>No backtranslation available for this text.</p>
+                                                <p className="mt-2">
+                                                    Click the refresh button to generate a
+                                                    backtranslation.
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p>Add content to this cell first.</p>
+                                                <p className="mt-2">
+                                                    Backtranslation will be available once you have
+                                                    text to translate.
+                                                </p>
+                                            </>
+                                        )}
+                                    </div>
+                                )
                             )}
                         </div>
                     </TabsContent>
