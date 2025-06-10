@@ -5,6 +5,9 @@ import { TranslationPair, MinimalCellResult } from "../../../../../types";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
+// Schema version for migrations
+const CURRENT_SCHEMA_VERSION = 2;
+
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
     private db: Database | null = null;
@@ -86,6 +89,7 @@ export class SQLiteIndexManager {
                 line_number INTEGER,
                 word_count INTEGER DEFAULT 0,
                 metadata TEXT, -- JSON field for flexible metadata
+                raw_content TEXT, -- Raw content with HTML tags
                 created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
                 FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
@@ -126,6 +130,7 @@ export class SQLiteIndexManager {
             CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
                 cell_id,
                 content,
+                raw_content,
                 content_type,
                 tokenize='porter unicode61'
             )
@@ -169,17 +174,17 @@ export class SQLiteIndexManager {
             CREATE TRIGGER IF NOT EXISTS cells_fts_insert 
             AFTER INSERT ON cells
             BEGIN
-                INSERT INTO cells_fts(cell_id, content, content_type) 
-                VALUES (NEW.cell_id, NEW.content, NEW.cell_type);
+                INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
+                VALUES (NEW.cell_id, NEW.content, COALESCE(NEW.raw_content, NEW.content), NEW.cell_type);
             END
         `);
 
         this.db.run(`
             CREATE TRIGGER IF NOT EXISTS cells_fts_update 
-            AFTER UPDATE OF content ON cells
+            AFTER UPDATE OF content, raw_content ON cells
             BEGIN
                 UPDATE cells_fts 
-                SET content = NEW.content 
+                SET content = NEW.content, raw_content = COALESCE(NEW.raw_content, NEW.content)
                 WHERE cell_id = NEW.cell_id;
             END
         `);
@@ -194,9 +199,133 @@ export class SQLiteIndexManager {
     }
 
     private async ensureSchema(): Promise<void> {
-        // This would check for schema migrations if needed
-        // For now, just ensure the schema exists
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Check current schema version
+        const currentVersion = this.getSchemaVersion();
+        console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
+
+        if (currentVersion === 0) {
+            // New database - create with latest schema
+            console.log("[SQLiteIndex] Creating new database with latest schema");
+            await this.createSchema();
+            this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+            console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
+        } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
+            // Old database - recreate instead of migrating to ensure clean schema
+            console.log(`[SQLiteIndex] Old schema detected (version ${currentVersion}). Recreating database for clean slate.`);
+            await this.recreateDatabase();
+            console.log(`[SQLiteIndex] Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
+        } else {
+            console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
+        }
+    }
+
+    private async recreateDatabase(): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        console.log("[SQLiteIndex] Dropping all existing tables...");
+
+        // Get all table names first
+        const tablesStmt = this.db.prepare(`
+            SELECT name FROM sqlite_master 
+            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+        `);
+
+        const tableNames: string[] = [];
+        try {
+            while (tablesStmt.step()) {
+                tableNames.push(tablesStmt.getAsObject().name as string);
+            }
+        } finally {
+            tablesStmt.free();
+        }
+
+        // Drop all tables in a transaction
+        await this.runInTransaction(() => {
+            // Drop FTS table first if it exists
+            if (tableNames.includes('cells_fts')) {
+                this.db!.run("DROP TABLE IF EXISTS cells_fts");
+            }
+
+            // Drop other tables
+            for (const tableName of tableNames) {
+                if (tableName !== 'cells_fts') {
+                    this.db!.run(`DROP TABLE IF EXISTS ${tableName}`);
+                }
+            }
+        });
+
+        console.log("[SQLiteIndex] Creating fresh schema...");
         await this.createSchema();
+        this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+    }
+
+    private getSchemaVersion(): number {
+        if (!this.db) return 0;
+
+        try {
+            // Check if any tables exist at all (new database check)
+            const checkAnyTable = this.db.prepare(`
+                SELECT COUNT(*) as count FROM sqlite_master WHERE type='table'
+            `);
+
+            let tableCount = 0;
+            try {
+                checkAnyTable.step();
+                tableCount = checkAnyTable.getAsObject().count as number;
+            } finally {
+                checkAnyTable.free();
+            }
+
+            if (tableCount === 0) return 0; // Completely new database
+
+            // Check if schema_info table exists
+            const checkTable = this.db.prepare(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='schema_info'
+            `);
+
+            let hasTable = false;
+            try {
+                if (checkTable.step()) {
+                    hasTable = checkTable.getAsObject().name === 'schema_info';
+                }
+            } finally {
+                checkTable.free();
+            }
+
+            if (!hasTable) return 1; // Assume version 1 if no schema_info table but other tables exist
+
+            const stmt = this.db.prepare("SELECT version FROM schema_info LIMIT 1");
+            try {
+                if (stmt.step()) {
+                    const result = stmt.getAsObject();
+                    return (result.version as number) || 1;
+                }
+                return 1;
+            } finally {
+                stmt.free();
+            }
+        } catch {
+            return 1; // Fallback to version 1
+        }
+    }
+
+    private setSchemaVersion(version: number): void {
+        if (!this.db) return;
+
+        // Create schema_info table if it doesn't exist
+        this.db.run(`
+            CREATE TABLE IF NOT EXISTS schema_info (
+                version INTEGER PRIMARY KEY
+            )
+        `);
+
+        // Insert or update version
+        this.db.run(`
+            INSERT OR REPLACE INTO schema_info (version) VALUES (?)
+        `, [version]);
     }
 
     private computeContentHash(content: string): string {
@@ -238,11 +367,14 @@ export class SQLiteIndexManager {
         cellType: "source" | "target",
         content: string,
         lineNumber?: number,
-        metadata?: any
+        metadata?: any,
+        rawContent?: string
     ): Promise<{ id: number; isNew: boolean; contentChanged: boolean }> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const contentHash = this.computeContentHash(content);
+        // Use rawContent if provided, otherwise fall back to content
+        const actualRawContent = rawContent || content;
+        const contentHash = this.computeContentHash(content + (rawContent || ""));
         const wordCount = content.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
@@ -270,14 +402,15 @@ export class SQLiteIndexManager {
 
         // Upsert the cell
         const upsertStmt = this.db.prepare(`
-            INSERT INTO cells (cell_id, file_id, cell_type, content, content_hash, line_number, word_count, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cells (cell_id, file_id, cell_type, content, content_hash, line_number, word_count, metadata, raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
                 content = excluded.content,
                 content_hash = excluded.content_hash,
                 line_number = excluded.line_number,
                 word_count = excluded.word_count,
                 metadata = excluded.metadata,
+                raw_content = excluded.raw_content,
                 updated_at = strftime('%s', 'now') * 1000
             RETURNING id
         `);
@@ -292,6 +425,7 @@ export class SQLiteIndexManager {
                 lineNumber || null,
                 wordCount,
                 metadata ? JSON.stringify(metadata) : null,
+                actualRawContent,
             ]);
             upsertStmt.step();
             const result = upsertStmt.getAsObject();
@@ -317,22 +451,46 @@ export class SQLiteIndexManager {
         // Add cell based on document type
         if (doc.cellId && doc.content) {
             // Source text document
-            await this.upsertCell(doc.cellId, fileId, "source", doc.content, doc.line, {
-                versions: doc.versions,
-            });
+            await this.upsertCell(
+                doc.cellId,
+                fileId,
+                "source",
+                doc.content,
+                doc.line,
+                {
+                    versions: doc.versions,
+                },
+                doc.rawContent // Pass raw content if available
+            );
         } else if (doc.cellId && (doc.sourceContent || doc.targetContent)) {
             // Translation pair document
             if (doc.sourceContent) {
-                await this.upsertCell(doc.cellId, fileId, "source", doc.sourceContent, doc.line, {
-                    document: doc.document,
-                    section: doc.section,
-                });
+                await this.upsertCell(
+                    doc.cellId,
+                    fileId,
+                    "source",
+                    doc.sourceContent,
+                    doc.line,
+                    {
+                        document: doc.document,
+                        section: doc.section,
+                    },
+                    doc.rawSourceContent // Pass raw source content if available
+                );
             }
             if (doc.targetContent) {
-                await this.upsertCell(doc.cellId, fileId, "target", doc.targetContent, doc.line, {
-                    document: doc.document,
-                    section: doc.section,
-                });
+                await this.upsertCell(
+                    doc.cellId,
+                    fileId,
+                    "target",
+                    doc.targetContent,
+                    doc.line,
+                    {
+                        document: doc.document,
+                        section: doc.section,
+                    },
+                    doc.rawTargetContent // Pass raw target content if available
+                );
             }
         }
     }
@@ -376,12 +534,24 @@ export class SQLiteIndexManager {
     }
 
     // Search with MiniSearch-compatible interface (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
+    /**
+     * Search database cells using sanitized content for matching, but return raw content (with HTML) by default.
+     * This provides the best of both worlds: accurate text matching and preserved formatting.
+     * 
+     * @param query - Search query string
+     * @param options - Search options
+     * @param options.limit - Maximum results to return (default: 50)
+     * @param options.fuzzy - Fuzzy matching threshold (default: 0.2)
+     * @param options.returnSanitized - If true, return sanitized content instead of raw content (default: false)
+     * @returns Array of search results with raw content (HTML intact) unless returnSanitized is true
+     */
     search(query: string, options?: any): any[] {
         if (!this.db) return [];
 
         const limit = options?.limit || 50;
         const fuzzy = options?.fuzzy || 0.2;
         const boost = options?.boost || {};
+        const returnSanitized = options?.returnSanitized || false; // Option to return sanitized content instead of raw
 
         // Escape special characters for FTS5
         // FTS5 treats these as special: " ( ) * : .
@@ -429,6 +599,7 @@ export class SQLiteIndexManager {
             SELECT 
                 c.cell_id,
                 c.content,
+                c.raw_content,
                 c.cell_type,
                 c.line_number as line,
                 c.metadata,
@@ -444,10 +615,15 @@ export class SQLiteIndexManager {
 
         const results = [];
         try {
-            stmt.bind([ftsQuery, limit]);
+            // Always search using the sanitized content column for better matching
+            const ftsSearchQuery = `content: ${ftsQuery}`;
+            stmt.bind([ftsSearchQuery, limit]);
             while (stmt.step()) {
                 const row = stmt.getAsObject();
                 const metadata = row.metadata ? JSON.parse(row.metadata as string) : {};
+
+                // Choose which content to return based on options
+                const contentToReturn = returnSanitized ? row.content : (row.raw_content || row.content);
 
                 // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
                 const result: any = {
@@ -459,12 +635,22 @@ export class SQLiteIndexManager {
                     line: row.line,
                 };
 
-                // Add content based on cell type
+                // Add content based on cell type - prefer raw_content for HTML formatting
                 if (row.cell_type === "source") {
-                    result.sourceContent = row.content;
-                    result.content = row.content;
+                    result.sourceContent = contentToReturn;
+                    result.content = contentToReturn;
+                    // Always provide both versions if they differ
+                    if (row.raw_content && row.content !== row.raw_content) {
+                        result.sanitizedContent = row.content;
+                        result.rawContent = row.raw_content;
+                    }
                 } else {
-                    result.targetContent = row.content;
+                    result.targetContent = contentToReturn;
+                    // Always provide both versions if they differ
+                    if (row.raw_content && row.content !== row.raw_content) {
+                        result.sanitizedTargetContent = row.content;
+                        result.rawTargetContent = row.raw_content;
+                    }
                 }
 
                 // Add metadata fields
@@ -477,6 +663,19 @@ export class SQLiteIndexManager {
         }
 
         return results;
+    }
+
+    // Search and return sanitized content (for cases where HTML tags are not needed)
+    /**
+     * Search database cells and return sanitized content (HTML tags removed).
+     * Use this when you need clean text without formatting.
+     * 
+     * @param query - Search query string
+     * @param options - Search options (same as search method)
+     * @returns Array of search results with sanitized content (no HTML tags)
+     */
+    searchSanitized(query: string, options?: any): any[] {
+        return this.search(query, { ...options, returnSanitized: true });
     }
 
     // Get document by ID (for source text index compatibility)
@@ -564,6 +763,7 @@ export class SQLiteIndexManager {
                 return {
                     cellId: row.cell_id,
                     content: row.content,
+                    rawContent: row.raw_content,
                     cell_type: row.cell_type,
                     uri: row.file_path,
                     line: row.line_number,
@@ -590,6 +790,8 @@ export class SQLiteIndexManager {
             cellId,
             sourceContent: sourceCell?.content || "",
             targetContent: targetCell?.content || "",
+            rawSourceContent: sourceCell?.rawContent || "",
+            rawTargetContent: targetCell?.rawContent || "",
             document: sourceCell?.document || targetCell?.document,
             section: sourceCell?.section || targetCell?.section,
             uri: sourceCell?.uri || targetCell?.uri,
@@ -646,10 +848,21 @@ export class SQLiteIndexManager {
         }
     }
 
+    /**
+     * Search cells with more granular control over cell types and content format.
+     * Always searches using sanitized content for better matching accuracy.
+     * 
+     * @param query - Search query string
+     * @param cellType - Filter by cell type ('source' or 'target'), optional
+     * @param limit - Maximum results to return (default: 50)
+     * @param returnSanitized - If true, return sanitized content; if false, return raw content with HTML (default: false)
+     * @returns Array of detailed cell results
+     */
     async searchCells(
         query: string,
         cellType?: "source" | "target",
-        limit: number = 50
+        limit: number = 50,
+        returnSanitized: boolean = false
     ): Promise<any[]> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -676,7 +889,7 @@ export class SQLiteIndexManager {
 
         let sql = `
             SELECT 
-                c.id, c.cell_id, c.content, c.cell_type, c.word_count,
+                c.id, c.cell_id, c.content, c.raw_content, c.cell_type, c.word_count,
                 f.file_path, f.file_type,
                 bm25(cells_fts) as rank
             FROM cells_fts
@@ -685,7 +898,7 @@ export class SQLiteIndexManager {
             WHERE cells_fts MATCH ?
         `;
 
-        const params: any[] = [ftsQuery];
+        const params: any[] = [`content: ${ftsQuery}`]; // Always search using sanitized content
 
         if (cellType) {
             sql += ` AND c.cell_type = ?`;
@@ -701,7 +914,20 @@ export class SQLiteIndexManager {
         try {
             stmt.bind(params);
             while (stmt.step()) {
-                results.push(stmt.getAsObject());
+                const row = stmt.getAsObject();
+
+                // Choose which content to return - prefer raw_content unless specifically requesting sanitized
+                const contentField = returnSanitized ? row.content : (row.raw_content || row.content);
+
+                results.push({
+                    ...row,
+                    content: contentField,
+                    // Always provide both versions if they exist and differ
+                    ...(row.raw_content && row.content !== row.raw_content ? {
+                        sanitizedContent: row.content,
+                        rawContent: row.raw_content
+                    } : {})
+                });
             }
         } finally {
             stmt.free();
@@ -734,6 +960,87 @@ export class SQLiteIndexManager {
         }
 
         return stats;
+    }
+
+    async getContentStats(): Promise<{
+        totalCells: number;
+        cellsWithRawContent: number;
+        cellsWithDifferentContent: number;
+        avgContentLength: number;
+        avgRawContentLength: number;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const stmt = this.db.prepare(`
+            SELECT 
+                COUNT(*) as total_cells,
+                COUNT(raw_content) as cells_with_raw_content,
+                SUM(CASE WHEN content != raw_content THEN 1 ELSE 0 END) as cells_with_different_content,
+                AVG(LENGTH(content)) as avg_content_length,
+                AVG(LENGTH(COALESCE(raw_content, ''))) as avg_raw_content_length
+            FROM cells
+        `);
+
+        try {
+            stmt.step();
+            const result = stmt.getAsObject();
+            return {
+                totalCells: (result.total_cells as number) || 0,
+                cellsWithRawContent: (result.cells_with_raw_content as number) || 0,
+                cellsWithDifferentContent: (result.cells_with_different_content as number) || 0,
+                avgContentLength: (result.avg_content_length as number) || 0,
+                avgRawContentLength: (result.avg_raw_content_length as number) || 0,
+            };
+        } finally {
+            stmt.free();
+        }
+    }
+
+    // Debug method to inspect database schema
+    async debugSchema(): Promise<{
+        version: number;
+        tables: string[];
+        cellsColumns: string[];
+        ftsColumns: string[];
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const version = this.getSchemaVersion();
+
+        // Get all tables
+        const tablesStmt = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'");
+        const tables: string[] = [];
+        try {
+            while (tablesStmt.step()) {
+                tables.push(tablesStmt.getAsObject().name as string);
+            }
+        } finally {
+            tablesStmt.free();
+        }
+
+        // Get cells table columns
+        const cellsColumnsStmt = this.db.prepare("PRAGMA table_info(cells)");
+        const cellsColumns: string[] = [];
+        try {
+            while (cellsColumnsStmt.step()) {
+                cellsColumns.push(cellsColumnsStmt.getAsObject().name as string);
+            }
+        } finally {
+            cellsColumnsStmt.free();
+        }
+
+        // Get FTS table columns
+        const ftsColumnsStmt = this.db.prepare("PRAGMA table_info(cells_fts)");
+        const ftsColumns: string[] = [];
+        try {
+            while (ftsColumnsStmt.step()) {
+                ftsColumns.push(ftsColumnsStmt.getAsObject().name as string);
+            }
+        } finally {
+            ftsColumnsStmt.free();
+        }
+
+        return { version, tables, cellsColumns, ftsColumns };
     }
 
     private debouncedSave(): void {
