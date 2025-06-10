@@ -704,10 +704,16 @@ export async function syncMetadataToConfiguration() {
                     `Configuration updated to match metadata validationCount: ${metadata.meta.validationCount}`
                 );
 
-                // Schedule a sync operation to ensure the changes are committed
-                SyncManager.getInstance().scheduleSyncOperation(
-                    "Update project configuration from metadata"
-                );
+                // Schedule a sync operation to ensure the changes are committed (only if auto-sync is enabled)
+                const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+
+                if (autoSyncEnabled) {
+                    SyncManager.getInstance().scheduleSyncOperation(
+                        "Update project configuration from metadata"
+                    );
+                } else {
+                    debug("Auto-sync is disabled, skipping scheduled sync for metadata configuration update");
+                }
             } else {
                 debug(
                     `Configuration already matches metadata validationCount: ${metadata.meta.validationCount}`
