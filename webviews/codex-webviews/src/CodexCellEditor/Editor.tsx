@@ -1,12 +1,4 @@
-import React, {
-    useRef,
-    useEffect,
-    useMemo,
-    useState,
-    useContext,
-    forwardRef,
-    useImperativeHandle,
-} from "react";
+import React, { useRef, useEffect, useMemo, useState, useContext, forwardRef, useImperativeHandle } from "react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import registerQuillSpellChecker, {
@@ -103,7 +95,6 @@ export interface EditorHandles {
     openLibrary: () => void;
     showEditHistory: () => void;
     addFootnote: () => void;
-    updateContent: (content: string) => void;
 }
 
 // Wrap the Editor component in forwardRef instead of default export
@@ -486,10 +477,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     // Expose imperative methods
     useImperativeHandle(ref, () => ({
         autocomplete: () => {
-            window.vscodeApi.postMessage({
-                command: "llmCompletion",
-                content: { currentLineId: props.currentLineId },
-            });
+            window.vscodeApi.postMessage({ command: "llmCompletion", content: { currentLineId: props.currentLineId } });
         },
         openLibrary: () => {
             const quill = quillRef.current!;
@@ -508,40 +496,18 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         addFootnote: () => {
             handleAddFootnote();
         },
-        updateContent: (content: string) => {
-            if (quillRef.current) {
-                quillRef.current.root.innerHTML = content;
-                setUnsavedChanges(true);
-
-                // Trigger the onChange callback to notify the parent
-                if (props.onChange) {
-                    props.onChange({ html: content });
-                }
-
-                // Update header label after content change
-                updateHeaderLabel();
-            }
-        },
     }));
 
     return (
         <>
-            <div
-                className={`text-editor-container ${
-                    isToolbarVisible ? "toolbar-visible" : "toolbar-hidden"
-                }`}
-            >
-                <VSCodeButton
-                    appearance="icon"
+            <div className={`text-editor-container ${isToolbarVisible ? 'toolbar-visible' : 'toolbar-hidden'}`}>
+                <VSCodeButton 
+                    appearance="icon" 
                     onClick={() => setIsToolbarVisible(!isToolbarVisible)}
                     title={isToolbarVisible ? "Hide Formatting Toolbar" : "Show Formatting Toolbar"}
-                    style={{ marginBottom: "5px" }} // Add some space below the button
+                    style={{ marginBottom: '5px' }} // Add some space below the button
                 >
-                    <i
-                        className={`codicon ${
-                            isToolbarVisible ? "codicon-chevron-up" : "codicon-tools"
-                        }`}
-                    ></i>
+                    <i className={`codicon ${isToolbarVisible ? 'codicon-chevron-up' : 'codicon-tools'}`}></i>
                 </VSCodeButton>
                 <div ref={editorRef}></div>
             </div>
