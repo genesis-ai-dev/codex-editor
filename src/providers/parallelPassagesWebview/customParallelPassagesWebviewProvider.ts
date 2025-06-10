@@ -60,9 +60,8 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
       Use a content security policy to only allow loading images from https or from our extension directory,
       and only allow scripts that have a specific nonce.
     -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
+    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
+        }; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="${styleResetUri}" rel="stylesheet">
     <link href="${styleVSCodeUri}" rel="stylesheet">
@@ -207,7 +206,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
                         command,
                         message.query,
-                        15 // k value
+                        15, // k value
+                        message.completeOnly ? false : true, // includeIncomplete for searchAllCells
+                        false, // showInfo
+                        { isParallelPassagesWebview: true } // options to get raw content for HTML display
                     );
                     if (results) {
                         this._view.webview.postMessage({

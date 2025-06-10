@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import initSqlJs, { Database, SqlJsStatic } from "fts5-sql-bundle";
 import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
+import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
+import { ActivationTiming } from "../../../../extension";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
@@ -13,9 +15,92 @@ export class SQLiteIndexManager {
     private db: Database | null = null;
     private saveDebounceTimer: NodeJS.Timeout | null = null;
     private readonly SAVE_DEBOUNCE_MS = 0;
+    private progressTimings: ActivationTiming[] = [];
+    private currentProgressTimer: NodeJS.Timeout | null = null;
+    private currentProgressStartTime: number | null = null;
+    private currentProgressName: string | null = null;
+
+    private trackProgress(step: string, stepStartTime: number): number {
+        const stepEndTime = globalThis.performance.now();
+        const duration = stepEndTime - stepStartTime; // Duration of THIS step only
+
+        this.progressTimings.push({ step, duration, startTime: stepStartTime });
+        console.log(`[SQLiteIndex] ${step}: ${duration.toFixed(2)}ms`);
+
+        // Stop any previous real-time timer
+        if (this.currentProgressTimer) {
+            clearInterval(this.currentProgressTimer);
+            this.currentProgressTimer = null;
+        }
+
+        // Update splash screen with database creation progress
+        updateSplashScreenTimings(this.progressTimings);
+
+        return stepEndTime; // Return the END time for the next step to use as its start time
+    }
+
+    private startRealtimeProgress(stepName: string): number {
+        const startTime = globalThis.performance.now();
+
+        // Stop any previous timer
+        if (this.currentProgressTimer) {
+            clearInterval(this.currentProgressTimer);
+        }
+
+        this.currentProgressName = stepName;
+        this.currentProgressStartTime = startTime;
+
+        // Add initial timing entry
+        this.progressTimings.push({ step: stepName, duration: 0, startTime });
+        updateSplashScreenTimings(this.progressTimings);
+
+        // Start real-time updates every 50ms for more responsive updates
+        this.currentProgressTimer = setInterval(() => {
+            if (this.currentProgressStartTime && this.currentProgressName) {
+                const currentDuration = globalThis.performance.now() - this.currentProgressStartTime;
+
+                // Update the last timing entry with current duration
+                const lastIndex = this.progressTimings.length - 1;
+                if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
+                    this.progressTimings[lastIndex].duration = currentDuration;
+                    updateSplashScreenTimings(this.progressTimings);
+                }
+            }
+        }, 50) as unknown as NodeJS.Timeout;
+
+        return startTime;
+    }
+
+    private finishRealtimeProgress(): number {
+        if (this.currentProgressTimer) {
+            clearInterval(this.currentProgressTimer);
+            this.currentProgressTimer = null;
+        }
+
+        if (this.currentProgressStartTime && this.currentProgressName) {
+            const finalDuration = globalThis.performance.now() - this.currentProgressStartTime;
+
+            // Update the last timing entry with final duration
+            const lastIndex = this.progressTimings.length - 1;
+            if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
+                this.progressTimings[lastIndex].duration = finalDuration;
+                updateSplashScreenTimings(this.progressTimings);
+                console.log(`[SQLiteIndex] ${this.currentProgressName}: ${finalDuration.toFixed(2)}ms`);
+            }
+        }
+
+        this.currentProgressName = null;
+        this.currentProgressStartTime = null;
+
+        return globalThis.performance.now();
+    }
 
     async initialize(context: vscode.ExtensionContext): Promise<void> {
+        const initStart = globalThis.performance.now();
+        let stepStart = initStart;
+
         // Initialize SQL.js
+        stepStart = this.trackProgress("Initialize SQL.js WASM", stepStart);
         const sqlWasmPath = vscode.Uri.joinPath(
             context.extensionUri,
             "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm"
@@ -29,11 +114,18 @@ export class SQLiteIndexManager {
             throw new Error("Failed to initialize SQL.js");
         }
 
+        stepStart = this.trackProgress("SQL.js Ready", stepStart);
+
         // Load or create database
         await this.loadOrCreateDatabase();
+
+        this.trackProgress("Database Setup Complete", initStart);
     }
 
     private async loadOrCreateDatabase(): Promise<void> {
+        const loadStart = globalThis.performance.now();
+        let stepStart = loadStart;
+
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             throw new Error("No workspace folder found");
@@ -41,28 +133,43 @@ export class SQLiteIndexManager {
 
         const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
 
+        stepStart = this.trackProgress("Check for existing database", stepStart);
+
         try {
             const fileContent = await vscode.workspace.fs.readFile(dbPath);
+            stepStart = this.trackProgress("Load existing database file", stepStart);
+
             this.db = new this.sql!.Database(fileContent);
+            stepStart = this.trackProgress("Parse database structure", stepStart);
+
             console.log("Loaded existing index database");
 
             // Ensure schema is up to date
             await this.ensureSchema();
         } catch {
+            stepStart = this.trackProgress("Create new database", stepStart);
             console.log("Creating new index database");
             this.db = new this.sql!.Database();
+
             await this.createSchema();
             await this.saveDatabase();
         }
+
+        this.trackProgress("Database Load/Create Complete", loadStart);
     }
 
     private async createSchema(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
+        const schemaStart = globalThis.performance.now();
+        let stepStart = schemaStart;
+
         // Enable foreign keys
+        stepStart = this.trackProgress("Enable foreign key constraints", stepStart);
         this.db.run("PRAGMA foreign_keys = ON");
 
         // Files table - tracks file metadata
+        stepStart = this.trackProgress("Create files table", stepStart);
         this.db.run(`
             CREATE TABLE IF NOT EXISTS files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +185,7 @@ export class SQLiteIndexManager {
         `);
 
         // Cells table - stores individual cells with content hashing
+        stepStart = this.trackProgress("Create cells table", stepStart);
         this.db.run(`
             CREATE TABLE IF NOT EXISTS cells (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +206,7 @@ export class SQLiteIndexManager {
         `);
 
         // Translation pairs table - links source and target cells
+        stepStart = this.trackProgress("Create translation pairs table", stepStart);
         this.db.run(`
             CREATE TABLE IF NOT EXISTS translation_pairs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +222,7 @@ export class SQLiteIndexManager {
         `);
 
         // Words table - tracks word occurrences
+        stepStart = this.trackProgress("Create words table", stepStart);
         this.db.run(`
             CREATE TABLE IF NOT EXISTS words (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,6 +236,7 @@ export class SQLiteIndexManager {
         `);
 
         // FTS5 virtual table for cell content search
+        stepStart = this.trackProgress("Create full-text search index", stepStart);
         this.db.run(`
             CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
                 cell_id,
@@ -137,6 +248,7 @@ export class SQLiteIndexManager {
         `); // NOTE: we might not be able to use the porter
 
         // Create indexes for performance
+        stepStart = this.trackProgress("Create database indexes", stepStart);
         this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_cell_id ON cells(cell_id)");
         this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_content_hash ON cells(content_hash)");
         this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_file_id ON cells(file_id)");
@@ -151,6 +263,7 @@ export class SQLiteIndexManager {
         this.db.run("CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path)");
 
         // Triggers to maintain updated_at timestamps
+        stepStart = this.trackProgress("Create database triggers", stepStart);
         this.db.run(`
             CREATE TRIGGER IF NOT EXISTS update_files_timestamp 
             AFTER UPDATE ON files
@@ -170,6 +283,7 @@ export class SQLiteIndexManager {
         `);
 
         // Trigger to sync FTS table
+        stepStart = this.trackProgress("Setup FTS synchronization", stepStart);
         this.db.run(`
             CREATE TRIGGER IF NOT EXISTS cells_fts_insert 
             AFTER INSERT ON cells
@@ -196,29 +310,42 @@ export class SQLiteIndexManager {
                 DELETE FROM cells_fts WHERE cell_id = OLD.cell_id;
             END
         `);
+
+        this.trackProgress("Schema Creation Complete", schemaStart);
     }
 
     private async ensureSchema(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
+        const ensureStart = globalThis.performance.now();
+        let stepStart = ensureStart;
+
         // Check current schema version
+        stepStart = this.trackProgress("Check database schema version", stepStart);
         const currentVersion = this.getSchemaVersion();
         console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
 
         if (currentVersion === 0) {
             // New database - create with latest schema
-            console.log("[SQLiteIndex] Creating new database with latest schema");
+            stepStart = this.trackProgress("Initialize new database schema", stepStart);
+            console.log("[SQLiteIndex] Setting up new database with latest schema");
             await this.createSchema();
             this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+            this.trackProgress("New database schema initialized", stepStart);
             console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
         } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
             // Old database - recreate instead of migrating to ensure clean schema
+            stepStart = this.trackProgress("Recreate outdated database", stepStart);
             console.log(`[SQLiteIndex] Old schema detected (version ${currentVersion}). Recreating database for clean slate.`);
             await this.recreateDatabase();
+            this.trackProgress("Database recreation complete", stepStart);
             console.log(`[SQLiteIndex] Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
         } else {
+            stepStart = this.trackProgress("Verify database schema", stepStart);
             console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
         }
+
+        this.trackProgress("Database Schema Setup Complete", ensureStart);
     }
 
     private async recreateDatabase(): Promise<void> {
@@ -369,7 +496,7 @@ export class SQLiteIndexManager {
         lineNumber?: number,
         metadata?: any,
         rawContent?: string
-    ): Promise<{ id: number; isNew: boolean; contentChanged: boolean }> {
+    ): Promise<{ id: number; isNew: boolean; contentChanged: boolean; }> {
         if (!this.db) throw new Error("Database not initialized");
 
         // Use rawContent if provided, otherwise fall back to content
@@ -383,7 +510,7 @@ export class SQLiteIndexManager {
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; content_hash: string } | null = null;
+        let existingCell: { id: number; content_hash: string; } | null = null;
         try {
             checkStmt.bind([cellId, fileId, cellType]);
             if (checkStmt.step()) {
@@ -499,11 +626,51 @@ export class SQLiteIndexManager {
     async addAll(documents: any[]): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        await this.runInTransaction(() => {
-            for (const doc of documents) {
-                this.add(doc);
+        if (documents.length === 0) return;
+
+        // Start real-time progress for large operations
+        if (documents.length > 50) {
+            this.startRealtimeProgress(`Indexing ${documents.length} documents`);
+        } else {
+            const addAllStart = globalThis.performance.now();
+            this.trackProgress(`Processing ${documents.length} documents`, addAllStart);
+        }
+
+        try {
+            await this.runInTransaction(() => {
+                let processed = 0;
+                const batchSize = 100; // Process in smaller batches
+
+                for (let i = 0; i < documents.length; i += batchSize) {
+                    const batch = documents.slice(i, i + batchSize);
+                    for (const doc of batch) {
+                        this.add(doc);
+                        processed++;
+                    }
+
+                    // Update progress description for large operations
+                    if (documents.length > 50 && processed % (batchSize * 2) === 0) {
+                        // Update the current step name to show progress
+                        if (this.currentProgressName) {
+                            const progressPercent = Math.round((processed / documents.length) * 100);
+                            const newStepName = `Indexing ${documents.length} documents (${progressPercent}%)`;
+
+                            // Update the step name in the current timing entry
+                            const lastIndex = this.progressTimings.length - 1;
+                            if (lastIndex >= 0) {
+                                this.progressTimings[lastIndex].step = newStepName;
+                                this.currentProgressName = newStepName;
+                            }
+                        }
+                    }
+                }
+            });
+        } finally {
+            // Finish real-time progress for large operations
+            if (documents.length > 50) {
+                this.finishRealtimeProgress();
             }
-        });
+        }
     }
 
     // Remove all documents
@@ -535,15 +702,16 @@ export class SQLiteIndexManager {
 
     // Search with MiniSearch-compatible interface (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
     /**
-     * Search database cells using sanitized content for matching, but return raw content (with HTML) by default.
-     * This provides the best of both worlds: accurate text matching and preserved formatting.
+     * Search database cells using sanitized content for matching, but return raw content for webview display or sanitized for AI processing.
+     * This provides the best of both worlds: accurate text matching and appropriate content format for the use case.
      * 
      * @param query - Search query string
      * @param options - Search options
      * @param options.limit - Maximum results to return (default: 50)
      * @param options.fuzzy - Fuzzy matching threshold (default: 0.2)
-     * @param options.returnSanitized - If true, return sanitized content instead of raw content (default: false)
-     * @returns Array of search results with raw content (HTML intact) unless returnSanitized is true
+     * @param options.returnRawContent - If true, return raw content with HTML; if false, return sanitized content (default: false)
+     * @param options.isParallelPassagesWebview - If true, this search is for the parallel passages webview display (default: false)
+     * @returns Array of search results with raw or sanitized content based on options
      */
     search(query: string, options?: any): any[] {
         if (!this.db) return [];
@@ -551,7 +719,11 @@ export class SQLiteIndexManager {
         const limit = options?.limit || 50;
         const fuzzy = options?.fuzzy || 0.2;
         const boost = options?.boost || {};
-        const returnSanitized = options?.returnSanitized || false; // Option to return sanitized content instead of raw
+
+        // Determine content type based on caller
+        // Parallel passages webview needs raw content for proper HTML display
+        // Everything else (LLM, etc.) should get sanitized content
+        const returnRawContent = options?.returnRawContent || options?.isParallelPassagesWebview || false;
 
         // Escape special characters for FTS5
         // FTS5 treats these as special: " ( ) * : .
@@ -622,8 +794,17 @@ export class SQLiteIndexManager {
                 const row = stmt.getAsObject();
                 const metadata = row.metadata ? JSON.parse(row.metadata as string) : {};
 
-                // Choose which content to return based on options
-                const contentToReturn = returnSanitized ? row.content : (row.raw_content || row.content);
+                // Verify both columns contain data - no fallbacks
+                if (!row.content || !row.raw_content) {
+                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data:`, {
+                        content: !!row.content,
+                        raw_content: !!row.raw_content
+                    });
+                    continue; // Skip this result
+                }
+
+                // Choose which content to return based on use case
+                const contentToReturn = returnRawContent ? row.raw_content : row.content;
 
                 // Format result to match MiniSearch output (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
                 const result: any = {
@@ -635,22 +816,18 @@ export class SQLiteIndexManager {
                     line: row.line,
                 };
 
-                // Add content based on cell type - prefer raw_content for HTML formatting
+                // Add content based on cell type - always provide both versions for transparency
                 if (row.cell_type === "source") {
                     result.sourceContent = contentToReturn;
                     result.content = contentToReturn;
-                    // Always provide both versions if they differ
-                    if (row.raw_content && row.content !== row.raw_content) {
-                        result.sanitizedContent = row.content;
-                        result.rawContent = row.raw_content;
-                    }
+                    // Always provide both versions for debugging/transparency
+                    result.sanitizedContent = row.content;
+                    result.rawContent = row.raw_content;
                 } else {
                     result.targetContent = contentToReturn;
-                    // Always provide both versions if they differ
-                    if (row.raw_content && row.content !== row.raw_content) {
-                        result.sanitizedTargetContent = row.content;
-                        result.rawTargetContent = row.raw_content;
-                    }
+                    // Always provide both versions for debugging/transparency
+                    result.sanitizedTargetContent = row.content;
+                    result.rawTargetContent = row.raw_content;
                 }
 
                 // Add metadata fields
@@ -675,7 +852,7 @@ export class SQLiteIndexManager {
      * @returns Array of search results with sanitized content (no HTML tags)
      */
     searchSanitized(query: string, options?: any): any[] {
-        return this.search(query, { ...options, returnSanitized: true });
+        return this.search(query, { ...options, returnRawContent: false });
     }
 
     // Get document by ID (for source text index compatibility)
@@ -855,14 +1032,14 @@ export class SQLiteIndexManager {
      * @param query - Search query string
      * @param cellType - Filter by cell type ('source' or 'target'), optional
      * @param limit - Maximum results to return (default: 50)
-     * @param returnSanitized - If true, return sanitized content; if false, return raw content with HTML (default: false)
+     * @param returnRawContent - If true, return raw content with HTML; if false, return sanitized content (default: false)
      * @returns Array of detailed cell results
      */
     async searchCells(
         query: string,
         cellType?: "source" | "target",
         limit: number = 50,
-        returnSanitized: boolean = false
+        returnRawContent: boolean = false
     ): Promise<any[]> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -898,7 +1075,7 @@ export class SQLiteIndexManager {
             WHERE cells_fts MATCH ?
         `;
 
-        const params: any[] = [`content: ${ftsQuery}`]; // Always search using sanitized content
+        const params: any[] = [`content: ${ftsQuery}`];
 
         if (cellType) {
             sql += ` AND c.cell_type = ?`;
@@ -916,17 +1093,24 @@ export class SQLiteIndexManager {
             while (stmt.step()) {
                 const row = stmt.getAsObject();
 
-                // Choose which content to return - prefer raw_content unless specifically requesting sanitized
-                const contentField = returnSanitized ? row.content : (row.raw_content || row.content);
+                // Verify both columns contain data - no fallbacks
+                if (!row.content || !row.raw_content) {
+                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data in searchCells:`, {
+                        content: !!row.content,
+                        raw_content: !!row.raw_content
+                    });
+                    continue; // Skip this result
+                }
+
+                // Choose which content to return based on parameter
+                const contentField = returnRawContent ? row.raw_content : row.content;
 
                 results.push({
                     ...row,
                     content: contentField,
-                    // Always provide both versions if they exist and differ
-                    ...(row.raw_content && row.content !== row.raw_content ? {
-                        sanitizedContent: row.content,
-                        rawContent: row.raw_content
-                    } : {})
+                    // Always provide both versions for debugging/transparency
+                    sanitizedContent: row.content,
+                    rawContent: row.raw_content
                 });
             }
         } finally {
@@ -968,6 +1152,8 @@ export class SQLiteIndexManager {
         cellsWithDifferentContent: number;
         avgContentLength: number;
         avgRawContentLength: number;
+        cellsWithMissingContent: number;
+        cellsWithMissingRawContent: number;
     }> {
         if (!this.db) throw new Error("Database not initialized");
 
@@ -977,7 +1163,9 @@ export class SQLiteIndexManager {
                 COUNT(raw_content) as cells_with_raw_content,
                 SUM(CASE WHEN content != raw_content THEN 1 ELSE 0 END) as cells_with_different_content,
                 AVG(LENGTH(content)) as avg_content_length,
-                AVG(LENGTH(COALESCE(raw_content, ''))) as avg_raw_content_length
+                AVG(LENGTH(COALESCE(raw_content, ''))) as avg_raw_content_length,
+                SUM(CASE WHEN content IS NULL OR content = '' THEN 1 ELSE 0 END) as cells_with_missing_content,
+                SUM(CASE WHEN raw_content IS NULL OR raw_content = '' THEN 1 ELSE 0 END) as cells_with_missing_raw_content
             FROM cells
         `);
 
@@ -990,10 +1178,68 @@ export class SQLiteIndexManager {
                 cellsWithDifferentContent: (result.cells_with_different_content as number) || 0,
                 avgContentLength: (result.avg_content_length as number) || 0,
                 avgRawContentLength: (result.avg_raw_content_length as number) || 0,
+                cellsWithMissingContent: (result.cells_with_missing_content as number) || 0,
+                cellsWithMissingRawContent: (result.cells_with_missing_raw_content as number) || 0,
             };
         } finally {
             stmt.free();
         }
+    }
+
+    // Verify data integrity - ensure both content columns are populated
+    async verifyDataIntegrity(): Promise<{
+        isValid: boolean;
+        issues: string[];
+        totalCells: number;
+        problematicCells: Array<{ cellId: string, issue: string; }>;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const issues: string[] = [];
+        const problematicCells: Array<{ cellId: string, issue: string; }> = [];
+
+        // Check for cells with missing content
+        const checkStmt = this.db.prepare(`
+            SELECT cell_id, content, raw_content 
+            FROM cells 
+            WHERE content IS NULL OR content = '' OR raw_content IS NULL OR raw_content = ''
+        `);
+
+        try {
+            while (checkStmt.step()) {
+                const row = checkStmt.getAsObject();
+                const cellId = row.cell_id as string;
+
+                if (!row.content || row.content === '') {
+                    issues.push(`Cell ${cellId} has missing or empty content`);
+                    problematicCells.push({ cellId, issue: 'missing content' });
+                }
+
+                if (!row.raw_content || row.raw_content === '') {
+                    issues.push(`Cell ${cellId} has missing or empty raw_content`);
+                    problematicCells.push({ cellId, issue: 'missing raw_content' });
+                }
+            }
+        } finally {
+            checkStmt.free();
+        }
+
+        // Get total cell count
+        const countStmt = this.db.prepare("SELECT COUNT(*) as total FROM cells");
+        let totalCells = 0;
+        try {
+            countStmt.step();
+            totalCells = countStmt.getAsObject().total as number;
+        } finally {
+            countStmt.free();
+        }
+
+        return {
+            isValid: issues.length === 0,
+            issues,
+            totalCells,
+            problematicCells
+        };
     }
 
     // Debug method to inspect database schema
@@ -1074,6 +1320,12 @@ export class SQLiteIndexManager {
     }
 
     async close(): Promise<void> {
+        // Clean up real-time progress timer
+        if (this.currentProgressTimer) {
+            clearInterval(this.currentProgressTimer);
+            this.currentProgressTimer = null;
+        }
+
         if (this.saveDebounceTimer) {
             clearTimeout(this.saveDebounceTimer);
             await this.saveDatabase();

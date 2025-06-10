@@ -214,7 +214,7 @@ export async function findNextUntranslatedSourceCell(
     translationPairsIndex: IndexType,
     query: string,
     currentCellId: string
-): Promise<{ cellId: string; content: string } | null> {
+): Promise<{ cellId: string; content: string; } | null> {
     // Search for similar source cells
     const searchResults = await sourceTextIndex.search(query, {
         boost: { content: 2 },
@@ -247,7 +247,8 @@ export function searchAllCells(
     sourceTextIndex: IndexType,
     query: string,
     k: number = 15,
-    includeIncomplete: boolean = true
+    includeIncomplete: boolean = true,
+    options?: any
 ): TranslationPair[] {
     // Search translation pairs with boosted weights for complete pairs and target content
     const translationPairs = searchTranslationPairs(
@@ -255,7 +256,7 @@ export function searchAllCells(
         query,
         includeIncomplete,
         k,
-        { completeBoost: 1.5, targetContentBoost: 1.2 }
+        { completeBoost: 1.5, targetContentBoost: 1.2, ...options }
     );
 
     let combinedResults: TranslationPair[] = translationPairs;
@@ -269,6 +270,7 @@ export function searchAllCells(
                 prefix: true,
                 fuzzy: 0.2,
                 boost: { content: 2 },
+                ...options // Pass through options including isParallelPassagesWebview
             })
             .map((result: any) => ({
                 cellId: result.cellId,

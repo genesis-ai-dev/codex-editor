@@ -163,7 +163,7 @@ export class SyncManager {
         // Set sync in progress flag and show immediate feedback
         this.clearPendingSync();
         this.isSyncInProgress = true;
-        console.log("Starting sync operation in background with message:", commitMessage);
+        console.log("   nc operation in background with message:", commitMessage);
 
         // Show progress indicator to user instead of simple message
         if (showInfoOnConnectionIssues) {
