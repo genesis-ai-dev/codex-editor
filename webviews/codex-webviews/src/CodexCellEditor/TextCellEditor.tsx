@@ -23,6 +23,7 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
+import WaveSurfer from "wavesurfer.js";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -213,6 +214,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
         language?: string;
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
+
+    // Waveform-related state
+    const [waveSurfer, setWaveSurfer] = useState<WaveSurfer | null>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [duration, setDuration] = useState(0);
+    const [currentTime, setCurrentTime] = useState(0);
+    const waveformRef = useRef<HTMLDivElement>(null);
 
     // Use the internal state with validation
     const audioUrl = _audioUrl;
@@ -831,6 +839,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
         setAudioBlob(null);
         setRecordingStatus("");
 
+        // Clean up wavesurfer instance
+        if (waveSurfer) {
+            waveSurfer.destroy();
+            setWaveSurfer(null);
+        }
+        setIsPlaying(false);
+        setDuration(0);
+        setCurrentTime(0);
+
         // Cancel any ongoing transcription
         if (transcriptionClientRef.current) {
             transcriptionClientRef.current.abort();
@@ -941,7 +958,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const handleInsertTranscription = () => {
         if (!savedTranscription) return;
 
-        // Get current content without HTML tags
+        // Get current content from the editor
         const currentContent = editorContent;
         const doc = new DOMParser().parseFromString(currentContent, "text/html");
         const currentText = doc.body.textContent || "";
@@ -953,6 +970,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Update the content as HTML
         const newContent = `<span>${newText}</span>`;
+
+        // Update the editor content directly using the editor's updateContent method
+        if (editorHandlesRef.current) {
+            editorHandlesRef.current.updateContent(newContent);
+        }
+
+        // Also update the local state
         handleContentUpdate(newContent);
 
         setTranscriptionStatus("Transcription inserted into cell");
@@ -1121,6 +1145,83 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handleAudioResponse);
     }, [cellMarkers, audioUrl]);
 
+    // Initialize waveform when audio is available
+    useEffect(() => {
+        if (
+            audioUrl &&
+            waveformRef.current &&
+            (audioUrl.startsWith("blob:") ||
+                audioUrl.startsWith("data:") ||
+                audioUrl.startsWith("http"))
+        ) {
+            // Clean up existing wavesurfer instance
+            if (waveSurfer) {
+                waveSurfer.destroy();
+            }
+
+            // Create new WaveSurfer instance
+            const ws = WaveSurfer.create({
+                container: waveformRef.current,
+                waveColor: "rgba(59, 130, 246, 0.6)",
+                progressColor: "rgba(37, 99, 235, 1)",
+                cursorColor: "rgba(37, 99, 235, 1)",
+                barWidth: 2,
+                barGap: 1,
+                height: 60,
+                normalize: true,
+                backend: "WebAudio",
+                interact: true,
+            });
+
+            ws.load(audioUrl);
+
+            ws.on("ready", () => {
+                setDuration(ws.getDuration());
+            });
+
+            ws.on("timeupdate", () => {
+                setCurrentTime(ws.getCurrentTime());
+            });
+
+            ws.on("seeking", () => {
+                setCurrentTime(ws.getCurrentTime());
+            });
+
+            ws.on("play", () => {
+                setIsPlaying(true);
+            });
+
+            ws.on("pause", () => {
+                setIsPlaying(false);
+            });
+
+            ws.on("finish", () => {
+                setIsPlaying(false);
+                setCurrentTime(0);
+            });
+
+            setWaveSurfer(ws);
+
+            return () => {
+                ws.destroy();
+            };
+        }
+    }, [audioUrl]);
+
+    // Format time display
+    const formatTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, "0")}`;
+    };
+
+    // Toggle play/pause
+    const togglePlayback = () => {
+        if (waveSurfer) {
+            waveSurfer.playPause();
+        }
+    };
+
     // Clean up media recorder and stream on unmount
     useEffect(() => {
         return () => {
@@ -1137,8 +1238,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 transcriptionClientRef.current.abort();
                 transcriptionClientRef.current = null;
             }
+            // Clean up wavesurfer instance
+            if (waveSurfer) {
+                waveSurfer.destroy();
+            }
         };
-    }, [mediaRecorder, audioUrl]);
+    }, [mediaRecorder, audioUrl, waveSurfer]);
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
@@ -1723,62 +1828,142 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {/* Audio player container matching reference design */}
-                                    <div className="audio-player-container">
-                                        <div className="audio-controls">
-                                            <Button variant="outline" size="icon" disabled>
-                                                <Play className="h-4 w-4" />
-                                            </Button>
-                                            <div className="flex-grow space-y-1">
-                                                <div className="audio-filename">
-                                                    sample_audio.mp3
-                                                </div>
-                                                <audio
-                                                    controls
-                                                    src={
-                                                        audioUrl &&
-                                                        (audioUrl.startsWith("blob:") ||
-                                                            audioUrl.startsWith("data:") ||
-                                                            audioUrl.startsWith("http"))
-                                                            ? audioUrl
-                                                            : undefined
-                                                    }
-                                                    className="w-full h-8"
-                                                    onError={(e) => {
-                                                        console.error(
-                                                            "Error playing audio for cell:",
-                                                            cellMarkers[0]
-                                                        );
-                                                        const audioElement =
-                                                            e.currentTarget as HTMLAudioElement;
-                                                        if (audioElement.error) {
-                                                            console.error(
-                                                                "Error handling audio playbook:",
-                                                                audioElement.error
-                                                            );
-                                                        }
-                                                        setRecordingStatus(
-                                                            "Error loading audio file"
-                                                        );
-
-                                                        // Request audio attachments again to reload with proper base64 data
-                                                        const messageContent: EditorPostMessages = {
-                                                            command: "requestAudioForCell",
-                                                            content: { cellId: cellMarkers[0] },
-                                                        };
-                                                        window.vscodeApi.postMessage(
-                                                            messageContent
-                                                        );
-                                                    }}
-                                                />
-                                                <div className="flex justify-between items-center">
-                                                    <span className="audio-time">0:14</span>
-                                                    <span className="audio-time">0:45</span>
-                                                </div>
+                                    {/* Beautiful Waveform Audio Player */}
+                                    <div
+                                        style={{
+                                            background:
+                                                "linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)",
+                                            borderRadius: "12px",
+                                            padding: "20px",
+                                            border: "1px solid rgba(59, 130, 246, 0.2)",
+                                        }}
+                                    >
+                                        {/* Audio filename and controls header */}
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "space-between",
+                                                marginBottom: "16px",
+                                            }}
+                                        >
+                                            <div
+                                                style={{
+                                                    fontSize: "14px",
+                                                    fontWeight: "500",
+                                                    color: "var(--vscode-editor-foreground)",
+                                                    opacity: 0.8,
+                                                }}
+                                            >
+                                                {audioUrl && audioUrl.includes("/")
+                                                    ? audioUrl.split("/").pop()?.split("?")[0] ||
+                                                      "Audio File"
+                                                    : "Audio File"}
                                             </div>
-                                            <Button variant="ghost" size="icon">
-                                                <Volume2 className="h-4 w-4" />
+                                            <Button
+                                                onClick={togglePlayback}
+                                                variant="outline"
+                                                size="icon"
+                                                style={{
+                                                    borderRadius: "50%",
+                                                    width: "44px",
+                                                    height: "44px",
+                                                    background: isPlaying
+                                                        ? "linear-gradient(135deg, rgba(239, 68, 68, 0.9) 0%, rgba(220, 38, 38, 0.9) 100%)"
+                                                        : "linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(22, 163, 74, 0.9) 100%)",
+                                                    border: "none",
+                                                    color: "white",
+                                                    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                                                }}
+                                            >
+                                                {isPlaying ? (
+                                                    <div
+                                                        style={{
+                                                            width: "12px",
+                                                            height: "12px",
+                                                            display: "flex",
+                                                            gap: "2px",
+                                                        }}
+                                                    >
+                                                        <div
+                                                            style={{
+                                                                width: "4px",
+                                                                height: "12px",
+                                                                background: "white",
+                                                                borderRadius: "1px",
+                                                            }}
+                                                        ></div>
+                                                        <div
+                                                            style={{
+                                                                width: "4px",
+                                                                height: "12px",
+                                                                background: "white",
+                                                                borderRadius: "1px",
+                                                            }}
+                                                        ></div>
+                                                    </div>
+                                                ) : (
+                                                    <div
+                                                        style={{
+                                                            width: "0",
+                                                            height: "0",
+                                                            borderLeft: "8px solid white",
+                                                            borderTop: "6px solid transparent",
+                                                            borderBottom: "6px solid transparent",
+                                                            marginLeft: "2px",
+                                                        }}
+                                                    ></div>
+                                                )}
                                             </Button>
+                                        </div>
+
+                                        {/* Waveform container */}
+                                        <div
+                                            style={{
+                                                background: "rgba(0, 0, 0, 0.05)",
+                                                borderRadius: "8px",
+                                                padding: "12px",
+                                                marginBottom: "12px",
+                                                position: "relative",
+                                                overflow: "hidden",
+                                            }}
+                                        >
+                                            <div
+                                                ref={waveformRef}
+                                                style={{
+                                                    width: "100%",
+                                                    cursor: "pointer",
+                                                }}
+                                            />
+                                            {/* Gradient overlay for visual enhancement */}
+                                            <div
+                                                style={{
+                                                    position: "absolute",
+                                                    top: 0,
+                                                    left: 0,
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    background:
+                                                        "linear-gradient(to right, transparent 0%, rgba(59, 130, 246, 0.1) 50%, transparent 100%)",
+                                                    pointerEvents: "none",
+                                                    borderRadius: "8px",
+                                                }}
+                                            />
+                                        </div>
+
+                                        {/* Time display */}
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                justifyContent: "space-between",
+                                                alignItems: "center",
+                                                fontSize: "12px",
+                                                color: "var(--vscode-editor-foreground)",
+                                                opacity: 0.7,
+                                            }}
+                                        >
+                                            <span>{formatTime(currentTime)}</span>
+                                            <span>{formatTime(duration)}</span>
                                         </div>
                                     </div>
 
@@ -1814,7 +1999,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     className="w-full"
                                                 >
                                                     <Trash2 className="h-4 w-4" />
-                                                    <span className="hidden sm:inline ml-2">
+                                                    <span className="inline ml-2">
                                                         Remove Audio
                                                     </span>
                                                 </Button>
@@ -1832,14 +2017,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     {isRecording ? (
                                                         <>
                                                             <Square className="h-4 w-4" />
-                                                            <span className="hidden sm:inline ml-2">
+                                                            <span className="inline ml-2">
                                                                 Stop
                                                             </span>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <Mic className="h-4 w-4" />
-                                                            <span className="hidden sm:inline ml-2">
+                                                            <span className="inline ml-2">
                                                                 Re-record / Load New
                                                             </span>
                                                         </>
@@ -1854,14 +2039,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     {isTranscribing ? (
                                                         <>
                                                             <Loader2 className="h-4 w-4 animate-spin" />
-                                                            <span className="hidden sm:inline ml-2">
+                                                            <span className="inline ml-2">
                                                                 Transcribing...
                                                             </span>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <MessageCircle className="h-4 w-4" />
-                                                            <span className="hidden sm:inline ml-2">
+                                                            <span className="inline ml-2">
                                                                 Transcribe
                                                             </span>
                                                         </>

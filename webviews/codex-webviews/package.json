@@ -47,6 +47,7 @@
         "@types/animejs": "^3.1.13",
         "@uidotdev/usehooks": "^2.4.1",
         "@vscode/webview-ui-toolkit": "^1.4.0",
+        "@wavesurfer/react": "^1.0.11",
         "@xstate/react": "^5.0.0",
         "animejs": "^4.0.2",
         "antd": "^5.21.4",
@@ -91,6 +92,7 @@
         "tailwind-merge": "^3.3.0",
         "util": "^0.12.5",
         "uuid": "^9.0.1",
+        "wavesurfer.js": "^7.9.5",
         "webvtt-parser": "^2.2.0",
         "xstate": "^5.19.0"
     },
