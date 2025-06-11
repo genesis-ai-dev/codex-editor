@@ -19,6 +19,7 @@ import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 // State machine types
 export enum StartupFlowStates {
@@ -84,17 +85,8 @@ type StartupFlowEvent =
           type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT;
       }
     | {
-          type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
-      };
-
-function getNonce(): string {
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
-}
+                type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
+  };
 
 const DEBUG_MODE = true; // Set to true to enable debug logging
 

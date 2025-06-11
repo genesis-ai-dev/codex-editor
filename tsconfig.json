@@ -26,8 +26,22 @@
             "types/*": ["types/*"],
             "webviews/*": ["webviews/*"],
             "@sharedUtils/*": ["sharedUtils/*"]
-        }
+        },
+        /* Performance optimizations */
+        "incremental": true,
+        "tsBuildInfoFile": ".tsbuildinfo"
     },
     "include": ["src/**/*", "types/**/*", "custom.d.ts", "sharedUtils/**/*"],
-    "exclude": ["node_modules", "webviews"]
+    "exclude": [
+        "node_modules",
+        "webviews",
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "out",
+        "dist",
+        ".vscode-test",
+        "coverage",
+        "*.config.js",
+        "*.config.ts"
+    ]
 }

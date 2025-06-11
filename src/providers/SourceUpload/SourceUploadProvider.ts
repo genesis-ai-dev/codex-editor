@@ -25,6 +25,7 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -115,15 +116,6 @@ interface CodexFile {
     id: string;
     name: string;
     path: string;
-}
-
-function getNonce(): string {
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
 }
 
 const DEBUG_MODE = true; // Set to true to enable debug logging

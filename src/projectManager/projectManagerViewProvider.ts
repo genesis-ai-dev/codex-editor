@@ -25,6 +25,7 @@ import * as fs from "fs";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
 import { SyncManager } from "./syncManager";
+import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -368,14 +369,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
         vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
 
-    function getNonce() {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
-    }
     const nonce = getNonce();
 
     const html = /*html*/ `<!DOCTYPE html>

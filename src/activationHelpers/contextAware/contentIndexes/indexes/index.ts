@@ -357,7 +357,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         const getWordFrequenciesCommand = vscode.commands.registerCommand(
             "translators-copilot.getWordFrequencies",
-            async (): Promise<Array<{ word: string; frequency: number }>> => {
+            async (): Promise<Array<{ word: string; frequency: number; }>> => {
                 return getWordFrequencies(wordsIndex);
             }
         );
@@ -388,7 +388,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         const searchParallelCellsCommand = vscode.commands.registerCommand(
             "translators-copilot.searchParallelCells",
-            async (query?: string, k: number = 15, showInfo: boolean = false) => {
+            async (query?: string, k: number = 15, showInfo: boolean = false, options?: any) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
                         prompt: "Enter a query to search parallel cells",
@@ -404,7 +404,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     sourceTextIndex,
                     query,
                     k,
-                    false
+                    false,
+                    options // Pass through options including isParallelPassagesWebview
                 );
 
                 // Remove duplicates based on cellId
@@ -419,7 +420,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         query,
                         false, // includeIncomplete set to false
                         k * 2,
-                        { completeBoost: 1.5, targetContentBoost: 1.2 }
+                        { completeBoost: 1.5, targetContentBoost: 1.2, ...options }
                     );
                     const allResults = [...uniqueResults, ...additionalResults];
                     uniqueResults.splice(
@@ -527,7 +528,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 query?: string,
                 k: number = 15,
                 includeIncomplete: boolean = true,
-                showInfo: boolean = false
+                showInfo: boolean = false,
+                options?: any
             ) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
@@ -542,7 +544,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     sourceTextIndex,
                     query,
                     k,
-                    includeIncomplete
+                    includeIncomplete,
+                    options // Pass through options including isParallelPassagesWebview
                 );
 
                 console.log(`Search results for "${query}":`, results);
@@ -655,16 +658,16 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             <h2>Cells</h2>
                             <div>
                                 ${fileInfo.codexFile.cells
-                                    .map(
-                                        (cell, index) => `
+                            .map(
+                                (cell, index) => `
                                     <div class="cell">
                                         <div class="cell-header">Cell ${index + 1} - ID: ${cell.id || "N/A"} - Type: ${cell.type || "N/A"}</div>
                                         <div class="stats">Word Count: ${cell.wordCount}</div>
                                         <div class="cell-content">${cell.value}</div>
                                     </div>
                                 `
-                                    )
-                                    .join("")}
+                            )
+                            .join("")}
                             </div>
                         </body>
                         </html>
@@ -677,6 +680,45 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         "Failed to get file info. Check the logs for details."
                     );
                     return null;
+                }
+            }
+        );
+
+        const verifyDataIntegrityCommand = vscode.commands.registerCommand(
+            "translators-copilot.verifyDataIntegrity",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const integrityResult = await translationPairsIndex.verifyDataIntegrity();
+                        const stats = await translationPairsIndex.getContentStats();
+
+                        let message = `Data Integrity Check:\n`;
+                        message += `Total cells: ${integrityResult.totalCells}\n`;
+                        message += `Cells with missing content: ${stats.cellsWithMissingContent}\n`;
+                        message += `Cells with missing raw_content: ${stats.cellsWithMissingRawContent}\n`;
+                        message += `Cells with different content: ${stats.cellsWithDifferentContent}\n`;
+                        message += `Status: ${integrityResult.isValid ? '✅ VALID' : '❌ ISSUES FOUND'}\n`;
+
+                        if (!integrityResult.isValid) {
+                            message += `\nIssues found:\n${integrityResult.issues.slice(0, 10).join('\n')}`;
+                            if (integrityResult.issues.length > 10) {
+                                message += `\n... and ${integrityResult.issues.length - 10} more issues`;
+                            }
+                        }
+
+                        const action = integrityResult.isValid ? "View Stats" : "View Issues";
+                        const choice = await vscode.window.showInformationMessage(message, action, "OK");
+
+                        if (choice === action) {
+                            console.log('Full integrity check results:', integrityResult);
+                            console.log('Full content stats:', stats);
+                        }
+                    } else {
+                        vscode.window.showErrorMessage("Data integrity check only available for SQLite index");
+                    }
+                } catch (error) {
+                    console.error("Error verifying data integrity:", error);
+                    vscode.window.showErrorMessage("Failed to verify data integrity");
                 }
             }
         );
@@ -709,6 +751,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 searchAllCellsCommand,
                 getFileStatsCommand,
                 getFileInfoCommand,
+                verifyDataIntegrityCommand,
             ]
         );
 

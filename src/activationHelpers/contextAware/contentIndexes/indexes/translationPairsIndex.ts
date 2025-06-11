@@ -79,7 +79,7 @@ export async function createTranslationPairsIndex(
         const index: TranslationPairsIndex = {};
         const targetCellsMap = new Map<
             string,
-            { content: string; uri: string; notebookId: string }
+            { content: string; uri: string; notebookId: string; }
         >();
 
         for (const targetFile of targetFiles) {
@@ -139,7 +139,7 @@ export async function createTranslationPairsIndex(
 
     async function indexDocument(
         document: vscode.TextDocument,
-        targetVerseMap: Map<string, { content: string }>,
+        targetVerseMap: Map<string, { content: string; }>,
         translationPairsIndex: IndexType
     ): Promise<number> {
         const uri = document.uri.toString();
@@ -212,7 +212,7 @@ export async function createTranslationPairsIndex(
         line: string,
         lineIndex: number,
         uri: string,
-        targetVerseMap: Map<string, { content: string }>
+        targetVerseMap: Map<string, { content: string; }>
     ): searchResult | null {
         const match = line.match(verseRefRegex);
         if (match) {
@@ -240,7 +240,7 @@ export async function createTranslationPairsIndex(
     }
 
     const debouncedIndexDocument = debounce(async (doc: vscode.TextDocument) => {
-        const targetVerseMap = new Map<string, { content: string }>();
+        const targetVerseMap = new Map<string, { content: string; }>();
         await indexDocument(doc, targetVerseMap, translationPairsIndex);
     }, 3000);
 
@@ -269,9 +269,9 @@ export function searchTranslationPairs(
     query: string,
     includeIncomplete: boolean = false,
     k: number = 15,
-    options: { completeBoost?: number; targetContentBoost?: number } = {}
+    options: { completeBoost?: number; targetContentBoost?: number; } = {}
 ): TranslationPair[] {
-    const { completeBoost = 1, targetContentBoost = 1 } = options;
+    const { completeBoost = 1, targetContentBoost = 1, ...searchOptions } = options;
 
     const searchResults = translationPairsIndex.search(query, {
         fields: ["sourceContent", "targetContent"],
@@ -283,6 +283,7 @@ export function searchTranslationPairs(
             targetContent: 2 * targetContentBoost,
         },
         filter: includeIncomplete ? undefined : (doc: any) => !!doc.targetContent,
+        ...searchOptions
     });
 
     const results = searchResults.map((result: any) => ({
@@ -292,14 +293,14 @@ export function searchTranslationPairs(
             content: result.sourceContent,
             uri: result.uri,
             line: result.line,
-            notebookId: result.notebookId || "", // Use the actual notebookId if available
+            notebookId: result.notebookId || "",
         },
         targetCell: {
             cellId: result.cellId,
             content: result.targetContent,
             uri: result.uri,
             line: result.line,
-            notebookId: result.notebookId || "", // Use the actual notebookId if available
+            notebookId: result.notebookId || "",
         },
         score: result.score * (result.targetContent ? completeBoost : 1),
     }));

@@ -7,28 +7,50 @@ interface LoadingStagesProps {
 }
 
 export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
-    const [stagesContainerTransform, setStagesContainerTransform] = useState("translateY(0px)");
-    const MAX_VISIBLE_STAGES = 15;
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
+    const [dotCycle, setDotCycle] = useState(0); // 0: ".", 1: "..", 2: "..."
+    const [dotStages, setDotStages] = useState<Set<number>>(new Set());
+    
+    // Track stages that should show dots instead of timing
     useEffect(() => {
-        if (stages.length < 4) return;
+        const newDotStages = new Set<number>();
+        
+        stages.forEach((stage, index) => {
+            const isLatestStage = index === stages.length - 1;
+            const isCompleted = !isLatestStage;
+            
+            // Show dots for any stage that is:
+            // 1. The current/latest stage (actively running)
+            // 2. Any non-completed stage that has 0 duration (never got updated)
+            if (isLatestStage || (!isCompleted && stage.duration === 0)) {
+                newDotStages.add(index);
+            }
+        });
+        
+        setDotStages(newDotStages);
+    }, [stages]);
 
-        // Calculate scroll amount based on how many stages we have
-        // Adjust to show more recent items
-        const scrollAmount = -Math.min(stages.length - 3, stages.length) * 32; // Each stage is about 32px high
+    // Animate dots for active stages
+    useEffect(() => {
+        if (dotStages.size === 0) return;
+        
+        const interval = setInterval(() => {
+            setDotCycle(prev => (prev + 1) % 3);
+        }, 500); // Change dots every 500ms
+        
+        return () => clearInterval(interval);
+    }, [dotStages.size]);
 
-        if (prefersReducedMotion) {
-            setStagesContainerTransform(`translateY(${scrollAmount}px)`);
-        } else {
-            // Animate the scroll with v4 syntax
-            animate("#loading-stages", {
-                translateY: scrollAmount,
-                easing: "easeOutQuad",
-                duration: 600,
-            });
+    const getDotAnimation = (stageIndex: number) => {
+        if (!dotStages.has(stageIndex)) return "";
+        
+        switch (dotCycle) {
+            case 0: return ".";
+            case 1: return "..";
+            case 2: return "...";
+            default: return ".";
         }
-    }, [stages.length, prefersReducedMotion]);
+    };
 
     // Group stages by categories for visual organization
     const groupedStages = stages.reduce((acc, stage) => {
@@ -56,72 +78,66 @@ export const LoadingStages: React.FC<LoadingStagesProps> = ({ stages }) => {
 
     return (
         <div className="loading-area">
-            <div className="loading-stages-container">
-                <div
-                    id="loading-stages"
-                    className="loading-stages"
-                    tabIndex={0}
-                    role="log"
-                    aria-label="Loading stages"
-                    style={{ transform: stagesContainerTransform }}
-                >
-                    {stages.slice(0, MAX_VISIBLE_STAGES).map((stage, index) => {
-                        const isLatestStage = index === stages.length - 1;
-                        const isCompleted = !isLatestStage;
-                        const isSyncStep = stage.step.includes("Project Synchronization");
-                        const isIndexStep = stage.step.includes("Index");
+            <div className="loading-stages-list">
+                {stages.map((stage, index) => {
+                    const isLatestStage = index === stages.length - 1;
+                    const isCompleted = !isLatestStage;
+                    const isSyncStep = stage.step.includes("Project Synchronization");
+                    const isIndexStep = stage.step.includes("Index");
+                    const showDots = dotStages.has(index);
 
-                        // Add animation delay based on index for staggered entrance
-                        const animationDelay = prefersReducedMotion ? 0 : index * 70;
+                    // Add animation delay based on index for staggered entrance
+                    const animationDelay = prefersReducedMotion ? 0 : index * 70;
 
-                        // Determine stage icon and appearance
-                        let stageIcon = "⚙️";
-                        if (isSyncStep) stageIcon = "🔄";
-                        if (isIndexStep) stageIcon = "📑";
-                        if (stage.step.includes("Webview")) stageIcon = "🖥️";
-                        if (stage.step.includes("Complete")) stageIcon = "✅";
+                    // Determine stage icon and appearance
+                    let stageIcon = "⚙️";
+                    if (isSyncStep) stageIcon = "🔄";
+                    if (isIndexStep) stageIcon = "📑";
+                    if (stage.step.includes("Webview")) stageIcon = "🖥️";
+                    if (stage.step.includes("Complete")) stageIcon = "✅";
 
-                        return (
-                            <div
-                                key={`stage-${index}`}
-                                id={`stage-${index}`}
-                                className={`loading-stage visible ${
-                                    isLatestStage ? "active" : ""
-                                } ${isCompleted ? "completed" : ""} ${
-                                    isSyncStep ? "sync-step" : ""
-                                }`}
-                                style={{
-                                    animationDelay: `${animationDelay}ms`,
-                                    opacity: isCompleted ? 0.7 : 1,
-                                }}
-                            >
-                                <div className="loading-indicator" aria-hidden="true">
-                                    <svg viewBox="0 0 16 16">
-                                        <circle
-                                            className="loading-circle"
-                                            cx="8"
-                                            cy="8"
-                                            r="6"
-                                        ></circle>
-                                        <polyline
-                                            className="loading-check"
-                                            points="4,8 7,11 12,5"
-                                        ></polyline>
-                                    </svg>
-                                </div>
-                                <div className="loading-stage-content">
-                                    <span className={`stage-name ${isSyncStep ? "sync-text" : ""}`}>
-                                        {stage.step}
-                                    </span>
-                                    <span className="stage-time">
-                                        {stage.duration.toFixed(0)}ms
-                                    </span>
-                                </div>
+                    return (
+                        <div
+                            key={`stage-${stage.startTime}-${index}`}
+                            id={`stage-${index}`}
+                            className={`loading-stage visible ${
+                                isLatestStage ? "active" : ""
+                            } ${isCompleted ? "completed" : ""} ${
+                                isSyncStep ? "sync-step" : ""
+                            } ${showDots ? "active-with-dots" : ""}`}
+                            style={{
+                                animationDelay: `${animationDelay}ms`,
+                                opacity: isCompleted ? 0.7 : 1,
+                            }}
+                        >
+                            <div className="loading-indicator" aria-hidden="true">
+                                <svg viewBox="0 0 16 16">
+                                    <circle
+                                        className={`loading-circle ${isLatestStage && !isCompleted ? "spinning" : ""}`}
+                                        cx="8"
+                                        cy="8"
+                                        r="6"
+                                    ></circle>
+                                    <polyline
+                                        className="loading-check"
+                                        points="4,8 7,11 12,5"
+                                    ></polyline>
+                                </svg>
                             </div>
-                        );
-                    })}
-                </div>
-                <div className="loading-stages-fade"></div>
+                            <div className="loading-stage-content">
+                                <span className={`stage-name ${isSyncStep ? "sync-text" : ""}`}>
+                                    {stage.step}
+                                </span>
+                                <span className="stage-time">
+                                    {showDots ? 
+                                        getDotAnimation(index) : 
+                                        `${Math.max(0, Math.round(stage.duration))}ms`
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

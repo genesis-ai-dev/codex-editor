@@ -5,6 +5,7 @@ import {
     getWordCountStats,
     FileInfo,
 } from "../../activationHelpers/contextAware/contentIndexes/indexes/filesIndex";
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 export class FileStatsWebviewProvider {
     public static readonly viewType = "file-stats-webview";
@@ -332,13 +333,4 @@ export class FileStatsWebviewProvider {
             </body>
             </html>`;
     }
-}
-
-function getNonce() {
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
 }
