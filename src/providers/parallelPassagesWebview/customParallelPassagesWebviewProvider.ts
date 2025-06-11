@@ -221,6 +221,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     console.error("Error searching cells:", error);
                 }
                 break;
+            case "navigateToMainMenu":
+                await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                break;
 
             default:
                 console.log(`Unknown command: ${message.command}`);
