@@ -447,31 +447,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Performing initial webview update");
         updateWebview();
 
-        // After initial content is sent, scan for audio attachments
-        setTimeout(async () => {
-            try {
-                debug("Scanning for audio attachments after webview is ready");
-                const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+        // Wait for webview ready event before scanning for audio attachments
+        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+            if ('type' in e && e.type === 'webviewReady') {
+                try {
+                    debug("Webview ready, scanning for audio attachments");
+                    const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
 
-                if (Object.keys(audioAttachments).length > 0) {
-                    debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
-                    // Send only the cell IDs that have audio, not the file paths
-                    const audioCells: { [cellId: string]: boolean } = {};
-                    for (const cellId of Object.keys(audioAttachments)) {
-                        audioCells[cellId] = true;
+                    if (Object.keys(audioAttachments).length > 0) {
+                        debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
+                        // Send only the cell IDs that have audio, not the file paths
+                        const audioCells: { [cellId: string]: boolean } = {};
+                        for (const cellId of Object.keys(audioAttachments)) {
+                            audioCells[cellId] = true;
+                        }
+
+                        this.postMessageToWebview(webviewPanel, {
+                            type: "providerSendsAudioAttachments",
+                            attachments: audioCells as any, // Send boolean flags instead of paths
+                        });
+                    } else {
+                        debug("No audio attachments found");
                     }
-
-                    this.postMessageToWebview(webviewPanel, {
-                        type: "providerSendsAudioAttachments",
-                        attachments: audioCells as any, // Send boolean flags instead of paths
-                    });
-                } else {
-                    debug("No audio attachments found");
+                } catch (error) {
+                    console.error("Error scanning for audio attachments:", error);
                 }
-            } catch (error) {
-                console.error("Error scanning for audio attachments:", error);
             }
-        }, 1000); // Wait 1 second for webview to be fully ready
+        });
 
         // Watch for configuration changes
         const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {

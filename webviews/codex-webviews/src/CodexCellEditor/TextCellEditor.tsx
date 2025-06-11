@@ -23,6 +23,7 @@ import { generateChildCellId } from "../../../../src/providers/codexCellEditorPr
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
+import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -34,6 +35,8 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+
+const USE_AUDIO_TAB = true;
 
 // Icons from lucide-react (already installed with ShadCN)
 import {
@@ -196,7 +199,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-    const [_audioUrl, _setAudioUrl] = useState<string | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
@@ -214,72 +217,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
 
-    // Use the internal state with validation
-    const audioUrl = _audioUrl;
-    const setAudioUrl = _setAudioUrl;
-
-    // Safe setter for audio URL that prevents file paths
-    const safeSetAudioUrl = (url: string | null) => {
-        if (!url) {
-            setAudioUrl(null);
-            return;
-        }
-
-        // Only allow valid URL schemes
-        if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("http")) {
-            setAudioUrl(url);
-        } else {
-            console.error(`[Audio] Blocked invalid audio URL (likely a file path): ${url}`);
-            setRecordingStatus("Error: Invalid audio source");
-            // Don't set the URL, wait for proper base64 data
-        }
-    };
-
-    // Debug audio URL changes
+    // Effect to always derive audioUrl from audioBlob
     useEffect(() => {
-        if (audioUrl) {
-            console.log(`[Audio Debug] audioUrl changed for cell ${cellMarkers[0]}:`, audioUrl);
-            console.trace(); // This will show the call stack
+        if (audioBlob) {
+            const url = URL.createObjectURL(audioBlob);
+            setAudioUrl(url);
+            return () => {
+                URL.revokeObjectURL(url);
+            };
+        } else {
+            setAudioUrl(null);
         }
-    }, [audioUrl, cellMarkers]);
-
-    // Add keyboard navigation for tabs
-    const handleTabKeyDown = (
-        event: React.KeyboardEvent<HTMLButtonElement>,
-        tabName: "source" | "backtranslation" | "footnotes" | "audio"
-    ) => {
-        const tabs = ["source", "backtranslation", "footnotes", "audio"];
-        const currentIndex = tabs.indexOf(activeTab);
-
-        switch (event.key) {
-            case "ArrowLeft": {
-                event.preventDefault();
-                const prevIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
-                const prevTab = tabs[prevIndex];
-                // Only navigate to enabled tabs
-                if (prevTab === "source" && !sourceText) return;
-                setActiveTab(prevTab as "source" | "backtranslation" | "footnotes" | "audio");
-                break;
-            }
-            case "ArrowRight": {
-                event.preventDefault();
-                const nextIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
-                const nextTab = tabs[nextIndex];
-                // Only navigate to enabled tabs
-                if (nextTab === "source" && !sourceText) return;
-                setActiveTab(nextTab as "source" | "backtranslation" | "footnotes" | "audio");
-                break;
-            }
-            case "Home":
-                event.preventDefault();
-                setActiveTab("source");
-                break;
-            case "End":
-                event.preventDefault();
-                setActiveTab("footnotes");
-                break;
-        }
-    };
+    }, [audioBlob]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -757,7 +706,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
 
                 const url = URL.createObjectURL(blob);
-                safeSetAudioUrl(url);
+                setAudioUrl(url);
                 setRecordingStatus("Recording complete");
 
                 // Stop all tracks to release microphone
@@ -810,24 +759,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // Store the audio ID temporarily
             sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
 
-            // Clean up previous blob URL if it exists
-            if (audioUrl && audioUrl.startsWith("blob:")) {
-                URL.revokeObjectURL(audioUrl);
-            }
-
-            // Create a new blob URL for immediate playback
-            const blobUrl = URL.createObjectURL(blob);
-            safeSetAudioUrl(blobUrl);
+            // Set the audioBlob (audioUrl will be derived automatically)
             setAudioBlob(blob);
         };
         reader.readAsDataURL(blob);
     };
 
     const discardAudio = () => {
-        if (audioUrl) {
-            URL.revokeObjectURL(audioUrl);
-        }
-        safeSetAudioUrl(null);
+        // Clean up audioBlob and audioUrl
         setAudioBlob(null);
         setRecordingStatus("");
 
@@ -941,7 +880,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const handleInsertTranscription = () => {
         if (!savedTranscription) return;
 
-        // Get current content without HTML tags
+        // Get current content from the editor
         const currentContent = editorContent;
         const doc = new DOMParser().parseFromString(currentContent, "text/html");
         const currentText = doc.body.textContent || "";
@@ -953,6 +892,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         // Update the content as HTML
         const newContent = `<span>${newText}</span>`;
+
+        // Update the editor content directly using the editor's updateContent method
+        if (editorHandlesRef.current) {
+            editorHandlesRef.current.updateContent(newContent);
+        }
+
+        // Also update the local state
         handleContentUpdate(newContent);
 
         setTranscriptionStatus("Transcription inserted into cell");
@@ -973,8 +919,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 URL.revokeObjectURL(audioUrl);
             }
 
-            const url = URL.createObjectURL(file);
-            safeSetAudioUrl(url);
+            // Don't create blob URLs anymore - just use the Blob directly
             setRecordingStatus("Audio file loaded");
 
             // Save to cell
@@ -1000,15 +945,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const handleAudioResponse = async (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments list
+            // Handle audio attachments list (no longer set audioUrl from file path)
             if (message.type === "providerSendsAudioAttachments") {
-                const audioPath = message.attachments[cellMarkers[0]];
-                if (audioPath) {
-                    // We have an audio file path, but don't use it directly
-                    // Just update status - the actual data will come through providerSendsAudioData
-                    setRecordingStatus("Loading audio...");
-                    // Don't set audioUrl here! Wait for the base64 data
-                }
+                // No-op: we only care about actual audio data
             }
 
             // Handle specific audio data
@@ -1021,16 +960,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // Convert base64 to blob to avoid CSP issues
                         const base64Response = await fetch(message.content.audioData);
                         const blob = await base64Response.blob();
-
-                        // Clean up previous blob URL if it exists
-                        if (audioUrl && audioUrl.startsWith("blob:")) {
-                            URL.revokeObjectURL(audioUrl);
-                        }
-
-                        const blobUrl = URL.createObjectURL(blob);
-
-                        setAudioBlob(blob);
-                        safeSetAudioUrl(blobUrl);
+                        setAudioBlob(blob); // This will trigger the effect above to set audioUrl
                         setRecordingStatus("Audio loaded");
 
                         // Check for existing transcription in the audio attachment metadata
@@ -1052,38 +982,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     } catch (error) {
                         console.error("Error converting audio data to blob:", error);
                         setRecordingStatus("Error loading audio");
-                    }
-                } else if (message.content.audioUrl) {
-                    // Validate that this is a proper URL the webview can access
-                    const url = message.content.audioUrl;
-                    if (
-                        url.startsWith("blob:") ||
-                        url.startsWith("data:") ||
-                        url.startsWith("http")
-                    ) {
-                        safeSetAudioUrl(url);
-                        setRecordingStatus("Audio loaded");
-                    } else {
-                        // This is likely a file path, which won't work in the webview
-                        console.error("Received invalid audio URL (file path?):", url);
-                        setRecordingStatus("Error: Invalid audio URL");
-                    }
-
-                    // Check for existing transcription in the audio attachment metadata
-                    if (message.content.transcription) {
-                        setSavedTranscription({
-                            content: message.content.transcription.content,
-                            timestamp: message.content.transcription.timestamp,
-                            language: message.content.transcription.language,
-                        });
-                    }
-
-                    // Store the audio ID
-                    if (message.content.audioId) {
-                        sessionStorage.setItem(
-                            `audio-id-${cellMarkers[0]}`,
-                            message.content.audioId
-                        );
                     }
                 }
             }
@@ -1119,7 +1017,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         window.addEventListener("message", handleAudioResponse);
         return () => window.removeEventListener("message", handleAudioResponse);
-    }, [cellMarkers, audioUrl]);
+    }, [cellMarkers]);
 
     // Clean up media recorder and stream on unmount
     useEffect(() => {
@@ -1128,17 +1026,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach((track) => track.stop());
             }
-            // Clean up blob URL if it exists
-            if (audioUrl && audioUrl.startsWith("blob:")) {
-                URL.revokeObjectURL(audioUrl);
-            }
             // Clean up transcription client if active
             if (transcriptionClientRef.current) {
                 transcriptionClientRef.current.abort();
                 transcriptionClientRef.current = null;
             }
         };
-    }, [mediaRecorder, audioUrl]);
+    }, [mediaRecorder]);
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
@@ -1423,19 +1317,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </Badge>
                             )}
                         </TabsTrigger>
-                        <TabsTrigger value="audio">
-                            <Mic className="mr-2 h-4 w-4" />
-                            Audio
-                            {audioUrl &&
-                                (audioUrl.startsWith("blob:") ||
-                                    audioUrl.startsWith("data:") ||
-                                    audioUrl.startsWith("http")) && (
-                                    <span
-                                        className="ml-2 h-2 w-2 rounded-full bg-green-400"
-                                        title="Audio attached"
-                                    />
-                                )}
-                        </TabsTrigger>
+                        {USE_AUDIO_TAB && (
+                            <TabsTrigger value="audio">
+                                <Mic className="mr-2 h-4 w-4" />
+                                Audio
+                                {audioUrl &&
+                                    (audioUrl.startsWith("blob:") ||
+                                        audioUrl.startsWith("data:") ||
+                                        audioUrl.startsWith("http")) && (
+                                        <span
+                                            className="ml-2 h-2 w-2 rounded-full bg-green-400"
+                                            title="Audio attached"
+                                        />
+                                    )}
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     <TabsContent value="source">
@@ -1723,65 +1619,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {/* Audio player container matching reference design */}
-                                    <div className="audio-player-container">
-                                        <div className="audio-controls">
-                                            <Button variant="outline" size="icon" disabled>
-                                                <Play className="h-4 w-4" />
-                                            </Button>
-                                            <div className="flex-grow space-y-1">
-                                                <div className="audio-filename">
-                                                    sample_audio.mp3
-                                                </div>
-                                                <audio
-                                                    controls
-                                                    src={
-                                                        audioUrl &&
-                                                        (audioUrl.startsWith("blob:") ||
-                                                            audioUrl.startsWith("data:") ||
-                                                            audioUrl.startsWith("http"))
-                                                            ? audioUrl
-                                                            : undefined
-                                                    }
-                                                    className="w-full h-8"
-                                                    onError={(e) => {
-                                                        console.error(
-                                                            "Error playing audio for cell:",
-                                                            cellMarkers[0]
-                                                        );
-                                                        const audioElement =
-                                                            e.currentTarget as HTMLAudioElement;
-                                                        if (audioElement.error) {
-                                                            console.error(
-                                                                "Error handling audio playbook:",
-                                                                audioElement.error
-                                                            );
-                                                        }
-                                                        setRecordingStatus(
-                                                            "Error loading audio file"
-                                                        );
+                                    {/* New Waveform Component with integrated transcription */}
+                                    <AudioWaveformWithTranscription
+                                        audioUrl={audioUrl}
+                                        audioBlob={audioBlob}
+                                        transcription={savedTranscription}
+                                        isTranscribing={isTranscribing}
+                                        transcriptionProgress={transcriptionProgress}
+                                        onTranscribe={handleTranscribeAudio}
+                                        onInsertTranscription={handleInsertTranscription}
+                                        disabled={!audioBlob}
+                                    />
 
-                                                        // Request audio attachments again to reload with proper base64 data
-                                                        const messageContent: EditorPostMessages = {
-                                                            command: "requestAudioForCell",
-                                                            content: { cellId: cellMarkers[0] },
-                                                        };
-                                                        window.vscodeApi.postMessage(
-                                                            messageContent
-                                                        );
-                                                    }}
-                                                />
-                                                <div className="flex justify-between items-center">
-                                                    <span className="audio-time">0:14</span>
-                                                    <span className="audio-time">0:45</span>
-                                                </div>
-                                            </div>
-                                            <Button variant="ghost" size="icon">
-                                                <Volume2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </div>
-
+                                    {/* Action buttons */}
                                     <div className="flex flex-wrap gap-2">
                                         {confirmingDiscard ? (
                                             <>
@@ -1806,7 +1656,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             </>
                                         ) : (
-                                            <div className="grid grid-cols-3 gap-2 w-full">
+                                            <div className="grid grid-cols-2 gap-2 w-full">
                                                 <Button
                                                     onClick={() => setConfirmingDiscard(true)}
                                                     variant="outline"
@@ -1814,7 +1664,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     className="w-full"
                                                 >
                                                     <Trash2 className="h-4 w-4" />
-                                                    <span className="hidden sm:inline ml-2">
+                                                    <span className="inline ml-2">
                                                         Remove Audio
                                                     </span>
                                                 </Button>
@@ -1832,101 +1682,55 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     {isRecording ? (
                                                         <>
                                                             <Square className="h-4 w-4" />
-                                                            <span className="hidden sm:inline ml-2">
+                                                            <span className="inline ml-2">
                                                                 Stop
                                                             </span>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <Mic className="h-4 w-4" />
-                                                            <span className="hidden sm:inline ml-2">
+                                                            <span className="inline ml-2">
                                                                 Re-record / Load New
                                                             </span>
                                                         </>
                                                     )}
                                                 </Button>
-                                                <Button
-                                                    onClick={handleTranscribeAudio}
-                                                    variant="outline"
-                                                    disabled={isTranscribing || !audioBlob}
-                                                    className="w-full"
-                                                >
-                                                    {isTranscribing ? (
-                                                        <>
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                            <span className="hidden sm:inline ml-2">
-                                                                Transcribing...
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <MessageCircle className="h-4 w-4" />
-                                                            <span className="hidden sm:inline ml-2">
-                                                                Transcribe
-                                                            </span>
-                                                        </>
-                                                    )}
-                                                </Button>
                                             </div>
                                         )}
                                     </div>
 
-                                    {/* Transcription section */}
-                                    <div className="space-y-3">
-                                        <h4 className="font-medium">Transcription</h4>
+                                    {/* Native audio player for verification (temporary) */}
+                                    <details className="mt-4">
+                                        <summary className="text-sm text-muted-foreground cursor-pointer">
+                                            Debug: Native Audio Player
+                                        </summary>
+                                        <div className="mt-2 p-3 bg-muted rounded-lg">
+                                            <audio
+                                                controls
+                                                src={audioUrl || undefined}
+                                                className="w-full"
+                                                style={{ height: "40px" }}
+                                            />
+                                            <p className="text-xs text-muted-foreground mt-2 break-all">
+                                                Source:{" "}
+                                                {audioUrl
+                                                    ? `URL: ${audioUrl}`
+                                                    : audioBlob
+                                                    ? `Blob: ${audioBlob.type} (${audioBlob.size} bytes)`
+                                                    : "No audio"}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Debug URL: {audioUrl || "None"}
+                                            </p>
+                                        </div>
+                                    </details>
 
-                                        {/* Transcription progress */}
-                                        {(isTranscribing || transcriptionStatus) && (
-                                            <div className="space-y-2">
-                                                {isTranscribing && transcriptionProgress > 0 && (
-                                                    <Progress
-                                                        value={transcriptionProgress}
-                                                        className="mb-2"
-                                                    />
-                                                )}
-                                                {transcriptionStatus && (
-                                                    <p className="text-sm text-center text-muted-foreground">
-                                                        {transcriptionStatus}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {!isTranscribing && !transcriptionStatus && (
-                                            <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground">
-                                                {savedTranscription ? (
-                                                    <div className="space-y-2 text-left">
-                                                        <div className="text-sm font-medium">
-                                                            Transcription:
-                                                        </div>
-                                                        <div className="text-sm">
-                                                            {savedTranscription.content}
-                                                        </div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Language: {savedTranscription.language}{" "}
-                                                            •{" "}
-                                                            {new Date(
-                                                                savedTranscription.timestamp
-                                                            ).toLocaleString()}
-                                                        </div>
-                                                        <div className="mt-3">
-                                                            <Button
-                                                                onClick={handleInsertTranscription}
-                                                                variant="default"
-                                                                size="sm"
-                                                                className="w-full"
-                                                            >
-                                                                <Copy className="mr-2 h-4 w-4" />
-                                                                Insert Transcription into Cell
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    "Audio loaded (sample_audio.mp3). Click 'Transcribe' to generate text."
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
+                                    {/* Status messages */}
+                                    {transcriptionStatus && (
+                                        <p className="text-sm text-center text-muted-foreground">
+                                            {transcriptionStatus}
+                                        </p>
+                                    )}
 
                                     {recordingStatus && !isTranscribing && (
                                         <Badge
