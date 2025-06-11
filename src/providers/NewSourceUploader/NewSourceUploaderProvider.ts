@@ -16,7 +16,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         openContext: vscode.CustomDocumentOpenContext,
         token: vscode.CancellationToken
     ): Promise<vscode.CustomDocument> {
-        return { uri, dispose: () => {} };
+        return { uri, dispose: () => { } };
     }
 
     public async resolveCustomTextEditor(
@@ -121,10 +121,26 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
             const codexNotebook: NotebookPreview = {
                 name: fileName,
-                cells: sourceNotebook.cells.map((cell) => ({
-                    ...cell,
-                    value: "",
-                })),
+                cells: sourceNotebook.cells.map((cell) => {
+                    // Check if the cell contains images - if so, preserve them in the codex cell
+                    const hasImages = cell.value && /<img\s[^>]*>/i.test(cell.value);
+
+                    if (hasImages) {
+                        // Extract only the image tags from the HTML content
+                        const imageMatches = cell.value.match(/<img\s[^>]*>/gi);
+                        const imageContent = imageMatches ? imageMatches.join('\n') : '';
+                        return {
+                            ...cell,
+                            value: imageContent,
+                        };
+                    } else {
+                        // For non-image cells, set value to empty string as before
+                        return {
+                            ...cell,
+                            value: "",
+                        };
+                    }
+                }),
                 metadata: {
                     id: fileName,
                     textDirection: "ltr",

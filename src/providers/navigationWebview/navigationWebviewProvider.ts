@@ -184,6 +184,75 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                     this.loadBibleBookMap();
                     await this.buildInitialData();
                     break;
+                case "deleteFile":
+                    try {
+                        const confirmed = await vscode.window.showWarningMessage(
+                            `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
+                            { modal: true },
+                            "Delete"
+                        );
+
+                        if (confirmed === "Delete") {
+                            const deletedFiles: string[] = [];
+                            const errors: string[] = [];
+
+                            // Convert the path to a proper Uri for the codex file
+                            const normalizedPath = message.uri.replace(/\\/g, "/");
+                            const codexUri = vscode.Uri.file(normalizedPath);
+
+                            // Delete the codex file
+                            try {
+                                await vscode.workspace.fs.delete(codexUri);
+                                deletedFiles.push(`${message.label}.codex`);
+                            } catch (error) {
+                                console.error("Error deleting codex file:", error);
+                                errors.push(`Failed to delete codex file: ${error}`);
+                            }
+
+                            // For codex documents, also delete the corresponding source file
+                            if (message.type === "codexDocument") {
+                                try {
+                                    const workspaceFolderUri = vscode.workspace.workspaceFolders?.[0].uri;
+                                    if (workspaceFolderUri) {
+                                        const baseFileName = path.basename(normalizedPath);
+                                        const sourceFileName = baseFileName.replace(".codex", ".source");
+                                        const sourceUri = vscode.Uri.joinPath(
+                                            workspaceFolderUri,
+                                            ".project",
+                                            "sourceTexts",
+                                            sourceFileName
+                                        );
+
+                                        await vscode.workspace.fs.delete(sourceUri);
+                                        deletedFiles.push(`${message.label}.source`);
+                                    }
+                                } catch (error) {
+                                    console.error("Error deleting source file:", error);
+                                    errors.push(`Failed to delete source file: ${error}`);
+                                }
+                            }
+
+                            // Show appropriate message based on results
+                            if (deletedFiles.length > 0 && errors.length === 0) {
+                                vscode.window.showInformationMessage(
+                                    `Successfully deleted: ${deletedFiles.join(", ")}`
+                                );
+                            } else if (deletedFiles.length > 0 && errors.length > 0) {
+                                vscode.window.showWarningMessage(
+                                    `Partially deleted: ${deletedFiles.join(", ")}. Errors: ${errors.join("; ")}`
+                                );
+                            } else {
+                                vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${errors.join("; ")}`);
+                            }
+
+                            // Refresh the data to update the view
+                            await this.buildInitialData();
+                        }
+                    } catch (error) {
+                        console.error("Error deleting file:", error);
+                        vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${error}`);
+                    }
+                    break;
                 case "getBookNames": {
                     this.loadBibleBookMap();
                     if (this._view) {

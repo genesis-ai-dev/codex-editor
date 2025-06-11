@@ -201,7 +201,7 @@ const reconstructHtmlFromParsed = (parsedData: any): string => {
                 for (const item of content) {
                     if (typeof item === "object" && item !== null) {
                         const attributes: string[] = [];
-                        let children: any[] = [];
+                        const children: any[] = [];
                         let imgSrc: string | null = null;
                         for (const [key, value] of Object.entries(item)) {
                             if (key.startsWith("@_")) {
@@ -638,7 +638,7 @@ const NewSourceUploader: React.FC = () => {
                                     if (typeof subItem === "object" && subItem !== null) {
                                         // Check if this item has attributes
                                         const attributes: string[] = [];
-                                        let children: any[] = [];
+                                        const children: any[] = [];
                                         let imgSrc: string | null = null;
                                         for (const [key, value] of Object.entries(subItem)) {
                                             if (key.startsWith("@_")) {
@@ -874,11 +874,11 @@ const NewSourceUploader: React.FC = () => {
     const getStatusBadgeVariant = (status: UploadProgress["status"]) => {
         switch (status) {
             case "success":
-                return "success" as const;
+                return "default" as const;
             case "error":
                 return "destructive" as const;
             case "processing":
-                return "processing" as const;
+                return "secondary" as const;
             default:
                 return "secondary" as const;
         }
