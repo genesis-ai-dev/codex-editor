@@ -233,13 +233,7 @@ export const SplashScreen: React.FC = () => {
                     >
                         <LoadingStages stages={timings} /> {/* Show ALL stages */}
                     </div>
-                    <div className="loading-stages-scroll-indicator">
-                        {timings.length > 8 && (
-                            <div className="scroll-progress">
-                                Showing {Math.min(8, timings.length)} of {timings.length} stages
-                            </div>
-                        )}
-                    </div>
+
                 </div>
             </div>
 
