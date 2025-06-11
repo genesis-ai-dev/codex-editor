@@ -130,7 +130,7 @@ export interface SavedSuggestions {
     lastCellValue: string;
     suggestions: SmartSuggestion[];
     lastUpdatedDate: string;
-    rejectedSuggestions?: { oldString: string; newString: string }[];
+    rejectedSuggestions?: { oldString: string; newString: string; }[];
 }
 
 interface SmartEdit {
@@ -158,16 +158,16 @@ type VerseRefGlobalState = {
     uri: string;
 };
 type CommentPostMessages =
-    | { command: "commentsFromWorkspace"; content: string }
-    | { command: "reload"; data?: { cellId: string; uri?: string } }
-    | { command: "updateCommentThread"; commentThread: NotebookCommentThread }
-    | { command: "deleteCommentThread"; commentThreadId: string }
-    | { command: "deleteComment"; args: { commentId: number; commentThreadId: string } }
-    | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string } }
-    | { command: "getCurrentCellId" }
-    | { command: "fetchComments" }
-    | { command: "updateUserInfo"; userInfo?: { username: string; email: string } }
-    | { command: "navigateToMainMenu" };
+    | { command: "commentsFromWorkspace"; content: string; }
+    | { command: "reload"; data?: { cellId: string; uri?: string; }; }
+    | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
+    | { command: "deleteCommentThread"; commentThreadId: string; }
+    | { command: "deleteComment"; args: { commentId: number; commentThreadId: string; }; }
+    | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string; }; }
+    | { command: "getCurrentCellId"; }
+    | { command: "fetchComments"; }
+    | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
+    | { command: "navigateToMainMenu"; };
 
 interface SelectedTextDataWithContext {
     selection: string;
@@ -186,50 +186,50 @@ interface TimeBlock {
 }
 
 type ChatPostMessages =
-    | { command: "threadsFromWorkspace"; content: ChatMessageThread[] }
-    | { command: "response"; finished: boolean; text: string }
-    | { command: "reload" }
-    | { command: "select"; textDataWithContext: SelectedTextDataWithContext }
-    | { command: "fetch"; messages: string }
-    | { command: "notifyUserError"; message: string }
+    | { command: "threadsFromWorkspace"; content: ChatMessageThread[]; }
+    | { command: "response"; finished: boolean; text: string; }
+    | { command: "reload"; }
+    | { command: "select"; textDataWithContext: SelectedTextDataWithContext; }
+    | { command: "fetch"; messages: string; }
+    | { command: "notifyUserError"; message: string; }
     | {
         command: "updateMessageThread";
         messages: ChatMessageWithContext[];
         threadId: string;
         threadTitle?: string;
     }
-    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string }
-    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string }
+    | { command: "requestGradeResponse"; messages: string; lastMessageCreatedAt: string; }
+    | { command: "respondWithGrade"; content: string; lastMessageCreatedAt: string; }
     | {
         command: "performReflection";
         messageToReflect: string;
         context: string;
         lastMessageCreatedAt: string;
     }
-    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string }
-    | { command: "deleteThread"; threadId: string }
-    | { command: "fetchThread" }
-    | { command: "abort-fetch" }
-    | { command: "openSettings" }
-    | { command: "subscribeSettings"; settingsToSubscribe: string[] }
-    | { command: "updateSetting"; setting: string; value: string }
-    | { command: "openContextItem"; text: string }
-    | { command: "cellGraphData"; data: string[] }
+    | { command: "reflectionResponse"; reflectedMessage: string; lastMessageCreatedAt: string; }
+    | { command: "deleteThread"; threadId: string; }
+    | { command: "fetchThread"; }
+    | { command: "abort-fetch"; }
+    | { command: "openSettings"; }
+    | { command: "subscribeSettings"; settingsToSubscribe: string[]; }
+    | { command: "updateSetting"; setting: string; value: string; }
+    | { command: "openContextItem"; text: string; }
+    | { command: "cellGraphData"; data: string[]; }
     | {
         command: "cellIdUpdate";
-        data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string } };
+        data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string; }; };
     }
-    | { command: "getCurrentCellId" }
+    | { command: "getCurrentCellId"; }
     | {
         command: "updateSourceCellMap";
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } };
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
     }
-    | { command: "navigateToMainMenu" };
+    | { command: "navigateToMainMenu"; };
 
 export type SourceUploadPostMessages =
     | {
         command: "uploadSourceText";
-        files: Array<{ content: string; name: string }>;
+        files: Array<{ content: string; name: string; }>;
     }
     | {
         command: "uploadTranslation";
@@ -239,24 +239,24 @@ export type SourceUploadPostMessages =
             sourceId: string;
         }>;
     }
-    | { command: "error"; errorMessage: string }
-    | { command: "getAvailableCodexFiles" }
-    | { command: "selectSourceFile" }
-    | { command: "confirmSourceImport" }
-    | { command: "confirmTranslationImport" }
-    | { command: "confirmTranslationPairsImport"; headers: string[]; data: TranslationPairsPreview }
-    | { command: "cancelSourceImport" }
-    | { command: "cancelTranslationImport" }
-    | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean }
-    | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction }
-    | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction }
-    | { command: "getMetadata" }
-    | { command: "importRemoteTranslation" }
-    | { command: "importLocalTranslation" }
-    | { command: "closePanel" }
-    | { command: "previewSourceText"; fileContent: string; fileName: string }
-    | { command: "extension.check"; extensionId: string }
-    | { command: "navigateToMainMenu" };
+    | { command: "error"; errorMessage: string; }
+    | { command: "getAvailableCodexFiles"; }
+    | { command: "selectSourceFile"; }
+    | { command: "confirmSourceImport"; }
+    | { command: "confirmTranslationImport"; }
+    | { command: "confirmTranslationPairsImport"; headers: string[]; data: TranslationPairsPreview; }
+    | { command: "cancelSourceImport"; }
+    | { command: "cancelTranslationImport"; }
+    | { command: "downloadBible"; ebibleMetadata: ExtendedMetadata; asTranslationOnly: boolean; }
+    | { command: "confirmBibleDownload"; transaction: DownloadBibleTransaction; }
+    | { command: "cancelBibleDownload"; transaction: DownloadBibleTransaction; }
+    | { command: "getMetadata"; }
+    | { command: "importRemoteTranslation"; }
+    | { command: "importLocalTranslation"; }
+    | { command: "closePanel"; }
+    | { command: "previewSourceText"; fileContent: string; fileName: string; }
+    | { command: "extension.check"; extensionId: string; }
+    | { command: "navigateToMainMenu"; };
 
 export type SourceUploadResponseMessages =
     | {
@@ -278,18 +278,18 @@ export type SourceUploadResponseMessages =
             preview: SourcePreview;
         }>;
     }
-    | { command: "getMetadata"; metadata: any[] }
-    | { command: "error"; message: string }
-    | { command: "importComplete" }
-    | { command: "setupComplete"; data: { path: string } }
-    | { command: "sourceFileSelected"; data: { path: string } }
+    | { command: "getMetadata"; metadata: any[]; }
+    | { command: "error"; message: string; }
+    | { command: "importComplete"; }
+    | { command: "setupComplete"; data: { path: string; }; }
+    | { command: "sourceFileSelected"; data: { path: string; }; }
     | {
         command: "updateProcessingStatus";
         status: Record<string, ProcessingStatus>;
-        progress?: { message: string; increment: number };
+        progress?: { message: string; increment: number; };
     }
-    | { command: "importCancelled" }
-    | { command: "availableCodexFiles"; files: Array<{ id: string; name: string; path: string }> }
+    | { command: "importCancelled"; }
+    | { command: "availableCodexFiles"; files: Array<{ id: string; name: string; path: string; }>; }
     | {
         command: "bibleDownloadProgress";
         progress: {
@@ -298,18 +298,18 @@ export type SourceUploadResponseMessages =
             status: Record<string, ProcessingStatus>;
         };
     }
-    | { command: "bibleDownloadComplete" }
-    | { command: "bibleDownloadError"; error: string }
+    | { command: "bibleDownloadComplete"; }
+    | { command: "bibleDownloadError"; error: string; }
     | {
         command: "biblePreview";
         preview: BiblePreview;
         transaction: DownloadBibleTransaction;
     }
-    | { command: "fileHeaders"; headers: string[] }
-    | { command: "preview"; preview: PreviewContent }
-    | { command: "bibleDownloadCancelled" }
-    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
-    | { command: "project.response"; success: boolean; projectPath?: string; error?: string }
+    | { command: "fileHeaders"; headers: string[]; }
+    | { command: "preview"; preview: PreviewContent; }
+    | { command: "bibleDownloadCancelled"; }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string; }
+    | { command: "project.response"; success: boolean; projectPath?: string; error?: string; }
     | {
         command: "updateAuthState";
         success: boolean;
@@ -327,37 +327,37 @@ export type SourceUploadResponseMessages =
     };
 
 export type MessagesToStartupFlowProvider =
-    | { command: "error"; errorMessage: string }
-    | { command: "extension.check"; extensionId: string }
-    | { command: "auth.login"; username: string; password: string }
-    | { command: "auth.signup"; username: string; email: string; password: string }
-    | { command: "auth.logout" }
-    | { command: "auth.status" }
-    | { command: "auth.checkAuthStatus" }
-    | { command: "project.clone"; repoUrl: string }
-    | { command: "project.new" }
-    | { command: "workspace.status" }
-    | { command: "workspace.open" }
-    | { command: "workspace.create" }
-    | { command: "workspace.continue" }
-    | { command: "getProjectsListFromGitLab" }
-    | { command: "getProjectsSyncStatus" }
-    | { command: "project.open"; projectPath: string }
-    | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus }
-    | { command: "project.createEmpty" }
-    | { command: "project.initialize"; waitForStateUpdate?: boolean }
-    | { command: "metadata.check" }
-    | { command: "project.showManager" }
-    | { command: "project.triggerSync"; message?: string }
-    | { command: "project.submitProgressReport"; forceSubmit?: boolean }
-    | { command: "getProjectProgress" }
-    | { command: "getAggregatedProgress" }
-    | { command: "showProgressDashboard" }
-    | { command: "startup.dismiss" }
-    | { command: "webview.ready" }
-    | { command: "navigateToMainMenu" }
-    | { command: "zipProject"; projectName: string; projectPath: string }
-    | { command: "project.delete"; projectName: string; projectPath: string };
+    | { command: "error"; errorMessage: string; }
+    | { command: "extension.check"; extensionId: string; }
+    | { command: "auth.login"; username: string; password: string; }
+    | { command: "auth.signup"; username: string; email: string; password: string; }
+    | { command: "auth.logout"; }
+    | { command: "auth.status"; }
+    | { command: "auth.checkAuthStatus"; }
+    | { command: "project.clone"; repoUrl: string; }
+    | { command: "project.new"; }
+    | { command: "workspace.status"; }
+    | { command: "workspace.open"; }
+    | { command: "workspace.create"; }
+    | { command: "workspace.continue"; }
+    | { command: "getProjectsListFromGitLab"; }
+    | { command: "getProjectsSyncStatus"; }
+    | { command: "project.open"; projectPath: string; }
+    | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
+    | { command: "project.createEmpty"; }
+    | { command: "project.initialize"; waitForStateUpdate?: boolean; }
+    | { command: "metadata.check"; }
+    | { command: "project.showManager"; }
+    | { command: "project.triggerSync"; message?: string; }
+    | { command: "project.submitProgressReport"; forceSubmit?: boolean; }
+    | { command: "getProjectProgress"; }
+    | { command: "getAggregatedProgress"; }
+    | { command: "showProgressDashboard"; }
+    | { command: "startup.dismiss"; }
+    | { command: "webview.ready"; }
+    | { command: "navigateToMainMenu"; }
+    | { command: "zipProject"; projectName: string; projectPath: string; }
+    | { command: "project.delete"; projectName: string; projectPath: string; };
 
 export type GitLabProject = {
     id: number;
@@ -383,7 +383,7 @@ export type ProjectWithSyncStatus = LocalProject & {
 };
 
 export type MessagesFromStartupFlowProvider =
-    | { command: "projectsSyncStatus"; status: Record<string, "synced" | "cloud" | "error"> }
+    | { command: "projectsSyncStatus"; status: Record<string, "synced" | "cloud" | "error">; }
     | {
         command: "projectsListFromGitLab";
         projects: Array<ProjectWithSyncStatus>;
@@ -392,10 +392,10 @@ export type MessagesFromStartupFlowProvider =
         command: "checkWorkspaceState";
         isWorkspaceOpen: boolean;
     }
-    | { command: "error"; message: string }
-    | { command: "extension.checkResponse"; isInstalled: boolean }
-    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string }
-    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string }
+    | { command: "error"; message: string; }
+    | { command: "extension.checkResponse"; isInstalled: boolean; }
+    | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string; }
+    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; }
     | {
         command: "updateAuthState";
         success: boolean;
@@ -427,11 +427,11 @@ export type MessagesFromStartupFlowProvider =
             hasCriticalData: boolean;
         };
     }
-    | { command: "setupIncompleteCriticalDataMissing" }
-    | { command: "setupComplete" }
-    | { command: "project.progressReportSubmitted"; success: boolean; error?: string }
-    | { command: "progressData"; data: any }
-    | { command: "aggregatedProgressData"; data: any };
+    | { command: "setupIncompleteCriticalDataMissing"; }
+    | { command: "setupComplete"; }
+    | { command: "project.progressReportSubmitted"; success: boolean; error?: string; }
+    | { command: "progressData"; data: any; }
+    | { command: "aggregatedProgressData"; data: any; };
 
 type DictionaryPostMessages =
     | {
@@ -459,18 +459,18 @@ type DictionaryPostMessages =
             id: string;
         };
     }
-    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary }
-    | { command: "updateEntryCount"; count: number }
-    | { command: "updateFrequentWords"; words: string[] }
+    | { command: "webviewAsksProviderToConfirmRemove"; count: number; data: Dictionary; }
+    | { command: "updateEntryCount"; count: number; }
+    | { command: "updateFrequentWords"; words: string[]; }
     | {
         command: "updateWordFrequencies";
-        wordFrequencies: { [key: string]: number };
+        wordFrequencies: { [key: string]: number; };
     }
-    | { command: "updateDictionary"; content: Dictionary }
-    | { command: "callCommand"; vscodeCommandName: string; args: any[] };
+    | { command: "updateDictionary"; content: Dictionary; }
+    | { command: "callCommand"; vscodeCommandName: string; args: any[]; };
 
 type DictionaryReceiveMessages =
-    | { command: "providerTellsWebviewRemoveConfirmed" }
+    | { command: "providerTellsWebviewRemoveConfirmed"; }
     | {
         command: "providerTellsWebviewToUpdateData";
         data: {
@@ -482,25 +482,25 @@ type DictionaryReceiveMessages =
     };
 
 type DictionarySummaryPostMessages =
-    | { command: "providerSendsDataToWebview"; data: Dictionary }
+    | { command: "providerSendsDataToWebview"; data: Dictionary; }
     | {
         command: "providerSendsUpdatedWordFrequenciesToWebview";
-        wordFrequencies: { [key: string]: number };
+        wordFrequencies: { [key: string]: number; };
     }
-    | { command: "providerSendsFrequentWordsToWebview"; words: string[] }
-    | { command: "updateData" }
-    | { command: "showDictionaryTable" }
-    | { command: "refreshWordFrequency" }
-    | { command: "addFrequentWordsToDictionary"; words: string[] }
-    | { command: "updateEntryCount"; count: number };
+    | { command: "providerSendsFrequentWordsToWebview"; words: string[]; }
+    | { command: "updateData"; }
+    | { command: "showDictionaryTable"; }
+    | { command: "refreshWordFrequency"; }
+    | { command: "addFrequentWordsToDictionary"; words: string[]; }
+    | { command: "updateEntryCount"; count: number; };
 
 type TranslationNotePostMessages =
-    | { command: "update"; data: ScriptureTSV }
-    | { command: "changeRef"; data: VerseRefGlobalState };
+    | { command: "update"; data: ScriptureTSV; }
+    | { command: "changeRef"; data: VerseRefGlobalState; };
 
 type ScripturePostMessages =
-    | { command: "sendScriptureData"; data: ScriptureContent }
-    | { command: "fetchScriptureData" };
+    | { command: "sendScriptureData"; data: ScriptureContent; }
+    | { command: "fetchScriptureData"; };
 
 type DictionaryEntry = {
     id: string;
@@ -533,7 +533,7 @@ type MiniSearchVerseResult = {
     id: string;
     isSourceBible: boolean;
     line: number;
-    match: { [key: string]: string[] };
+    match: { [key: string]: string[]; };
     queryTerms: string[];
     score: number;
     terms: string[];
@@ -579,43 +579,43 @@ interface EditHistoryEntry {
 }
 
 export type EditorPostMessages =
-    | { command: "updateCachedChapter"; content: number }
-    | { command: "webviewReady" }
-    | { command: "getContent" }
-    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string } }
-    | { command: "webviewFocused"; content: { uri: string } }
-    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
-    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata }
-    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell" }
-    | { command: "pickVideoFile" }
-    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string } }
-    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent }
-    | { command: "getSourceText"; content: { cellId: string } }
-    | { command: "searchSimilarCellIds"; content: { cellId: string } }
-    | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps } }
-    | { command: "deleteCell"; content: { cellId: string } }
-    | { command: "addWord"; words: string[] }
-    | { command: "getAlertCodes"; content: GetAlertCodes }
-    | { command: "executeCommand"; content: { command: string; args: any[] } }
-    | { command: "togglePrimarySidebar" }
-    | { command: "toggleSecondarySidebar" }
-    | { command: "focusMainMenu" }
-    | { command: "toggleSidebar"; content?: { isOpening: boolean } }
-    | { command: "getEditorPosition" }
-    | { command: "validateCell"; content: { cellId: string; validate: boolean } }
+    | { command: "updateCachedChapter"; content: number; }
+    | { command: "webviewReady"; }
+    | { command: "getContent"; }
+    | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
+    | { command: "webviewFocused"; content: { uri: string; }; }
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
+    | { command: "updateNotebookMetadata"; content: CustomNotebookMetadata; }
+    | { command: "updateCellDisplayMode"; mode: "inline" | "one-line-per-cell"; }
+    | { command: "pickVideoFile"; }
+    | { command: "togglePinPrompt"; content: { cellId: string; promptText: string; }; }
+    | { command: "from-quill-spellcheck-getSpellCheckResponse"; content: EditorCellContent; }
+    | { command: "getSourceText"; content: { cellId: string; }; }
+    | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
+    | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
+    | { command: "deleteCell"; content: { cellId: string; }; }
+    | { command: "addWord"; words: string[]; }
+    | { command: "getAlertCodes"; content: GetAlertCodes; }
+    | { command: "executeCommand"; content: { command: string; args: any[]; }; }
+    | { command: "togglePrimarySidebar"; }
+    | { command: "toggleSecondarySidebar"; }
+    | { command: "focusMainMenu"; }
+    | { command: "toggleSidebar"; content?: { isOpening: boolean; }; }
+    | { command: "getEditorPosition"; }
+    | { command: "validateCell"; content: { cellId: string; validate: boolean; }; }
     | {
         command: "queueValidation";
-        content: { cellId: string; validate: boolean; pending: boolean };
+        content: { cellId: string; validate: boolean; pending: boolean; };
     }
-    | { command: "applyPendingValidations" }
-    | { command: "clearPendingValidations" }
-    | { command: "getCurrentUsername" }
-    | { command: "getValidationCount" }
-    | { command: "requestUsername" }
-    | { command: "stopAutocompleteChapter" }
-    | { command: "stopSingleCellTranslation" }
-    | { command: "triggerReindexing" }
-    | { command: "jumpToChapter"; chapterNumber: number }
+    | { command: "applyPendingValidations"; }
+    | { command: "clearPendingValidations"; }
+    | { command: "getCurrentUsername"; }
+    | { command: "getValidationCount"; }
+    | { command: "requestUsername"; }
+    | { command: "stopAutocompleteChapter"; }
+    | { command: "stopSingleCellTranslation"; }
+    | { command: "triggerReindexing"; }
+    | { command: "jumpToChapter"; chapterNumber: number; }
     | {
         command: "makeChildOfCell";
         content: {
@@ -626,22 +626,22 @@ export type EditorPostMessages =
             data: CustomNotebookCellData["metadata"]["data"];
         };
     }
-    | { command: "saveHtml"; content: EditorCellContent }
-    | { command: "saveTimeBlocks"; content: TimeBlock[] }
-    | { command: "replaceDuplicateCells"; content: QuillCellContent }
-    | { command: "getContent" }
+    | { command: "saveHtml"; content: EditorCellContent; }
+    | { command: "saveTimeBlocks"; content: TimeBlock[]; }
+    | { command: "replaceDuplicateCells"; content: QuillCellContent; }
+    | { command: "getContent"; }
     | {
         command: "setCurrentIdToGlobalState";
-        content: { currentLineId: string };
+        content: { currentLineId: string; };
     }
-    | { command: "llmCompletion"; content: { currentLineId: string; addContentToValue?: boolean } }
-    | { command: "requestAutocompleteChapter"; content: QuillCellContent[] }
-    | { command: "updateTextDirection"; direction: "ltr" | "rtl" }
-    | { command: "openSourceText"; content: { chapterNumber: number } }
-    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string } }
-    | { command: "pickVideoFile" }
-    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string } }
-    | { command: "getTopPrompts"; content: { text: string; cellId: string } }
+    | { command: "llmCompletion"; content: { currentLineId: string; addContentToValue?: boolean; }; }
+    | { command: "requestAutocompleteChapter"; content: QuillCellContent[]; }
+    | { command: "updateTextDirection"; direction: "ltr" | "rtl"; }
+    | { command: "openSourceText"; content: { chapterNumber: number; }; }
+    | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
+    | { command: "pickVideoFile"; }
+    | { command: "applyPromptedEdit"; content: { text: string; prompt: string; cellId: string; }; }
+    | { command: "getTopPrompts"; content: { text: string; cellId: string; }; }
     | {
         command: "supplyRecentEditHistory";
         content: {
@@ -651,9 +651,9 @@ export type EditorPostMessages =
     }
     | {
         command: "exportFile";
-        content: { subtitleData: string; format: string; includeStyles: boolean };
+        content: { subtitleData: string; format: string; includeStyles: boolean; };
     }
-    | { command: "generateBacktranslation"; content: { text: string; cellId: string } }
+    | { command: "generateBacktranslation"; content: { text: string; cellId: string; }; }
     | {
         command: "editBacktranslation";
         content: {
@@ -662,7 +662,7 @@ export type EditorPostMessages =
             existingBacktranslation: string;
         };
     }
-    | { command: "getBacktranslation"; content: { cellId: string } }
+    | { command: "getBacktranslation"; content: { cellId: string; }; }
     | {
         command: "setBacktranslation";
         content: {
@@ -692,11 +692,11 @@ export type EditorPostMessages =
             deleteFootnote?: string;
         };
     }
-    | { command: "openBookNameEditor" }
-    | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string } }
-    | { command: "triggerSync" }
-    | { command: "requestAudioAttachments" }
-    | { command: "requestAudioForCell"; content: { cellId: string } }
+    | { command: "openBookNameEditor"; }
+    | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
+    | { command: "triggerSync"; }
+    | { command: "requestAudioAttachments"; }
+    | { command: "requestAudioForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
         content: {
@@ -727,7 +727,7 @@ type EditorReceiveMessages =
         type: "providerSendsInitialContent";
         content: QuillCellContent[];
         isSourceText: boolean;
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } };
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
     }
     | {
         type: "providerAutocompletionState";
@@ -793,20 +793,20 @@ type EditorReceiveMessages =
         type: "autocompleteChapterComplete";
         totalCells?: number;
     }
-    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse }
+    | { type: "providerSendsSpellCheckResponse"; content: SpellCheckResponse; }
     | {
         type: "providerSendsgetAlertCodeResponse";
-        content: { [cellId: string]: number };
+        content: { [cellId: string]: number; };
     }
-    | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl" }
-    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string } }
-    | { type: "jumpToSection"; content: string }
-    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata }
-    | { type: "updateVideoUrlInWebview"; content: string }
-    | { type: "providerSendsPromptedEditResponse"; content: string }
-    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number }[] }
-    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean }> }
-    | { type: "providerSendsSourceText"; content: string }
+    | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; }; }
+    | { type: "jumpToSection"; content: string; }
+    | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
+    | { type: "updateVideoUrlInWebview"; content: string; }
+    | { type: "providerSendsPromptedEditResponse"; content: string; }
+    | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
+    | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }
+    | { type: "providerSendsSourceText"; content: string; }
     | {
         type: "providerSendsBacktranslation";
         content: SavedBacktranslation | null;
@@ -841,9 +841,9 @@ type EditorReceiveMessages =
         type: "providerConfirmsBacktranslationSet";
         content: SavedBacktranslation | null;
     }
-    | { type: "currentUsername"; content: { username: string } }
-    | { type: "validationCount"; content: number }
-    | { type: "configurationChanged" }
+    | { type: "currentUsername"; content: { username: string; }; }
+    | { type: "validationCount"; content: number; }
+    | { type: "configurationChanged"; }
     | {
         type: "validationInProgress";
         content: {
@@ -865,7 +865,7 @@ type EditorReceiveMessages =
             hasPending: boolean;
         };
     }
-    | { type: "setChapterNumber"; content: number }
+    | { type: "setChapterNumber"; content: number; }
     | {
         type: "providerUpdatesValidationState";
         content: {
@@ -893,11 +893,11 @@ type EditorReceiveMessages =
     }
     | {
         type: "setBibleBookMap";
-        data: [string, { [key: string]: any; name: string }][];
+        data: [string, { [key: string]: any; name: string; }][];
     }
     | {
         type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: boolean }; // true if cell has audio
+        attachments: { [cellId: string]: boolean; }; // true if cell has audio
     }
     | {
         type: "providerSendsAudioData";
@@ -935,10 +935,10 @@ type EditorReceiveMessages =
 type AlertCodesServerResponse = {
     code: number;
     cellId: string;
-    savedSuggestions: { suggestions: string[] };
+    savedSuggestions: { suggestions: string[]; };
 }[];
 
-type GetAlertCodes = { text: string; cellId: string }[];
+type GetAlertCodes = { text: string; cellId: string; }[];
 
 /**
  * Represents a validation entry by a user
@@ -1019,7 +1019,7 @@ interface QuillCellContent {
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
-    data?: { [key: string]: any; footnotes?: Footnote[] };
+    data?: { [key: string]: any; footnotes?: Footnote[]; };
 }
 
 interface Timestamps {
@@ -1030,7 +1030,7 @@ interface Timestamps {
 interface SpellCheckResponse {
     id: string;
     text: string;
-    replacements: Array<{ value: string }>;
+    replacements: Array<{ value: string; }>;
     offset: number;
     length: number;
 }
@@ -1054,7 +1054,7 @@ interface ProjectOverview extends Project {
     primarySourceText?: vscode.Uri;
     isAuthenticated: boolean;
     meta: Omit<Project["meta"], "generator"> & {
-        generator: Project["meta"]["generator"] & { userEmail?: string };
+        generator: Project["meta"]["generator"] & { userEmail?: string; };
         validationCount?: number;
     };
     spellcheckIsEnabled: boolean;
@@ -1261,49 +1261,49 @@ interface ImportedContent {
 
 // Add or verify these message types
 type ProjectManagerMessageFromWebview =
-    | { command: "sendProjectsList"; data: Project[] }
-    | { command: "requestProjectOverview" }
-    | { command: "error"; message: string }
-    | { command: "webviewReady" }
-    | { command: "refreshState" }
-    | { command: "initializeProject" }
-    | { command: "renameProject" }
-    | { command: "changeSourceLanguage"; language: LanguageMetadata }
-    | { command: "changeTargetLanguage"; language: LanguageMetadata }
-    | { command: "editAbbreviation" }
-    | { command: "selectCategory" }
-    | { command: "setValidationCount" }
-    | { command: "openSourceUpload" }
-    | { command: "openAISettings" }
-    | { command: "openLicenseSettings" }
-    | { command: "openExportView" }
-    | { command: "closeProject" }
-    | { command: "createNewWorkspaceAndProject" }
-    | { command: "openProject"; data: { path: string } }
-    | { command: "addWatchFolder" }
-    | { command: "removeWatchFolder"; data: { path: string } }
-    | { command: "refreshProjects" }
-    | { command: "openProjectSettings" }
-    | { command: "downloadSourceText" }
-    | { command: "selectprimarySourceText"; data: string }
-    | { command: "openBible"; data: { path: string } }
-    | { command: "checkPublishStatus" }
-    | { command: "publishProject" }
-    | { command: "syncProject" }
-    | { command: "openEditAnalysis" }
-    | { command: "toggleSpellcheck" }
-    | { command: "getSyncSettings" }
+    | { command: "sendProjectsList"; data: Project[]; }
+    | { command: "requestProjectOverview"; }
+    | { command: "error"; message: string; }
+    | { command: "webviewReady"; }
+    | { command: "refreshState"; }
+    | { command: "initializeProject"; }
+    | { command: "renameProject"; }
+    | { command: "changeSourceLanguage"; language: LanguageMetadata; }
+    | { command: "changeTargetLanguage"; language: LanguageMetadata; }
+    | { command: "editAbbreviation"; }
+    | { command: "selectCategory"; }
+    | { command: "setValidationCount"; }
+    | { command: "openSourceUpload"; }
+    | { command: "openAISettings"; }
+    | { command: "openLicenseSettings"; }
+    | { command: "openExportView"; }
+    | { command: "closeProject"; }
+    | { command: "createNewWorkspaceAndProject"; }
+    | { command: "openProject"; data: { path: string; }; }
+    | { command: "addWatchFolder"; }
+    | { command: "removeWatchFolder"; data: { path: string; }; }
+    | { command: "refreshProjects"; }
+    | { command: "openProjectSettings"; }
+    | { command: "downloadSourceText"; }
+    | { command: "selectprimarySourceText"; data: string; }
+    | { command: "openBible"; data: { path: string; }; }
+    | { command: "checkPublishStatus"; }
+    | { command: "publishProject"; }
+    | { command: "syncProject"; }
+    | { command: "openEditAnalysis"; }
+    | { command: "toggleSpellcheck"; }
+    | { command: "getSyncSettings"; }
     | {
         command: "updateSyncSettings";
-        data: { autoSyncEnabled: boolean; syncDelayMinutes: number };
+        data: { autoSyncEnabled: boolean; syncDelayMinutes: number; };
     }
-    | { command: "triggerSync" }
-    | { command: "openBookNameEditor" }
-    | { command: "openCellLabelImporter" }
-    | { command: "navigateToMainMenu" }
-    | { command: "getProjectProgress" }
-    | { command: "showProgressDashboard" }
-    | { command: "project.delete"; data: { path: string } };
+    | { command: "triggerSync"; }
+    | { command: "openBookNameEditor"; }
+    | { command: "openCellLabelImporter"; }
+    | { command: "navigateToMainMenu"; }
+    | { command: "getProjectProgress"; }
+    | { command: "showProgressDashboard"; }
+    | { command: "project.delete"; data: { path: string; }; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1396,14 +1396,14 @@ export interface BiblePreview extends BasePreview {
         preview: string;
         validationResults: {
             isValid: boolean;
-            errors: Array<{ message: string }>;
+            errors: Array<{ message: string; }>;
         }[];
     };
     transformed: {
         sourceNotebooks: NotebookPreview[];
         validationResults: {
             isValid: boolean;
-            errors: Array<{ message: string }>;
+            errors: Array<{ message: string; }>;
         }[];
     };
 }
@@ -1428,14 +1428,14 @@ export interface TranslationPreview extends BasePreview {
             name: string;
             cells: Array<{
                 value: string;
-                metadata: { id: string; type: string };
+                metadata: { id: string; type: string; };
             }>;
         };
         targetNotebook: {
             name: string;
             cells: Array<{
                 value: string;
-                metadata: { id: string; type: string };
+                metadata: { id: string; type: string; };
             }>;
         };
         matchedCells: number;
@@ -1456,7 +1456,7 @@ export interface TranslationPairsPreview extends BasePreview {
                 name: string;
                 cells: Array<{
                     value: string;
-                    metadata: { id: string; type: string };
+                    metadata: { id: string; type: string; };
                     kind: 2 | 1;
                     languageId: "html" | "markdown" | "usj";
                 }>;
@@ -1465,7 +1465,7 @@ export interface TranslationPairsPreview extends BasePreview {
                 name: string;
                 cells: Array<{
                     value: string;
-                    metadata: { id: string; type: string };
+                    metadata: { id: string; type: string; };
                     kind: 2 | 1;
                     languageId: "html" | "markdown" | "usj";
                 }>;
@@ -1609,17 +1609,17 @@ export interface Footnote {
 }
 
 export type ParallelViewPostMessages =
-    | { command: "openFileAtLocation"; uri: string; word: string }
-    | { command: "requestPinning"; content: { cellId: string } }
-    | { command: "chatStream"; context: string[]; query: string; editIndex?: number }
-    | { command: "navigateToMainMenu" }
-    | { command: "addedFeedback"; feedback: string; cellId: string }
-    | { command: "search"; query: string; completeOnly: boolean }
-    | { command: "deleteChatSession"; sessionId: string }
-    | { command: "startNewChatSession" }
-    | { command: "getCurrentChatSessionInfo" }
-    | { command: "getAllChatSessions" }
-    | { command: "loadChatSession"; sessionId: string };
+    | { command: "openFileAtLocation"; uri: string; word: string; }
+    | { command: "requestPinning"; content: { cellId: string; }; }
+    | { command: "chatStream"; context: string[]; query: string; editIndex?: number; }
+    | { command: "navigateToMainMenu"; }
+    | { command: "addedFeedback"; feedback: string; cellId: string; }
+    | { command: "search"; query: string; completeOnly: boolean; }
+    | { command: "deleteChatSession"; sessionId: string; }
+    | { command: "startNewChatSession"; }
+    | { command: "getCurrentChatSessionInfo"; }
+    | { command: "getAllChatSessions"; }
+    | { command: "loadChatSession"; sessionId: string; };
 
 interface DictionaryMetadata {
     // ... existing code ...
@@ -1627,17 +1627,17 @@ interface DictionaryMetadata {
 
 // Add after other message type definitions
 export type WelcomeViewPostMessages =
-    | { command: "menuAction"; action: "show" | "hide" | "toggle" }
-    | { command: "openTranslationFile" }
-    | { command: "createNewProject" }
-    | { command: "openExistingProject" }
-    | { command: "viewProjects" }
-    | { command: "openLoginFlow" }
-    | { command: "navigateToMainMenu" };
+    | { command: "menuAction"; action: "show" | "hide" | "toggle"; }
+    | { command: "openTranslationFile"; }
+    | { command: "createNewProject"; }
+    | { command: "openExistingProject"; }
+    | { command: "viewProjects"; }
+    | { command: "openLoginFlow"; }
+    | { command: "navigateToMainMenu"; };
 
 export type WelcomeViewReceiveMessages =
-    | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string }
-    | { command: "showLoginLoading"; loading: boolean };
+    | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string; }
+    | { command: "showLoginLoading"; loading: boolean; };
 
 // Add to your global WebviewMessage type
 export type WebviewMessage =
@@ -1663,12 +1663,35 @@ export interface CellLabelData {
 }
 
 export type CellLabelImporterPostMessages =
-    | { command: "importFile" }
-    | { command: "save"; labels: CellLabelData[]; selectedIds: string[] }
-    | { command: "cancel" };
+    | { command: "importFile"; }
+    | { command: "save"; labels: CellLabelData[]; selectedIds: string[]; }
+    | { command: "cancel"; };
 
 export type CellLabelImporterReceiveMessages = {
     command: "updateLabels";
     labels: CellLabelData[];
     importSource?: string;
 };
+
+export type MainMenuPostMessages =
+    | { command: "focusView"; viewId: string; }
+    | { command: "executeCommand"; commandName: string; }
+    | { command: "webviewReady"; };
+
+export type MainMenuReceiveMessages =
+    | { command: "updateMenu"; menuConfig: MenuSection[]; }
+    | { command: "setActiveView"; viewId: string; };
+
+interface MenuSection {
+    title: string;
+    buttons: MenuButton[];
+}
+
+interface MenuButton {
+    id: string;
+    label: string;
+    icon: string;
+    viewId?: string;
+    command?: string;
+    description?: string;
+}

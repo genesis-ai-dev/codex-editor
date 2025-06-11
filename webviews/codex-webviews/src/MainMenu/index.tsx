@@ -12,7 +12,8 @@ interface MenuButton {
     id: string;
     label: string;
     icon: string;
-    viewId: string;
+    viewId?: string;
+    command?: string;
     description?: string;
 }
 
@@ -80,6 +81,25 @@ function MainMenu() {
         }
     };
 
+    const executeCommand = (commandName: string) => {
+        try {
+            vscode.postMessage({
+                command: "executeCommand",
+                commandName: commandName,
+            });
+        } catch (error) {
+            console.error("Could not execute command:", commandName, error);
+        }
+    };
+
+    const handleButtonClick = (button: MenuButton) => {
+        if (button.viewId) {
+            focusView(button.viewId);
+        } else if (button.command) {
+            executeCommand(button.command);
+        }
+    };
+
     return (
         <div className="container mx-auto p-6 h-screen overflow-auto flex flex-col gap-6 max-w-4xl">
             {state.menuConfig.map((section, index) => (
@@ -97,22 +117,22 @@ function MainMenu() {
                         {section.buttons.map((button) => (
                             <button
                                 key={button.id}
-                                onClick={() => focusView(button.viewId)}
+                                onClick={() => handleButtonClick(button)}
                                 className={`group relative p-4 rounded-lg border transition-all duration-200 text-left hover:shadow-sm ${
-                                    state.activeViewId === button.viewId
+                                    button.viewId && state.activeViewId === button.viewId
                                         ? "border-primary bg-primary/5 shadow-sm"
                                         : "border-border hover:border-primary/50 hover:bg-accent/50"
                                 }`}
                                 title={button.description || ""}
                             >
-                                {state.activeViewId === button.viewId && (
+                                {button.viewId && state.activeViewId === button.viewId && (
                                     <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-sm" />
                                 )}
 
                                 <div className="flex items-start gap-3">
                                     <div
                                         className={`flex items-center justify-center w-10 h-10 rounded-md transition-colors ${
-                                            state.activeViewId === button.viewId
+                                            button.viewId && state.activeViewId === button.viewId
                                                 ? "bg-primary text-primary-foreground"
                                                 : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
                                         }`}
@@ -123,7 +143,7 @@ function MainMenu() {
                                     <div className="flex-1 min-w-0">
                                         <h3
                                             className={`font-medium text-sm leading-tight ${
-                                                state.activeViewId === button.viewId
+                                                button.viewId && state.activeViewId === button.viewId
                                                     ? "text-primary"
                                                     : "text-foreground group-hover:text-primary"
                                             }`}
