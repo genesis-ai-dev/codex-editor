@@ -189,7 +189,7 @@ export const SplashScreen: React.FC = () => {
                                 {isSyncStep ? (
                                     <strong>{latestTiming.step}</strong>
                                 ) : (
-                                    `Loading: ${latestTiming.step}`
+                                    latestTiming.step
                                 )}
                             </span>
                             <span className="stage-time">{latestTiming.duration.toFixed(0)}ms</span>
