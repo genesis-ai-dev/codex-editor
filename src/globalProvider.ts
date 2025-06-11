@@ -5,97 +5,7 @@ import { GlobalContentType, GlobalMessage } from "../types";
 import { getNonce } from "./providers/dictionaryTable/utilities/getNonce";
 import { initializeStateStore } from "./stateStore";
 
-// Common file operations utility
-export class FileOperationsHelper {
-    public static async ensureFileExists(filePath: vscode.Uri, defaultContent: string = "[]"): Promise<void> {
-        try {
-            await vscode.workspace.fs.stat(filePath);
-        } catch (error) {
-            if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-                await vscode.workspace.fs.writeFile(filePath, new TextEncoder().encode(defaultContent));
-            } else {
-                throw error;
-            }
-        }
-    }
 
-    public static async readJsonFile<T>(filePath: vscode.Uri, defaultValue: T): Promise<T> {
-        try {
-            const fileContentUint8Array = await vscode.workspace.fs.readFile(filePath);
-            const fileContent = new TextDecoder().decode(fileContentUint8Array);
-            return JSON.parse(fileContent);
-        } catch (error) {
-            console.error("Error reading JSON file:", error);
-            return defaultValue;
-        }
-    }
-
-    public static async writeJsonFile<T>(filePath: vscode.Uri, data: T): Promise<void> {
-        const jsonString = JSON.stringify(data, null, 4);
-        await vscode.workspace.fs.writeFile(filePath, new TextEncoder().encode(jsonString));
-    }
-
-    public static getWorkspaceFilePath(relativePath: string): vscode.Uri | undefined {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (!workspaceFolders || workspaceFolders.length === 0) {
-            return undefined;
-        }
-        return vscode.Uri.joinPath(workspaceFolders[0].uri, relativePath);
-    }
-}
-
-// Common state store operations utility
-export class StateStoreHelper {
-    public static async setupCellIdListener(
-        webviewView: vscode.WebviewView,
-        messageCommand: string,
-        messageTransformer?: (cellId: any, sourceCellContent?: any) => any
-    ): Promise<vscode.Disposable> {
-        const { storeListener } = await initializeStateStore();
-        
-        const disposeFunction = storeListener("cellId", async (value) => {
-            if (value) {
-                let messageData: any = { cellId: value.cellId, uri: value.uri };
-                
-                if (messageTransformer) {
-                    // Get source verse content if needed
-                    const sourceCellContent = await vscode.commands.executeCommand(
-                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-                        value.cellId
-                    );
-                    messageData = messageTransformer(value, sourceCellContent);
-                } else {
-                    messageData = { cellId: value.cellId, uri: value.uri };
-                }
-
-                webviewView.webview.postMessage({
-                    command: messageCommand,
-                    data: messageData,
-                });
-            }
-        });
-
-        return new vscode.Disposable(disposeFunction);
-    }
-
-    public static async setupSourceCellMapListener(
-        webviewView: vscode.WebviewView,
-        messageCommand: string
-    ): Promise<vscode.Disposable> {
-        const { storeListener } = await initializeStateStore();
-        
-        const disposeFunction = storeListener("sourceCellMap", (value) => {
-            if (value) {
-                webviewView.webview.postMessage({
-                    command: messageCommand,
-                    sourceCellMap: value,
-                });
-            }
-        });
-
-        return new vscode.Disposable(disposeFunction);
-    }
-}
 
 // Base class for all webview providers to extend
 export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider {
@@ -270,35 +180,7 @@ export class GlobalProvider {
         return GlobalProvider.instance;
     }
 
-    // Generic helper for registering webview providers with common patterns
-    public static registerWebviewProvider<T extends BaseWebviewProvider>(
-        context: vscode.ExtensionContext,
-        providerId: string,
-        providerClass: new (context: vscode.ExtensionContext) => T,
-        additionalCommands?: { commandId: string; handler: (provider: T) => any }[]
-    ): vscode.Disposable {
-        const provider = new providerClass(context);
-        
-        const disposables = [
-            vscode.window.registerWebviewViewProvider(providerId, provider),
-            GlobalProvider.getInstance().registerProvider(providerId, provider as any),
-        ];
 
-        // Register additional commands if provided
-        if (additionalCommands) {
-            additionalCommands.forEach(({ commandId, handler }) => {
-                disposables.push(
-                    vscode.commands.registerCommand(commandId, () => handler(provider))
-                );
-            });
-        }
-
-        // Create composite disposable
-        const compositeDisposable = vscode.Disposable.from(...disposables);
-        context.subscriptions.push(compositeDisposable);
-        
-        return compositeDisposable;
-    }
 
     public registerProvider(
         key: string,

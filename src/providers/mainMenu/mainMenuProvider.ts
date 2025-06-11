@@ -4,7 +4,7 @@ import { getProjectOverview } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
-import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
+import { BaseWebviewProvider } from "../../globalProvider";
 
 export interface MenuSection {
     title: string;
@@ -240,10 +240,4 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 }
 
-export function registerMainMenuProvider(context: vscode.ExtensionContext) {
-    return GlobalProvider.registerWebviewProvider(
-        context,
-        MainMenuProvider.viewType,
-        MainMenuProvider
-    );
-}
+

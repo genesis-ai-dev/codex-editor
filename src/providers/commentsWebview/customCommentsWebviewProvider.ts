@@ -3,7 +3,7 @@ import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread } from ".
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { Uri, window, workspace } from "vscode";
-import { BaseWebviewProvider, FileOperationsHelper, GlobalProvider, StateStoreHelper } from "../../globalProvider";
+import { BaseWebviewProvider } from "../../globalProvider";
 import { getAuthApi } from "../../extension";
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
@@ -41,16 +41,21 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     private async initializeCommentsFile() {
-        const filePath = FileOperationsHelper.getWorkspaceFilePath(".project/comments.json");
-        if (!filePath) {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders || folders.length === 0) {
             console.error("No workspace folder found");
             return;
         }
-
-        this.commentsFilePath = filePath;
+        this.commentsFilePath = vscode.Uri.joinPath(folders[0].uri, ".project", "comments.json");
 
         // Create comments file if it doesn't exist
-        await FileOperationsHelper.ensureFileExists(this.commentsFilePath, "[]");
+        try {
+            await vscode.workspace.fs.stat(this.commentsFilePath);
+        } catch (error) {
+            if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+                await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode("[]"));
+            }
+        }
     }
 
     private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
@@ -311,10 +316,4 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 }
 
-export function registerCommentsWebviewProvider(context: vscode.ExtensionContext) {
-    return GlobalProvider.registerWebviewProvider(
-        context,
-        "comments-sidebar",
-        CustomWebviewProvider
-    );
-}
+

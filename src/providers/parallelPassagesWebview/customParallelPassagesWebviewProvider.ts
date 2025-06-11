@@ -3,7 +3,7 @@ import {
     GlobalMessage,
     TranslationPair,
 } from "../../../types";
-import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
+import { BaseWebviewProvider } from "../../globalProvider";
 
 async function openFileAtLocation(uri: string, cellId: string) {
     try {
@@ -23,21 +23,7 @@ async function openFileAtLocation(uri: string, cellId: string) {
     }
 }
 
-export function registerParallelViewWebviewProvider(context: vscode.ExtensionContext) {
-    return GlobalProvider.registerWebviewProvider(
-        context,
-        "parallel-passages-sidebar",
-        CustomWebviewProvider,
-        [
-            {
-                commandId: "parallelPassages.pinCellById",
-                handler: (provider) => async (cellId: string) => {
-                    await provider.pinCellById(cellId);
-                }
-            }
-        ]
-    );
-}
+
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
     protected getWebviewId(): string {

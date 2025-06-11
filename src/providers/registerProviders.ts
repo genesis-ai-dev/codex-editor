@@ -3,12 +3,13 @@ import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEdit
 import { NextGenCodexTreeViewProvider } from "./treeViews/nextGenCodexTreeViewProvider";
 import { openCodexFile } from "./treeViews/nextGenCodexTreeViewProvider";
 import { createEditAnalysisProvider } from "./EditAnalysisView/EditAnalysisViewProvider";
-import { registerMainMenuProvider } from "./mainMenu/mainMenuProvider";
-import { registerCommentsWebviewProvider } from "./commentsWebview/customCommentsWebviewProvider";
-import { registerParallelViewWebviewProvider } from "./parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { registerChatProvider } from "./chat/customChatWebviewProvider";
-import { registerNavigationWebviewProvider } from "./navigationWebview/navigationWebviewProvider";
+import { NavigationWebviewProvider } from "./navigationWebview/navigationWebviewProvider";
+import { MainMenuProvider } from "./mainMenu/mainMenuProvider";
+import { CustomWebviewProvider as CommentsProvider } from "./commentsWebview/customCommentsWebviewProvider";
+import { CustomWebviewProvider as ParallelProvider } from "./parallelPassagesWebview/customParallelPassagesWebviewProvider";
+import { CustomWebviewProvider as ChatProvider } from "./chat/customChatWebviewProvider";
 import { WordsViewProvider } from "./WordsView/WordsViewProvider";
+import { GlobalProvider } from "../globalProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
     const disposables: vscode.Disposable[] = [];
@@ -16,14 +17,33 @@ export function registerProviders(context: vscode.ExtensionContext) {
     // Register CodexCellEditorProvider
     disposables.push(CodexCellEditorProvider.register(context));
 
-    // Register all webview providers using simplified registration
-    // Navigation provider is registered first so it appears first in the activity bar
+    // Register webview providers directly - much simpler!
+    const navigationProvider = new NavigationWebviewProvider(context);
+    const mainMenuProvider = new MainMenuProvider(context);
+    const commentsProvider = new CommentsProvider(context);
+    const parallelProvider = new ParallelProvider(context);
+    const chatProvider = new ChatProvider(context);
+
     disposables.push(
-        registerNavigationWebviewProvider(context),
-        registerMainMenuProvider(context),
-        registerCommentsWebviewProvider(context),
-        registerParallelViewWebviewProvider(context),
-        registerChatProvider(context)
+        vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider),
+        GlobalProvider.getInstance().registerProvider("codex-editor.navigation", navigationProvider as any),
+        
+        vscode.window.registerWebviewViewProvider("codex-editor.mainMenu", mainMenuProvider),
+        GlobalProvider.getInstance().registerProvider("codex-editor.mainMenu", mainMenuProvider as any),
+        
+        vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider),
+        GlobalProvider.getInstance().registerProvider("comments-sidebar", commentsProvider as any),
+        
+        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", parallelProvider),
+        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", parallelProvider as any),
+        
+        vscode.window.registerWebviewViewProvider("chat-sidebar", chatProvider),
+        GlobalProvider.getInstance().registerProvider("chat-sidebar", chatProvider as any),
+
+        // Register parallel passages command
+        vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
+            await parallelProvider.pinCellById(cellId);
+        })
     );
 
     // Register Words View Provider
