@@ -16,7 +16,7 @@ import {
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { performReflection } from "../../utils/llmUtils";
-import { BaseWebviewProvider } from "../../globalProvider";
+import { BaseWebviewProvider, FileOperationsHelper, GlobalProvider, StateStoreHelper } from "../../globalProvider";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -163,29 +163,19 @@ const processGradeResponse = async (
 };
 
 const checkThatChatThreadsFileExists = async () => {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders) {
+    const filePath = FileOperationsHelper.getWorkspaceFilePath("chat-threads.json");
+    if (!filePath) {
         console.error("No workspace folder found.");
         return [];
     }
 
-    const filePath = vscode.Uri.joinPath(workspaceFolders[0].uri, "chat-threads.json");
-
     try {
-        await vscode.workspace.fs.stat(filePath);
-        const fileContentUint8Array = await vscode.workspace.fs.readFile(filePath);
-        const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        return JSON.parse(fileContent);
+        await FileOperationsHelper.ensureFileExists(filePath, "[]");
+        return await FileOperationsHelper.readJsonFile(filePath, []);
     } catch (error) {
-        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-            // File doesn't exist, create an empty file
-            await vscode.workspace.fs.writeFile(filePath, new Uint8Array(Buffer.from("[]")));
-            return [];
-        } else {
-            console.error("Error accessing chat-threads.json:", error);
-            vscode.window.showErrorMessage(`Error accessing chat-threads.json: ${error}`);
-            return [];
-        }
+        console.error("Error accessing chat-threads.json:", error);
+        vscode.window.showErrorMessage(`Error accessing chat-threads.json: ${error}`);
+        return [];
     }
 };
 
@@ -208,45 +198,21 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
-        // Add this block to listen to the shared state store
-        initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("cellId", async (value) => {
-                if (value) {
-                    // get source verse content
-                    const sourceCellContent = await vscode.commands.executeCommand(
-                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-                        value.cellId
-                    );
+        // Setup state store listeners using helper
+        StateStoreHelper.setupCellIdListener(
+            webviewView,
+            "cellIdUpdate",
+            (value, sourceCellContent) => ({
+                cellId: value.cellId,
+                uri: value.uri,
+                sourceCellContent,
+            })
+        ).then(dispose => webviewView.onDidDispose(() => dispose.dispose()));
 
-                    webviewView.webview.postMessage({
-                        command: "cellIdUpdate",
-                        data: {
-                            cellId: value.cellId,
-                            uri: value.uri,
-                            sourceCellContent,
-                        },
-                    } as ChatPostMessages);
-                }
-            });
-            webviewView.onDidDispose(() => {
-                disposeFunction();
-            });
-        });
-
-        // Add this block to listen to the shared state store
-        initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("sourceCellMap", (value) => {
-                if (value) {
-                    webviewView.webview.postMessage({
-                        command: "updateSourceCellMap",
-                        sourceCellMap: value,
-                    } as ChatPostMessages);
-                }
-            });
-            webviewView.onDidDispose(() => {
-                disposeFunction();
-            });
-        });
+        StateStoreHelper.setupSourceCellMapListener(
+            webviewView,
+            "updateSourceCellMap"
+        ).then(dispose => webviewView.onDidDispose(() => dispose.dispose()));
 
         webviewView.webview.postMessage({
             command: "reload",
@@ -681,14 +647,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 }
 
 export function registerChatProvider(context: vscode.ExtensionContext) {
-    const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
-    VerseReader = new VerseDataReader(context);
-    // Start of Selection
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            "genesis-translator-sidebar",
-            new CustomWebviewProvider(context)
-        )
+    return GlobalProvider.registerWebviewProvider(
+        context,
+        "chat-sidebar",
+        CustomWebviewProvider
     );
-    item.show();
 }

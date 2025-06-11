@@ -5,6 +5,7 @@ import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { GlobalProvider } from "../../globalProvider";
 
 interface CodexMetadata {
     id: string;
@@ -109,6 +110,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         } else {
             this.sendItemsToWebview();
         }
+    }
+
+    protected onWebviewReady(): void {
+        this.loadBibleBookMap();
+        this.buildInitialData();
     }
 
     protected async handleMessage(message: any): Promise<void> {
@@ -688,4 +694,12 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     public dispose(): void {
         this.disposables.forEach((d) => d.dispose());
     }
+}
+
+export function registerNavigationWebviewProvider(context: vscode.ExtensionContext) {
+    return GlobalProvider.registerWebviewProvider(
+        context,
+        "codex-editor.navigation",
+        NavigationWebviewProvider
+    );
 }

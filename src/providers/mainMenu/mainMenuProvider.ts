@@ -4,7 +4,7 @@ import { getProjectOverview } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
-import { BaseWebviewProvider } from "../../globalProvider";
+import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 
 export interface MenuSection {
     title: string;
@@ -138,17 +138,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.sendMenuConfigToWebview();
     }
 
+    protected onWebviewReady(): void {
+        this.sendMenuConfigToWebview();
+    }
+
     protected async handleMessage(message: any): Promise<void> {
         switch (message.command) {
-            case "focusView":
-                try {
-                    // Focus the requested view
-                    await vscode.commands.executeCommand(`${message.viewId}.focus`);
-                } catch (error) {
-                    console.error("Error focusing view:", error);
-                    vscode.window.showErrorMessage(`Error focusing view: ${error}`);
-                }
-                break;
             case "executeCommand":
                 try {
                     await this.executeCommand(message.commandName);
@@ -156,9 +151,6 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     console.error("Error executing command:", error);
                     vscode.window.showErrorMessage(`Error executing command: ${error}`);
                 }
-                break;
-            case "webviewReady":
-                this.sendMenuConfigToWebview();
                 break;
         }
     }
@@ -246,4 +238,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
         }
     }
+}
+
+export function registerMainMenuProvider(context: vscode.ExtensionContext) {
+    return GlobalProvider.registerWebviewProvider(
+        context,
+        MainMenuProvider.viewType,
+        MainMenuProvider
+    );
 }

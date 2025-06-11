@@ -3,7 +3,11 @@ import { CodexCellEditorProvider } from "./codexCellEditorProvider/codexCellEdit
 import { NextGenCodexTreeViewProvider } from "./treeViews/nextGenCodexTreeViewProvider";
 import { openCodexFile } from "./treeViews/nextGenCodexTreeViewProvider";
 import { createEditAnalysisProvider } from "./EditAnalysisView/EditAnalysisViewProvider";
-import { registerMainMenuProvider } from "./mainMenu/register";
+import { registerMainMenuProvider } from "./mainMenu/mainMenuProvider";
+import { registerCommentsWebviewProvider } from "./commentsWebview/customCommentsWebviewProvider";
+import { registerParallelViewWebviewProvider } from "./parallelPassagesWebview/customParallelPassagesWebviewProvider";
+import { registerChatProvider } from "./chat/customChatWebviewProvider";
+import { registerNavigationWebviewProvider } from "./navigationWebview/navigationWebviewProvider";
 import { WordsViewProvider } from "./WordsView/WordsViewProvider";
 
 export function registerProviders(context: vscode.ExtensionContext) {
@@ -12,8 +16,15 @@ export function registerProviders(context: vscode.ExtensionContext) {
     // Register CodexCellEditorProvider
     disposables.push(CodexCellEditorProvider.register(context));
 
-    // Register MainMenuProvider
-    registerMainMenuProvider(context);
+    // Register all webview providers using simplified registration
+    // Navigation provider is registered first so it appears first in the activity bar
+    disposables.push(
+        registerNavigationWebviewProvider(context),
+        registerMainMenuProvider(context),
+        registerCommentsWebviewProvider(context),
+        registerParallelViewWebviewProvider(context),
+        registerChatProvider(context)
+    );
 
     // Register Words View Provider
     const wordsViewProvider = new WordsViewProvider(context.extensionUri);

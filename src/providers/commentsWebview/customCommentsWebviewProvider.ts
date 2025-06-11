@@ -3,7 +3,7 @@ import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread } from ".
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { Uri, window, workspace } from "vscode";
-import { BaseWebviewProvider } from "../../globalProvider";
+import { BaseWebviewProvider, FileOperationsHelper, GlobalProvider, StateStoreHelper } from "../../globalProvider";
 import { getAuthApi } from "../../extension";
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
@@ -41,22 +41,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     private async initializeCommentsFile() {
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) {
+        const filePath = FileOperationsHelper.getWorkspaceFilePath(".project/comments.json");
+        if (!filePath) {
             console.error("No workspace folder found");
             return;
         }
 
-        const workspaceRoot = folders[0].uri;
-        const commentsFilePath = vscode.Uri.joinPath(workspaceRoot, ".project", "comments.json");
-        this.commentsFilePath = commentsFilePath;
+        this.commentsFilePath = filePath;
 
         // Create comments file if it doesn't exist
-        try {
-            await vscode.workspace.fs.stat(commentsFilePath);
-        } catch {
-            await vscode.workspace.fs.writeFile(commentsFilePath, new TextEncoder().encode("[]"));
-        }
+        await FileOperationsHelper.ensureFileExists(this.commentsFilePath, "[]");
     }
 
     private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
@@ -318,13 +312,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 }
 
 export function registerCommentsWebviewProvider(context: vscode.ExtensionContext) {
-    const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right);
-
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-            "comments-sidebar",
-            new CustomWebviewProvider(context)
-        )
+    return GlobalProvider.registerWebviewProvider(
+        context,
+        "comments-sidebar",
+        CustomWebviewProvider
     );
-    item.show();
 }

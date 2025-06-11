@@ -24,19 +24,19 @@ async function openFileAtLocation(uri: string, cellId: string) {
 }
 
 export function registerParallelViewWebviewProvider(context: vscode.ExtensionContext) {
-    const provider = new CustomWebviewProvider(context);
-
-    // Create a composite disposable for both registrations
-    const disposables = [
-        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", provider),
-        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", provider),
-        vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
-            await provider.pinCellById(cellId);
-        }),
-    ];
-
-    // Add all disposables to the context subscriptions
-    context.subscriptions.push(...disposables);
+    return GlobalProvider.registerWebviewProvider(
+        context,
+        "parallel-passages-sidebar",
+        CustomWebviewProvider,
+        [
+            {
+                commandId: "parallelPassages.pinCellById",
+                handler: (provider) => async (cellId: string) => {
+                    await provider.pinCellById(cellId);
+                }
+            }
+        ]
+    );
 }
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
