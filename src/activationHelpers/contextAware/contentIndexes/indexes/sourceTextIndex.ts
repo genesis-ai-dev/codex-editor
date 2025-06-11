@@ -13,7 +13,7 @@ export async function createSourceTextIndex(
     metadataManager: NotebookMetadataManager,
     force: boolean = false
 ): Promise<IndexType> {
-    const cellMap = new Map<string, { content: string; versions: string[]; notebookId: string }>();
+    const cellMap = new Map<string, { content: string; versions: string[]; notebookId: string; }>();
 
     // Filter for all .source files
     const allSourceFiles = sourceFiles.filter((file) => file.uri.fsPath.endsWith(".source"));

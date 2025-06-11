@@ -626,20 +626,7 @@ function ProjectManagerView() {
                                     marginTop: "1rem",
                                 }}
                             >
-                                <VSCodeButton
-                                    onClick={() => handleAction({ command: "openAISettings" })}
-                                >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "0.5rem",
-                                        }}
-                                    >
-                                        <i className="codicon codicon-settings"></i> Copilot
-                                        Settings
-                                    </div>
-                                </VSCodeButton>
+{/* Moved Copilot Settings to Main Menu */}
 
                                 <VSCodeButton
                                     onClick={() => handleAction({ command: "openEditAnalysis" })}
@@ -700,36 +687,9 @@ function ProjectManagerView() {
                                     </div>
                                 </VSCodeButton>
 
-                                <VSCodeButton
-                                    onClick={() => handleAction({ command: "openExportView" })}
-                                >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "0.5rem",
-                                        }}
-                                    >
-                                        <i className="codicon codicon-export"></i> Export Project
-                                    </div>
-                                </VSCodeButton>
+{/* Moved Export Project to Main Menu */}
 
-                                {!state.repoHasRemote && (
-                                    <VSCodeButton
-                                        onClick={() => handleAction({ command: "publishProject" })}
-                                    >
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                gap: "0.5rem",
-                                            }}
-                                        >
-                                            <i className="codicon codicon-cloud-upload"></i> Publish
-                                            Project
-                                        </div>
-                                    </VSCodeButton>
-                                )}
+{/* Moved Publish Project to Main Menu */}
                                 {state.repoHasRemote && !autoSyncEnabled && (
                                     <VSCodeButton
                                         onClick={() => handleAction({ command: "syncProject" })}
@@ -745,19 +705,7 @@ function ProjectManagerView() {
                                         </div>
                                     </VSCodeButton>
                                 )}
-                                <VSCodeButton
-                                    onClick={() => handleAction({ command: "closeProject" })}
-                                >
-                                    <div
-                                        style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: "0.5rem",
-                                        }}
-                                    >
-                                        <i className="codicon codicon-close"></i> Close Project
-                                    </div>
-                                </VSCodeButton>
+{/* Moved Close Project to Main Menu */}
                             </div>
                         </div>
                     ) : (

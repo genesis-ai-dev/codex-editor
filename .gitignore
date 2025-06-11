@@ -12,3 +12,6 @@ package-lock.json
 .project/complete_drafts.txt
 .project/indexes.sqlite
 .project/dictionary.sqlite
+
+# TypeScript build cache
+.tsbuildinfo

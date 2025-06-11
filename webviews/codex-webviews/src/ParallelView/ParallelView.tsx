@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import SearchTab from "./SearchTab";
 import { TranslationPair } from "../../../../types";
+import { WebviewHeader } from "../components/WebviewHeader";
 import "./ParallelView.css";
 
 const vscode = acquireVsCodeApi();
@@ -99,6 +100,7 @@ function ParallelView() {
 
     return (
         <div className="parallel-view">
+            <WebviewHeader title="Parallel View" vscode={vscode} />
             <SearchTab
                 verses={verses}
                 pinnedVerses={pinnedVerses}

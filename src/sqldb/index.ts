@@ -467,7 +467,7 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
     if (!exportPath) {
         return;
     }
-    
+
     try {
         const fileContent = await vscode.workspace.fs.readFile(exportPath);
         const jsonlContent = new TextDecoder().decode(fileContent);

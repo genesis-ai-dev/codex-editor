@@ -13,10 +13,32 @@ export const SplashScreen: React.FC = () => {
     const { timings, isComplete, sendMessage, syncDetails } = useVSCodeMessaging();
     const mainTimelineRef = useRef<any>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const stagesRef = useRef<HTMLDivElement>(null);
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const [syncInProgress, setSyncInProgress] = useState(false);
     const [syncMessage, setSyncMessage] = useState("");
     const [syncProgress, setSyncProgress] = useState(0);
+    const [showScrollHint, setShowScrollHint] = useState(false);
+
+    // Auto-scroll to latest stage when new stages are added
+    useEffect(() => {
+        if (stagesRef.current && timings.length > 0) {
+            const stagesContainer = stagesRef.current;
+            const shouldAutoScroll = stagesContainer.scrollHeight > stagesContainer.clientHeight;
+            
+            if (shouldAutoScroll) {
+                setShowScrollHint(true);
+                // Auto-scroll to bottom to show latest stage
+                stagesContainer.scrollTo({
+                    top: stagesContainer.scrollHeight,
+                    behavior: 'smooth'
+                });
+                
+                // Hide scroll hint after a few seconds
+                setTimeout(() => setShowScrollHint(false), 3000);
+            }
+        }
+    }, [timings.length]);
 
     // Set up main timeline for coordinated animations
     useEffect(() => {
@@ -147,7 +169,7 @@ export const SplashScreen: React.FC = () => {
 
             <SideElements />
 
-            <div ref={containerRef} className="container" id="main-container">
+            <div ref={containerRef} className="container scrollable" id="main-container">
                 <LoadingBook />
                 <h1>Loading Codex Editor</h1>
                 <div className="current-step" id="current-step" aria-live="polite">
@@ -177,7 +199,48 @@ export const SplashScreen: React.FC = () => {
                     )}
                 </div>
                 <ProgressBar progress={progress} />
-                <LoadingStages stages={timings.slice(-8)} /> {/* Only show most recent items */}
+                
+                {/* Scrollable stages section */}
+                <div className="loading-stages-scroll-container">
+                    {showScrollHint && (
+                        <div className="scroll-hint" aria-live="polite">
+                            <span>Scroll to see all loading stages</span>
+                            <div className="scroll-hint-arrow">↓</div>
+                        </div>
+                    )}
+                    <div 
+                        ref={stagesRef}
+                        className="loading-stages-scrollable"
+                        tabIndex={0}
+                        role="log"
+                        aria-label="Loading stages - scrollable list"
+                        onKeyDown={(e) => {
+                            // Add keyboard navigation
+                            if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                stagesRef.current?.scrollBy({ top: 50, behavior: 'smooth' });
+                            } else if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                stagesRef.current?.scrollBy({ top: -50, behavior: 'smooth' });
+                            } else if (e.key === 'Home') {
+                                e.preventDefault();
+                                stagesRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                            } else if (e.key === 'End') {
+                                e.preventDefault();
+                                stagesRef.current?.scrollTo({ top: stagesRef.current.scrollHeight, behavior: 'smooth' });
+                            }
+                        }}
+                    >
+                        <LoadingStages stages={timings} /> {/* Show ALL stages */}
+                    </div>
+                    <div className="loading-stages-scroll-indicator">
+                        {timings.length > 8 && (
+                            <div className="scroll-progress">
+                                Showing {Math.min(8, timings.length)} of {timings.length} stages
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
 
             <Particles count={15} />

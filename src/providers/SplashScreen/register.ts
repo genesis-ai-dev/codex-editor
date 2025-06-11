@@ -3,7 +3,7 @@ import { SplashScreenProvider } from "./SplashScreenProvider";
 import { ActivationTiming } from "../../extension";
 
 let splashScreenProvider: SplashScreenProvider | undefined;
-let splashScreenTimer: NodeJS.Timer | undefined;
+let splashScreenTimer: NodeJS.Timeout | undefined;
 
 export function registerSplashScreenProvider(context: vscode.ExtensionContext) {
     splashScreenProvider = new SplashScreenProvider(context.extensionUri);
@@ -30,7 +30,7 @@ export async function showSplashScreen(activationStart: number) {
                 splashScreenTimer = undefined;
             }
         }
-    }, 500);
+    }, 500) as unknown as NodeJS.Timeout;
 }
 
 export function updateSplashScreenTimings(timings: ActivationTiming[]) {

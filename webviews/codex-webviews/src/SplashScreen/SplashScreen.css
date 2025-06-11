@@ -52,6 +52,34 @@ body {
     z-index: 10;
 }
 
+.container.scrollable {
+    max-height: 100vh;
+    overflow-y: auto;
+    padding-bottom: 20px;
+    /* Custom scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: var(--progress-color-muted) transparent;
+}
+
+.container.scrollable::-webkit-scrollbar {
+    width: 8px;
+}
+
+.container.scrollable::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.container.scrollable::-webkit-scrollbar-thumb {
+    background-color: var(--progress-color-muted);
+    border-radius: 4px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+}
+
+.container.scrollable::-webkit-scrollbar-thumb:hover {
+    background-color: var(--progress-color);
+}
+
 h1 {
     font-size: 28px;
     font-weight: 300;
@@ -203,18 +231,17 @@ h1 {
 
 .loading-stages-container {
     position: relative;
-    height: 240px;
+    height: auto;
     margin-top: 30px;
-    overflow: hidden;
+    overflow: visible;
 }
 
 .loading-stages {
     text-align: left;
-    position: absolute;
+    position: static;
     width: 100%;
-    top: 0;
-    left: 0;
-    transition: transform 0.5s ease-out;
+    transform: none;
+    transition: none;
 }
 
 .loading-stages-fade {
@@ -273,6 +300,51 @@ h1 {
     stroke: var(--progress-color);
     stroke-width: 2.5;
     stroke-linecap: round;
+    transform-origin: center;
+    transition: stroke 0.3s ease;
+}
+
+/* Spinning animation for current stage */
+.loading-circle.spinning {
+    stroke-dasharray: 30 8;
+    stroke: var(--progress-color);
+    fill: none;
+}
+
+/* Only animate if user doesn't prefer reduced motion */
+@media (prefers-reduced-motion: no-preference) {
+    .loading-circle.spinning {
+        animation: spin 1.5s linear infinite;
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+        stroke-dashoffset: 0;
+    }
+    to {
+        transform: rotate(360deg);
+        stroke-dashoffset: 38;
+    }
+}
+
+/* For reduced motion users, just use a pulsing effect */
+@media (prefers-reduced-motion: reduce) {
+    .loading-circle.spinning {
+        animation: pulse-circle 2s ease-in-out infinite;
+    }
+}
+
+@keyframes pulse-circle {
+    0%, 100% {
+        opacity: 0.7;
+        stroke-width: 2.5;
+    }
+    50% {
+        opacity: 1;
+        stroke-width: 3;
+    }
 }
 
 .loading-check {
@@ -286,10 +358,34 @@ h1 {
 
 .loading-stage.completed .loading-check {
     opacity: 1;
+    display: block;
 }
 
 .loading-stage.completed .loading-circle {
-    fill: var(--progress-color);
+    fill: var(--text-success);
+    stroke: var(--text-success);
+    animation: none;
+}
+
+/* Active stage with dots styling */
+.loading-stage.active-with-dots {
+    opacity: 1;
+}
+
+.loading-stage.active-with-dots .loading-circle {
+    stroke: var(--progress-color);
+    stroke-width: 2.5;
+    stroke-dasharray: none;
+    fill: none;
+    animation: none;
+}
+
+.loading-stage.active-with-dots .stage-time {
+    font-family: monospace;
+    color: var(--progress-color);
+    min-width: 30px;
+    text-align: right;
+    font-weight: 500;
 }
 
 /* Sync process styling */
@@ -427,6 +523,10 @@ h1 {
         width: 90%;
     }
 
+    .container.scrollable {
+        max-height: calc(100vh - 40px);
+    }
+
     h1 {
         font-size: 24px;
     }
@@ -439,6 +539,25 @@ h1 {
     .side-element {
         width: 80px;
     }
+
+    .loading-stages-scrollable {
+        max-height: 250px;
+    }
+
+    .scroll-hint {
+        font-size: 10px;
+        padding: 3px 6px;
+    }
+}
+
+@media (max-height: 700px) {
+    .container.scrollable {
+        max-height: calc(100vh - 20px);
+    }
+
+    .loading-stages-scrollable {
+        max-height: 200px;
+    }
 }
 
 /* Reduced motion preference */
@@ -450,7 +569,9 @@ h1 {
     .loading-stage,
     .book-line,
     .particle,
-    .element-dot {
+    .element-dot,
+    .scroll-hint,
+    .scroll-hint-arrow {
         transition: none !important;
         animation: none !important;
     }
@@ -459,4 +580,117 @@ h1 {
         opacity: 1;
         transform: translateY(0);
     }
+
+    .loading-stages-scrollable {
+        scroll-behavior: auto !important;
+    }
+
+    .scroll-hint {
+        display: none; /* Hide animated scroll hints for reduced motion */
+    }
+}
+
+/* Scrollable loading stages */
+.loading-stages-scroll-container {
+    position: relative;
+    margin-top: 30px;
+    width: 100%;
+}
+
+.scroll-hint {
+    position: absolute;
+    top: -20px;
+    right: 0;
+    background: var(--progress-color);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    animation: fadeInOut 3s ease-in-out;
+}
+
+.scroll-hint-arrow {
+    font-size: 12px;
+    animation: bounce 1s infinite;
+}
+
+@keyframes fadeInOut {
+    0%, 100% { opacity: 0; transform: translateY(-5px); }
+    10%, 90% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(3px); }
+}
+
+.loading-stages-scrollable {
+    max-height: 300px;
+    overflow-y: auto;
+    padding-right: 8px;
+    /* Focus styling for keyboard navigation */
+    border-radius: 4px;
+    outline: none;
+    /* Custom scrollbar styling */
+    scrollbar-width: thin;
+    scrollbar-color: var(--progress-color-muted) transparent;
+}
+
+.loading-stages-scrollable:focus {
+    box-shadow: 0 0 0 2px var(--focus-border);
+}
+
+.loading-stages-scrollable::-webkit-scrollbar {
+    width: 6px;
+}
+
+.loading-stages-scrollable::-webkit-scrollbar-track {
+    background: var(--background-subtle);
+    border-radius: 3px;
+}
+
+.loading-stages-scrollable::-webkit-scrollbar-thumb {
+    background-color: var(--progress-color-muted);
+    border-radius: 3px;
+}
+
+.loading-stages-scrollable::-webkit-scrollbar-thumb:hover {
+    background-color: var(--progress-color);
+}
+
+.loading-stages-scroll-indicator {
+    margin-top: 8px;
+    text-align: center;
+}
+
+.scroll-progress {
+    font-size: 11px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+.loading-stages-list {
+    text-align: left;
+    width: 100%;
+}
+
+/* Update the old loading-stages-container for compatibility */
+.loading-stages-container {
+    position: relative;
+    height: auto;
+    margin-top: 30px;
+    overflow: visible;
+}
+
+.loading-stages {
+    text-align: left;
+    position: static;
+    width: 100%;
+    transform: none;
+    transition: none;
 }
