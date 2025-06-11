@@ -16,6 +16,7 @@ import {
 import { initializeStateStore } from "../../stateStore";
 import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
 import { performReflection } from "../../utils/llmUtils";
+import { BaseWebviewProvider } from "../../globalProvider";
 
 const config = vscode.workspace.getConfiguration("translators-copilot");
 const endpoint = config.get("llmEndpoint"); // NOTE: config.endpoint is reserved so we must have unique name
@@ -44,79 +45,6 @@ const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
         console.error("Error reading file in sendChatThreadToWebview:", error);
         // vscode.window.showErrorMessage(`Error reading file: ${filePath}`);
     }
-};
-
-const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.Uri) => {
-    webviewView.webview.options = {
-        enableScripts: true,
-        localResourceRoots: [extensionUri],
-    };
-
-    const styleResetUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css")
-    );
-    const styleVSCodeUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css")
-    );
-    const codiconsUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
-    );
-
-    const scriptUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(
-            extensionUri,
-            "webviews",
-            "codex-webviews",
-            "dist",
-            "ChatView",
-            "index.js"
-        )
-    );
-    // const styleUri = webviewView.webview.asWebviewUri(
-    //   vscode.Uri.joinPath(
-    //     extensionUri,
-    //     "webviews",
-    //     "codex-webviews",
-    //     "dist",
-    //     "ChatView",
-    //     "index.css"
-    //   )
-    // );
-    function getNonce() {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
-    }
-    const nonce = getNonce();
-    const html = /*html*/ `<!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <!--
-      Use a content security policy to only allow loading images from https or from our extension directory,
-      and only allow scripts that have a specific nonce.
-    -->
-    <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-        webviewView.webview.cspSource
-    }; script-src 'nonce-${nonce}';">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-    <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
-    <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-    <script nonce="${nonce}">
-      // const vsCodeApi = acquireVsCodeApi();
-      const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}
-    </script>
-    </head>
-    <body style="padding: 0; min-width: none; max-width: 100%; margin: 0;">
-    <div id="root" style="padding: 0; min-width: none; max-width: 100%; margin: 0;"></div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
-  </body>
-  </html>`;
-    webviewView.webview.html = html;
 };
 
 const sendFinishMessage = (webviewView: vscode.WebviewView) => {
@@ -261,14 +189,85 @@ const checkThatChatThreadsFileExists = async () => {
     }
 };
 
-export class CustomWebviewProvider {
-    _extensionUri: any;
+export class CustomWebviewProvider extends BaseWebviewProvider {
     selectionChangeListener: any;
-    constructor(extensionUri: vscode.Uri) {
-        this._extensionUri = extensionUri;
+
+    constructor(context: vscode.ExtensionContext) {
+        super(context);
         if (vscode.workspace.workspaceFolders) {
             checkThatChatThreadsFileExists();
         }
+    }
+
+    protected getWebviewId(): string {
+        return "chat-sidebar";
+    }
+
+    protected getScriptPath(): string[] {
+        return ["ChatView", "index.js"];
+    }
+
+    protected onWebviewResolved(webviewView: vscode.WebviewView): void {
+        // Add this block to listen to the shared state store
+        initializeStateStore().then(({ storeListener }) => {
+            const disposeFunction = storeListener("cellId", async (value) => {
+                if (value) {
+                    // get source verse content
+                    const sourceCellContent = await vscode.commands.executeCommand(
+                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                        value.cellId
+                    );
+
+                    webviewView.webview.postMessage({
+                        command: "cellIdUpdate",
+                        data: {
+                            cellId: value.cellId,
+                            uri: value.uri,
+                            sourceCellContent,
+                        },
+                    } as ChatPostMessages);
+                }
+            });
+            webviewView.onDidDispose(() => {
+                disposeFunction();
+            });
+        });
+
+        // Add this block to listen to the shared state store
+        initializeStateStore().then(({ storeListener }) => {
+            const disposeFunction = storeListener("sourceCellMap", (value) => {
+                if (value) {
+                    webviewView.webview.postMessage({
+                        command: "updateSourceCellMap",
+                        sourceCellMap: value,
+                    } as ChatPostMessages);
+                }
+            });
+            webviewView.onDidDispose(() => {
+                disposeFunction();
+            });
+        });
+
+        webviewView.webview.postMessage({
+            command: "reload",
+        } as ChatPostMessages);
+
+        webviewView.onDidChangeVisibility(() => {
+            if (webviewView.visible) {
+                webviewView.webview.postMessage({
+                    command: "reload",
+                } as ChatPostMessages);
+            }
+        });
+
+        this.saveSelectionChanges(webviewView);
+        vscode.window.onDidChangeActiveTextEditor(() => {
+            // When the active editor changes, remove the old listener and add a new one
+            if (this.selectionChangeListener) {
+                this.selectionChangeListener.dispose();
+            }
+            this.saveSelectionChanges(webviewView);
+        });
     }
 
     async sendSelectMessage(
@@ -357,395 +356,327 @@ export class CustomWebviewProvider {
         }
     }
 
-    resolveWebviewView(webviewView: vscode.WebviewView) {
-        // Add this block to listen to the shared state store
-        initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("cellId", async (value) => {
-                if (value) {
-                    // get source verse content
-                    const sourceCellContent = await vscode.commands.executeCommand(
-                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-                        value.cellId
+    protected async handleMessage(message: ChatPostMessages): Promise<void> {
+        try {
+            switch (message.command) {
+                case "fetch": {
+                    const mainChatLanguage = vscode.workspace
+                        .getConfiguration("translators-copilot")
+                        .get("main_chat_language", "English");
+
+                    abortController = new AbortController();
+                    const url = endpoint + "/chat/completions";
+                    const messages = JSON.parse(message.messages) as ChatMessageWithContext[];
+
+                    const systemMessage = messages.find((message) => message.role === "system");
+
+                    if (!systemMessage) {
+                        messages.unshift({
+                            content: vscode.workspace
+                                .getConfiguration("translators-copilot")
+                                .get("chatSystemMessage", ""),
+                            role: "system",
+                            createdAt: new Date().toISOString(),
+                        });
+                    }
+
+                    if (messages[0].role === "system") {
+                        const accessibilityNote = `\n\nNote carefully, 'assistant' must always respond to 'user' in ${mainChatLanguage}, even if the user has used some English or another language to communicate. It is *critical for accessibility* to respond only in ${mainChatLanguage} (though you can translate some piece of text into any language 'user' requests)`;
+                        if (!messages[0].content.includes(accessibilityNote)) {
+                            messages[0].content += `${accessibilityNote}`;
+                        }
+                    }
+
+                    const data = {
+                        max_tokens: maxTokens,
+                        temperature: temperature,
+                        stream: true,
+                        messages: messages.map((message) => {
+                            const messageForAi: ChatMessage = {
+                                content: message.content,
+                                role: message.role,
+                            };
+                            return messageForAi;
+                        }),
+                        model: undefined as any,
+                        stop: ["\n\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
+                    };
+                    if (model) {
+                        data.model = model;
+                    }
+                    const headers = {
+                        "Content-Type": "application/json",
+                    };
+                    if (apiKey) {
+                        // @ts-expect-error needed
+                        headers["Authorization"] = "Bearer " + apiKey;
+                    }
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify(data),
+                        signal: abortController.signal,
+                    });
+                    await processFetchResponse(this._view!, response);
+                    break;
+                }
+                case "abort-fetch":
+                    if (abortController) {
+                        abortController.abort();
+                    }
+                    break;
+
+                case "performReflection": {
+                    const reflectionConfig = await fetchCompletionConfig();
+                    const num_improverrs = 3;
+                    const number_of_loops = 2;
+                    const chatReflectionConcern =
+                        vscode.workspace
+                            .getConfiguration("translators-copilot")
+                            .get<string>("chatReflectionConcern") ?? "";
+                    const reflectedMessage = await performReflection(
+                        message.messageToReflect,
+                        message.context,
+                        num_improverrs,
+                        number_of_loops,
+                        chatReflectionConcern,
+                        reflectionConfig
                     );
 
-                    webviewView.webview.postMessage({
-                        command: "cellIdUpdate",
-                        data: {
-                            cellId: value.cellId,
-                            uri: value.uri,
-                            sourceCellContent,
-                        },
-                    } as ChatPostMessages);
+                    this._view!.webview.postMessage({
+                        command: "reflectionResponse",
+                        reflectedMessage,
+                        lastMessageCreatedAt: message.lastMessageCreatedAt,
+                    });
+
+                    break;
                 }
-            });
-            webviewView.onDidDispose(() => {
-                disposeFunction();
-            });
-        });
 
-        // Add this block to listen to the shared state store
-        initializeStateStore().then(({ storeListener }) => {
-            const disposeFunction = storeListener("sourceCellMap", (value) => {
-                if (value) {
-                    webviewView.webview.postMessage({
-                        command: "updateSourceCellMap",
-                        sourceCellMap: value,
-                    } as ChatPostMessages);
-                }
-            });
-            webviewView.onDidDispose(() => {
-                disposeFunction();
-            });
-        });
+                case "requestGradeResponse": {
+                    const mainChatLanguage = vscode.workspace
+                        .getConfiguration("translators-copilot")
+                        .get("main_chat_language", "English");
 
-        loadWebviewHtml(webviewView, this._extensionUri);
-        webviewView.webview.postMessage({
-            command: "reload",
-        } as ChatPostMessages);
+                    abortController = new AbortController();
+                    const url = endpoint + "/chat/completions";
+                    const messages = JSON.parse(message.messages) as ChatMessageWithContext[];
 
-        webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible) {
-                webviewView.webview.postMessage({
-                    command: "reload",
-                } as ChatPostMessages);
-            }
-        });
+                    const systemMessage = messages.find((message) => message.role === "system");
 
-        this.saveSelectionChanges(webviewView);
-        vscode.window.onDidChangeActiveTextEditor(() => {
-            // When the active editor changes, remove the old listener and add a new one
-            if (this.selectionChangeListener) {
-                this.selectionChangeListener.dispose();
-            }
-            this.saveSelectionChanges(webviewView);
-        });
-
-        webviewView.webview.onDidReceiveMessage(async (message: ChatPostMessages) => {
-            try {
-                switch (message.command) {
-                    case "fetch": {
-                        const mainChatLanguage = vscode.workspace
-                            .getConfiguration("translators-copilot")
-                            .get("main_chat_language", "English");
-
-                        abortController = new AbortController();
-                        const url = endpoint + "/chat/completions";
-                        const messages = JSON.parse(message.messages) as ChatMessageWithContext[];
-
-                        const systemMessage = messages.find((message) => message.role === "system");
-
-                        if (!systemMessage) {
-                            messages.unshift({
-                                content: vscode.workspace
-                                    .getConfiguration("translators-copilot")
-                                    .get("chatSystemMessage", ""),
-                                role: "system",
-                                createdAt: new Date().toISOString(),
-                            });
-                        }
-
-                        if (messages[0].role === "system") {
-                            const accessibilityNote = `\n\nNote carefully, 'assistant' must always respond to 'user' in ${mainChatLanguage}, even if the user has used some English or another language to communicate. It is *critical for accessibility* to respond only in ${mainChatLanguage} (though you can translate some piece of text into any language 'user' requests)`;
-                            if (!messages[0].content.includes(accessibilityNote)) {
-                                messages[0].content += `${accessibilityNote}`;
-                            }
-                        }
-
-                        const data = {
-                            max_tokens: maxTokens,
-                            temperature: temperature,
-                            stream: true,
-                            messages: messages.map((message) => {
-                                const messageForAi: ChatMessage = {
-                                    content: message.content,
-                                    role: message.role,
-                                };
-                                return messageForAi;
-                            }),
-                            model: undefined as any,
-                            stop: ["\n\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
-                        };
-                        if (model) {
-                            data.model = model;
-                        }
-                        const headers = {
-                            "Content-Type": "application/json",
-                        };
-                        if (apiKey) {
-                            // @ts-expect-error needed
-                            headers["Authorization"] = "Bearer " + apiKey;
-                        }
-                        const response = await fetch(url, {
-                            method: "POST",
-                            headers,
-                            body: JSON.stringify(data),
-                            signal: abortController.signal,
-                        });
-                        await processFetchResponse(webviewView, response);
-                        break;
-                    }
-                    case "abort-fetch":
-                        if (abortController) {
-                            abortController.abort();
-                        }
-                        break;
-
-                    case "performReflection": {
-                        const reflectionConfig = await fetchCompletionConfig();
-                        const num_improverrs = 3;
-                        const number_of_loops = 2;
-                        const chatReflectionConcern =
-                            vscode.workspace
+                    if (!systemMessage) {
+                        messages.unshift({
+                            content: vscode.workspace
                                 .getConfiguration("translators-copilot")
-                                .get<string>("chatReflectionConcern") ?? "";
-                        const reflectedMessage = await performReflection(
-                            message.messageToReflect,
-                            message.context,
-                            num_improverrs,
-                            number_of_loops,
-                            chatReflectionConcern,
-                            reflectionConfig
-                        );
-
-                        webviewView.webview.postMessage({
-                            command: "reflectionResponse",
-                            reflectedMessage,
-                            lastMessageCreatedAt: message.lastMessageCreatedAt,
+                                .get("chatGradingSystemMessage", ""),
+                            role: "system",
+                            createdAt: new Date().toISOString(),
                         });
-
-                        break;
                     }
 
-                    case "requestGradeResponse": {
-                        const mainChatLanguage = vscode.workspace
-                            .getConfiguration("translators-copilot")
-                            .get("main_chat_language", "English");
-
-                        abortController = new AbortController();
-                        const url = endpoint + "/chat/completions";
-                        const messages = JSON.parse(message.messages) as ChatMessageWithContext[];
-
-                        const systemMessage = messages.find((message) => message.role === "system");
-
-                        if (!systemMessage) {
-                            messages.unshift({
-                                content: vscode.workspace
-                                    .getConfiguration("translators-copilot")
-                                    .get("chatGradingSystemMessage", ""),
-                                role: "system",
-                                createdAt: new Date().toISOString(),
-                            });
+                    if (messages[0].role === "system") {
+                        const accessibilityNote = `\n\nNote carefully, 'assistant' must always respond to 'user' in ${mainChatLanguage}, even if the user has used some English or another language to communicate. It is *critical for accessibility* to respond only in ${mainChatLanguage} (though you can translate some piece of text into any language 'user' requests)`;
+                        if (!messages[0].content.includes(accessibilityNote)) {
+                            messages[0].content += `${accessibilityNote}`;
                         }
-
-                        if (messages[0].role === "system") {
-                            const accessibilityNote = `\n\nNote carefully, 'assistant' must always respond to 'user' in ${mainChatLanguage}, even if the user has used some English or another language to communicate. It is *critical for accessibility* to respond only in ${mainChatLanguage} (though you can translate some piece of text into any language 'user' requests)`;
-                            if (!messages[0].content.includes(accessibilityNote)) {
-                                messages[0].content += `${accessibilityNote}`;
-                            }
-                        }
-
-                        const data = {
-                            max_tokens: maxTokens,
-                            temperature: temperature,
-                            stream: false,
-                            messages: messages.map((message) => {
-                                const messageForAi: ChatMessage = {
-                                    content: message.content,
-                                    role: message.role,
-                                };
-                                return messageForAi;
-                            }),
-                            model: undefined as any,
-                            stop: ["\n\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
-                        };
-                        if (model) {
-                            data.model = model;
-                        }
-                        const headers = {
-                            "Content-Type": "application/json",
-                        };
-                        if (apiKey) {
-                            // @ts-expect-error needed
-                            headers["Authorization"] = "Bearer " + apiKey;
-                        }
-                        const response = await fetch(url, {
-                            method: "POST",
-                            headers,
-                            body: JSON.stringify(data),
-                            signal: abortController.signal,
-                        });
-                        await processGradeResponse(
-                            webviewView,
-                            response,
-                            message.lastMessageCreatedAt
-                        );
-                        break;
                     }
-                    case "deleteThread": {
-                        const fileName = "chat-threads.json";
-                        const exitingMessages = await getChatMessagesFromFile(fileName);
-                        const messageThreadId = message.threadId;
-                        const threadToMarkAsDeleted: ChatMessageThread | undefined =
-                            exitingMessages.find((thread) => thread.id === messageThreadId);
-                        if (threadToMarkAsDeleted) {
-                            threadToMarkAsDeleted.deleted = true;
-                            await writeSerializedData(
-                                JSON.stringify(exitingMessages, null, 4),
-                                fileName
-                            );
-                        }
-                        sendChatThreadToWebview(webviewView);
-                        break;
-                    }
-                    case "fetchThread": {
-                        sendChatThreadToWebview(webviewView);
-                        break;
-                    }
-                    case "updateMessageThread": {
-                        const fileName = "chat-threads.json";
-                        if (!message.messages || message.messages.length < 1) {
-                            break;
-                        }
-                        const exitingMessages = await getChatMessagesFromFile(fileName);
-                        const messageThreadId = message.threadId;
-                        let threadToSaveMessage: ChatMessageThread | undefined =
-                            exitingMessages.find((thread) => thread.id === messageThreadId);
 
-                        if (threadToSaveMessage) {
-                            threadToSaveMessage.messages = message.messages;
-                            await writeSerializedData(
-                                JSON.stringify(exitingMessages, null, 4),
-                                fileName
-                            );
-                        } else {
-                            threadToSaveMessage = {
-                                id: messageThreadId,
-                                canReply: true,
-                                collapsibleState: 0,
-                                messages: message.messages,
-                                deleted: false,
-                                threadTitle: message.threadTitle,
-                                createdAt: new Date().toISOString(),
+                    const data = {
+                        max_tokens: maxTokens,
+                        temperature: temperature,
+                        stream: false,
+                        messages: messages.map((message) => {
+                            const messageForAi: ChatMessage = {
+                                content: message.content,
+                                role: message.role,
                             };
-                            await writeSerializedData(
-                                JSON.stringify([...exitingMessages, threadToSaveMessage], null, 4),
-                                fileName
+                            return messageForAi;
+                        }),
+                        model: undefined as any,
+                        stop: ["\n\n\n", "###", "<|endoftext|>"], // ? Not sure if it matters if we pass this here.
+                    };
+                    if (model) {
+                        data.model = model;
+                    }
+                    const headers = {
+                        "Content-Type": "application/json",
+                    };
+                    if (apiKey) {
+                        // @ts-expect-error needed
+                        headers["Authorization"] = "Bearer " + apiKey;
+                    }
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify(data),
+                        signal: abortController.signal,
+                    });
+                    await processGradeResponse(
+                        this._view!,
+                        response,
+                        message.lastMessageCreatedAt
+                    );
+                    break;
+                }
+                case "deleteThread": {
+                    const fileName = "chat-threads.json";
+                    const exitingMessages = await getChatMessagesFromFile(fileName);
+                    const messageThreadId = message.threadId;
+                    const threadToMarkAsDeleted: ChatMessageThread | undefined =
+                        exitingMessages.find((thread) => thread.id === messageThreadId);
+                    if (threadToMarkAsDeleted) {
+                        threadToMarkAsDeleted.deleted = true;
+                        await writeSerializedData(
+                            JSON.stringify(exitingMessages, null, 4),
+                            fileName
+                        );
+                    }
+                    sendChatThreadToWebview(this._view!);
+                    break;
+                }
+                case "fetchThread": {
+                    sendChatThreadToWebview(this._view!);
+                    break;
+                }
+                case "updateMessageThread": {
+                    const fileName = "chat-threads.json";
+                    if (!message.messages || message.messages.length < 1) {
+                        break;
+                    }
+                    const exitingMessages = await getChatMessagesFromFile(fileName);
+                    const messageThreadId = message.threadId;
+                    let threadToSaveMessage: ChatMessageThread | undefined =
+                        exitingMessages.find((thread) => thread.id === messageThreadId);
+
+                    if (threadToSaveMessage) {
+                        threadToSaveMessage.messages = message.messages;
+                        await writeSerializedData(
+                            JSON.stringify(exitingMessages, null, 4),
+                            fileName
+                        );
+                    } else {
+                        threadToSaveMessage = {
+                            id: messageThreadId,
+                            canReply: true,
+                            collapsibleState: 0,
+                            messages: message.messages,
+                            deleted: false,
+                            threadTitle: message.threadTitle,
+                            createdAt: new Date().toISOString(),
+                        };
+                        await writeSerializedData(
+                            JSON.stringify([...exitingMessages, threadToSaveMessage], null, 4),
+                            fileName
+                        );
+                    }
+                    break;
+                }
+                case "openSettings": {
+                    vscode.commands.executeCommand(
+                        "workbench.action.openSettings",
+                        "translators-copilot"
+                    );
+                    break;
+                }
+                case "subscribeSettings": {
+                    const settingsToSubscribe = message.settingsToSubscribe;
+                    const config = vscode.workspace.getConfiguration("translators-copilot");
+                    if (settingsToSubscribe) {
+                        for (const setting of settingsToSubscribe) {
+                            const value = config.get(setting);
+                            this._view!.webview.postMessage({
+                                command: "updateSetting",
+                                setting,
+                                value:
+                                    typeof value === "string" ? value : JSON.stringify(value),
+                            });
+                            //now subscribe for changes
+                            // config.onDidChange(
+                            //     (event: { affectsConfiguration: (arg0: any) => any; }) => {
+                            //         if (event.affectsConfiguration(setting)) {
+                            //             webviewView.webview.postMessage({
+                            //                 command: "updateSetting",
+                            //                 setting,
+                            //                 value: config.get(setting),
+                            //             });
+                            //         }
+                            //     },
+                            //     null
+                            // );
+                            vscode.workspace.onDidChangeConfiguration(
+                                (event: vscode.ConfigurationChangeEvent) => {
+                                    if (
+                                        event.affectsConfiguration(
+                                            `translators-copilot.${setting}`
+                                        )
+                                    ) {
+                                        const newConfig =
+                                            vscode.workspace.getConfiguration(
+                                                "translators-copilot"
+                                            );
+                                        this._view!.webview.postMessage({
+                                            command: "updateSetting",
+                                            setting,
+                                            value:
+                                                typeof newConfig.get(setting) === "string"
+                                                    ? newConfig.get(setting)
+                                                    : JSON.stringify(newConfig.get(setting)),
+                                        });
+                                    }
+                                }
                             );
                         }
-                        break;
                     }
-                    case "openSettings": {
-                        vscode.commands.executeCommand(
-                            "workbench.action.openSettings",
-                            "translators-copilot"
-                        );
-                        break;
-                    }
-                    case "subscribeSettings": {
-                        const settingsToSubscribe = message.settingsToSubscribe;
-                        const config = vscode.workspace.getConfiguration("translators-copilot");
-                        if (settingsToSubscribe) {
-                            for (const setting of settingsToSubscribe) {
-                                const value = config.get(setting);
-                                webviewView.webview.postMessage({
-                                    command: "updateSetting",
-                                    setting,
-                                    value:
-                                        typeof value === "string" ? value : JSON.stringify(value),
-                                });
-                                //now subscribe for changes
-                                // config.onDidChange(
-                                //     (event: { affectsConfiguration: (arg0: any) => any; }) => {
-                                //         if (event.affectsConfiguration(setting)) {
-                                //             webviewView.webview.postMessage({
-                                //                 command: "updateSetting",
-                                //                 setting,
-                                //                 value: config.get(setting),
-                                //             });
-                                //         }
-                                //     },
-                                //     null
-                                // );
-                                vscode.workspace.onDidChangeConfiguration(
-                                    (event: vscode.ConfigurationChangeEvent) => {
-                                        if (
-                                            event.affectsConfiguration(
-                                                `translators-copilot.${setting}`
-                                            )
-                                        ) {
-                                            const newConfig =
-                                                vscode.workspace.getConfiguration(
-                                                    "translators-copilot"
-                                                );
-                                            webviewView.webview.postMessage({
-                                                command: "updateSetting",
-                                                setting,
-                                                value:
-                                                    typeof newConfig.get(setting) === "string"
-                                                        ? newConfig.get(setting)
-                                                        : JSON.stringify(newConfig.get(setting)),
-                                            });
-                                        }
-                                    }
-                                );
-                            }
-                        }
-                        break;
-                    }
-                    case "openContextItem": {
-                        const vrefRegex = /[a-zA-Z]+\s+\d+:\d+/;
-                        const vref = message.text.match(vrefRegex)?.[0];
-                        if (vref) {
-                            try {
-                                if (message.text.startsWith("Notes for")) {
-                                    await vscode.commands.executeCommand(
-                                        "codex-editor-extension.showReferences",
-                                        vref
-                                    );
-                                } else if (message.text.startsWith("Questions for")) {
-                                    await vscode.commands.executeCommand(
-                                        "codex-editor-extension.showReferences",
-                                        vref
-                                    ); // FIXME: This should be a different command. Currently the both open the TranslationNotes.
-                                    // There is no command in the codex-editor-extension to open the Questions.
-                                }
-                            } catch (error) {
-                                console.error("Failed to execute command:", error);
-                            }
-                        } else {
-                            console.error("Vref not found in message text");
-                        }
-                        break;
-                    }
-                    case "getCurrentCellId": {
-                        initializeStateStore().then(({ getStoreState }) => {
-                            getStoreState("cellId").then((value) => {
-                                if (value) {
-                                    webviewView.webview.postMessage({
-                                        command: "cellIdUpdate",
-                                        data: {
-                                            cellId: value.cellId,
-                                            uri: value.uri,
-                                        },
-                                    } as ChatPostMessages);
-                                }
-                            });
-                        });
-                        break;
-                    }
-                    case "navigateToMainMenu": {
-                        await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                        break;
-                    }
-                    default:
-                        break;
+                    break;
                 }
-            } catch (error) {
-                sendFinishMessage(webviewView);
-                console.error("Error:", error);
-                vscode.window.showErrorMessage("Service access failed.");
+                case "openContextItem": {
+                    const vrefRegex = /[a-zA-Z]+\s+\d+:\d+/;
+                    const vref = message.text.match(vrefRegex)?.[0];
+                    if (vref) {
+                        try {
+                            if (message.text.startsWith("Notes for")) {
+                                await vscode.commands.executeCommand(
+                                    "codex-editor-extension.showReferences",
+                                    vref
+                                );
+                            } else if (message.text.startsWith("Questions for")) {
+                                await vscode.commands.executeCommand(
+                                    "codex-editor-extension.showReferences",
+                                    vref
+                                ); // FIXME: This should be a different command. Currently the both open the TranslationNotes.
+                                // There is no command in the codex-editor-extension to open the Questions.
+                            }
+                        } catch (error) {
+                            console.error("Failed to execute command:", error);
+                        }
+                    } else {
+                        console.error("Vref not found in message text");
+                    }
+                    break;
+                }
+                case "getCurrentCellId": {
+                    initializeStateStore().then(({ getStoreState }) => {
+                        getStoreState("cellId").then((value) => {
+                            if (value) {
+                                this._view!.webview.postMessage({
+                                    command: "cellIdUpdate",
+                                    data: {
+                                        cellId: value.cellId,
+                                        uri: value.uri,
+                                    },
+                                } as ChatPostMessages);
+                            }
+                        });
+                    });
+                    break;
+                }
+                default:
+                    break;
             }
-        });
+        } catch (error) {
+            sendFinishMessage(this._view!);
+            console.error("Error:", error);
+            vscode.window.showErrorMessage("Service access failed.");
+        }
     }
 }
 
@@ -756,7 +687,7 @@ export function registerChatProvider(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             "genesis-translator-sidebar",
-            new CustomWebviewProvider(context.extensionUri)
+            new CustomWebviewProvider(context)
         )
     );
     item.show();

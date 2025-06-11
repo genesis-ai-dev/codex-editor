@@ -4,6 +4,7 @@ import { getProjectOverview } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
+import { BaseWebviewProvider } from "../../globalProvider";
 
 export interface MenuSection {
     title: string;
@@ -19,9 +20,8 @@ export interface MenuButton {
     description?: string;
 }
 
-export class MainMenuProvider implements vscode.WebviewViewProvider {
+export class MainMenuProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.mainMenu";
-    private _view?: vscode.WebviewView;
     private disposables: vscode.Disposable[] = [];
     private frontierApi?: any;
 
@@ -113,8 +113,17 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
         },
     ];
 
-    constructor(private readonly context: vscode.ExtensionContext) {
+    constructor(context: vscode.ExtensionContext) {
+        super(context);
         this.initializeFrontierApi();
+    }
+
+    protected getWebviewId(): string {
+        return "mainMenu-sidebar";
+    }
+
+    protected getScriptPath(): string[] {
+        return ["MainMenu", "index.js"];
     }
 
     private async initializeFrontierApi() {
@@ -125,45 +134,33 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
         }
     }
 
-    public async resolveWebviewView(webviewView: vscode.WebviewView) {
-        this._view = webviewView;
-
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this.context.extensionUri],
-        };
-
-        // Set up the HTML content
-        webviewView.webview.html = await this.getHtmlForWebview(webviewView);
-
-        // Handle messages from the webview
-        webviewView.webview.onDidReceiveMessage(async (message) => {
-            switch (message.command) {
-                case "focusView":
-                    try {
-                        // Focus the requested view
-                        await vscode.commands.executeCommand(`${message.viewId}.focus`);
-                    } catch (error) {
-                        console.error("Error focusing view:", error);
-                        vscode.window.showErrorMessage(`Error focusing view: ${error}`);
-                    }
-                    break;
-                case "executeCommand":
-                    try {
-                        await this.executeCommand(message.commandName);
-                    } catch (error) {
-                        console.error("Error executing command:", error);
-                        vscode.window.showErrorMessage(`Error executing command: ${error}`);
-                    }
-                    break;
-                case "webviewReady":
-                    this.sendMenuConfigToWebview();
-                    break;
-            }
-        });
-
-        // Send the menu configuration to the webview
+    protected onWebviewResolved(webviewView: vscode.WebviewView): void {
         this.sendMenuConfigToWebview();
+    }
+
+    protected async handleMessage(message: any): Promise<void> {
+        switch (message.command) {
+            case "focusView":
+                try {
+                    // Focus the requested view
+                    await vscode.commands.executeCommand(`${message.viewId}.focus`);
+                } catch (error) {
+                    console.error("Error focusing view:", error);
+                    vscode.window.showErrorMessage(`Error focusing view: ${error}`);
+                }
+                break;
+            case "executeCommand":
+                try {
+                    await this.executeCommand(message.commandName);
+                } catch (error) {
+                    console.error("Error executing command:", error);
+                    vscode.window.showErrorMessage(`Error executing command: ${error}`);
+                }
+                break;
+            case "webviewReady":
+                this.sendMenuConfigToWebview();
+                break;
+        }
     }
 
     private async executeCommand(commandName: string): Promise<void> {
@@ -172,7 +169,7 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
                 await openSystemMessageEditor();
                 break;
             case "openExportView":
-                await openProjectExportView(this.context);
+                await openProjectExportView(this._context);
                 break;
             case "publishProject":
                 await this.publishProject();
@@ -239,71 +236,6 @@ export class MainMenuProvider implements vscode.WebviewViewProvider {
                 menuConfig: this.menuConfig,
             });
         }
-    }
-
-    private async getHtmlForWebview(webviewView: vscode.WebviewView): Promise<string> {
-        const styleResetUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const scriptUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "MainMenu",
-                "index.js"
-            )
-        );
-        const codiconsUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
-
-        const nonce = this.getNonce();
-
-        return /* html */ `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none';
-                    img-src ${webviewView.webview.cspSource} https: data:;
-                    style-src ${webviewView.webview.cspSource} 'unsafe-inline';
-                    script-src 'nonce-${nonce}';
-                    font-src ${webviewView.webview.cspSource};">
-                <link href="${styleResetUri}" rel="stylesheet">
-                <link href="${styleVSCodeUri}" rel="stylesheet">
-                <link href="${codiconsUri}" rel="stylesheet">
-                <title>Codex Main Menu</title>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}">
-                    const vscode = acquireVsCodeApi();
-                </script>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>
-        `;
-    }
-
-    private getNonce(): string {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
     }
 
     public dispose(): void {

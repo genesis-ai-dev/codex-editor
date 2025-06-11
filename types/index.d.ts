@@ -167,6 +167,7 @@ type CommentPostMessages =
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
+    | { command: "updateUser"; user: { id: any; name: any; avatar: any; }; }
     | { command: "navigateToMainMenu"; };
 
 interface SelectedTextDataWithContext {

@@ -3,6 +3,8 @@ import * as path from "path";
 import * as fs from "fs";
 import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { BaseWebviewProvider } from "../../globalProvider";
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 interface CodexMetadata {
     id: string;
@@ -35,9 +37,8 @@ export interface CodexItem {
     sortOrder?: string;
 }
 
-export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
+export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
-    private _view?: vscode.WebviewView;
     private codexItems: CodexItem[] = [];
     private dictionaryItems: CodexItem[] = [];
     private disposables: vscode.Disposable[] = [];
@@ -45,10 +46,19 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
 
-    constructor(private readonly context: vscode.ExtensionContext) {
+    constructor(context: vscode.ExtensionContext) {
+        super(context);
         this.loadBibleBookMap();
         this.buildInitialData();
         this.registerWatchers();
+    }
+
+    protected getWebviewId(): string {
+        return "navigation-sidebar";
+    }
+
+    protected getScriptPath(): string[] {
+        return ["NavigationView", "index.js"];
     }
 
     private loadBibleBookMap(): void {
@@ -91,19 +101,17 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         );
     }
 
-    public async resolveWebviewView(webviewView: vscode.WebviewView) {
-        this._view = webviewView;
+    protected onWebviewResolved(webviewView: vscode.WebviewView): void {
+        // Initial data load
+        if (this.codexItems.length === 0 && this.dictionaryItems.length === 0) {
+            this.loadBibleBookMap();
+            this.buildInitialData();
+        } else {
+            this.sendItemsToWebview();
+        }
+    }
 
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this.context.extensionUri],
-        };
-
-        // Set up the HTML content
-        webviewView.webview.html = await this.getHtmlForWebview(webviewView);
-
-        // Handle messages from the webview
-        webviewView.webview.onDidReceiveMessage(async (message) => {
+    protected async handleMessage(message: any): Promise<void> {
             switch (message.command) {
                 case "openFile":
                     try {
@@ -263,45 +271,28 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 }
-                case "navigateToMainMenu":
-                    try {
-                        await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                    } catch (error) {
-                        console.error("Error navigating to main menu:", error);
-                    }
-                    break;
             }
-        });
-
-        // Initial data load
-        if (this.codexItems.length === 0 && this.dictionaryItems.length === 0) {
-            this.loadBibleBookMap();
-            await this.buildInitialData();
-        } else {
-            this.sendItemsToWebview();
         }
-    }
 
-    private async getHtmlForWebview(webviewView: vscode.WebviewView): Promise<string> {
+    protected getHtmlForWebview(webviewView: vscode.WebviewView): string {
         const styleResetUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
+            vscode.Uri.joinPath(this._context.extensionUri, "src", "assets", "reset.css")
         );
         const styleVSCodeUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
+            vscode.Uri.joinPath(this._context.extensionUri, "src", "assets", "vscode.css")
         );
         const scriptUri = webviewView.webview.asWebviewUri(
             vscode.Uri.joinPath(
-                this.context.extensionUri,
+                this._context.extensionUri,
                 "webviews",
                 "codex-webviews",
                 "dist",
-                "NavigationView",
-                "index.js"
+                ...this.getScriptPath()
             )
         );
         const codiconsUri = webviewView.webview.asWebviewUri(
             vscode.Uri.joinPath(
-                this.context.extensionUri,
+                this._context.extensionUri,
                 "node_modules",
                 "@vscode/codicons",
                 "dist",
@@ -309,7 +300,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
             )
         );
 
-        const nonce = this.getNonce();
+        const nonce = getNonce();
 
         return /* html */ `
             <!DOCTYPE html>
@@ -326,7 +317,7 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                 <link href="${styleVSCodeUri}" rel="stylesheet">
                 <link href="${codiconsUri}" rel="stylesheet">
                 <script nonce="${nonce}">
-                    const vscode = acquireVsCodeApi();
+                    // VS Code API will be acquired by the React component
                 </script>
                 <style>
                     .progress-container {
@@ -692,15 +683,6 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                 ? item.children.map((child) => this.serializeItem(child))
                 : undefined,
         };
-    }
-
-    private getNonce(): string {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
     }
 
     public dispose(): void {

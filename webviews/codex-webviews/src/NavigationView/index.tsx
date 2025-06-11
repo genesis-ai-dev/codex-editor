@@ -10,10 +10,11 @@ import {
 import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
 
-// Declare the VS Code API globally like in ProjectManagerView
-declare const vscode: {
-    postMessage: (message: any) => void;
-};
+// Declare the acquireVsCodeApi function
+declare function acquireVsCodeApi(): any;
+
+// Acquire the VS Code API
+const vscode = acquireVsCodeApi();
 
 interface BibleBookInfo {
     name: string;

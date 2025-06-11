@@ -25,6 +25,7 @@ import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -41,17 +42,6 @@ interface StateStore {
         callback: (value: CellIdGlobalState | undefined) => void
     ) => () => void;
     updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState }) => void;
-}
-
-function getNonce(): string {
-    debug("Generating nonce");
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    debug("Generated nonce:", text);
-    return text;
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {

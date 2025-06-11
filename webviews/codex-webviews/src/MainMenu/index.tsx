@@ -5,8 +5,9 @@ import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import "../tailwind.css";
 
-// Declare the global vscode object that's already acquired by something else
-declare const vscode: any;
+// Declare the acquireVsCodeApi function and acquire the VS Code API
+declare function acquireVsCodeApi(): any;
+const vscode = acquireVsCodeApi();
 
 interface MenuButton {
     id: string;
