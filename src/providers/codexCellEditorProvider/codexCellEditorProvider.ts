@@ -93,8 +93,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             progress: 0,
         };
 
-    // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
-    private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
+
 
     // Add a property to track pending validations
     private pendingValidations: Map<
@@ -1011,40 +1010,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.broadcastSingleCellTranslationState();
     }
 
-    // New method to update single cell translation progress
-    public updateSingleCellTranslationProgress(progress: number): void {
-        if (
-            this.singleCellTranslationState.isProcessing &&
-            this.singleCellTranslationState.cellId
-        ) {
-            this.singleCellTranslationState.progress = progress;
-            this.broadcastSingleCellTranslationState();
+    // Unified method to handle all single cell translation state changes
+    public updateSingleCellTranslation(progress: number, errorMessage?: string): void {
+        if (!this.singleCellTranslationState.isProcessing || !this.singleCellTranslationState.cellId) {
+            return;
         }
-    }
 
-    // New method to complete single cell translation
-    public completeSingleCellTranslation(): void {
-        if (this.singleCellTranslationState.isProcessing) {
+        if (errorMessage) {
+            // Handle error case
+            const cellId = this.singleCellTranslationState.cellId;
             this.singleCellTranslationState = {
                 isProcessing: false,
                 cellId: undefined,
                 progress: 0,
             };
-            this.broadcastSingleCellTranslationState();
-        }
-    }
-
-    // New method to handle single cell translation error
-    public failSingleCellTranslation(errorMessage: string): void {
-        const cellId = this.singleCellTranslationState.cellId;
-        this.singleCellTranslationState = {
-            isProcessing: false,
-            cellId: undefined,
-            progress: 0,
-        };
-
-        if (cellId) {
-            // Notify webviews that the translation failed
             this.webviewPanels.forEach((panel) => {
                 panel.webview.postMessage({
                     type: "singleCellTranslationFailed",
@@ -1052,6 +1031,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     error: errorMessage,
                 });
             });
+        } else if (progress >= 1.0) {
+            // Handle completion
+            this.singleCellTranslationState = {
+                isProcessing: false,
+                cellId: undefined,
+                progress: 0,
+            };
+            this.broadcastSingleCellTranslationState();
+        } else {
+            // Handle progress update
+            this.singleCellTranslationState.progress = progress;
+            this.broadcastSingleCellTranslationState();
         }
     }
 
@@ -1350,10 +1341,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.singleCellTranslationState.isProcessing &&
             this.singleCellTranslationState.cellId === cellId
         ) {
-            this.updateSingleCellTranslationProgress(1.0);
+            this.updateSingleCellTranslation(1.0);
 
-            // Use a short timeout to reset the state after completion
-            setTimeout(() => this.completeSingleCellTranslation(), 1500);
+                                // Use a short timeout to reset the state after completion
+                    setTimeout(() => this.updateSingleCellTranslation(1.0), 1500);
         }
     }
 
@@ -1513,8 +1504,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update state and reject the promise
                     this.markCellComplete(request.cellId);
                     if (!this.autocompletionState.isProcessing) {
-                        this.failSingleCellTranslation(
-                            error instanceof Error ? error.message : String(error)
+                        this.updateSingleCellTranslation(
+                            0, error instanceof Error ? error.message : String(error)
                         );
                     }
 
@@ -1577,7 +1568,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     });
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(0.2);
+                    this.updateSingleCellTranslation(0.2);
 
                     // Check for cancellation before fetching config
                     if (this.autocompleteCancellation?.token.isCancellationRequested) {
@@ -1594,7 +1585,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     });
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(0.5);
+                    this.updateSingleCellTranslation(0.5);
 
                     // Check for cancellation before starting LLM completion
                     if (this.autocompleteCancellation?.token.isCancellationRequested) {
@@ -1621,7 +1612,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     progress.report({ message: "Updating document...", increment: 40 });
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(0.9);
+                    this.updateSingleCellTranslation(0.9);
 
                     // Update content and metadata atomically
                     currentDocument.updateCellContent(
@@ -1632,7 +1623,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     );
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(1.0);
+                    this.updateSingleCellTranslation(1.0);
 
                     debug("LLM completion result", { result });
                     return result;

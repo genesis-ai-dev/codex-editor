@@ -25,7 +25,7 @@ const model = config.get("model");
 const maxTokens = config.get("max_tokens");
 const temperature = config.get("temperature");
 const maxLength = 2048;
-let VerseReader: VerseDataReader | null = null;
+const VerseReader: VerseDataReader | null = null;
 let abortController: AbortController | null = null;
 
 const sendChatThreadToWebview = async (webviewView: vscode.WebviewView) => {
