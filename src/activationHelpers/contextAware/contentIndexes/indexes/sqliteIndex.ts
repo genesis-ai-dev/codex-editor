@@ -146,7 +146,31 @@ export class SQLiteIndexManager {
 
             // Ensure schema is up to date
             await this.ensureSchema();
-        } catch {
+        } catch (error) {
+            stepStart = this.trackProgress("Handle database error", stepStart);
+
+            // Check if this is a corruption error
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isCorruption = errorMessage.includes("database disk image is malformed") ||
+                errorMessage.includes("file is not a database") ||
+                errorMessage.includes("database is locked") ||
+                errorMessage.includes("database corruption");
+
+            if (isCorruption) {
+                console.warn(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
+                console.warn("[SQLiteIndex] Deleting corrupt database and creating new one");
+
+                // Delete the corrupted database file
+                try {
+                    await vscode.workspace.fs.delete(dbPath);
+                    stepStart = this.trackProgress("Delete corrupted database", stepStart);
+                } catch (deleteError) {
+                    console.warn("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
+                }
+            } else {
+                console.log("[SQLiteIndex] Database file not found or other error, creating new database");
+            }
+
             stepStart = this.trackProgress("Create new database", stepStart);
             console.log("Creating new index database");
             this.db = new this.sql!.Database();
@@ -320,32 +344,57 @@ export class SQLiteIndexManager {
         const ensureStart = globalThis.performance.now();
         let stepStart = ensureStart;
 
-        // Check current schema version
-        stepStart = this.trackProgress("Check database schema version", stepStart);
-        const currentVersion = this.getSchemaVersion();
-        console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
+        try {
+            // Check current schema version
+            stepStart = this.trackProgress("Check database schema version", stepStart);
+            const currentVersion = this.getSchemaVersion();
+            console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
 
-        if (currentVersion === 0) {
-            // New database - create with latest schema
-            stepStart = this.trackProgress("Initialize new database schema", stepStart);
-            console.log("[SQLiteIndex] Setting up new database with latest schema");
-            await this.createSchema();
-            this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-            this.trackProgress("New database schema initialized", stepStart);
-            console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
-        } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
-            // Old database - recreate instead of migrating to ensure clean schema
-            stepStart = this.trackProgress("Recreate outdated database", stepStart);
-            console.log(`[SQLiteIndex] Old schema detected (version ${currentVersion}). Recreating database for clean slate.`);
-            await this.recreateDatabase();
-            this.trackProgress("Database recreation complete", stepStart);
-            console.log(`[SQLiteIndex] Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
-        } else {
-            stepStart = this.trackProgress("Verify database schema", stepStart);
-            console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
+            if (currentVersion === 0) {
+                // New database - create with latest schema
+                stepStart = this.trackProgress("Initialize new database schema", stepStart);
+                console.log("[SQLiteIndex] Setting up new database with latest schema");
+                await this.createSchema();
+                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                this.trackProgress("New database schema initialized", stepStart);
+                console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
+            } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
+                // Old database - recreate instead of migrating to ensure clean schema
+                stepStart = this.trackProgress("Recreate outdated database", stepStart);
+                console.log(`[SQLiteIndex] Old schema detected (version ${currentVersion}). Recreating database for clean slate.`);
+                await this.recreateDatabase();
+                this.trackProgress("Database recreation complete", stepStart);
+                console.log(`[SQLiteIndex] Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
+            } else {
+                stepStart = this.trackProgress("Verify database schema", stepStart);
+                console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
+            }
+
+            this.trackProgress("Database Schema Setup Complete", ensureStart);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isCorruption = errorMessage.includes("database disk image is malformed") ||
+                errorMessage.includes("file is not a database") ||
+                errorMessage.includes("database is locked") ||
+                errorMessage.includes("database corruption");
+
+            if (isCorruption) {
+                console.error(`[SQLiteIndex] Database corruption detected during schema operations: ${errorMessage}`);
+                console.warn("[SQLiteIndex] Recreating corrupted database");
+                stepStart = this.trackProgress("Recreate corrupted database", stepStart);
+
+                // Force recreate the database
+                this.db = new this.sql!.Database();
+                await this.createSchema();
+                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+                this.trackProgress("Database corruption recovery complete", stepStart);
+                console.log("[SQLiteIndex] Successfully recreated database after corruption");
+            } else {
+                // Re-throw non-corruption errors
+                throw error;
+            }
         }
-
-        this.trackProgress("Database Schema Setup Complete", ensureStart);
     }
 
     private async recreateDatabase(): Promise<void> {
