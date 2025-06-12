@@ -86,15 +86,6 @@
                     "id": "codex-editor.editAnalysis",
                     "name": "AI Metrics"
                 }
-            ],
-            "genesis-translator-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "genesis-translator-sidebar",
-                    "name": "Genesis Translator",
-                    "icon": "$(comment-discussion)",
-                    "contextualTitle": "Genesis Translator"
-                }
             ]
         },
         "viewsContainers": {
