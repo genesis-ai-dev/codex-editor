@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
 import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
 import registerClientOnRequests from "./tsServer/registerClientOnRequests";

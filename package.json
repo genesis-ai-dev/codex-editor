@@ -242,11 +242,7 @@
                 "title": "Set Editor Font to Target Language",
                 "category": "Codex Editor"
             },
-            {
-                "command": "codex-editor-extension.getBibleDataRecordById",
-                "title": "Get Bible Data Record by ID",
-                "category": "Codex Editor"
-            },
+
             {
                 "command": "codex-editor-extension.exportCodexContent",
                 "title": "Export Codex Translation as Plain Text",
