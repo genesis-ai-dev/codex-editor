@@ -14,7 +14,7 @@ import registerQuillSpellChecker, {
     QuillSpellChecker,
 } from "./react-quill-spellcheck";
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
-import "./TextEditor.css"; // Override the default Quill styles so spans flow
+// import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import ReactPlayer from "react-player";
 import { diffWords } from "diff";

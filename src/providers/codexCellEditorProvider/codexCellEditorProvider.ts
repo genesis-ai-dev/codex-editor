@@ -41,13 +41,13 @@ interface StateStore {
         keyForListener: K,
         callback: (value: CellIdGlobalState | undefined) => void
     ) => () => void;
-    updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState }) => void;
+    updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState; }) => void;
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
-    private userInfo: { username: string; email: string } | undefined;
+    private userInfo: { username: string; email: string; } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | number | undefined;
@@ -98,14 +98,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add a property to track pending validations
     private pendingValidations: Map<
         string,
-        { cellId: string; document: CodexCellDocument; shouldValidate: boolean }
+        { cellId: string; document: CodexCellDocument; shouldValidate: boolean; }
     > = new Map();
 
     // Class property to track if we've registered the command already
     public syncChapterCommandRegistered = false;
 
     // Add bibleBookMap state to the provider
-    private bibleBookMap: Map<string, { name: string;[key: string]: any }> | undefined;
+    private bibleBookMap: Map<string, { name: string;[key: string]: any; }> | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -209,7 +209,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public async openCustomDocument(
         uri: vscode.Uri,
-        openContext: { backupId?: string },
+        openContext: { backupId?: string; },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
         debug("Opening custom document:", uri.toString());
@@ -446,7 +446,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (Object.keys(audioAttachments).length > 0) {
                         debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
                         // Send only the cell IDs that have audio, not the file paths
-                        const audioCells: { [cellId: string]: boolean } = {};
+                        const audioCells: { [cellId: string]: boolean; } = {};
                         for (const cellId of Object.keys(audioAttachments)) {
                             audioCells[cellId] = true;
                         }
@@ -1345,8 +1345,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         ) {
             this.updateSingleCellTranslation(1.0);
 
-                                // Use a short timeout to reset the state after completion
-                    setTimeout(() => this.updateSingleCellTranslation(1.0), 1500);
+            // Use a short timeout to reset the state after completion
+            setTimeout(() => this.updateSingleCellTranslation(1.0), 1500);
         }
     }
 
@@ -1744,7 +1744,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         string,
                         {
                             document: CodexCellDocument;
-                            validations: { cellId: string; shouldValidate: boolean }[];
+                            validations: { cellId: string; shouldValidate: boolean; }[];
                         }
                     >();
 
@@ -2019,7 +2019,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Create the map
-        this.bibleBookMap = new Map<string, { name: string;[key: string]: any }>();
+        this.bibleBookMap = new Map<string, { name: string;[key: string]: any; }>();
         bookData.forEach((book) => {
             if (book.abbr) {
                 // Ensure abbreviation exists

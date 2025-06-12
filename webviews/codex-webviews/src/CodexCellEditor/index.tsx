@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./CodexCellEditor";
-import "./App.css";
+// import "./App.css";
 import "../tailwind.css";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import SourceCellContext from "./contextProviders/SourceCellContext";

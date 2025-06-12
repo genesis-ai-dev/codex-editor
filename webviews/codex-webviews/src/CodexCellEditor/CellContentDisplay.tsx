@@ -501,9 +501,30 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,
                 ...getBorderStyle(),
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.5rem",
+                padding: "0.25rem",
+                cursor: "pointer",
+                border: "1px solid transparent",
+                borderRadius: "4px",
+                overflow: "hidden",
+                maxWidth: "100%",
+                boxSizing: "border-box",
+                transition: "border 0.3s ease",
+                overflowWrap: "break-word",
+                wordWrap: "break-word",
+                wordBreak: "break-word",
             }}
         >
-            <div className="cell-header">
+            <div
+                className="cell-header"
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                }}
+            >
                 {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
                     <div
                         className="cell-actions"
