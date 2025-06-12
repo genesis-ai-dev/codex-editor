@@ -14,7 +14,7 @@ import {
     TheographicBibleDataRecord,
 } from "../../activationHelpers/contextAware/sourceData";
 import { initializeStateStore } from "../../stateStore";
-import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { fetchCompletionConfig } from "@/utils/llmUtils";
 import { performReflection } from "../../utils/llmUtils";
 import { BaseWebviewProvider } from "../../globalProvider";
 

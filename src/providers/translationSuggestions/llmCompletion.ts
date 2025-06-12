@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CompletionConfig } from "./inlineCompletionsProvider";
+import { CompletionConfig } from "@/utils/llmUtils";
 import { callLLM } from "../../utils/llmUtils";
 import { ChatMessage, MinimalCellResult, TranslationPair } from "../../../types";
 import { CodexNotebookReader } from "../../serializer";

@@ -15,7 +15,7 @@ import path from "path";
 import { getWorkSpaceUri } from "../../utils";
 import { SavedBacktranslation } from "../../smartEdits/smartBacktranslation";
 import { initializeStateStore } from "../../stateStore";
-import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { fetchCompletionConfig } from "@/utils/llmUtils";
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { getAuthApi } from "@/extension";

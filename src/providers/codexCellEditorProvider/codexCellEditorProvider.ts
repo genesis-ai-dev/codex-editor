@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { fetchCompletionConfig } from "@/utils/llmUtils";
 import { CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";

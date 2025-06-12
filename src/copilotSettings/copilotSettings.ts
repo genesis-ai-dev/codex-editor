@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { callLLM } from "../utils/llmUtils";
-import { CompletionConfig } from "../providers/translationSuggestions/inlineCompletionsProvider";
+import { CompletionConfig } from "@/utils/llmUtils";
 
 interface ProjectLanguage {
     tag: string;
