@@ -77,16 +77,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         console.log("Webview is ready");
     },
 
-    requestUsername: async ({ webviewPanel }) => {
-        const api = await vscode.commands.executeCommand("translators-copilot.getAuthApi");
-        const username = api ? (api as any).username : "anonymous_user";
-        console.log("Sending username to webview:", username);
-        webviewPanel.webview.postMessage({
-            type: "setUsername",
-            value: username,
-        });
-    },
-
     addWord: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "addWord" }>;
         await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);

@@ -484,9 +484,6 @@ const CodexCellEditor: React.FC = () => {
 
         // Send requests with error handling
         try {
-            vscode.postMessage({
-                command: "requestUsername",
-            });
 
             vscode.postMessage({
                 command: "getCurrentUsername",

@@ -612,7 +612,6 @@ export type EditorPostMessages =
     | { command: "clearPendingValidations"; }
     | { command: "getCurrentUsername"; }
     | { command: "getValidationCount"; }
-    | { command: "requestUsername"; }
     | { command: "stopAutocompleteChapter"; }
     | { command: "stopSingleCellTranslation"; }
     | { command: "triggerReindexing"; }
