@@ -3,7 +3,6 @@ import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/cod
 import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { GlobalContentType, GlobalMessage } from "../types";
 import { getNonce } from "./providers/dictionaryTable/utilities/getNonce";
-import { initializeStateStore } from "./stateStore";
 
 
 

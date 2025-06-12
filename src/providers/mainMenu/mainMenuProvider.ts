@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { getProjectOverview } from "../../projectManager/utils/projectUtils";
 import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";

@@ -28,11 +28,6 @@
     ],
     "contributes": {
         "keybindings": [
-            {
-                "command": "extension.triggerInlineCompletion",
-                "key": "alt+z",
-                "when": "editorTextFocus && !inputDisabled"
-            }
         ],
         "views": {
             "codex-main-menu": [
@@ -125,11 +120,6 @@
                     "icon": "$(eye)"
                 },
                 {
-                    "id": "semantic-view",
-                    "title": "Semantic View",
-                    "icon": "$(unfold)"
-                },
-                {
                     "id": "genesis-translator-sidebar-view",
                     "title": "Translator's Copilot",
                     "icon": "$(comment-discussion)"
@@ -162,21 +152,7 @@
                     "group": "navigation"
                 }
             ],
-            "editor/context": [
-                {
-                    "command": "codex-editor-extension.triggerInlineCompletion",
-                    "title": "Autocomplete",
-                    "group": "translators-copilot",
-                    "icon": "$(sparkle)",
-                    "when": "editorTextFocus && editorLangId == scripture"
-                }
-            ],
             "commandPalette": [
-                {
-                    "command": "codex-editor-extension.triggerInlineCompletion",
-                    "title": "Translators Copilot: Autocomplete",
-                    "when": "editorTextFocus && editorLangId == scripture"
-                },
                 {
                     "command": "translators-copilot.getFileStats",
                     "title": "Translators Copilot: Show File Statistics"
@@ -457,13 +433,6 @@
                 "title": "JOSH_COMMAND"
             },
             {
-                "command": "codex-editor-extension.triggerInlineCompletion",
-                "title": "Autocomplete",
-                "group": "translators-copilot",
-                "icon": "$(sparkle)",
-                "when": "editorTextFocus && editorLangId == scripture"
-            },
-            {
                 "command": "translators-copilot.searchIndex",
                 "title": "Search Index",
                 "icon": "$(search)",
@@ -473,12 +442,6 @@
                 "command": "translators-copilot.forceReindex",
                 "title": "Force Reindex",
                 "icon": "$(refresh)",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.showFileStatsView",
-                "title": "Show Translation Progress",
-                "icon": "$(graph)",
                 "category": "Translators Copilot"
             },
             {

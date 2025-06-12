@@ -31,10 +31,6 @@ import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
-import {
-    registerFileStatsWebviewProvider,
-    updateFileStatsWebview,
-} from "../../../../providers/fileStats/register";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
@@ -78,10 +74,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         trailing: true,
     });
 
-    // Register file stats webview provider only once
-    if (!isIndexContextInitialized) {
-        const fileStatsProvider = registerFileStatsWebviewProvider(context, filesIndex);
-    }
 
     // Debounced functions for individual indexes
     const debouncedUpdateTranslationPairsIndex = debounce(async (doc: vscode.TextDocument) => {
@@ -164,8 +156,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
             filesIndex = await initializeFilesIndex();
 
-            // Update the file stats webview
-            updateFileStatsWebview(filesIndex);
 
             // Update complete drafts
             try {
