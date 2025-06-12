@@ -1639,12 +1639,6 @@ export type WelcomeViewReceiveMessages =
     | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string; }
     | { command: "showLoginLoading"; loading: boolean; };
 
-// Add to your global WebviewMessage type
-export type WebviewMessage =
-    | ChatViewMessage
-    | StartupFlowMessage
-    // Add other message types...
-    | SplashScreenMessage;
 
 export interface SplashScreenMessage {
     command: "update" | "complete" | "animationComplete";
