@@ -10,11 +10,11 @@ import { NOTEBOOK_TYPE } from "../utils/codexNotebookUtils";
 export async function registerLanguageServer(
     context: vscode.ExtensionContext
 ): Promise<LanguageClient | undefined> {
-    const config = vscode.workspace.getConfiguration("translators-copilot-server");
+    const config = vscode.workspace.getConfiguration("codex-editor-extension-server");
     const isCopilotEnabled = config.get<boolean>("enable", true);
     if (!isCopilotEnabled) {
         vscode.window.showInformationMessage(
-            "Translators Copilot Server is disabled. Project was not indexed."
+            "Codex Extension Server is disabled. Project was not indexed."
         );
         return;
     }

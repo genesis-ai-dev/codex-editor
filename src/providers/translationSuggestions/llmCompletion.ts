@@ -31,7 +31,7 @@ export async function llmCompletion(
             currentCellIds.map(
                 (id) =>
                     vscode.commands.executeCommand(
-                        "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                        "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                         id
                     ) as Promise<MinimalCellResult | null>
             )
@@ -43,7 +43,7 @@ export async function llmCompletion(
 
         // Get similar source cells
         const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
-            "translators-copilot.getTranslationPairsFromSourceCellQuery",
+            "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
             sourceContent || "empty",
             numberOfFewShotExamples
         );
@@ -109,7 +109,7 @@ export async function llmCompletion(
                     cellIds.map(
                         (id) =>
                             vscode.commands.executeCommand(
-                                "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                                 id
                             ) as Promise<MinimalCellResult | null>
                     )
@@ -252,7 +252,7 @@ async function logDebugMessages(messages: ChatMessage[], completion: string) {
                 } else if (selection === "Disable Debug Mode") {
                     vscode.commands.executeCommand(
                         "workbench.action.openSettings",
-                        "translators-copilot.debugMode"
+                        "codex-editor-extension.debugMode"
                     );
                     vscode.window.showInformationMessage("Opening settings for debug mode.");
                 }
@@ -274,7 +274,7 @@ function showNoResultsWarning() {
                 .showInformationMessage(detailedWarning, "Refresh Index", "How to Fix")
                 .then((selection) => {
                     if (selection === "Refresh Index") {
-                        vscode.commands.executeCommand("translators-copilot.forceReindex");
+                        vscode.commands.executeCommand("codex-editor-extension.forceReindex");
                     } else if (selection === "How to Fix") {
                         vscode.window.showInformationMessage(
                             "Try translating more cells in nearby sections or chapters to provide better context for future suggestions."

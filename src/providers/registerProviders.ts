@@ -7,7 +7,6 @@ import { NavigationWebviewProvider } from "./navigationWebview/navigationWebview
 import { MainMenuProvider } from "./mainMenu/mainMenuProvider";
 import { CustomWebviewProvider as CommentsProvider } from "./commentsWebview/customCommentsWebviewProvider";
 import { CustomWebviewProvider as ParallelProvider } from "./parallelPassagesWebview/customParallelPassagesWebviewProvider";
-import { CustomWebviewProvider as ChatProvider } from "./chat/customChatWebviewProvider";
 import { WordsViewProvider } from "./WordsView/WordsViewProvider";
 import { GlobalProvider } from "../globalProvider";
 
@@ -22,7 +21,6 @@ export function registerProviders(context: vscode.ExtensionContext) {
     const mainMenuProvider = new MainMenuProvider(context);
     const commentsProvider = new CommentsProvider(context);
     const parallelProvider = new ParallelProvider(context);
-    const chatProvider = new ChatProvider(context);
 
     disposables.push(
         vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider),
@@ -37,9 +35,6 @@ export function registerProviders(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", parallelProvider),
         GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", parallelProvider as any),
         
-        vscode.window.registerWebviewViewProvider("chat-sidebar", chatProvider),
-        GlobalProvider.getInstance().registerProvider("chat-sidebar", chatProvider as any),
-
         // Register parallel passages command
         vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
             await parallelProvider.pinCellById(cellId);

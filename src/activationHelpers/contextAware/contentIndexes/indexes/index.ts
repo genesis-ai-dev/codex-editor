@@ -215,7 +215,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const searchTargetCellsByQueryCommand = vscode.commands.registerCommand(
-            "translators-copilot.searchTargetCellsByQuery",
+            "codex-editor-extension.searchTargetCellsByQuery",
             async (query?: string, showInfo: boolean = false) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
@@ -247,7 +247,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const getTranslationPairsFromSourceCellQueryCommand = vscode.commands.registerCommand(
-            "translators-copilot.getTranslationPairsFromSourceCellQuery",
+            "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
             async (query?: string, k: number = 10, showInfo: boolean = false) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
@@ -275,7 +275,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const getSourceCellByCellIdFromAllSourceCellsCommand = vscode.commands.registerCommand(
-            "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+            "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
             async (cellId?: string, showInfo: boolean = false) => {
                 if (!cellId) {
                     cellId = await vscode.window.showInputBox({
@@ -303,7 +303,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const getTargetCellByCellIdCommand = vscode.commands.registerCommand(
-            "translators-copilot.getTargetCellByCellId",
+            "codex-editor-extension.getTargetCellByCellId",
             async (cellId?: string, showInfo: boolean = false) => {
                 if (!cellId) {
                     cellId = await vscode.window.showInputBox({
@@ -324,7 +324,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const forceReindexCommand = vscode.commands.registerCommand(
-            "translators-copilot.forceReindex",
+            "codex-editor-extension.forceReindex",
             async () => {
                 vscode.window.showInformationMessage("Force re-indexing started");
                 await rebuildIndexes(true);
@@ -333,7 +333,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const showIndexOptionsCommand = vscode.commands.registerCommand(
-            "translators-copilot.showIndexOptions",
+            "codex-editor-extension.showIndexOptions",
             async () => {
                 const option = await vscode.window.showQuickPick(["Force Reindex"], {
                     placeHolder: "Select an indexing option",
@@ -346,14 +346,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const getWordFrequenciesCommand = vscode.commands.registerCommand(
-            "translators-copilot.getWordFrequencies",
+            "codex-editor-extension.getWordFrequencies",
             async (): Promise<Array<{ word: string; frequency: number; }>> => {
                 return getWordFrequencies(wordsIndex);
             }
         );
 
         const refreshWordIndexCommand = vscode.commands.registerCommand(
-            "translators-copilot.refreshWordIndex",
+            "codex-editor-extension.refreshWordIndex",
             async () => {
                 const { targetFiles } = await readSourceAndTargetFiles();
                 wordsIndex = await initializeWordsIndex(new Map(), targetFiles);
@@ -362,9 +362,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const getWordsAboveThresholdCommand = vscode.commands.registerCommand(
-            "translators-copilot.getWordsAboveThreshold",
+            "codex-editor-extension.getWordsAboveThreshold",
             async () => {
-                const config = vscode.workspace.getConfiguration("translators-copilot");
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
                 const threshold = config.get<number>("wordFrequencyThreshold", 50);
                 if (wordsIndex.size === 0) {
                     const { targetFiles } = await readSourceAndTargetFiles();
@@ -377,7 +377,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const searchParallelCellsCommand = vscode.commands.registerCommand(
-            "translators-copilot.searchParallelCells",
+            "codex-editor-extension.searchParallelCells",
             async (query?: string, k: number = 15, showInfo: boolean = false, options?: any) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
@@ -437,13 +437,13 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
         const searchSimilarCellIdsCommand = vscode.commands.registerCommand(
-            "translators-copilot.searchSimilarCellIds",
+            "codex-editor-extension.searchSimilarCellIds",
             async (cellId: string) => {
                 return searchSimilarCellIds(translationPairsIndex, cellId);
             }
         );
         const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
-            "translators-copilot.getTranslationPairFromProject",
+            "codex-editor-extension.getTranslationPairFromProject",
             async (cellId?: string, showInfo: boolean = false) => {
                 if (!cellId) {
                     cellId = await vscode.window.showInputBox({
@@ -474,7 +474,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const findNextUntranslatedSourceCellCommand = vscode.commands.registerCommand(
-            "translators-copilot.findNextUntranslatedSourceCell",
+            "codex-editor-extension.findNextUntranslatedSourceCell",
             async (query?: string, cellId?: string, showInfo: boolean = false) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
@@ -513,7 +513,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const searchAllCellsCommand = vscode.commands.registerCommand(
-            "translators-copilot.searchAllCells",
+            "codex-editor-extension.searchAllCells",
             async (
                 query?: string,
                 k: number = 15,
@@ -557,7 +557,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         // Add command to get file stats
         const getFileStatsCommand = vscode.commands.registerCommand(
-            "translators-copilot.getFileStats",
+            "codex-editor-extension.getFileStats",
             async () => {
                 try {
                     const stats = getWordCountStats(filesIndex);
@@ -576,7 +576,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         // Add command to get detailed file info
         const getFileInfoCommand = vscode.commands.registerCommand(
-            "translators-copilot.getFileInfo",
+            "codex-editor-extension.getFileInfo",
             async () => {
                 try {
                     const filePairs = getFilePairs(filesIndex);
@@ -675,7 +675,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
 
         const verifyDataIntegrityCommand = vscode.commands.registerCommand(
-            "translators-copilot.verifyDataIntegrity",
+            "codex-editor-extension.verifyDataIntegrity",
             async () => {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {

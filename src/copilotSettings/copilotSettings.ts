@@ -20,7 +20,7 @@ export async function openSystemMessageEditor() {
     );
 
     // Get configurations
-    const config = vscode.workspace.getConfiguration("translators-copilot");
+    const config = vscode.workspace.getConfiguration("codex-editor-extension");
     const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
 
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");

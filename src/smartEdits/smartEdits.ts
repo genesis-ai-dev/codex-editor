@@ -317,7 +317,7 @@ export class SmartEdits {
     private async findSimilarEntries(text: string): Promise<TranslationPair[]> {
         try {
             const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                "translators-copilot.searchParallelCells",
+                "codex-editor-extension.searchParallelCells",
                 text
             );
             return results || [];

@@ -241,7 +241,7 @@ export interface CompletionConfig {
 }
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
-        const config = vscode.workspace.getConfiguration("translators-copilot");
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
         // if (sharedStateExtension) {
         //     const stateStore = sharedStateExtension.exports;
         //     stateStore.updateStoreState({

@@ -91,7 +91,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const response = await vscode.commands.executeCommand<
             Array<{ cellId: string; score: number }>
         >(
-            "translators-copilot.searchSimilarCellIds",
+            "codex-editor-extension.searchSimilarCellIds",
             typedEvent.content.cellId,
             5,
             0.2
@@ -112,7 +112,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         const response = await vscode.commands.executeCommand(
-            "translators-copilot.spellCheckText",
+            "codex-editor-extension.spellCheckText",
             typedEvent.content.cellContent
         );
         provider.postMessageToWebview(webviewPanel, {
@@ -130,7 +130,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             return;
         }
         const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-            "translators-copilot.alertCodes",
+            "codex-editor-extension.alertCodes",
             typedEvent.content
         );
 
@@ -257,7 +257,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     getSourceText: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getSourceText" }>;
         const sourceText = (await vscode.commands.executeCommand(
-            "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+            "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
             typedEvent.content.cellId
         )) as { cellId: string; content: string };
         console.log("providerSendsSourceText", { sourceText });
@@ -677,7 +677,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     triggerReindexing: async () => {
         console.log("Triggering reindexing after all translations completed");
-        await vscode.commands.executeCommand("translators-copilot.forceReindex");
+        await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
     },
 
     requestAudioAttachments: async ({ document, webviewPanel, provider }) => {

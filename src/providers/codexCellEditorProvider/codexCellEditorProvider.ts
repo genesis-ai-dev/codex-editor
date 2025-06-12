@@ -467,7 +467,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Watch for configuration changes
         const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             debug("Configuration changed");
-            if (e.affectsConfiguration("translators-copilot.textDirection")) {
+            if (e.affectsConfiguration("codex-editor-extension.textDirection")) {
                 debug("Text direction configuration changed");
                 this.updateTextDirection(webviewPanel, document);
             }
@@ -1523,7 +1523,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             //     debug("Translation queue empty, triggering reindexing");
             //     try {
             //         // We don't await this to avoid blocking the queue processing completion
-            //         vscode.commands.executeCommand("translators-copilot.forceReindex");
+            //         vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             //     } catch (error) {
             //         console.error("Error triggering reindex after translations:", error);
             //     }

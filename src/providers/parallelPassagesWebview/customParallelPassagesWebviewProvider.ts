@@ -55,14 +55,14 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         if (this._view) {
             // Get the translation pair for this cell
             let translationPair = await vscode.commands.executeCommand<TranslationPair>(
-                "translators-copilot.getTranslationPairFromProject",
+                "codex-editor-extension.getTranslationPairFromProject",
                 cellId
             );
 
             if (!translationPair) {
                 // If no translation pair is found, get only the source text
                 const sourceCell = await vscode.commands.executeCommand(
-                    "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                     cellId
                 );
 
@@ -104,8 +104,8 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             case "search":
                 try {
                     const command = message.completeOnly
-                        ? "translators-copilot.searchParallelCells"
-                        : "translators-copilot.searchAllCells";
+                        ? "codex-editor-extension.searchParallelCells"
+                        : "codex-editor-extension.searchAllCells";
 
                     const results = await vscode.commands.executeCommand<TranslationPair[]>(
                         command,

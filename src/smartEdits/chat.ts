@@ -13,7 +13,7 @@ class Chatbot {
     private language: string;
 
     constructor(private systemMessage: string) {
-        this.config = vscode.workspace.getConfiguration("translators-copilot");
+        this.config = vscode.workspace.getConfiguration("codex-editor-extension");
         this.language = this.config.get("main_chat_language") || "en";
 
         // Initialize OpenAI with proper configuration (will check Frontier API)
@@ -55,7 +55,7 @@ class Chatbot {
         const apiKey = this.getApiKey();
         if (!apiKey && !frontierApiAvailable) {
             vscode.window.showWarningMessage(
-                "Smart Edits LLM API key is not set (translators-copilot.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
+                "Smart Edits LLM API key is not set (codex-editor-extension.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
             );
         }
 

@@ -628,7 +628,7 @@ export class SourceUploadProvider
                                     });
 
                                     await vscode.commands.executeCommand(
-                                        "translators-copilot.forceReindex"
+                                        "codex-editor-extension.forceReindex"
                                     );
                                 } catch (error) {
                                     // Error handling
@@ -1077,7 +1077,7 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful download
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
         } catch (error) {
             await this.currentDownloadBibleTransaction?.rollback();
             throw error;
@@ -1275,7 +1275,7 @@ export class SourceUploadProvider
 
             // Trigger reindex after successful import
             if (transactions.length > errors.length) {
-                await vscode.commands.executeCommand("translators-copilot.forceReindex");
+                await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             }
         } catch (error) {
             // Handle any unexpected errors at the top level
@@ -1365,7 +1365,7 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful import
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
         } catch (error) {
             // Rollback all transactions on error
             await Promise.all(transactions.map((t) => t.rollback()));
