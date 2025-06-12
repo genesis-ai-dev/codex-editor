@@ -27,7 +27,7 @@ async function openFileAtLocation(uri: string, cellId: string) {
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
     protected getWebviewId(): string {
-        return "parallel-passages-sidebar";
+        return "search-passages-sidebar";
     }
 
     protected getScriptPath(): string[] {
@@ -40,7 +40,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         // First, ensure the webview is visible
         console.log("pinCellByIdProvider", cellId);
-        await vscode.commands.executeCommand("parallel-passages-sidebar.focus");
+        await vscode.commands.executeCommand("search-passages-sidebar.focus");
 
         // Wait for the webview to be ready
         if (!this._view && retryCount < maxRetries) {
@@ -89,7 +89,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 data: translationPair,
             });
         } else {
-            vscode.window.showErrorMessage("Failed to open parallel passages view");
+            vscode.window.showErrorMessage("Failed to open search passages view");
         }
     }
 

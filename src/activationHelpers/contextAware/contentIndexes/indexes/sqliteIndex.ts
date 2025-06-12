@@ -759,7 +759,7 @@ export class SQLiteIndexManager {
      * @param options.limit - Maximum results to return (default: 50)
      * @param options.fuzzy - Fuzzy matching threshold (default: 0.2)
      * @param options.returnRawContent - If true, return raw content with HTML; if false, return sanitized content (default: false)
-     * @param options.isParallelPassagesWebview - If true, this search is for the parallel passages webview display (default: false)
+     * @param options.isParallelPassagesWebview - If true, this search is for the search passages webview display (default: false)
      * @returns Array of search results with raw or sanitized content based on options
      */
     search(query: string, options?: any): any[] {
@@ -770,7 +770,7 @@ export class SQLiteIndexManager {
         const boost = options?.boost || {};
 
         // Determine content type based on caller
-        // Parallel passages webview needs raw content for proper HTML display
+        // Pearch passages webview needs raw content for proper HTML display
         // Everything else (LLM, etc.) should get sanitized content
         const returnRawContent = options?.returnRawContent || options?.isParallelPassagesWebview || false;
 

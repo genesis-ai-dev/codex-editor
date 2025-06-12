@@ -32,10 +32,10 @@ export function registerProviders(context: vscode.ExtensionContext) {
         vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider),
         GlobalProvider.getInstance().registerProvider("comments-sidebar", commentsProvider as any),
         
-        vscode.window.registerWebviewViewProvider("parallel-passages-sidebar", parallelProvider),
-        GlobalProvider.getInstance().registerProvider("parallel-passages-sidebar", parallelProvider as any),
+        vscode.window.registerWebviewViewProvider("search-passages-sidebar", parallelProvider),
+        GlobalProvider.getInstance().registerProvider("search-passages-sidebar", parallelProvider as any),
         
-        // Register parallel passages command
+        // Register search passages command
         vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
             await parallelProvider.pinCellById(cellId);
         })

@@ -49,10 +49,10 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     description: "Manage your translation project",
                 },
                 {
-                    id: "parallel-passages",
-                    label: "Parallel Passages",
+                    id: "search-passages",
+                    label: "Search Passages",
                     icon: "eye",
-                    viewId: "parallel-passages-sidebar",
+                    viewId: "search-passages-sidebar",
                     description: "Compare passages across texts",
                 },
                 // removed semantic view for now as it needs complete redo

@@ -39,13 +39,13 @@
                     "contextualTitle": "Codex Main Menu"
                 }
             ],
-            "parallel-passages-view": [
+            "search-passages-view": [
                 {
                     "type": "webview",
-                    "id": "parallel-passages-sidebar",
-                    "name": "Parallel Passages",
+                    "id": "search-passages-sidebar",
+                    "name": "Search Passages",
                     "icon": "$(eye)",
-                    "contextualTitle": "Parallel Passages"
+                    "contextualTitle": "Search Passages"
                 }
             ],
             "codex-files-view": [
@@ -106,8 +106,8 @@
                     "icon": "$(tools)"
                 },
                 {
-                    "id": "parallel-passages-view",
-                    "title": "Parallel Passages",
+                    "id": "search-passages-view",
+                    "title": "Search Passages",
                     "icon": "$(eye)"
                 },
                 {
