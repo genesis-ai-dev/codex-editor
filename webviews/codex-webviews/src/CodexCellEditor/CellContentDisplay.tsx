@@ -11,7 +11,7 @@ import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell display modes
 import "./TranslationAnimations.css"; // Import the animation CSS
@@ -558,8 +558,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                 }
                                 content={
                                     !isSourceText && (
-                                        <VSCodeButton
-                                            appearance="icon"
+                                        <Button
                                             style={{
                                                 height: "16px",
                                                 width: "16px",
@@ -583,7 +582,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                                 }`}
                                                 style={{ fontSize: "12px" }}
                                             ></i>
-                                        </VSCodeButton>
+                                        </Button>
                                     )
                                 }
                             />
