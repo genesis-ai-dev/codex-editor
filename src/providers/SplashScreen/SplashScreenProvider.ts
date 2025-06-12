@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { ActivationTiming } from "../../extension";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 export interface SyncDetails {
     progress: number;
@@ -189,78 +190,29 @@ export class SplashScreenProvider {
 
     private _getHtmlForWebview(): string {
         const webview = this._panel!.webview;
-
-        // Get path to the SplashScreen webview built files
-        // The file is in webviews/codex-webviews/dist/SplashScreen/
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this._extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "SplashScreen",
-                "index.js"
-            )
-        );
-
-        // No separate CSS file is needed as Vite injects it into JS by default
-
-        // Send initial timing data
-        const initialState = {
-            timings: this._timings,
-            syncDetails: this._syncDetails,
-        };
-
-        return `<!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Codex Editor Loading</title>
-            <style>
-                body {
-                    margin: 0;
-                    padding: 0;
-                    height: 100vh;
-                    width: 100vw;
-                    overflow: hidden;
-                    background-color: var(--vscode-editor-background);
-                    color: var(--vscode-foreground);
-                    font-family: var(--vscode-font-family);
-                }
-                
-                #root {
-                    height: 100%;
-                    width: 100%;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="root"></div>
-            <script>
-                // Initialize with timing data
-                window.initialState = ${JSON.stringify(initialState)};
-                
-                // Setup communication with extension
+        
+        return getWebviewHtml(webview, { extensionUri: this._extensionUri } as vscode.ExtensionContext, {
+            title: "Codex Editor Loading",
+            scriptPath: ["SplashScreen", "index.js"],
+            csp: "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';",
+            initialData: { timings: this._timings, syncDetails: this._syncDetails },
+            inlineStyles: `
+                body { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; background-color: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); }
+                #root { height: 100%; width: 100%; }
+            `,
+            customScript: `
                 const vscode = acquireVsCodeApi();
-                
-                // Listen for messages from the extension
                 window.addEventListener('message', event => {
                     const message = event.data;
                     if (message) {
-                        // Dispatch custom event to React app
                         const customEvent = new CustomEvent('vscode-message', { detail: message });
                         document.getElementById('root').dispatchEvent(customEvent);
                     }
                 });
-                
-                // Forward animation complete messages to extension
                 window.addEventListener('animation-complete', () => {
                     vscode.postMessage({ command: 'animationComplete' });
                 });
-            </script>
-            <script src="${scriptUri}"></script>
-        </body>
-        </html>`;
+            `
+        });
     }
 }

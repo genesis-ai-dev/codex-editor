@@ -19,7 +19,7 @@ import { getAuthApi } from "../../extension";
 import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 // State machine types
 export enum StartupFlowStates {
@@ -1050,60 +1050,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
-        const styleResetUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode",
-                "codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "StartupFlow",
-                "index.js"
-            )
-        );
-
-        const nonce = getNonce();
-
-        return /*html*/ `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${
-                    webview.cspSource
-                } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${
-                    webview.cspSource
-                }; connect-src https://languagetool.org/api/; img-src ${
-                    webview.cspSource
-                } https:; font-src ${webview.cspSource}; media-src ${
-                    webview.cspSource
-                } https: blob:;">
-                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-                <title>Startup Flow</title>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>`;
+        return getWebviewHtml(webview, this.context, {
+            title: "Startup Flow",
+            scriptPath: ["StartupFlow", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource}; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;`
+        });
     }
 
     private async handleMessage(

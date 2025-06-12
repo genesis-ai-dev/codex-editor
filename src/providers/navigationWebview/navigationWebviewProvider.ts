@@ -4,7 +4,7 @@ import * as fs from "fs";
 import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { BaseWebviewProvider } from "../../globalProvider";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 interface CodexMetadata {
     id: string;
@@ -280,186 +280,31 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         }
 
     protected getHtmlForWebview(webviewView: vscode.WebviewView): string {
-        const styleResetUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this._context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this._context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const scriptUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this._context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                ...this.getScriptPath()
-            )
-        );
-        const codiconsUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this._context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
-
-        const nonce = getNonce();
-
-        return /* html */ `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none';
-                    img-src ${webviewView.webview.cspSource} https: data:;
-                    style-src ${webviewView.webview.cspSource} 'unsafe-inline';
-                    script-src 'nonce-${nonce}';
-                    font-src ${webviewView.webview.cspSource};">
-                <link href="${styleResetUri}" rel="stylesheet">
-                <link href="${styleVSCodeUri}" rel="stylesheet">
-                <link href="${codiconsUri}" rel="stylesheet">
-                <script nonce="${nonce}">
-                    // VS Code API will be acquired by the React component
-                </script>
-                <style>
-                    .progress-container {
-                        margin: 6px 0;
-                    }
-                    
-                    .progress-label {
-                        display: flex;
-                        justify-content: space-between;
-                        margin-bottom: 4px;
-                        font-size: 12px;
-                        color: var(--vscode-foreground);
-                        opacity: 0.8;
-                    }
-                    
-                    .progress-bar {
-                        height: 4px;
-                        border-radius: 2px;
-                        background-color: var(--vscode-progressBar-background);
-                        position: relative;
-                        overflow: hidden;
-                        transition: all 0.3s ease;
-                    }
-                    
-                    .progress-fill {
-                        height: 100%;
-                        border-radius: 2px;
-                        background: linear-gradient(90deg, 
-                            var(--vscode-progressBar-background) 0%, 
-                            var(--vscode-charts-green) 100%);
-                        transition: width 0.5s ease-out;
-                    }
-                    
-                    .progress-complete .progress-fill {
-                        background: var(--vscode-charts-green);
-                    }
-                    
-                    .tree-item {
-                        padding: 6px 0;
-                        cursor: pointer;
-                        transition: background-color 0.2s;
-                    }
-                    
-                    .tree-item:hover {
-                        background-color: var(--vscode-list-hoverBackground);
-                    }
-                    
-                    .tree-item-content {
-                        display: flex;
-                        align-items: center;
-                        padding: 0 8px;
-                    }
-                    
-                    .item-icon {
-                        margin-right: 6px;
-                        color: var(--vscode-foreground);
-                        opacity: 0.7;
-                    }
-                    
-                    .folder-icon {
-                        color: var(--vscode-charts-yellow);
-                    }
-                    
-                    .file-icon {
-                        color: var(--vscode-charts-blue);
-                    }
-                    
-                    .dictionary-icon {
-                        color: var(--vscode-charts-purple);
-                    }
-                    
-                    .search-container {
-                        padding: 8px;
-                        position: sticky;
-                        top: 0;
-                        background: var(--vscode-sideBar-background);
-                        z-index: 10;
-                        display: flex;
-                        align-items: center;
-                    }
-                    
-                    .search-input {
-                        flex: 1;
-                        height: 24px;
-                        border-radius: 4px;
-                        background: var(--vscode-input-background);
-                        border: 1px solid var(--vscode-input-border, transparent);
-                        color: var(--vscode-input-foreground);
-                        padding: 0 8px;
-                        outline: none;
-                    }
-                    
-                    .search-input:focus {
-                        border-color: var(--vscode-focusBorder);
-                    }
-                    
-                    .refresh-button {
-                        margin-left: 8px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        width: 24px;
-                        height: 24px;
-                        border-radius: 4px;
-                        background: transparent;
-                        border: none;
-                        color: var(--vscode-foreground);
-                        cursor: pointer;
-                    }
-                    
-                    .refresh-button:hover {
-                        background: var(--vscode-button-hoverBackground);
-                    }
-                    
-                    .header {
-                        font-size: 13px;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                        padding: 8px;
-                        color: var(--vscode-foreground);
-                        opacity: 0.6;
-                        border-bottom: 1px solid var(--vscode-panel-border);
-                    }
-                    
-                    .complete-check {
-                        margin-left: auto;
-                        color: var(--vscode-charts-green);
-                    }
-                </style>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>
-        `;
+        return getWebviewHtml(webviewView.webview, this._context, {
+            scriptPath: this.getScriptPath(),
+            csp: `default-src 'none'; img-src ${webviewView.webview.cspSource} https: data:; style-src ${webviewView.webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; font-src ${webviewView.webview.cspSource};`,
+            inlineStyles: `
+                .progress-container { margin: 6px 0; }
+                .progress-label { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; color: var(--vscode-foreground); opacity: 0.8; }
+                .progress-bar { height: 4px; border-radius: 2px; background-color: var(--vscode-progressBar-background); position: relative; overflow: hidden; transition: all 0.3s ease; }
+                .progress-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--vscode-progressBar-background) 0%, var(--vscode-charts-green) 100%); transition: width 0.5s ease-out; }
+                .progress-complete .progress-fill { background: var(--vscode-charts-green); }
+                .tree-item { padding: 6px 0; cursor: pointer; transition: background-color 0.2s; }
+                .tree-item:hover { background-color: var(--vscode-list-hoverBackground); }
+                .tree-item-content { display: flex; align-items: center; padding: 0 8px; }
+                .item-icon { margin-right: 6px; color: var(--vscode-foreground); opacity: 0.7; }
+                .folder-icon { color: var(--vscode-charts-yellow); }
+                .file-icon { color: var(--vscode-charts-blue); }
+                .dictionary-icon { color: var(--vscode-charts-purple); }
+                .search-container { padding: 8px; position: sticky; top: 0; background: var(--vscode-sideBar-background); z-index: 10; display: flex; align-items: center; }
+                .search-input { flex: 1; height: 24px; border-radius: 4px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); color: var(--vscode-input-foreground); padding: 0 8px; outline: none; }
+                .search-input:focus { border-color: var(--vscode-focusBorder); }
+                .refresh-button { margin-left: 8px; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: transparent; border: none; color: var(--vscode-foreground); cursor: pointer; }
+                .refresh-button:hover { background: var(--vscode-button-hoverBackground); }
+                .header { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px; color: var(--vscode-foreground); opacity: 0.6; border-bottom: 1px solid var(--vscode-panel-border); }
+                .complete-check { margin-left: auto; color: var(--vscode-charts-green); }
+            `
+        });
     }
 
     private async buildInitialData(): Promise<void> {

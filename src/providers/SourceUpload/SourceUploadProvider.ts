@@ -25,7 +25,7 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
-import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -852,49 +852,11 @@ export class SourceUploadProvider
         if (!this.context) {
             throw new Error("Context is not set in SourceUploadProvider.getHtmlForWebview");
         }
-        const styleResetUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "SourceUpload",
-                "index.js"
-            )
-        );
-
-        const nonce = getNonce();
-        return /*html*/ `<!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
-                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-                <title>Codex Uploader</title>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>`;
+        return getWebviewHtml(webview, this.context, {
+            title: "Codex Uploader",
+            scriptPath: ["SourceUpload", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; worker-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`
+        });
     }
 
     // New method to generate preview

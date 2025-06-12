@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getNonce } from "./utilities/getNonce";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 import {
     DictionaryPostMessages,
     DictionaryReceiveMessages,
@@ -229,36 +229,11 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                 "codicon.css"
             )
         );
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "EditableReactTable",
-                "index.js"
-            )
-        );
-
-        const nonce = getNonce();
-
-        return /* html */ `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; connect-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
-                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-                <title>Dictionary Editor</title>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>`;
+        return getWebviewHtml(webview, this.context, {
+            title: "Dictionary Editor", 
+            scriptPath: ["EditableReactTable", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; connect-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`
+        });
     }
 
     private async updateTextDocument(

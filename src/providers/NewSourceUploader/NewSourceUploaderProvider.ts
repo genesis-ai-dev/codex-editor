@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { NewSourceUploaderPostMessages } from "@newSourceUploaderTypes";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { NotebookPreview } from "@types";
@@ -283,45 +284,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
-        // Get path to the NewSourceUploader webview built files
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "NewSourceUploader",
-                "index.js"
-            )
-        );
-
-        // Use a nonce to only allow specific scripts to be run
-        const nonce = this.getNonce();
-
-        return `<!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
-            <title>DOCX to HTML Converter</title>
-            <style>
-                #root {
-                    height: 100vh;
-                    width: 100vw;
-                    overflow-y: auto;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="root"></div>
-            <script nonce="${nonce}">
-                // Setup communication with extension - acquire API once and make it global
-                window.vscodeApi = acquireVsCodeApi();
-            </script>
-            <script nonce="${nonce}" src="${scriptUri}"></script>
-        </body>
-        </html>`;
+        return getWebviewHtml(webview, this.context, {
+            title: "DOCX to HTML Converter",
+            scriptPath: ["NewSourceUploader", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data:;`,
+            inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
+            customScript: "window.vscodeApi = acquireVsCodeApi();"
+        });
     }
 
     private getNonce(): string {
