@@ -46,10 +46,10 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     }, [audioBlob, audioUrl]);
 
     return (
-        <div className="bg-gray-100 p-4 sm:p-6 rounded-lg shadow-md w-full">
-            <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+        <div className="bg-[var(--vscode-editor-background)] p-4 sm:p-6 rounded-lg shadow-md w-full">
+            <div className="mb-4 bg-[var(--vscode-editorWarning-foreground)]/10 border border-[var(--vscode-editorWarning-foreground)]/20 rounded-lg p-3">
                 <div className="flex items-start gap-2">
-                    <div className="text-yellow-600 mt-0.5">
+                    <div className="text-[var(--vscode-editorWarning-foreground)] mt-0.5">
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="16"
@@ -66,9 +66,8 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                             <line x1="12" y1="17" x2="12.01" y2="17" />
                         </svg>
                     </div>
-                    <div className="text-sm text-yellow-800">
-                        <p className="font-medium">Audio files are currently local only</p>
-                        <p className="text-yellow-700">Sync functionality coming soon!</p>
+                    <div className="text-sm text-[var(--vscode-editorWarning-foreground)]">
+                        <p className="font-medium">Audio files are currently local only. Sync functionality coming soon!</p>
                     </div>
                 </div>
             </div>
@@ -78,15 +77,15 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                 {isTranscribing ? (
                     <div className="space-y-3">
                         <div className="flex items-center gap-2">
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                            <span className="text-sm text-gray-600">
+                            <Loader2 className="h-4 w-4 animate-spin text-[var(--vscode-button-background)]" />
+                            <span className="text-sm text-[var(--vscode-foreground)]">
                                 Transcribing... {Math.round(transcriptionProgress)}%
                             </span>
                         </div>
                         {transcriptionProgress > 0 && (
-                            <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div className="w-full bg-[var(--vscode-editor-background)] rounded-full h-2">
                                 <div
-                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    className="bg-[var(--vscode-button-background)] h-2 rounded-full transition-all duration-300"
                                     style={{ width: `${transcriptionProgress}%` }}
                                 />
                             </div>
@@ -94,8 +93,8 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     </div>
                 ) : transcription ? (
                     <div className="space-y-3">
-                        <div className="bg-white p-4 rounded-lg border border-gray-200">
-                            <p className="text-sm text-gray-800 leading-relaxed mb-2">
+                        <div className="bg-[var(--vscode-editor-background)] p-4 rounded-lg border border-[var(--vscode-panel-border)]">
+                            <p className="text-sm text-[var(--vscode-foreground)] leading-relaxed mb-2">
                                 {transcription.content}
                             </p>
                             {transcription.language && (
@@ -107,7 +106,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         <Button
                             onClick={onInsertTranscription}
                             disabled={disabled}
-                            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                            className="w-full bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)]"
                         >
                             <Copy className="mr-2 h-4 w-4" />
                             Insert Transcription
@@ -118,7 +117,7 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         onClick={onTranscribe}
                         disabled={disabled || (!audioUrl && !audioBlob)}
                         variant="outline"
-                        className="w-full justify-center text-blue-600 border-blue-200 hover:bg-blue-50"
+                        className="w-full justify-center text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
                     >
                         <MessageCircle className="mr-2 h-4 w-4" />
                         Click to transcribe audio
@@ -127,17 +126,17 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
             </div>
 
             {/* Waveform */}
-            <div className="bg-white p-4 rounded-lg shadow">
+            <div className="bg-[var(--vscode-editor-background)] p-4 rounded-lg shadow">
                 {dataUrl && dataUrl.startsWith("data:") ? (
                     <CustomWaveformCanvas
                         audioUrl={dataUrl}
                         height={60}
-                        backgroundColor="#fff"
+                        backgroundColor="var(--vscode-editor-background)"
                         showControls={true}
                         showDebugInfo={false}
                     />
                 ) : (
-                    <div className="flex items-center justify-center h-16 text-gray-500 text-sm">
+                    <div className="flex items-center justify-center h-16 text-[var(--vscode-foreground)] text-sm">
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Loading waveform...
                     </div>

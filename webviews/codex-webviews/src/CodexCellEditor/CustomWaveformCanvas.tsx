@@ -440,20 +440,24 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     }, [currentTime, duration, togglePlayPause, handleSeekChange]);
 
     const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
-
     return (
-        <div className="bg-white p-4 rounded-lg shadow-md w-full" ref={containerRef}>
+        <div
+            className="bg-[var(--vscode-editor-background)] p-4 rounded-lg shadow-md w-full"
+            ref={containerRef}
+        >
             {/* Canvas */}
             <div className="relative mb-4">
                 {isLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded z-10">
-                        <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-[var(--vscode-editor-background)]/80 rounded z-10">
+                        <Loader2 className="h-8 w-8 text-[var(--vscode-button-background)] animate-spin" />
                     </div>
                 )}
                 {error && !isLoading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50/80 rounded z-10 p-4">
-                        <AlertTriangle className="h-8 w-8 text-red-500 mb-2" />
-                        <p className="text-red-600 text-sm text-center">{error}</p>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--vscode-errorForeground)]/10 rounded z-10 p-4">
+                        <AlertTriangle className="h-8 w-8 text-[var(--vscode-errorForeground)] mb-2" />
+                        <p className="text-[var(--vscode-errorForeground)] text-sm text-center">
+                            {error}
+                        </p>
                     </div>
                 )}
                 <canvas
@@ -478,7 +482,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         <Button
                             size="icon"
                             variant="ghost"
-                            className="bg-blue-600 hover:bg-blue-700 text-white rounded-full w-10 h-10 flex-shrink-0"
+                            className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-10 h-10 flex-shrink-0"
                             onClick={togglePlayPause}
                             disabled={isLoading || !!error}
                             title={isPlaying ? "Pause (Space)" : "Play (Space)"}
@@ -498,12 +502,12 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             disabled={isLoading || !!error}
                             className={cn(
                                 "flex-grow",
-                                "[&>span:nth-child(1)]:bg-blue-200",
-                                "[&>span>span]:bg-blue-600",
-                                "[&_[role=slider]]:bg-blue-600 [&_[role=slider]]:w-3.5 [&_[role=slider]]:h-3.5 [&_[role=slider]]:border-2 [&_[role=slider]]:border-white"
+                                "[&>span:nth-child(1)]:bg-[var(--vscode-button-background)]/20",
+                                "[&>span>span]:bg-[var(--vscode-button-background)]",
+                                "[&_[role=slider]]:bg-[var(--vscode-button-background)] [&_[role=slider]]:w-3.5 [&_[role=slider]]:h-3.5 [&_[role=slider]]:border-2 [&_[role=slider]]:border-[var(--vscode-editor-background)]"
                             )}
                         />
-                        <div className="text-xs sm:text-sm text-gray-600 font-mono whitespace-nowrap tabular-nums flex-shrink-0">
+                        <div className="text-xs sm:text-sm text-[var(--vscode-foreground)] font-mono whitespace-nowrap tabular-nums flex-shrink-0">
                             {formatTime(currentTime)} / {formatTime(duration)}
                         </div>
                     </div>
@@ -511,7 +515,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                         <div className="flex items-center gap-2">
                             <VolumeIcon
-                                className="h-5 w-5 text-gray-600 cursor-pointer"
+                                className="h-5 w-5 text-[var(--vscode-foreground)] cursor-pointer"
                                 onClick={() => handleVolumeChange(volume > 0 ? 0 : 0.5)}
                             />
                             <Slider
@@ -521,19 +525,19 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                                 onValueChange={(values: number[]) => handleVolumeChange(values[0])}
                                 className={cn(
                                     "w-20 sm:w-24",
-                                    "[&>span:nth-child(1)]:bg-blue-200",
-                                    "[&>span>span]:bg-blue-600",
-                                    "[&_[role=slider]]:bg-blue-600 [&_[role=slider]]:w-3 [&_[role=slider]]:h-3"
+                                    "[&>span:nth-child(1)]:bg-[var(--vscode-button-background)]/20",
+                                    "[&>span>span]:bg-[var(--vscode-button-background)]",
+                                    "[&_[role=slider]]:bg-[var(--vscode-button-background)] [&_[role=slider]]:w-3 [&_[role=slider]]:h-3"
                                 )}
                                 disabled={isLoading || !!error}
                             />
-                            <span className="text-xs text-gray-600 w-9 text-right tabular-nums">
+                            <span className="text-xs text-[var(--vscode-foreground)] w-9 text-right tabular-nums">
                                 {Math.round(volume * 100)}%
                             </span>
                         </div>
 
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-600">Speed:</span>
+                            <span className="text-xs text-[var(--vscode-foreground)]">Speed:</span>
                             <Select
                                 value={String(playbackRate)}
                                 onValueChange={handlePlaybackRateChange}
@@ -552,7 +556,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             </Select>
                         </div>
                     </div>
-                    <div className="text-xs text-gray-500 text-center">
+                    <div className="text-xs text-[var(--vscode-descriptionForeground)] text-center">
                         Space: Play/Pause • ←/→: Skip 5s
                     </div>
                 </div>
@@ -562,7 +566,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             {showDebugInfo && (
                 <Accordion type="single" collapsible className="w-full mt-4">
                     <AccordionItem value="debug-info">
-                        <AccordionTrigger className="text-sm text-gray-700">
+                        <AccordionTrigger className="text-sm text-[var(--vscode-foreground)]">
                             Debug: Audio Information
                         </AccordionTrigger>
                         <AccordionContent>
@@ -574,7 +578,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                                 ) : (
                                     <Badge variant="secondary">Audio loaded</Badge>
                                 )}
-                                <div className="text-xs text-gray-500 space-y-1">
+                                <div className="text-xs text-[var(--vscode-descriptionForeground)] space-y-1">
                                     <p>
                                         URL:{" "}
                                         {audioUrl.length > 50
