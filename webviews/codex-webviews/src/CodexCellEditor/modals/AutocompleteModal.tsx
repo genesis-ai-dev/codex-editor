@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { VSCodeTag } from "@vscode/webview-ui-toolkit/react";
 
@@ -29,30 +29,54 @@ export function AutocompleteModal({
     totalCellsToAutocomplete,
     totalCellsWithCurrentUserOption,
     totalFullyValidatedByOthers = 0,
-    defaultValue = Math.min(5, totalUntranslatedCells > 0 ? totalUntranslatedCells : 5),
+    defaultValue = 5,
 }: AutocompleteModalProps) {
-    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(0);
-    const [customValue, setCustomValue] = useState<number | null>(null);
-
     // Individual states for each cell type
     const [includeEmptyCells, setIncludeEmptyCells] = useState(true);
     const [includeNotValidatedByAnyUser, setIncludeNotValidatedByAnyUser] = useState(false);
     const [includeNotValidatedByCurrentUser, setIncludeNotValidatedByCurrentUser] = useState(false);
     const [includeFullyValidatedByOthers, setIncludeFullyValidatedByOthers] = useState(false);
 
-    // Show warning dialogs
-    const [showValidationWarning, setShowValidationWarning] = useState(false);
-    const [showNotValidatedByCurrentUserWarning, setShowNotValidatedByCurrentUserWarning] =
-        useState(false);
+    const [numberOfCellsToAutocomplete, setNumberOfCellsToAutocomplete] = useState(defaultValue);
 
-    // Start with base total - only cells with no content
-    const [effectiveTotalCells, setEffectiveTotalCells] = useState(totalUntranslatedCells);
+    // Calculate effective total cells based on selected options
+    const calculateEffectiveTotalCells = () => {
+        let total = 0;
+        if (includeEmptyCells) total += totalUntranslatedCells;
+        if (includeNotValidatedByAnyUser) total += totalCellsToAutocomplete;
+        if (includeNotValidatedByCurrentUser) total += totalCellsWithCurrentUserOption;
+        if (includeFullyValidatedByOthers) total += totalFullyValidatedByOthers;
+        return total;
+    };
+
+    const effectiveTotalCells = calculateEffectiveTotalCells();
+
+    // Reset to default when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            setNumberOfCellsToAutocomplete(Math.min(defaultValue, effectiveTotalCells));
+        }
+    }, [isOpen, defaultValue, effectiveTotalCells]);
+
+    // Ensure numberOfCellsToAutocomplete doesn't exceed effective total
+    useEffect(() => {
+        if (numberOfCellsToAutocomplete > effectiveTotalCells) {
+            setNumberOfCellsToAutocomplete(effectiveTotalCells);
+        }
+    }, [effectiveTotalCells, numberOfCellsToAutocomplete]);
 
     if (!isOpen) return null;
 
+    const handleNumberChange = (value: string) => {
+        const num = parseInt(value) || 0;
+        setNumberOfCellsToAutocomplete(Math.min(num, effectiveTotalCells));
+    };
+
+    const isValidSelection = effectiveTotalCells > 0 && numberOfCellsToAutocomplete > 0;
+
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]">
-            <div className="bg-background border border-border rounded-lg p-6 max-w-2xl w-full">
+            <div className="bg-background border border-border rounded-lg p-6 max-w-lg w-full">
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-semibold text-foreground">Autocomplete Cells</h2>
                     <Button onClick={onClose}>
@@ -60,151 +84,107 @@ export function AutocompleteModal({
                     </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                    {/* Cell type cards */}
-                    <div
-                        className={`p-4 rounded-lg border ${
-                            includeEmptyCells
-                                ? "bg-primary text-primary-foreground border-ring"
-                                : "border-border"
-                        } cursor-pointer`}
-                        onClick={() => setIncludeEmptyCells(!includeEmptyCells)}
-                    >
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="font-bold">—</span>
-                            <span className="font-semibold">Empty Cells</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">Cells with no content</p>
-                        <div className="mt-2">
-                            <VSCodeTag>{totalUntranslatedCells} cells</VSCodeTag>
-                        </div>
-                    </div>
+                <div className="mb-6">
+                    <h3 className="font-semibold mb-3 text-foreground">Cell types to include:</h3>
+                    <div className="space-y-2">
+                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                            <input
+                                type="checkbox"
+                                checked={includeEmptyCells}
+                                onChange={(e) => setIncludeEmptyCells(e.target.checked)}
+                                className="w-4 h-4"
+                            />
+                            <div className="flex-1 flex items-center justify-between">
+                                <span className="text-sm">Empty cells (no content)</span>
+                                <VSCodeTag>{totalUntranslatedCells} cells</VSCodeTag>
+                            </div>
+                        </label>
 
-                    <div
-                        className={`p-4 rounded-lg border ${
-                            includeNotValidatedByAnyUser
-                                ? "bg-primary text-primary-foreground border-ring"
-                                : "border-border"
-                        } cursor-pointer`}
-                        onClick={() =>
-                            setIncludeNotValidatedByAnyUser(!includeNotValidatedByAnyUser)
-                        }
-                    >
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="font-bold">✓</span>
-                            <span className="font-semibold">Not Validated Cells</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            Cells not validated by any user (not validated by you or by others)
-                        </p>
-                        <div className="mt-2">
-                            <VSCodeTag>{totalCellsToAutocomplete} cells</VSCodeTag>
-                        </div>
-                    </div>
+                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                            <input
+                                type="checkbox"
+                                checked={includeNotValidatedByAnyUser}
+                                onChange={(e) => setIncludeNotValidatedByAnyUser(e.target.checked)}
+                                className="w-4 h-4"
+                            />
+                            <div className="flex-1 flex items-center justify-between">
+                                <span className="text-sm">Not validated by any user</span>
+                                <VSCodeTag>{totalCellsToAutocomplete} cells</VSCodeTag>
+                            </div>
+                        </label>
 
-                    <div
-                        className={`p-4 rounded-lg border ${
-                            includeNotValidatedByCurrentUser
-                                ? "bg-primary text-primary-foreground border-ring"
-                                : "border-border"
-                        } cursor-pointer`}
-                        onClick={() =>
-                            setIncludeNotValidatedByCurrentUser(!includeNotValidatedByCurrentUser)
-                        }
-                    >
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="font-bold">👤</span>
-                            <span className="font-semibold">Not Validated by You</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            Cells you haven't validated yet
-                        </p>
-                        <div className="mt-2">
-                            <VSCodeTag>{totalCellsWithCurrentUserOption} cells</VSCodeTag>
-                        </div>
-                    </div>
+                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                            <input
+                                type="checkbox"
+                                checked={includeNotValidatedByCurrentUser}
+                                onChange={(e) =>
+                                    setIncludeNotValidatedByCurrentUser(e.target.checked)
+                                }
+                                className="w-4 h-4"
+                            />
+                            <div className="flex-1 flex items-center justify-between">
+                                <span className="text-sm">Not validated by you</span>
+                                <VSCodeTag>{totalCellsWithCurrentUserOption} cells</VSCodeTag>
+                            </div>
+                        </label>
 
-                    <div
-                        className={`p-4 rounded-lg border ${
-                            includeFullyValidatedByOthers
-                                ? "bg-primary text-primary-foreground border-ring"
-                                : "border-border"
-                        } cursor-pointer`}
-                        onClick={() =>
-                            setIncludeFullyValidatedByOthers(!includeFullyValidatedByOthers)
-                        }
-                    >
-                        <div className="flex items-center gap-2 mb-2">
-                            <span className="font-bold">✓✓</span>
-                            <span className="font-semibold">Fully Validated</span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            Cells fully validated by other users
-                        </p>
-                        <div className="mt-2">
-                            <VSCodeTag>{totalFullyValidatedByOthers} cells</VSCodeTag>
-                        </div>
+                        <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-muted">
+                            <input
+                                type="checkbox"
+                                checked={includeFullyValidatedByOthers}
+                                onChange={(e) => setIncludeFullyValidatedByOthers(e.target.checked)}
+                                className="w-4 h-4"
+                            />
+                            <div className="flex-1 flex items-center justify-between">
+                                <span className="text-sm">Fully validated by others</span>
+                                <VSCodeTag>{totalFullyValidatedByOthers} cells</VSCodeTag>
+                            </div>
+                        </label>
                     </div>
                 </div>
 
                 <div className="mb-6">
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-3">
                         <label className="font-semibold text-foreground">
                             Number of cells to autocomplete:
                         </label>
-                        <div className="flex items-center gap-2">
-                            <input
-                                type="number"
-                                value={customValue !== null ? customValue : ""}
-                                onChange={(e) => {
-                                    const value = parseInt(e.target.value);
-                                    setCustomValue(value);
-                                    if (value > 0) {
-                                        setNumberOfCellsToAutocomplete(
-                                            value > effectiveTotalCells
-                                                ? effectiveTotalCells
-                                                : value
-                                        );
-                                    }
-                                }}
-                                className="w-32 px-2 py-1 bg-input border-border rounded"
-                                placeholder="Enter value"
-                            />
-                            {effectiveTotalCells > 0 && (
-                                <Button
-                                    onClick={() =>
-                                        setNumberOfCellsToAutocomplete(effectiveTotalCells)
-                                    }
-                                >
-                                    All ({effectiveTotalCells})
-                                </Button>
-                            )}
+                        <div className="text-sm text-muted-foreground">
+                            {numberOfCellsToAutocomplete} of {effectiveTotalCells} available
                         </div>
                     </div>
 
-                    <div className="p-3 bg-muted rounded">
-                        <div className="font-semibold mb-2 text-foreground">
-                            Selected cell types:
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            {includeEmptyCells && <VSCodeTag>Empty Cells</VSCodeTag>}
-                            {includeNotValidatedByAnyUser && <VSCodeTag>No Validator</VSCodeTag>}
-                            {includeNotValidatedByCurrentUser && (
-                                <VSCodeTag>Not Validated by You</VSCodeTag>
-                            )}
-                            {includeFullyValidatedByOthers && (
-                                <VSCodeTag>Fully Validated</VSCodeTag>
-                            )}
-                            {!includeEmptyCells &&
-                                !includeNotValidatedByAnyUser &&
-                                !includeNotValidatedByCurrentUser &&
-                                !includeFullyValidatedByOthers && (
-                                    <span className="text-destructive text-sm">
-                                        No cell types selected
-                                    </span>
-                                )}
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="number"
+                            value={numberOfCellsToAutocomplete || ""}
+                            onChange={(e) => handleNumberChange(e.target.value)}
+                            className="flex-1 px-3 py-2 bg-input border border-border rounded text-foreground"
+                            placeholder="Enter number of cells"
+                            min="1"
+                            max={effectiveTotalCells}
+                        />
+                        {effectiveTotalCells > 0 && (
+                            <Button
+                                variant="outline"
+                                onClick={() => setNumberOfCellsToAutocomplete(effectiveTotalCells)}
+                                disabled={effectiveTotalCells === 0}
+                            >
+                                All
+                            </Button>
+                        )}
                     </div>
+
+                    {effectiveTotalCells === 0 && (
+                        <p className="text-sm text-destructive mt-2">
+                            Select at least one cell type to continue
+                        </p>
+                    )}
+
+                    {numberOfCellsToAutocomplete === 0 && effectiveTotalCells > 0 && (
+                        <p className="text-sm text-destructive mt-2">
+                            Enter a number greater than 0
+                        </p>
+                    )}
                 </div>
 
                 <div className="flex justify-end gap-2">
@@ -221,16 +201,7 @@ export function AutocompleteModal({
                                 includeFullyValidatedByOthers
                             )
                         }
-                        disabled={
-                            (!includeEmptyCells &&
-                                !includeNotValidatedByAnyUser &&
-                                !includeNotValidatedByCurrentUser &&
-                                !includeFullyValidatedByOthers) ||
-                            effectiveTotalCells === 0 ||
-                            customValue === null ||
-                            customValue <= 0 ||
-                            (customValue > effectiveTotalCells && effectiveTotalCells > 0)
-                        }
+                        disabled={!isValidSelection}
                     >
                         Autocomplete {numberOfCellsToAutocomplete} Cells
                     </Button>

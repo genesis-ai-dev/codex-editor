@@ -378,7 +378,7 @@ export function ChapterNavigationHeader({
             </div>
 
             <div className="flex items-center justify-end flex-1 space-x-2">
-                {getFileStatusButton()}
+                {/* {getFileStatusButton()} // FIXME: we want to show the file status, but it needs to load immediately, and it needs to be more reliable. - test this and also think through UX */}
                 {/* Show left sidebar toggle only when editor is not leftmost
                 
                 // FIXME: editorPosition is always 'unknown' - this is not the right way to check this
