@@ -212,49 +212,7 @@ export class SourceUploadProvider
                             message.files,
                             _token
                         );
-                        // try {
-                        //     const tempUri = await this.saveUploadedFile(
-                        //         message.fileContent,
-                        //         message.fileName
-                        //     );
-
-                        //     const transaction = new TranslationImportTransaction(
-                        //         tempUri,
-                        //         message.sourceId,
-                        //         this.context
-                        //     );
-                        //     this.currentTranslationTransaction = transaction; // Ensure this is set
-
-                        //     // Generate preview
-                        //     const rawPreview = await transaction.prepare();
-
-                        //     // Transform to PreviewState format
-                        //     const preview: PreviewState = {
-                        //         type: "translation",
-                        //         preview: {
-                        //             original: {
-                        //                 preview: rawPreview.original.preview,
-                        //                 validationResults: rawPreview.original.validationResults,
-                        //             },
-                        //             transformed: rawPreview.transformed,
-                        //         },
-                        //     };
-
-                        //     // Store the preview
-                        //     this.currentPreview = preview;
-
-                        //     // Send preview to webview
-                        //     webviewPanel.webview.postMessage({
-                        //         command: "translationPreview",
-                        //         preview,
-                        //     } as SourceUploadResponseMessages);
-                        // } catch (error: any) {
-                        //     console.error("Error preparing translation import:", error);
-                        //     webviewPanel.webview.postMessage({
-                        //         command: "error",
-                        //         message: error instanceof Error ? error.message : "Unknown error",
-                        //     } as SourceUploadResponseMessages);
-                        // }
+                        
                         break;
                     case "downloadBible":
                         try {
@@ -888,66 +846,6 @@ export class SourceUploadProvider
         return this.currentPreview;
     }
 
-    // private async handleSourceImport(
-    //     webviewPanel: vscode.WebviewPanel,
-    //     fileUri: vscode.Uri,
-    //     token: vscode.CancellationToken
-    // ): Promise<void> {
-    //     const transaction = new SourceImportTransaction(fileUri, this.context);
-
-    //     try {
-    //         // Prepare and show preview
-    //         const preview = await transaction.prepare();
-    //         webviewPanel.webview.postMessage({
-    //             command: "preview",
-    //             preview,
-    //         });
-
-    //         // Wait for user confirmation
-    //         const confirmed = await this.awaitConfirmation(webviewPanel);
-    //         if (!confirmed) {
-    //             await transaction.rollback();
-    //             return;
-    //         }
-
-    //         // Execute with progress
-    //         await vscode.window.withProgress(
-    //             {
-    //                 location: { viewId: "sourceUpload" },
-    //                 cancellable: true,
-    //             },
-    //             async (progress, token) => {
-    //                 // Forward progress to webview
-    //                 const progressCallback = (p: { message?: string; increment?: number }) => {
-    //                     webviewPanel.webview.postMessage({
-    //                         command: "progress",
-    //                         progress: p,
-    //                     });
-    //                     progress.report(p);
-    //                 };
-
-    //                 token.onCancellationRequested(() => {
-    //                     transaction.rollback();
-    //                     webviewPanel.webview.postMessage({
-    //                         command: "error",
-    //                         error: "Operation cancelled",
-    //                     });
-    //                 });
-
-    //                 await transaction.execute({ report: progressCallback }, token);
-    //             }
-    //         );
-
-    //         webviewPanel.webview.postMessage({ command: "complete" });
-    //     } catch (error) {
-    //         await transaction.rollback();
-    //         webviewPanel.webview.postMessage({
-    //             command: "error",
-    //             error: error instanceof Error ? error.message : "Unknown error occurred",
-    //         });
-    //         throw error;
-    //     }
-    // }
 
     private async awaitConfirmation(webviewPanel: vscode.WebviewPanel): Promise<boolean> {
         return new Promise((resolve) => {
