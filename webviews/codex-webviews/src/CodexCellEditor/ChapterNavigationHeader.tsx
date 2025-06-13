@@ -379,8 +379,12 @@ export function ChapterNavigationHeader({
 
             <div className="flex items-center justify-end flex-1 space-x-2">
                 {getFileStatusButton()}
-
-                {/* Show left sidebar toggle only when editor is not leftmost */}
+                {/* Show left sidebar toggle only when editor is not leftmost
+                
+                // FIXME: editorPosition is always 'unknown' - this is not the right way to check this
+                
+                */}
+                {/*                 
                 {(editorPosition === "rightmost" ||
                     editorPosition === "center" ||
                     editorPosition === "single") && (
@@ -392,9 +396,8 @@ export function ChapterNavigationHeader({
                         <i className="codicon codicon-layout-sidebar-left" />
                     </Button>
                 )}
-
                 {/* Show right sidebar toggle only when editor is not rightmost */}
-                {(editorPosition === "leftmost" ||
+                {/* {(editorPosition === "leftmost" ||
                     editorPosition === "center" ||
                     editorPosition === "single") && (
                     <Button
@@ -404,8 +407,7 @@ export function ChapterNavigationHeader({
                     >
                         <i className="codicon codicon-layout-sidebar-right" />
                     </Button>
-                )}
-
+                )} */}
                 {!isSourceText && (
                     <>
                         {isAnyTranslationInProgress ? (
@@ -433,7 +435,6 @@ export function ChapterNavigationHeader({
                         )}
                     </>
                 )}
-
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" title="Advanced Settings">
