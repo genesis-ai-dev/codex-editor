@@ -10,7 +10,7 @@ import CellContentDisplay from "./CellContentDisplay";
 import EmptyCellDisplay from "./EmptyCellDisplay";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import { WebviewApi } from "vscode-webview";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../components/ui/button";
 import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import AnimatedReveal from "../components/AnimatedReveal";
@@ -610,8 +610,8 @@ const CellList: React.FC<CellListProps> = ({
                                     button={
                                         !isSourceText && (
                                             <div style={{ flexShrink: 0 }}>
-                                                <VSCodeButton
-                                                    appearance="icon"
+                                                <Button
+                                                    variant="ghost"
                                                     style={{
                                                         height: "16px",
                                                         width: "16px",
@@ -634,13 +634,13 @@ const CellList: React.FC<CellListProps> = ({
                                                             fontWeight: "bold",
                                                         }}
                                                     ></i>
-                                                </VSCodeButton>
+                                                </Button>
                                             </div>
                                         )
                                     }
                                     content={
-                                        <VSCodeButton
-                                            appearance="icon"
+                                        <Button
+                                            variant="ghost"
                                             aria-label="Translate"
                                             onClick={() => handleCellTranslation(cellMarkers[0])}
                                             style={{
@@ -667,7 +667,7 @@ const CellList: React.FC<CellListProps> = ({
                                                 }`}
                                                 style={{ fontSize: "12px" }}
                                             ></i>
-                                        </VSCodeButton>
+                                        </Button>
                                     }
                                 />
                                 {(cellLabel || generatedCellLabel) && (
@@ -700,8 +700,7 @@ const CellList: React.FC<CellListProps> = ({
                                 </div>
                             </div>
                         ) : (
-                            <VSCodeButton
-                                appearance="secondary"
+                            <Button
                                 style={{
                                     height: "15px",
                                     padding: "2px",
@@ -716,7 +715,7 @@ const CellList: React.FC<CellListProps> = ({
                                     className="codicon codicon-plus"
                                     style={{ fontSize: "12px" }}
                                 ></i>
-                            </VSCodeButton>
+                            </Button>
                         );
 
                     result.push(emptyCellDisplay);

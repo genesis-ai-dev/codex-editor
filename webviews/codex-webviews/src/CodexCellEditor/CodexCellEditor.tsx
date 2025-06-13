@@ -10,7 +10,7 @@ import {
     EditorReceiveMessages,
     CellIdGlobalState,
 } from "../../../../types";
-import ChapterNavigation from "./ChapterNavigation";
+import { ChapterNavigationHeader } from "./ChapterNavigationHeader";
 import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
 import { VSCodeProgressRing } from "@vscode/webview-ui-toolkit/react";
@@ -165,6 +165,10 @@ const CodexCellEditor: React.FC = () => {
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
+    const [editorPosition, setEditorPosition] = useState<
+        "leftmost" | "rightmost" | "center" | "single" | "unknown"
+    >("unknown");
+    const [currentSubsectionIndex, setCurrentSubsectionIndex] = useState(0);
 
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: boolean }>({});
@@ -1275,10 +1279,40 @@ const CodexCellEditor: React.FC = () => {
     };
 
     const handleTriggerSync = () => {
-        vscode.postMessage({
-            command: "triggerSync",
-        } as EditorPostMessages);
+        if (vscode) {
+            vscode.postMessage({ command: "triggerSync" } as EditorPostMessages);
+        }
     };
+
+    // Add function to get subsections for a chapter
+    const getSubsectionsForChapter = (chapterNum: number) => {
+        // For now, return empty array - this would be implemented based on your data structure
+        // You might want to extract subsections from translationUnits or metadata
+        return [];
+    };
+
+    // Request editor position when component mounts
+    useEffect(() => {
+        if (vscode) {
+            vscode.postMessage({ command: "getEditorPosition" });
+        }
+    }, [vscode]);
+
+    // Listen for editor position and file status updates
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.type === "editorPosition") {
+                setEditorPosition(message.position);
+            }
+            if (message.type === "updateFileStatus") {
+                setFileStatus(message.status);
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
 
     if (duplicateCellsExist) {
         return (
@@ -1342,7 +1376,7 @@ const CodexCellEditor: React.FC = () => {
             <div className="codex-cell-editor">
                 <div className="static-header" ref={headerRef}>
                     <div ref={navigationRef}>
-                        <ChapterNavigation
+                        <ChapterNavigationHeader
                             vscode={vscode}
                             chapterNumber={chapterNumber}
                             setChapterNumber={setChapterNumber}
@@ -1411,6 +1445,12 @@ const CodexCellEditor: React.FC = () => {
                             isTranslatingCell={translationQueue.length > 0 || isProcessingCell}
                             onStopSingleCellTranslation={handleStopSingleCellTranslation}
                             bibleBookMap={bibleBookMap}
+                            currentSubsectionIndex={currentSubsectionIndex}
+                            setCurrentSubsectionIndex={setCurrentSubsectionIndex}
+                            getSubsectionsForChapter={getSubsectionsForChapter}
+                            editorPosition={editorPosition}
+                            fileStatus={fileStatus}
+                            onTriggerSync={handleTriggerSync}
                         />
                     </div>
                 </div>

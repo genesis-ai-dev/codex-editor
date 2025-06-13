@@ -14,7 +14,7 @@ import registerQuillSpellChecker, {
     QuillSpellChecker,
 } from "./react-quill-spellcheck";
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
-import "./TextEditor.css"; // Override the default Quill styles so spans flow
+// import "./TextEditor.css"; // Override the default Quill styles so spans flow
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import ReactPlayer from "react-player";
 import { diffWords } from "diff";
@@ -169,6 +169,65 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 labelButton.innerHTML = `<span class="header-style-label" style="color: var(--vscode-editor-foreground)">${headerLabel}</span>`;
                 rightButton.innerHTML =
                     '<i class="codicon codicon-chevron-right" style="color: var(--vscode-editor-foreground)"></i>';
+            }
+
+            // Apply Quill toolbar styling with CSS-in-JS for !important overrides
+            const toolbar = editorRef.current.querySelector(".ql-toolbar");
+            const container = editorRef.current.querySelector(".ql-container");
+
+            if (toolbar) {
+                // Apply styles that need !important
+                const toolbarStyles = `
+                    border: none !important;
+                    padding: 2px !important;
+                    transition: all 0.3s ease;
+                    overflow: hidden;
+                `;
+                toolbar.setAttribute("style", toolbarStyles);
+
+                // Style toolbar buttons
+                const buttons = toolbar.querySelectorAll("button");
+                buttons.forEach((button) => {
+                    const buttonStyles = `
+                        width: 24px !important;
+                        height: 24px !important;
+                        padding: 2px !important;
+                    `;
+                    button.setAttribute("style", buttonStyles);
+                });
+
+                // Style toolbar formats
+                const formats = toolbar.querySelectorAll(".ql-formats");
+                formats.forEach((format) => {
+                    format.setAttribute("style", "margin-right: 6px !important;");
+                });
+
+                // Style SVG icons
+                const svgs = toolbar.querySelectorAll("svg");
+                svgs.forEach((svg) => {
+                    const svgStyles = `
+                        width: 16px !important;
+                        height: 16px !important;
+                    `;
+                    svg.setAttribute("style", svgStyles);
+                });
+
+                // Style pickers
+                const pickers = toolbar.querySelectorAll(".ql-picker");
+                pickers.forEach((picker) => {
+                    const pickerStyles = `
+                        height: 24px !important;
+                        line-height: 24px !important;
+                        font-size: 12px !important;
+                    `;
+                    picker.setAttribute("style", pickerStyles);
+                });
+
+                // Style picker labels
+                const pickerLabels = toolbar.querySelectorAll(".ql-picker-label");
+                pickerLabels.forEach((label) => {
+                    label.setAttribute("style", "padding: 0 4px !important;");
+                });
             }
 
             // Add a custom quill clipboard handler for pasting in
@@ -524,10 +583,43 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         },
     }));
 
+    // Add CSS styles for toolbar visibility and Quill overrides
+    useEffect(() => {
+        const styleId = "quill-toolbar-styles";
+        const existingStyle = document.getElementById(styleId);
+
+        if (!existingStyle) {
+            const style = document.createElement("style");
+            style.id = styleId;
+            style.textContent = `
+                .toolbar-hidden .ql-toolbar {
+                    display: none;
+                }
+                .toolbar-visible .ql-toolbar {
+                    display: block;
+                }
+                .ql-editor {
+                    white-space: normal !important;
+                }
+                .quill-toolbar-icon {
+                    font-size: 16px !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        return () => {
+            const styleElement = document.getElementById(styleId);
+            if (styleElement) {
+                styleElement.remove();
+            }
+        };
+    }, []);
+
     return (
         <>
             <div
-                className={`text-editor-container ${
+                className={`relative transition-all duration-300 ease-in-out ${
                     isToolbarVisible ? "toolbar-visible" : "toolbar-hidden"
                 }`}
             >
@@ -535,7 +627,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     appearance="icon"
                     onClick={() => setIsToolbarVisible(!isToolbarVisible)}
                     title={isToolbarVisible ? "Hide Formatting Toolbar" : "Show Formatting Toolbar"}
-                    style={{ marginBottom: "5px" }} // Add some space below the button
+                    className="mb-1 hover:opacity-80 transition-opacity duration-200"
                 >
                     <i
                         className={`codicon ${
@@ -543,7 +635,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         }`}
                     ></i>
                 </VSCodeButton>
-                <div ref={editorRef}></div>
+                <div ref={editorRef} className="quill-editor-container"></div>
             </div>
             {showHistoryModal && (
                 <div
