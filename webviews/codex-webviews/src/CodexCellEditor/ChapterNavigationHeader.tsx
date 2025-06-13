@@ -9,6 +9,13 @@ import { AutocompleteModal } from "./modals/AutocompleteModal";
 import { ChapterSelectorModal } from "./modals/ChapterSelectorModal";
 import { type QuillCellContent, type CustomNotebookMetadata } from "../../../../types";
 import { type FileStatus, type EditorPosition, type Subsection } from "../lib/types";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -102,7 +109,6 @@ export function ChapterNavigationHeader({
     onTriggerSync,
 }: ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
-    const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [showChapterSelector, setShowChapterSelector] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
@@ -428,34 +434,25 @@ export function ChapterNavigationHeader({
                     </>
                 )}
 
-                <Button
-                    variant="outline"
-                    onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-                >
-                    <i
-                        className={`codicon ${
-                            showAdvancedSettings ? "codicon-chevron-up" : "codicon-chevron-down"
-                        }`}
-                    />
-                </Button>
-
-                {showAdvancedSettings && (
-                    <div className="advanced-settings-container">
-                        <Button
-                            variant="secondary"
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" title="Advanced Settings">
+                            <i className="codicon codicon-settings-gear" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuItem
                             onClick={() =>
                                 onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")
                             }
                             disabled={unsavedChanges}
-                            title="Set Text Direction"
-                            className="flex justify-start p-2 w-full"
+                            className="cursor-pointer"
                         >
-                            <i className="codicon codicon-arrow-swap mr-2" />
-                            Text Direction
-                        </Button>
+                            <i className="codicon codicon-arrow-swap mr-2 h-4 w-4" />
+                            <span>Text Direction ({textDirection.toUpperCase()})</span>
+                        </DropdownMenuItem>
 
-                        <Button
-                            variant="secondary"
+                        <DropdownMenuItem
                             onClick={() => {
                                 const newMode =
                                     cellDisplayMode === CELL_DISPLAY_MODES.INLINE
@@ -468,49 +465,59 @@ export function ChapterNavigationHeader({
                                 });
                             }}
                             disabled={unsavedChanges}
-                            title="Toggle Cell Display Mode"
-                            className="flex justify-start p-2 w-full"
+                            className="cursor-pointer"
                         >
                             <i
                                 className={`codicon ${
                                     cellDisplayMode === CELL_DISPLAY_MODES.INLINE
                                         ? "codicon-symbol-enum"
                                         : "codicon-symbol-constant"
-                                } mr-2`}
+                                } mr-2 h-4 w-4`}
                             />
-                            Display Mode
-                        </Button>
+                            <span>
+                                Display Mode (
+                                {cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                    ? "Inline"
+                                    : "One Line"}
+                                )
+                            </span>
+                        </DropdownMenuItem>
 
                         {documentHasVideoAvailable && (
-                            <Button
-                                variant="secondary"
-                                onClick={handleToggleVideoPlayer}
-                                className="flex justify-start p-2 w-full"
-                            >
-                                <i
-                                    className={`codicon ${
-                                        shouldShowVideoPlayer
-                                            ? "codicon-close"
-                                            : "codicon-device-camera-video"
-                                    } mr-2`}
-                                />
-                                Toggle Video
-                            </Button>
+                            <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    onClick={handleToggleVideoPlayer}
+                                    className="cursor-pointer"
+                                >
+                                    <i
+                                        className={`codicon ${
+                                            shouldShowVideoPlayer
+                                                ? "codicon-close"
+                                                : "codicon-device-camera-video"
+                                        } mr-2 h-4 w-4`}
+                                    />
+                                    <span>
+                                        {shouldShowVideoPlayer ? "Hide Video" : "Show Video"}
+                                    </span>
+                                </DropdownMenuItem>
+                            </>
                         )}
 
                         {metadata && (
-                            <Button
-                                variant="secondary"
-                                onClick={handleOpenMetadataModal}
-                                title="Edit Notebook Metadata"
-                                className="flex justify-start p-2 w-full"
-                            >
-                                <i className="codicon codicon-notebook mr-2" />
-                                Edit Metadata
-                            </Button>
+                            <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    onClick={handleOpenMetadataModal}
+                                    className="cursor-pointer"
+                                >
+                                    <i className="codicon codicon-notebook mr-2 h-4 w-4" />
+                                    <span>Edit Metadata</span>
+                                </DropdownMenuItem>
+                            </>
                         )}
-                    </div>
-                )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
             {metadata && (
