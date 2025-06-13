@@ -53,6 +53,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
 
+    // Add cells per page configuration
+    private get CELLS_PER_PAGE(): number {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        return config.get("cellsPerPage", 50); // Default to 50 cells per page
+    }
+
     // Translation queue system
     private translationQueue: {
         cellId: string;
@@ -150,6 +156,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
+            }
+
+            if (e.affectsConfiguration("codex-editor-extension.cellsPerPage")) {
+                // Update cells per page in all webviews
+                const newCellsPerPage = this.CELLS_PER_PAGE;
+                this.webviewPanels.forEach((panel) => {
+                    // Use custom message type for cells per page update
+                    panel.webview.postMessage({
+                        type: "updateCellsPerPage",
+                        cellsPerPage: newCellsPerPage,
+                    });
+                });
             }
         });
 
@@ -678,7 +696,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
                         metadata: ${JSON.stringify(notebookData.metadata)},
                         userInfo: ${JSON.stringify(this.userInfo)},
-                        cachedChapter: ${cachedChapter}
+                        cachedChapter: ${cachedChapter},
+                        cellsPerPage: ${this.CELLS_PER_PAGE}
                     };
                 </script>
             </head>

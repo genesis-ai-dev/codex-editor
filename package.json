@@ -27,8 +27,7 @@
         "readFile"
     ],
     "contributes": {
-        "keybindings": [
-        ],
+        "keybindings": [],
         "views": {
             "codex-main-menu": [
                 {
@@ -145,7 +144,6 @@
                 }
             ]
         },
-
         "commands": [
             {
                 "command": "codex-project-manager.openNewSourceUpload",
@@ -242,7 +240,6 @@
                 "title": "Set Editor Font to Target Language",
                 "category": "Codex Editor"
             },
-
             {
                 "command": "codex-editor-extension.exportCodexContent",
                 "title": "Export Codex Translation as Plain Text",
@@ -723,6 +720,13 @@
                         ],
                         "default": "ltr",
                         "description": "Text direction for the editor (left-to-right or right-to-left)"
+                    },
+                    "codex-editor-extension.cellsPerPage": {
+                        "type": "number",
+                        "default": 50,
+                        "minimum": 5,
+                        "maximum": 200,
+                        "description": "Number of cells to display per page when a chapter has many cells. Helps with performance for large chapters."
                     }
                 }
             }

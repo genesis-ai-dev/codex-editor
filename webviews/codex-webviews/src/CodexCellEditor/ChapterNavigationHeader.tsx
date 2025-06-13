@@ -267,6 +267,8 @@ export function ChapterNavigationHeader({
                 chapterNumber: newChapter,
             });
             setChapterNumber(newChapter);
+            // Reset to first page when jumping to a different chapter through chapter selector
+            setCurrentSubsectionIndex(0);
         }
     };
 
@@ -298,13 +300,31 @@ export function ChapterNavigationHeader({
                     variant="outline"
                     onClick={() => {
                         if (!unsavedChanges) {
-                            const newChapter =
-                                chapterNumber === 1 ? totalChapters : chapterNumber - 1;
-                            jumpToChapter(newChapter);
+                            // Check if we're on the first page of the current chapter
+                            if (currentSubsectionIndex > 0) {
+                                // Move to previous page within the same chapter
+                                setCurrentSubsectionIndex(currentSubsectionIndex - 1);
+                            } else {
+                                // Move to previous chapter
+                                const newChapter =
+                                    chapterNumber === 1 ? totalChapters : chapterNumber - 1;
+                                jumpToChapter(newChapter);
+
+                                // When jumping to a new chapter, check if it has subsections
+                                // and if so, jump to the last page
+                                const newChapterSubsections = getSubsectionsForChapter(newChapter);
+                                if (newChapterSubsections.length > 0) {
+                                    setCurrentSubsectionIndex(newChapterSubsections.length - 1);
+                                }
+                            }
                         }
                     }}
                     title={
-                        unsavedChanges ? "Save changes first to change chapter" : "Previous Chapter"
+                        unsavedChanges
+                            ? "Save changes first to change chapter"
+                            : currentSubsectionIndex > 0
+                            ? "Previous Page"
+                            : "Previous Chapter"
                     }
                 >
                     <i
@@ -327,6 +347,8 @@ export function ChapterNavigationHeader({
                 >
                     <h1 className="text-2xl flex items-center m-0">
                         {getDisplayTitle()}
+                        {subsections.length > 0 &&
+                            ` (${subsections[currentSubsectionIndex]?.label || ""})`}
                         <i
                             className={`codicon ${
                                 showChapterSelector ? "codicon-chevron-up" : "codicon-chevron-down"
@@ -339,12 +361,30 @@ export function ChapterNavigationHeader({
                     variant="outline"
                     onClick={() => {
                         if (!unsavedChanges) {
-                            const newChapter =
-                                chapterNumber === totalChapters ? 1 : chapterNumber + 1;
-                            jumpToChapter(newChapter);
+                            // Check if we're on the last page of the current chapter
+                            if (
+                                subsections.length > 0 &&
+                                currentSubsectionIndex < subsections.length - 1
+                            ) {
+                                // Move to next page within the same chapter
+                                setCurrentSubsectionIndex(currentSubsectionIndex + 1);
+                            } else {
+                                // Move to next chapter and reset to first page
+                                const newChapter =
+                                    chapterNumber === totalChapters ? 1 : chapterNumber + 1;
+                                jumpToChapter(newChapter);
+                                setCurrentSubsectionIndex(0);
+                            }
                         }
                     }}
-                    title={unsavedChanges ? "Save changes first to change chapter" : "Next Chapter"}
+                    title={
+                        unsavedChanges
+                            ? "Save changes first to change chapter"
+                            : subsections.length > 0 &&
+                              currentSubsectionIndex < subsections.length - 1
+                            ? "Next Page"
+                            : "Next Chapter"
+                    }
                 >
                     <i
                         className={`codicon ${
@@ -357,7 +397,7 @@ export function ChapterNavigationHeader({
 
                 {subsections.length > 0 && (
                     <div className="flex items-center ml-4">
-                        <span className="mr-2">Section:</span>
+                        <span className="mr-2">Page:</span>
                         <VSCodeDropdown
                             value={currentSubsectionIndex.toString()}
                             onChange={(e: any) => {

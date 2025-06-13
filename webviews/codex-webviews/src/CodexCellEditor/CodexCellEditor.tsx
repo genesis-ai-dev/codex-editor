@@ -28,6 +28,7 @@ import { isValidValidationEntry } from "./ValidationButton";
 import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
+import { Subsection } from "../lib/types";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -173,6 +174,9 @@ const CodexCellEditor: React.FC = () => {
     // Add audio attachments state
     const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: boolean }>({});
 
+    // Add cells per page configuration
+    const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
+
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
 
@@ -217,6 +221,14 @@ const CodexCellEditor: React.FC = () => {
             if (message.type === "updateFileStatus") {
                 setFileStatus(message.status);
             }
+
+            // Handle cells per page update
+            if (message.type === "updateCellsPerPage") {
+                // Force re-render by updating subsection when cells per page changes
+                setCurrentSubsectionIndex(0);
+                // You could also update cellsPerPage state here if needed
+                // setCellsPerPage(message.cellsPerPage);
+            }
         };
         window.addEventListener("message", handleMessage);
         return () => {
@@ -228,9 +240,16 @@ const CodexCellEditor: React.FC = () => {
         if (highlightedCellId && scrollSyncEnabled) {
             const cellId = highlightedCellId;
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            setChapterNumber(parseInt(chapter) || 1);
+            const newChapterNumber = parseInt(chapter) || 1;
+
+            // If chapter is changing, reset subsection index
+            if (newChapterNumber !== chapterNumber) {
+                setCurrentSubsectionIndex(0);
+            }
+
+            setChapterNumber(newChapterNumber);
         }
-    }, [highlightedCellId]);
+    }, [highlightedCellId, scrollSyncEnabled, chapterNumber]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -284,7 +303,14 @@ const CodexCellEditor: React.FC = () => {
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
-            setChapterNumber(parseInt(chapter) || 1);
+            const newChapterNumber = parseInt(chapter) || 1;
+
+            // Reset subsection index when jumping to a cell
+            if (newChapterNumber !== chapterNumber) {
+                setCurrentSubsectionIndex(0);
+            }
+
+            setChapterNumber(newChapterNumber);
         },
         updateCell: (data) => {
             if (
@@ -372,6 +398,10 @@ const CodexCellEditor: React.FC = () => {
         },
         // Add the setChapterNumber handler
         setChapterNumber: (chapter) => {
+            // Reset subsection index when chapter changes externally
+            if (chapter !== chapterNumber) {
+                setCurrentSubsectionIndex(0);
+            }
             setChapterNumber(chapter);
         },
         setAudioAttachments: setAudioAttachments,
@@ -415,14 +445,71 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
+    // Add function to get subsections for a chapter
+    const getSubsectionsForChapter = (chapterNum: number) => {
+        // Filter cells for the specific chapter
+        const cellsForChapter = translationUnits.filter((verse) => {
+            const cellId = verse?.cellMarkers?.[0];
+            const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
+            const sectionCellNumber = sectionCellIdParts?.[0];
+            return sectionCellNumber === chapterNum.toString();
+        });
+
+        // If no cells or cells fit in one page, no subsections needed
+        if (cellsForChapter.length === 0 || cellsForChapter.length <= cellsPerPage) {
+            return [];
+        }
+
+        // Calculate number of pages
+        const totalPages = Math.ceil(cellsForChapter.length / cellsPerPage);
+        const subsections: Subsection[] = [];
+
+        for (let i = 0; i < totalPages; i++) {
+            const startIndex = i * cellsPerPage + 1;
+            const endIndex = Math.min((i + 1) * cellsPerPage, cellsForChapter.length);
+
+            subsections.push({
+                id: `page-${i}`,
+                label: `${startIndex}-${endIndex}`,
+                startIndex: i * cellsPerPage,
+                endIndex: Math.min((i + 1) * cellsPerPage, cellsForChapter.length),
+            });
+        }
+
+        return subsections;
+    };
+
     const totalChapters = calculateTotalChapters(translationUnits);
 
-    const translationUnitsForSection = translationUnits.filter((verse) => {
+    // Get all cells for the current chapter first
+    const allCellsForChapter = translationUnits.filter((verse) => {
         const cellId = verse?.cellMarkers?.[0];
         const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
         const sectionCellNumber = sectionCellIdParts?.[0];
         return sectionCellNumber === chapterNumber.toString();
     });
+
+    // Get the subsections for the current chapter
+    const subsections = getSubsectionsForChapter(chapterNumber);
+
+    // Apply pagination if there are subsections
+    const translationUnitsForSection = useMemo(() => {
+        if (subsections.length === 0) {
+            // No pagination needed, return all cells for the chapter
+            return allCellsForChapter;
+        } else {
+            // Apply pagination based on current subsection index
+            const currentSubsection = subsections[currentSubsectionIndex];
+            if (!currentSubsection) {
+                // If somehow we have an invalid subsection index, default to first page
+                return allCellsForChapter.slice(0, cellsPerPage);
+            }
+            return allCellsForChapter.slice(
+                currentSubsection.startIndex,
+                currentSubsection.endIndex
+            );
+        }
+    }, [allCellsForChapter, subsections, currentSubsectionIndex, cellsPerPage]);
 
     const { setUnsavedChanges } = useContext(UnsavedChangesContext);
 
@@ -488,7 +575,6 @@ const CodexCellEditor: React.FC = () => {
 
         // Send requests with error handling
         try {
-
             vscode.postMessage({
                 command: "getCurrentUsername",
             });
@@ -1282,13 +1368,6 @@ const CodexCellEditor: React.FC = () => {
         if (vscode) {
             vscode.postMessage({ command: "triggerSync" } as EditorPostMessages);
         }
-    };
-
-    // Add function to get subsections for a chapter
-    const getSubsectionsForChapter = (chapterNum: number) => {
-        // For now, return empty array - this would be implemented based on your data structure
-        // You might want to extract subsections from translationUnits or metadata
-        return [];
     };
 
     // Request editor position when component mounts

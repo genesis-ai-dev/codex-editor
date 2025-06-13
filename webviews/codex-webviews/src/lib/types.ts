@@ -40,6 +40,8 @@ export interface CustomNotebookMetadata {
 export interface Subsection {
     id: string;
     label: string;
+    startIndex: number;
+    endIndex: number;
 }
 
 export type FileStatus = "dirty" | "syncing" | "synced" | "none";
