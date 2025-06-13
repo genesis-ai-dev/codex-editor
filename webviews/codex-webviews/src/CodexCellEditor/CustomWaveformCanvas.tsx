@@ -43,13 +43,99 @@ const formatTime = (time: number): string => {
     return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 };
 
+// Helper function to normalize colors and handle alpha transparency safely
+const normalizeColor = (color: string): string => {
+    if (!color || color.trim() === "") return "#000000";
+
+    color = color.trim();
+
+    // If it's already a hex color, return as-is
+    if (color.startsWith("#")) {
+        return color;
+    }
+
+    // Handle rgb/rgba colors by converting to hex
+    const rgbaMatch = color.match(/rgba?\(([^)]+)\)/);
+    if (rgbaMatch) {
+        const values = rgbaMatch[1].split(",").map((v) => parseFloat(v.trim()));
+        const r = Math.round(Math.max(0, Math.min(255, values[0] || 0)));
+        const g = Math.round(Math.max(0, Math.min(255, values[1] || 0)));
+        const b = Math.round(Math.max(0, Math.min(255, values[2] || 0)));
+
+        return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b
+            .toString(16)
+            .padStart(2, "0")}`;
+    }
+
+    // Handle named colors by creating a temporary element to get computed color
+    try {
+        const div = document.createElement("div");
+        div.style.color = color;
+        document.body.appendChild(div);
+        const computedColor = window.getComputedStyle(div).color;
+        document.body.removeChild(div);
+
+        if (computedColor && computedColor !== color) {
+            return normalizeColor(computedColor);
+        }
+    } catch (e) {
+        // Fall back to default if color parsing fails
+    }
+
+    // Return a safe default
+    return "#000000";
+};
+
+// Helper function to create color with alpha
+const colorWithAlpha = (color: string, alphaHex: string): string => {
+    const normalizedColor = normalizeColor(color);
+    return normalizedColor + alphaHex;
+};
+
+// Helper function to get theme-aware colors from CSS custom properties
+const getThemeColors = (element: HTMLElement) => {
+    const computedStyle = getComputedStyle(element);
+    return {
+        background:
+            computedStyle.getPropertyValue("--waveform-background").trim() ||
+            computedStyle.getPropertyValue("--color-background").trim() ||
+            computedStyle.getPropertyValue("--vscode-editor-background").trim() ||
+            "#ffffff",
+        foreground:
+            computedStyle.getPropertyValue("--waveform-foreground").trim() ||
+            computedStyle.getPropertyValue("--color-foreground").trim() ||
+            computedStyle.getPropertyValue("--vscode-editor-foreground").trim() ||
+            "#1f2937",
+        muted:
+            computedStyle.getPropertyValue("--waveform-muted").trim() ||
+            computedStyle.getPropertyValue("--color-muted").trim() ||
+            computedStyle.getPropertyValue("--vscode-input-background").trim() ||
+            "#f9fafb",
+        mutedForeground:
+            computedStyle.getPropertyValue("--waveform-muted-foreground").trim() ||
+            computedStyle.getPropertyValue("--color-muted-foreground").trim() ||
+            computedStyle.getPropertyValue("--vscode-descriptionForeground").trim() ||
+            "#9ca3af",
+        primary:
+            computedStyle.getPropertyValue("--waveform-primary").trim() ||
+            computedStyle.getPropertyValue("--color-primary").trim() ||
+            computedStyle.getPropertyValue("--vscode-button-background").trim() ||
+            "#3b82f6",
+        border:
+            computedStyle.getPropertyValue("--waveform-border").trim() ||
+            computedStyle.getPropertyValue("--color-border").trim() ||
+            computedStyle.getPropertyValue("--vscode-panel-border").trim() ||
+            "#e5e7eb",
+    };
+};
+
 export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     audioUrl,
     height = 80,
-    backgroundColor = "#f9fafb",
-    waveColor = "#9ca3af",
-    progressColor = "#3b82f6",
-    cursorColor = "#1f2937",
+    backgroundColor,
+    waveColor,
+    progressColor,
+    cursorColor,
     barWidth = 3,
     barGap = 1,
     barRadius = 2,
@@ -75,6 +161,44 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     const [volume, setVolume] = useState(1);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [canvasWidth, setCanvasWidth] = useState(800);
+    const [themeColors, setThemeColors] = useState({
+        background: "#ffffff",
+        foreground: "#1f2937",
+        muted: "#f9fafb",
+        mutedForeground: "#9ca3af",
+        primary: "#3b82f6",
+        border: "#e5e7eb",
+    });
+
+    // Update theme colors when container is available
+    useEffect(() => {
+        if (containerRef.current) {
+            const colors = getThemeColors(containerRef.current);
+            setThemeColors(colors);
+        }
+    }, []);
+
+    // Also update theme colors when the theme might change (e.g., dark/light mode toggle)
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const observer = new MutationObserver(() => {
+            const colors = getThemeColors(containerRef.current!);
+            setThemeColors(colors);
+        });
+
+        // Watch for class changes on body/html that might indicate theme changes
+        observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: ["class", "data-theme"],
+        });
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class", "data-theme"],
+        });
+
+        return () => observer.disconnect();
+    }, []);
 
     // Calculate number of bars based on canvas width
     const numberOfBars = useMemo(() => {
@@ -181,8 +305,16 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         canvas.height = height * dpr;
         ctx.scale(dpr, dpr);
 
+        // Use theme-aware colors, with prop overrides
+        const colors = {
+            background: backgroundColor || themeColors.background,
+            wave: waveColor || themeColors.mutedForeground,
+            progress: progressColor || themeColors.primary,
+            cursor: cursorColor || themeColors.foreground,
+        };
+
         // Clear canvas
-        ctx.fillStyle = backgroundColor;
+        ctx.fillStyle = normalizeColor(colors.background);
         ctx.fillRect(0, 0, canvasWidth, height);
 
         const barCount = Math.min(peaks.length, numberOfBars);
@@ -198,11 +330,11 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             // Gradient effect
             const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
             if (isPlayed) {
-                gradient.addColorStop(0, progressColor);
-                gradient.addColorStop(1, progressColor + "88");
+                gradient.addColorStop(0, normalizeColor(colors.progress));
+                gradient.addColorStop(1, colorWithAlpha(colors.progress, "88"));
             } else {
-                gradient.addColorStop(0, waveColor);
-                gradient.addColorStop(1, waveColor + "44");
+                gradient.addColorStop(0, normalizeColor(colors.wave));
+                gradient.addColorStop(1, colorWithAlpha(colors.wave, "44"));
             }
 
             ctx.fillStyle = gradient;
@@ -223,7 +355,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         // Draw hover cursor
         if (showHover && hoveredTime !== null && duration > 0) {
             const hoverX = (hoveredTime / duration) * canvasWidth;
-            ctx.strokeStyle = cursorColor;
+            ctx.strokeStyle = normalizeColor(colors.cursor);
             ctx.lineWidth = 1;
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
@@ -233,7 +365,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ctx.setLineDash([]);
 
             // Time tooltip
-            ctx.fillStyle = cursorColor;
+            ctx.fillStyle = normalizeColor(colors.cursor);
             ctx.font = "12px sans-serif";
             const timeText = formatTime(hoveredTime);
             const textWidth = ctx.measureText(timeText).width;
@@ -242,9 +374,9 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 canvasWidth - textWidth - 5
             );
 
-            ctx.fillStyle = backgroundColor;
+            ctx.fillStyle = normalizeColor(colors.background);
             ctx.fillRect(tooltipX - 4, 2, textWidth + 8, 18);
-            ctx.fillStyle = cursorColor;
+            ctx.fillStyle = normalizeColor(colors.cursor);
             ctx.fillText(timeText, tooltipX, 14);
         }
     }, [
@@ -262,6 +394,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         waveColor,
         progressColor,
         cursorColor,
+        themeColors,
         showHover,
     ]);
 
@@ -442,7 +575,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
     return (
         <div
-            className="bg-[var(--vscode-editor-background)] p-4 rounded-lg shadow-md w-full"
+            className="waveform-canvas bg-[var(--vscode-editor-background)] p-4 rounded-lg shadow-md w-full"
             ref={containerRef}
         >
             {/* Canvas */}

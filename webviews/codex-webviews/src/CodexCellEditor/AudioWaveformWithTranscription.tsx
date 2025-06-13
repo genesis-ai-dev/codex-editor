@@ -143,7 +143,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                     <CustomWaveformCanvas
                         audioUrl={dataUrl}
                         height={60}
-                        backgroundColor="var(--vscode-editor-background)"
                         showControls={true}
                         showDebugInfo={false}
                     />
