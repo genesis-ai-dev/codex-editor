@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useMemo, FormEventHandler } from "react";
 import { createRoot } from "react-dom/client";
-import {
-    VSCodeButton,
-    VSCodeDivider,
-    VSCodeBadge,
-    VSCodeTextField,
-    VSCodeProgressRing,
-} from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Badge } from "../components/ui/badge";
 import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
 
@@ -413,9 +409,8 @@ function NavigationView() {
         });
     };
 
-    const handleSearch: FormEventHandler<HTMLElement> & ((e: Event) => unknown) = (e) => {
-        const target = e.target as HTMLInputElement;
-        setState((prev) => ({ ...prev, searchQuery: target.value }));
+    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setState((prev) => ({ ...prev, searchQuery: e.target.value }));
     };
 
     const handleRefresh = () => {
@@ -633,20 +628,16 @@ function NavigationView() {
             <div style={styles.searchContainer}>
                 <div style={styles.searchWrapper}>
                     <i className="codicon codicon-search" style={styles.searchIcon} />
-                    <VSCodeTextField
+                    <Input
                         placeholder="Search files..."
                         value={state.searchQuery}
-                        onInput={handleSearch}
-                        style={{ width: "100%" }}
+                        onChange={handleSearch}
+                        style={{ width: "100%", paddingLeft: "28px" }}
                     />
                 </div>
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={handleRefresh}
-                    style={styles.refreshButton}
-                >
+                <Button variant="outline" onClick={handleRefresh} style={styles.refreshButton}>
                     <i className="codicon codicon-refresh" />
-                </VSCodeButton>
+                </Button>
             </div>
             <div style={styles.itemsContainer}>
                 {hasResults ? (

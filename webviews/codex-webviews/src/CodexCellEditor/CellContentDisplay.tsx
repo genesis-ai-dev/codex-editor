@@ -597,12 +597,18 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         {getAlertDot()}
                     </div>
                 )}
-                <div className="cell-label">
+                <div
+                    className={`cell-label ${
+                        cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                            ? "font-medium whitespace-nowrap min-w-fit leading-normal flex items-center h-full"
+                            : ""
+                    }`}
+                >
                     {cellLabelOrGeneratedLabel && (
                         <span
                             className="cell-label-text"
-                            style={
-                                cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                            style={{
+                                ...(cellDisplayMode === CELL_DISPLAY_MODES.INLINE
                                     ? {
                                           fontSize: "0.7em",
                                           verticalAlign: "super",
@@ -611,8 +617,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                           marginRight: "2px",
                                           fontWeight: "normal",
                                       }
-                                    : {}
-                            }
+                                    : {}),
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                maxWidth: "200px", // Adjust this value as needed
+                                display: "block",
+                            }}
                         >
                             {cellLabelOrGeneratedLabel}
                         </span>
