@@ -271,9 +271,9 @@ class ProjectManagerStore {
                 watchedFolders,
                 projectOverview: overview
                     ? {
-                          ...overview,
-                          primarySourceText: primarySourceText as vscode.Uri,
-                      }
+                        ...overview,
+                        primarySourceText: primarySourceText as vscode.Uri,
+                    }
                     : null,
                 isScanning: false,
                 canInitializeProject,
@@ -345,9 +345,7 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     const styleResetUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css")
     );
-    const styleVSCodeUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css")
-    );
+    // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
 
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
@@ -377,13 +375,12 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             font-src ${webviewView.webview.cspSource};
             connect-src ${webviewView.webview.cspSource} https:;">
         <link href="${styleResetUri}" rel="stylesheet">
-        <link href="${styleVSCodeUri}" rel="stylesheet">
         <link href="${codiconsUri}" rel="stylesheet" />
         <script nonce="${nonce}">
             const vscode = acquireVsCodeApi();
             const apiBaseUrl = ${JSON.stringify(
-                process.env.API_BASE_URL || "http://localhost:3002"
-            )}
+        process.env.API_BASE_URL || "http://localhost:3002"
+    )}
         </script>
     </head>
     <body>
@@ -728,9 +725,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             this.store.setState({
                 projectOverview: newProjectOverview
                     ? {
-                          ...newProjectOverview,
-                          primarySourceText: primarySourceText as vscode.Uri,
-                      }
+                        ...newProjectOverview,
+                        primarySourceText: primarySourceText as vscode.Uri,
+                    }
                     : null,
                 isInitializing: false, // Make sure to reset initialization state
                 isScanning: false,

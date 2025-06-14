@@ -190,11 +190,10 @@ export class SplashScreenProvider {
 
     private _getHtmlForWebview(): string {
         const webview = this._panel!.webview;
-        
+
         return getWebviewHtml(webview, { extensionUri: this._extensionUri } as vscode.ExtensionContext, {
             title: "Codex Editor Loading",
             scriptPath: ["SplashScreen", "index.js"],
-            csp: "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';",
             initialData: { timings: this._timings, syncDetails: this._syncDetails },
             inlineStyles: `
                 body { margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden; background-color: var(--vscode-editor-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); }

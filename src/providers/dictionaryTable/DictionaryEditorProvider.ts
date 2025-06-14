@@ -43,7 +43,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     private fileWatcher: vscode.FileSystemWatcher | undefined;
     private lastSentData: Dictionary | null = null;
 
-    constructor(private readonly context: vscode.ExtensionContext) {}
+    constructor(private readonly context: vscode.ExtensionContext) { }
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         const provider = new DictionaryEditorProvider(context);
@@ -214,23 +214,9 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
-        const styleResetUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
+        // Note: CSS URIs are now handled by the webview template
         return getWebviewHtml(webview, this.context, {
-            title: "Dictionary Editor", 
+            title: "Dictionary Editor",
             scriptPath: ["EditableReactTable", "index.js"],
             csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; connect-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`
         });

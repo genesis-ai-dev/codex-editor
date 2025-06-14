@@ -12,7 +12,7 @@
 !webviews/editable-react-table/dist/**
 
 !src/assets/reset.css
-!src/assets/vscode.css
+# vscode.css was removed in favor of Tailwind CSS
 !src/assets/bible_data_with_vref_keys.json.gz
 !**/*.svg
 !node_modules/@vscode/codicons/dist/**

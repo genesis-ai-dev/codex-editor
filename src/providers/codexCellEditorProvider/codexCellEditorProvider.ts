@@ -621,9 +621,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
-        const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
+        // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -685,7 +683,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource
             } https: blob: data:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
                 

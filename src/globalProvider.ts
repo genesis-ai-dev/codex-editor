@@ -19,7 +19,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     protected abstract getWebviewId(): string;
     protected abstract getScriptPath(): string[];
     protected abstract handleMessage(message: any): Promise<void>;
-    
+
     // Optional method for additional HTML content
     protected getAdditionalHtml(): string {
         return '';
@@ -28,7 +28,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     // Common webview resolution
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
-        
+
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],
@@ -96,9 +96,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         const styleResetUri = webviewView.webview.asWebviewUri(
             vscode.Uri.joinPath(this._context.extensionUri, "src", "assets", "reset.css")
         );
-        const styleVSCodeUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this._context.extensionUri, "src", "assets", "vscode.css")
-        );
+        // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
         const codiconsUri = webviewView.webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this._context.extensionUri,
@@ -125,12 +123,10 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
         <html lang="en">
         <head>
             <meta charset="UTF-8">
-            <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${
-                webviewView.webview.cspSource
+            <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${webviewView.webview.cspSource
             }; script-src 'nonce-${nonce}';">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <link href="${styleResetUri}" rel="stylesheet">
-            <link href="${styleVSCodeUri}" rel="stylesheet">
             <link href="${codiconsUri}" rel="stylesheet">
             <script nonce="${nonce}">
                 const apiBaseUrl = ${JSON.stringify("http://localhost:3002")}

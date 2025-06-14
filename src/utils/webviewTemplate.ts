@@ -18,9 +18,7 @@ export function getWebviewHtml(
     const styleResetUri = webview.asWebviewUri(
         vscode.Uri.joinPath(context.extensionUri, "src", "assets", "reset.css")
     );
-    const styleVSCodeUri = webview.asWebviewUri(
-        vscode.Uri.joinPath(context.extensionUri, "src", "assets", "vscode.css")
-    );
+    // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
     const codiconsUri = webview.asWebviewUri(
         vscode.Uri.joinPath(context.extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
@@ -38,7 +36,6 @@ export function getWebviewHtml(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="${csp}">
     <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-    <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
     <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}">
     <title>${options.title || "Codex"}</title>
     ${options.inlineStyles ? `<style>${options.inlineStyles}</style>` : ""}

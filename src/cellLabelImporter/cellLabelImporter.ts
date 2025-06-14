@@ -92,9 +92,7 @@ async function getHtmlForCellLabelImporterView(
     const styleResetUri = webview.asWebviewUri(
         vscode.Uri.joinPath(context.extensionUri, "src", "assets", "reset.css")
     );
-    const styleVSCodeUri = webview.asWebviewUri(
-        vscode.Uri.joinPath(context.extensionUri, "src", "assets", "vscode.css")
-    );
+    // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
     const codiconsUri = webview.asWebviewUri(
         vscode.Uri.joinPath(
             context.extensionUri,
@@ -117,7 +115,6 @@ async function getHtmlForCellLabelImporterView(
                 script-src 'nonce-${nonce}';
                 font-src ${webview.cspSource};">
             <link href="${styleResetUri}" rel="stylesheet">
-            <link href="${styleVSCodeUri}" rel="stylesheet">
             <link href="${codiconsUri}" rel="stylesheet">
             
             <script nonce="${nonce}">

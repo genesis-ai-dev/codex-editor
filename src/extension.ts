@@ -39,6 +39,7 @@ import {
     registerSplashScreenProvider,
     showSplashScreen,
     updateSplashScreenTimings,
+    updateSplashScreenSync,
     closeSplashScreen,
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
@@ -401,26 +402,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
-        await executeCommandsAfter();
+        await executeCommandsAfter(context);
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
         trackTiming("Post-activation Tasks", postActivationStart);
 
-        // Close splash screen and then check if we need to show the welcome view
-        closeSplashScreen(async () => {
-            console.log(
-                "[Extension] Splash screen closed, checking if welcome view needs to be shown"
-            );
-            // Show tabs again after splash screen closes
-            await vscode.workspace
-                .getConfiguration()
-                .update("workbench.editor.showTabs", "multiple", true);
-            // Restore tab layout after splash screen closes
-            await restoreTabLayout(context);
-            // Check if we need to show the welcome view after initialization
-            await showWelcomeViewIfNeeded();
-        });
+        // Don't close splash screen yet - we still have sync operations to show
+        // The splash screen will be closed after all operations complete
+        console.log("[Extension] Keeping splash screen open for post-activation operations");
 
         // Instead of calling showWelcomeViewIfNeeded directly, it will be called by the splash screen callback
         // showWelcomeViewIfNeeded();
@@ -483,14 +473,46 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         console.log(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
 
         // Use real-time progress for context index setup since it can take a while
-        startRealtimeStep(" Setup Context Index");
+        // Note: SQLiteIndexManager handles its own detailed progress tracking
         await createIndexWithContext(context);
-        finishRealtimeStep();
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
         console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
+
+        // Trigger progress reporting during initial load (while splash screen is still showing)
+        const progressStart = globalThis.performance.now();
+        console.log("[Activation] Generating progress report...");
+
+        // Update splash screen to show progress reporting
+        const { updateSplashScreenTimings } = await import("./providers/SplashScreen/register");
+        updateSplashScreenTimings([
+            { step: "Processing translation statistics", duration: 0, startTime: progressStart }
+        ]);
+
+        try {
+            const { ProgressReportingService } = await import("./progressReporting/progressReportingService");
+            const progressService = ProgressReportingService.getInstance();
+            await progressService.forceProgressReport();
+
+            const progressDuration = globalThis.performance.now() - progressStart;
+            console.log(`[Activation] Progress Report Generated: ${progressDuration.toFixed(2)}ms`);
+
+            // Update splash screen with completion
+            updateSplashScreenTimings([
+                { step: "Processing translation statistics", duration: progressDuration, startTime: progressStart }
+            ]);
+        } catch (error) {
+            console.warn("[Activation] Failed to generate progress report during startup:", error);
+            const progressDuration = globalThis.performance.now() - progressStart;
+            console.log(`[Activation] Progress Report Failed: ${progressDuration.toFixed(2)}ms`);
+
+            // Update splash screen with failure
+            updateSplashScreenTimings([
+                { step: "Processing translation statistics (failed)", duration: progressDuration, startTime: progressStart }
+            ]);
+        }
     }
 
     // Calculate and log total initialize extension time but don't add to main timing array
@@ -550,14 +572,18 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     registerCommandsBefore(context);
 }
 
-async function executeCommandsAfter() {
+async function executeCommandsAfter(context: vscode.ExtensionContext) {
     try {
+        // Update splash screen for post-activation tasks
+        updateSplashScreenSync(10, "Configuring editor settings...");
+
         await vscode.commands.executeCommand(
             "codex-editor-extension.setEditorFontToTargetLanguage"
         );
     } catch (error) {
         console.warn("Failed to set editor font, possibly due to network issues:", error);
     }
+
     // Configure auto-save in settings
     await vscode.workspace
         .getConfiguration()
@@ -566,12 +592,16 @@ async function executeCommandsAfter() {
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
 
+    // Update splash screen for sync operations
+    updateSplashScreenSync(30, "Checking authentication...");
+
     // Perform initial sync if auth API is available and user is authenticated
     if (authApi) {
         try {
             const authStatus = authApi.getAuthStatus();
             if (authStatus.isAuthenticated) {
                 console.log("User is authenticated, performing initial sync");
+                updateSplashScreenSync(50, "Synchronizing project...");
                 const syncStart = globalThis.performance.now();
 
                 const syncManager = SyncManager.getInstance();
@@ -579,30 +609,51 @@ async function executeCommandsAfter() {
                 try {
                     await syncManager.executeSync("Initial workspace sync", false);
                     trackTiming("Project Synchronization Complete", syncStart);
+                    updateSplashScreenSync(90, "Synchronization complete");
                 } catch (error) {
                     console.error("Error during initial sync:", error);
                     trackTiming("Project Synchronization Failed", syncStart);
+                    updateSplashScreenSync(90, "Synchronization failed");
                 }
             } else {
                 console.log("User is not authenticated, skipping initial sync");
+                updateSplashScreenSync(90, "Skipping sync (not authenticated)");
                 const skipStart = globalThis.performance.now();
                 // Just log this, no need to track timing for a skip
                 console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
             }
         } catch (error) {
             console.error("Error checking auth status or during initial sync:", error);
+            updateSplashScreenSync(90, "Authentication error");
             const errorStart = globalThis.performance.now();
             // Just log this, no need to track timing for an error
             console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
         }
     } else {
         console.log("Auth API not available, skipping initial sync");
+        updateSplashScreenSync(90, "Skipping sync (offline mode)");
         // Just log this, no need to track timing for a skip
         console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
     }
 
-    // Check if we need to show the welcome view after initialization
-    // showWelcomeViewIfNeeded();
+    // Final splash screen update and close
+    updateSplashScreenSync(100, "Finalizing setup...");
+
+    // Close splash screen and then check if we need to show the welcome view
+    closeSplashScreen(async () => {
+        console.log(
+            "[Extension] Splash screen closed, checking if welcome view needs to be shown"
+        );
+        // Show tabs again after splash screen closes
+        await vscode.workspace
+            .getConfiguration()
+            .update("workbench.editor.showTabs", "multiple", true);
+        // Restore tab layout after splash screen closes
+        await restoreTabLayout(context);
+        // Check if we need to show the welcome view after initialization
+        await showWelcomeViewIfNeeded();
+    });
+
     await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
 }
 

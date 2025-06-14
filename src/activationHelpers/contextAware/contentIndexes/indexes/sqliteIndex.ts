@@ -109,6 +109,13 @@ export class SQLiteIndexManager {
         }
     }
 
+    // Public method to add progress entries from external functions
+    public addProgressEntry(step: string, duration: number, startTime: number): void {
+        this.progressTimings.push({ step, duration, startTime });
+        updateSplashScreenTimings(this.progressTimings);
+        console.log(`[Index] ${step}: ${duration.toFixed(2)}ms`);
+    }
+
     async initialize(context: vscode.ExtensionContext): Promise<void> {
         const initStart = globalThis.performance.now();
         let stepStart = initStart;
@@ -475,6 +482,10 @@ export class SQLiteIndexManager {
 
         console.log("[SQLiteIndex] Creating fresh schema...");
         await this.createSchema();
+
+        // Yield control after schema creation
+        await new Promise(resolve => setImmediate(resolve));
+
         this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
     }
 
@@ -771,13 +782,20 @@ export class SQLiteIndexManager {
     async removeAll(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        this.db.run("DELETE FROM translation_pairs");
-        this.db.run("DELETE FROM words");
-        this.db.run("DELETE FROM cells");
-        this.db.run("DELETE FROM files");
-        this.db.run("DELETE FROM cells_fts");
+        // Use a transaction for better performance and make it non-blocking
+        await this.runInTransaction(() => {
+            // Delete in reverse dependency order to avoid foreign key issues
+            this.db!.run("DELETE FROM cells_fts");
+            this.db!.run("DELETE FROM translation_pairs");
+            this.db!.run("DELETE FROM words");
+            this.db!.run("DELETE FROM cells");
+            this.db!.run("DELETE FROM files");
+        });
 
-        this.debouncedSave();
+        // Use setImmediate to make the save operation non-blocking
+        setImmediate(() => {
+            this.debouncedSave();
+        });
     }
 
     // Get document count
@@ -1588,6 +1606,7 @@ export class SQLiteIndexManager {
     }
 
     // Check if HTML content exists and delete database to trigger reindex
+    // This is optimized to only run when necessary to avoid startup delays
     async checkAndDeleteDatabaseIfHtmlContentExists(): Promise<boolean> {
         if (!this.db) {
             console.log("[SQLiteIndex] No database connection, skipping HTML content check");
@@ -1595,6 +1614,13 @@ export class SQLiteIndexManager {
         }
 
         try {
+            // Check schema version - if it's 4 or higher, the database was already cleaned
+            const currentVersion = this.getSchemaVersion();
+            if (currentVersion >= 4) {
+                console.log(`[SQLiteIndex] Database schema version ${currentVersion} indicates clean database, skipping HTML content check`);
+                return false;
+            }
+
             // First check if we have any cells at all
             const cellCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells");
             let totalCells = 0;
@@ -1611,10 +1637,10 @@ export class SQLiteIndexManager {
                 return false;
             }
 
-            console.log(`[SQLiteIndex] Checking ${totalCells} cells for HTML content...`);
+            console.log(`[SQLiteIndex] Schema version ${currentVersion} < 4, checking ${totalCells} cells for HTML content...`);
 
-            // Comprehensive check for HTML content in both content and raw_content fields
-            const checkStmt = this.db.prepare(`
+            // Quick sample check first - only check first 10 cells to see if there's HTML content
+            const quickCheckStmt = this.db.prepare(`
                 SELECT COUNT(*) as count 
                 FROM cells 
                 WHERE content LIKE '%<%' 
@@ -1624,17 +1650,16 @@ export class SQLiteIndexManager {
                    OR content LIKE '%&nbsp;%'
                    OR content LIKE '%<span>%'
                    OR content LIKE '%</span>%'
-                   OR (raw_content LIKE '%<%' AND content LIKE '%<%')
-                LIMIT 1
+                LIMIT 10
             `);
 
             let hasHtmlContent = false;
             try {
-                checkStmt.step();
-                const result = checkStmt.getAsObject();
+                quickCheckStmt.step();
+                const result = quickCheckStmt.getAsObject();
                 hasHtmlContent = (result.count as number) > 0;
             } finally {
-                checkStmt.free();
+                quickCheckStmt.free();
             }
 
             if (hasHtmlContent) {
@@ -1653,7 +1678,9 @@ export class SQLiteIndexManager {
                 console.log("[SQLiteIndex] Database deletion completed, reindex will be triggered");
                 return true; // Indicates database was deleted
             } else {
-                console.log("[SQLiteIndex] No HTML content detected in content field, database is clean");
+                console.log("[SQLiteIndex] No HTML content detected in sample, database appears clean");
+                // Update schema version to 4 to indicate the database is clean
+                this.setSchemaVersion(4);
                 return false;
             }
         } catch (error) {

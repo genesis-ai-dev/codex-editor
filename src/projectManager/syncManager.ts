@@ -244,14 +244,30 @@ export class SyncManager {
         }
     }
 
-    // Rebuild indexes in the background
+    // Check if indexes need rebuilding and rebuild only if necessary
     private async rebuildIndexesInBackground(): Promise<void> {
         try {
             const indexStartTime = performance.now();
-            console.log("🔧 Starting index rebuild in background...");
+            console.log("🔧 Checking if index rebuild is needed...");
 
-            // Update splash screen
-            updateSplashScreenSync(100, "Rebuilding search indexes...");
+            // Check if indexes are already up to date by getting the current document count
+            const { getSQLiteIndexManager } = await import("../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+            const indexManager = getSQLiteIndexManager();
+
+            if (indexManager) {
+                const currentDocCount = indexManager.documentCount;
+                console.log(`[Sync] Current index has ${currentDocCount} documents`);
+
+                if (currentDocCount > 0) {
+                    console.log("✅ Index is already up to date, skipping background rebuild");
+                    const indexEndTime = performance.now();
+                    const indexDuration = indexEndTime - indexStartTime;
+                    console.log(`✅ Index check completed in ${indexDuration.toFixed(2)}ms`);
+                    return;
+                }
+            }
+
+            console.log("🔧 Index needs rebuilding, starting background rebuild...");
 
             // Create a more complete mock context with all required properties
             const mockContext = {
@@ -301,13 +317,9 @@ export class SyncManager {
 
             const indexEndTime = performance.now();
             const indexDuration = indexEndTime - indexStartTime;
-            console.log(`✅ Index rebuild completed in ${indexDuration.toFixed(2)}ms`);
-
-            // Update splash screen that everything is complete
-            updateSplashScreenSync(100, "All initialization complete");
+            console.log(`✅ Background index rebuild completed in ${indexDuration.toFixed(2)}ms`);
         } catch (error) {
-            console.error("❌ Index rebuild failed:", error);
-            updateSplashScreenSync(100, "Initialization complete (index rebuild failed)");
+            console.error("❌ Background index rebuild failed:", error);
         }
     }
 

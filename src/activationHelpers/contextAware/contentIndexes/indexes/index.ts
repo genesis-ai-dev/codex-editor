@@ -31,6 +31,7 @@ import { readSourceAndTargetFiles } from "./fileReaders";
 import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
+import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
@@ -60,8 +61,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // Initialize SQLite index manager
     const indexManager = new SQLiteIndexManager();
 
-    // Disable real-time progress updates for better performance during large indexing operations
-    indexManager.disableRealtimeProgress();
+    // Keep real-time progress enabled during startup for splash screen feedback
+    // indexManager.disableRealtimeProgress(); // Commented out to show progress during startup
 
     await indexManager.initialize(context);
 
@@ -142,15 +143,33 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             if (force) {
                 console.log("[Index] Force rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
+
+                // Yield control to prevent blocking
+                await new Promise(resolve => setImmediate(resolve));
+
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
                 filesIndex.clear();
+
+                // Yield control again after clearing
+                await new Promise(resolve => setImmediate(resolve));
             }
 
             // Read all source and target files once
+            const readFilesStart = globalThis.performance.now();
             console.log("[Index] Reading source and target files...");
             const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+            const readFilesDuration = globalThis.performance.now() - readFilesStart;
             console.log(`[Index] Found ${sourceFiles.length} source files and ${targetFiles.length} target files`);
+
+            // Track progress for splash screen
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                translationPairsIndex.addProgressEntry(
+                    `Read ${sourceFiles.length + targetFiles.length} project files`,
+                    readFilesDuration,
+                    readFilesStart
+                );
+            }
 
             if (sourceFiles.length === 0 && targetFiles.length === 0) {
                 console.warn("[Index] No source or target files found - cannot rebuild index");
@@ -160,6 +179,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Rebuild indexes using the read data
+            const translationPairsStart = globalThis.performance.now();
             console.log("[Index] Creating translation pairs index...");
             await createTranslationPairsIndex(
                 context,
@@ -169,7 +189,21 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 metadataManager,
                 force || translationPairsIndex.documentCount === 0
             );
+            const translationPairsDuration = globalThis.performance.now() - translationPairsStart;
 
+            // Track progress for splash screen
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                translationPairsIndex.addProgressEntry(
+                    `Index ${translationPairsIndex.documentCount} translation pairs`,
+                    translationPairsDuration,
+                    translationPairsStart
+                );
+            }
+
+            // Yield control after translation pairs indexing
+            await new Promise(resolve => setImmediate(resolve));
+
+            const sourceTextStart = globalThis.performance.now();
             console.log("[Index] Creating source text index...");
             await createSourceTextIndex(
                 sourceTextIndex,
@@ -177,17 +211,66 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 metadataManager,
                 force || sourceTextIndex.documentCount === 0
             );
+            const sourceTextDuration = globalThis.performance.now() - sourceTextStart;
 
+            // Track progress for splash screen
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                translationPairsIndex.addProgressEntry(
+                    `Index ${sourceTextIndex.documentCount} source texts`,
+                    sourceTextDuration,
+                    sourceTextStart
+                );
+            }
+
+            // Yield control after source text indexing
+            await new Promise(resolve => setImmediate(resolve));
+
+            const wordsIndexStart = globalThis.performance.now();
             console.log("[Index] Initializing words index...");
             wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+            const wordsIndexDuration = globalThis.performance.now() - wordsIndexStart;
 
+            // Track progress for splash screen
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                translationPairsIndex.addProgressEntry(
+                    `Index ${wordsIndex.size} unique words`,
+                    wordsIndexDuration,
+                    wordsIndexStart
+                );
+            }
+
+            const filesIndexStart = globalThis.performance.now();
             console.log("[Index] Initializing files index...");
             filesIndex = await initializeFilesIndex();
+            const filesIndexDuration = globalThis.performance.now() - filesIndexStart;
+
+            // Track progress for splash screen
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                translationPairsIndex.addProgressEntry(
+                    `Index ${filesIndex.size} file entries`,
+                    filesIndexDuration,
+                    filesIndexStart
+                );
+            }
+
+            // Yield control after files indexing
+            await new Promise(resolve => setImmediate(resolve));
 
             // Update complete drafts
             try {
+                const completeDraftsStart = globalThis.performance.now();
                 console.log("[Index] Updating complete drafts...");
                 await updateCompleteDrafts(targetFiles);
+                const completeDraftsDuration = globalThis.performance.now() - completeDraftsStart;
+
+                // Track progress for splash screen
+                if (translationPairsIndex instanceof SQLiteIndexManager) {
+                    translationPairsIndex.addProgressEntry(
+                        `Update complete drafts`,
+                        completeDraftsDuration,
+                        completeDraftsStart
+                    );
+                }
             } catch (error) {
                 console.error("Error updating complete drafts:", error);
                 vscode.window.showWarningMessage(
@@ -262,27 +345,30 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             vscode.window.showInformationMessage("Codex: Building search index...");
         }
 
-        try {
-            await rebuildIndexes(true); // Always force rebuild when we determine it's needed
+        // Make the rebuild process non-blocking to prevent extension host unresponsiveness
+        setImmediate(async () => {
+            try {
+                await rebuildIndexes(true); // Always force rebuild when we determine it's needed
 
-            const finalCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Rebuild completed with ${finalCount} documents`);
+                const finalCount = translationPairsIndex.documentCount;
+                console.log(`[Index] Rebuild completed with ${finalCount} documents`);
 
-            if (databaseWasDeleted) {
-                vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully with clean content! Indexed ${finalCount} documents.`);
-            } else if (finalCount > 0) {
-                vscode.window.showInformationMessage(`Codex: Search index built successfully! Indexed ${finalCount} documents.`);
-            } else {
-                vscode.window.showWarningMessage("Codex: Search index built but no documents were indexed. Please check your .codex files.");
+                if (databaseWasDeleted) {
+                    vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully with clean content! Indexed ${finalCount} documents.`);
+                } else if (finalCount > 0) {
+                    vscode.window.showInformationMessage(`Codex: Search index built successfully! Indexed ${finalCount} documents.`);
+                } else {
+                    vscode.window.showWarningMessage("Codex: Search index built but no documents were indexed. Please check your .codex files.");
+                }
+            } catch (error) {
+                console.error("[Index] Error during rebuild:", error);
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
             }
-        } catch (error) {
-            console.error("[Index] Error during rebuild:", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
-        }
+        });
     } else {
         // For subsequent calls, just update the status bar with current counts
-        console.log(`[Index] Index already initialized with ${currentDocCount} documents, skipping rebuild`);
+        console.log(`[Index] Index already up to date with ${currentDocCount} documents, no rebuild needed`);
         statusBarHandler.updateIndexCounts(
             translationPairsIndex.documentCount,
             sourceTextIndex.documentCount
