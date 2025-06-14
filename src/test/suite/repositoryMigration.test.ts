@@ -25,15 +25,14 @@ suite("Repository Migration Test Suite", () => {
         }
     });
 
-    test("should detect fresh clone", async () => {
-        // Create a mock .git directory (fresh)
+    test("should handle project without migration file", async () => {
+        // Create a mock .git directory
         const gitDir = path.join(tempDir, ".git");
         await fs.promises.mkdir(gitDir, { recursive: true });
 
         const state = await migrationManager.checkMigrationRequired(tempDir);
 
-        assert.strictEqual(state.isFreshClone, true, "Should detect fresh clone");
-        assert.strictEqual(state.needsMigration, false, "Fresh clone should not need migration");
+        assert.strictEqual(state.needsMigration, false, "Project without SQLite files should not need migration");
     });
 
     test("should create migration file", async () => {
@@ -68,16 +67,12 @@ suite("Repository Migration Test Suite", () => {
     });
 
     test("should check static migration needs", async () => {
-        // Create a mock .git directory (not fresh)
+        // Create a mock .git directory
         const gitDir = path.join(tempDir, ".git");
         await fs.promises.mkdir(gitDir, { recursive: true });
 
-        // Make it old (more than 24 hours ago)
-        const oldDate = new Date(Date.now() - (25 * 60 * 60 * 1000)); // 25 hours ago
-        await fs.promises.utimes(gitDir, oldDate, oldDate);
-
         const result = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(tempDir);
 
-        assert.strictEqual(result.isFreshClone, false, "Should not be fresh clone");
+        assert.strictEqual(result.needsMigration, false, "Project without SQLite files should not need migration");
     });
 }); 

@@ -770,9 +770,8 @@ async function checkAndPromptForMigration(context: vscode.ExtensionContext): Pro
             return;
         }
 
-        // Skip if fresh clone, already migrated, or suppressed
-        if (migrationCheck.isFreshClone ||
-            !migrationCheck.needsMigration) {
+        // Skip if already migrated
+        if (!migrationCheck.needsMigration) {
             return;
         }
 

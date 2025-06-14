@@ -254,7 +254,7 @@ export function generateProjectScope(
     return projectScope;
 }
 
-export type ProjectWithId = ProjectOverview & { projectId: string };
+export type ProjectWithId = ProjectOverview & { projectId: string; };
 
 export const generateProjectId = () => {
     return (
@@ -769,10 +769,33 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
     }
 
+    // If both metadata and git exist, ensure migration file exists
+    if (metadataExists && gitExists) {
+        try {
+            const { RepositoryMigrationManager } = await import('./repositoryMigration');
+            const migrationManager = RepositoryMigrationManager.getInstance();
+            const isCompleted = await migrationManager.isMigrationCompleted(workspaceFolder.uri.fsPath);
+
+            if (!isCompleted) {
+                // Get current user for migration file
+                const authApi = getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                const currentUser = userInfo?.username ||
+                    vscode.workspace.getConfiguration("codex-project-manager").get<string>("userName") ||
+                    "default_user";
+
+                await RepositoryMigrationManager.createMigrationFileStatic(workspaceFolder.uri.fsPath, currentUser, "repository_structure", true);
+                debug("Created migration file for existing project");
+            }
+        } catch (error) {
+            console.warn("Failed to ensure migration file exists:", error);
+        }
+    }
+
     return metadataExists && gitExists;
 }
 
-export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean }) => {
+export const createProjectFiles = async ({ shouldImportUSFM }: { shouldImportUSFM: boolean; }) => {
     try {
         await initializeProject(shouldImportUSFM);
     } catch (error) {
@@ -1027,6 +1050,7 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
         "",
         "# Don't sync user-specific files",
         ".project/complete_drafts.txt",
+        ".project/migration.json",
         "copilot-messages.log",
         "",
         "# System files",

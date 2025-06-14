@@ -59,7 +59,6 @@ export interface MigrationState {
     canSafelyDelete: boolean;
     remoteVerified: boolean;
     openFiles: string[];
-    isFreshClone: boolean;
     currentUser?: string;
     migrationFile?: MigrationFile;
     error?: string;
@@ -110,22 +109,7 @@ export class RepositoryMigrationManager {
         }
     }
 
-    /**
-     * Check if project was recently cloned (within last 24 hours)
-     */
-    private async isFreshlyCloned(projectPath: string): Promise<boolean> {
-        try {
-            const gitDir = path.join(projectPath, ".git");
-            const gitStats = await fs.promises.stat(gitDir);
 
-            // If .git directory was created within the last 24 hours, consider it a fresh clone
-            const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-            return gitStats.birthtime.getTime() > twentyFourHoursAgo;
-        } catch (error) {
-            // If we can't determine, assume it's not fresh
-            return false;
-        }
-    }
 
     /**
      * Check if a project requires migration and assess its current state
@@ -138,21 +122,13 @@ export class RepositoryMigrationManager {
             hasUncommittedNonSQLiteChanges: false,
             canSafelyDelete: false,
             remoteVerified: false,
-            openFiles: [],
-            isFreshClone: false
+            openFiles: []
         };
 
         try {
             // Get current user
             const currentUser = await this.getCurrentUser();
             state.currentUser = currentUser;
-
-            // Check if project was freshly cloned
-            state.isFreshClone = await this.isFreshlyCloned(projectPath);
-            if (state.isFreshClone) {
-                // Fresh clones don't need migration
-                return state;
-            }
 
             // Check git status
             const status = await git.statusMatrix({ fs, dir: projectPath });
@@ -772,7 +748,6 @@ export class RepositoryMigrationManager {
         hasUncommittedChanges: boolean;
         hasUncommittedNonSQLiteChanges: boolean;
         hasRemote: boolean;
-        isFreshClone: boolean;
         currentUser?: string;
         error?: string;
     }> {
@@ -781,7 +756,6 @@ export class RepositoryMigrationManager {
             hasUncommittedChanges: false,
             hasUncommittedNonSQLiteChanges: false,
             hasRemote: false,
-            isFreshClone: false,
             currentUser: undefined as string | undefined,
             error: undefined as string | undefined
         };
@@ -795,19 +769,66 @@ export class RepositoryMigrationManager {
                 "default_user";
             result.currentUser = currentUser;
 
-            // Check if project was freshly cloned
+            // Check if it's a git repository with remote FIRST
             try {
-                const gitDir = path.join(projectPath, ".git");
-                const gitStats = await fs.promises.stat(gitDir);
-                const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
-                result.isFreshClone = gitStats.birthtime.getTime() > twentyFourHoursAgo;
+                const remotes = await git.listRemotes({ fs, dir: projectPath });
+                result.hasRemote = remotes.length > 0;
+            } catch (error) {
+                result.error = `Failed to check git status: ${error}`;
+                return result;
+            }
 
-                if (result.isFreshClone) {
-                    // Fresh clones don't need migration
-                    return result;
+            // Check if migration file exists and is up-to-date
+            const migrationFilePath = path.join(projectPath, MIGRATION_FILE);
+            let migrationFileExists = false;
+            let migrationVersion = 0;
+
+            try {
+                const migrationFileContent = await fs.promises.readFile(migrationFilePath, 'utf-8');
+                const migrationFile = JSON.parse(migrationFileContent) as MigrationFile;
+                const migration = migrationFile.migrations.repository_structure;
+
+                if (migration && migration.completed) {
+                    migrationFileExists = true;
+                    migrationVersion = migration.version || 0;
                 }
             } catch {
-                // If we can't check, assume not fresh
+                // Migration file doesn't exist or is invalid
+                migrationFileExists = false;
+            }
+
+            // If migration file doesn't exist, check if project needs migration
+            if (!migrationFileExists) {
+                try {
+                    // Check if project has SQLite files that need cleanup
+                    const hasSQLiteFiles = await RepositoryMigrationManager.checkForSQLiteFilesStatic(projectPath);
+
+                    if (hasSQLiteFiles && result.hasRemote) {
+                        // Project has SQLite files and remote - needs migration
+                        await RepositoryMigrationManager.createMigrationFileStatic(projectPath, currentUser, "repository_structure", false); // false = incomplete
+                        result.needsMigration = true;
+                        console.log("Created incomplete migration file - project needs migration");
+                        return result;
+                    } else {
+                        // Project doesn't need migration - create completed migration file
+                        await RepositoryMigrationManager.createMigrationFileStatic(projectPath, currentUser, "repository_structure", true); // true = complete
+                        console.log("Created complete migration file - no migration needed");
+                        return result;
+                    }
+                } catch (error) {
+                    console.warn("Failed to create migration file:", error);
+                }
+            }
+
+            // If migration file exists but version is outdated, migration is needed
+            if (migrationFileExists && migrationVersion < CURRENT_MIGRATION_VERSION) {
+                result.needsMigration = true;
+                return result;
+            }
+
+            // Migration file exists and is current, no migration needed
+            if (migrationFileExists && migrationVersion >= CURRENT_MIGRATION_VERSION) {
+                return result;
             }
 
             // Check git status
@@ -828,38 +849,6 @@ export class RepositoryMigrationManager {
 
             result.hasUncommittedChanges = uncommittedFiles.length > 0;
             result.hasUncommittedNonSQLiteChanges = uncommittedNonSQLiteFiles.length > 0;
-
-            // Check if it's a git repository with remote
-            try {
-                const remotes = await git.listRemotes({ fs, dir: projectPath });
-                result.hasRemote = remotes.length > 0;
-
-                if (result.hasRemote) {
-                    // Check for migration file
-                    const migrationFilePath = path.join(projectPath, MIGRATION_FILE);
-                    let migrationVersion = 0;
-                    try {
-                        const migrationFileContent = await fs.promises.readFile(migrationFilePath, 'utf-8');
-                        const migrationFile = JSON.parse(migrationFileContent) as MigrationFile;
-                        migrationVersion = migrationFile.version;
-                    } catch (error) {
-                        // Migration file doesn't exist - this is normal
-                        migrationVersion = 0;
-                    }
-
-                    // Check if project has SQLite files that need cleanup
-                    const hasSQLiteFiles = await RepositoryMigrationManager.checkForSQLiteFilesStatic(projectPath);
-
-                    // Only mark as needing migration if:
-                    // 1. Has remote repository
-                    // 2. No migration file exists (version 0)
-                    // 3. Has SQLite files that need cleanup
-                    result.needsMigration = migrationVersion === 0 &&
-                        hasSQLiteFiles;
-                }
-            } catch (error) {
-                result.error = `Failed to check git status: ${error}`;
-            }
 
         } catch (error) {
             result.error = `Migration check failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -1039,6 +1028,97 @@ export class RepositoryMigrationManager {
         } catch (error) {
             // Migration file doesn't exist or is invalid
             return false;
+        }
+    }
+
+    /**
+     * Static method to create a migration file
+     */
+    static async createMigrationFileStatic(projectPath: string, currentUser: string, migrationName: string = "repository_structure", completed: boolean = true): Promise<void> {
+        const migrationFilePath = path.join(projectPath, MIGRATION_FILE);
+        const migrationDir = path.dirname(migrationFilePath);
+        const timestamp = new Date().toISOString();
+
+        // Ensure .project directory exists
+        try {
+            await fs.promises.mkdir(migrationDir, { recursive: true });
+        } catch (error) {
+            // Directory might already exist
+        }
+
+        // Check if migration file already exists
+        try {
+            await fs.promises.access(migrationFilePath);
+            // File already exists, no need to create it
+            return;
+        } catch (error) {
+            // File doesn't exist, create it
+        }
+
+        // Determine version and description based on completion status
+        const migrationVersion = completed ? CURRENT_MIGRATION_VERSION : 0;
+        const description = completed ?
+            "Project up-to-date - no migration needed" :
+            "Project needs migration - SQLite files detected";
+
+        // Create new migration file
+        const migrationFile: MigrationFile = {
+            version: migrationVersion,
+            migrations: {
+                [migrationName]: {
+                    version: migrationVersion,
+                    completed: completed,
+                    timestamp,
+                    description: description,
+                    migratedBy: `codex-editor-v${vscode.extensions.getExtension('codex-editor')?.packageJSON.version || 'unknown'}`,
+                    user: currentUser
+                }
+            },
+            metadata: {
+                created: timestamp,
+                lastUpdated: timestamp,
+                migratedBy: `codex-editor-v${vscode.extensions.getExtension('codex-editor')?.packageJSON.version || 'unknown'}`
+            }
+        };
+
+        await fs.promises.writeFile(migrationFilePath, JSON.stringify(migrationFile, null, 2));
+
+        // Add to .gitignore to ensure it's not synced
+        await RepositoryMigrationManager.addToGitignoreStatic(projectPath, MIGRATION_FILE);
+    }
+
+    /**
+     * Static method to add entry to .gitignore if not already present
+     */
+    static async addToGitignoreStatic(projectPath: string, entry: string): Promise<void> {
+        const gitignorePath = path.join(projectPath, '.gitignore');
+
+        try {
+            let gitignoreContent = '';
+            try {
+                gitignoreContent = await fs.promises.readFile(gitignorePath, 'utf-8');
+            } catch (error) {
+                // .gitignore doesn't exist, will be created
+            }
+
+            // Check if entry already exists
+            const lines = gitignoreContent.split('\n');
+            const entryExists = lines.some(line => line.trim() === entry);
+
+            if (!entryExists) {
+                // Add entry to .gitignore
+                const newContent = gitignoreContent.trim() + '\n' + entry + '\n';
+                await fs.promises.writeFile(gitignorePath, newContent);
+
+                // Stage .gitignore changes
+                try {
+                    await git.add({ fs, dir: projectPath, filepath: '.gitignore' });
+                } catch (error) {
+                    console.warn('Failed to stage .gitignore changes:', error);
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to update .gitignore:', error);
         }
     }
 
