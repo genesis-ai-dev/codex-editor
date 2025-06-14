@@ -622,6 +622,13 @@ export function deactivate() {
     if (global.db) {
         global.db.close();
     }
+
+    // Clean up the global index manager
+    import("./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager").then(
+        ({ clearSQLiteIndexManager }) => {
+            clearSQLiteIndexManager();
+        }
+    ).catch(console.error);
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {

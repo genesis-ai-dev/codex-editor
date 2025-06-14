@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { ActivationTiming } from "../../../../extension";
+import { debounce } from "lodash";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
@@ -827,7 +828,7 @@ export class SQLiteIndexManager {
                 f.file_path as uri,
                 bm25(cells_fts) as score
             FROM cells_fts
-            JOIN cells c ON cells_fts.rowid = c.id
+            JOIN cells c ON cells_fts.cell_id = c.cell_id
             JOIN files f ON c.file_id = f.id
             WHERE cells_fts MATCH ?
             ORDER BY score DESC
@@ -1119,7 +1120,7 @@ export class SQLiteIndexManager {
                 f.file_path, f.file_type,
                 bm25(cells_fts) as rank
             FROM cells_fts
-            JOIN cells c ON cells_fts.rowid = c.id
+            JOIN cells c ON cells_fts.cell_id = c.cell_id
             JOIN files f ON c.file_id = f.id
             WHERE cells_fts MATCH ?
         `;
@@ -1338,14 +1339,122 @@ export class SQLiteIndexManager {
         return { version, tables, cellsColumns, ftsColumns };
     }
 
-    private debouncedSave(): void {
+    private debouncedSave = debounce(async () => {
+        try {
+            await this.saveDatabase();
+        } catch (error) {
+            console.error("Error in debounced save:", error);
+        }
+    }, this.SAVE_DEBOUNCE_MS);
+
+    // Force immediate save for critical updates (like during queued translations)
+    async forceSave(): Promise<void> {
         if (this.saveDebounceTimer) {
             clearTimeout(this.saveDebounceTimer);
+            this.saveDebounceTimer = null;
         }
 
-        this.saveDebounceTimer = setTimeout(() => {
-            this.saveDatabase().catch(console.error);
-        }, this.SAVE_DEBOUNCE_MS) as unknown as NodeJS.Timeout;
+        try {
+            await this.saveDatabase();
+        } catch (error) {
+            console.error("Error in force save:", error);
+            throw error;
+        }
+    }
+
+    // Force FTS index to rebuild/refresh for immediate search visibility
+    async refreshFTSIndex(): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        try {
+            // Force FTS5 to rebuild its index
+            this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
+        } catch (error) {
+            // If rebuild fails, try optimize instead
+            try {
+                this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
+            } catch (optimizeError) {
+                // If both fail, silently continue - the triggers should handle synchronization
+            }
+        }
+    }
+
+    // Ensure all pending writes are committed and visible for search
+    async flushPendingWrites(): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Execute a dummy query to ensure any autocommit transactions are flushed
+        try {
+            this.db.run("BEGIN IMMEDIATE; COMMIT;");
+        } catch (error) {
+            // Database might already be in a transaction, that's fine
+        }
+    }
+
+    // Immediate cell update with FTS synchronization
+    async upsertCellWithFTSSync(
+        cellId: string,
+        fileId: number,
+        cellType: "source" | "target",
+        content: string,
+        lineNumber?: number,
+        metadata?: any,
+        rawContent?: string
+    ): Promise<{ id: number; isNew: boolean; contentChanged: boolean; }> {
+        const result = await this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent);
+
+        // Force FTS synchronization for immediate search visibility
+        if (result.contentChanged) {
+            try {
+                // Manually sync this specific cell to FTS if triggers didn't work
+                const actualRawContent = rawContent || content;
+                this.db!.run(`
+                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    VALUES (?, ?, ?, ?)
+                `, [cellId, content, actualRawContent, cellType]);
+            } catch (error) {
+                // Trigger should have handled it, continue silently
+            }
+        }
+
+        return result;
+    }
+
+    // Debug method to check if a cell is in the FTS index
+    async isCellInFTSIndex(cellId: string): Promise<boolean> {
+        if (!this.db) return false;
+
+        const stmt = this.db.prepare("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1");
+        try {
+            stmt.bind([cellId]);
+            return stmt.step();
+        } finally {
+            stmt.free();
+        }
+    }
+
+    // Debug method to get FTS index count vs regular table count
+    async getFTSDebugInfo(): Promise<{ cellsCount: number; ftsCount: number; }> {
+        if (!this.db) return { cellsCount: 0, ftsCount: 0 };
+
+        const cellsStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells");
+        const ftsStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells_fts");
+
+        let cellsCount = 0;
+        let ftsCount = 0;
+
+        try {
+            cellsStmt.step();
+            cellsCount = cellsStmt.getAsObject().count as number;
+
+            ftsStmt.step();
+            ftsCount = ftsStmt.getAsObject().count as number;
+        } finally {
+            cellsStmt.free();
+            ftsStmt.free();
+        }
+
+        return { cellsCount, ftsCount };
     }
 
     async saveDatabase(): Promise<void> {

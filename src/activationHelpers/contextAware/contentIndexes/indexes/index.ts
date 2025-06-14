@@ -61,6 +61,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const indexManager = new SQLiteIndexManager();
     await indexManager.initialize(context);
 
+    // Register the index manager globally for immediate access
+    const { setSQLiteIndexManager } = await import("./sqliteIndexManager");
+    setSQLiteIndexManager(indexManager);
+
     // Create separate instances for translation pairs and source text
     // These will use the same underlying database but provide different interfaces
     const translationPairsIndex = indexManager;
@@ -213,6 +217,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 }
             }
         );
+
+        // CRITICAL: Handle custom document changes (the missing piece from the background issue)
+        // We'll register this listener with the CodexCellEditorProvider instead
+        // since onDidChangeCustomDocument is a provider-level event, not workspace-level
 
         const searchTargetCellsByQueryCommand = vscode.commands.registerCommand(
             "codex-editor-extension.searchTargetCellsByQuery",
