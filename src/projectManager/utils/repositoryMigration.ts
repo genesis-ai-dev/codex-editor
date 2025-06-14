@@ -53,7 +53,7 @@ export interface MigrationState {
     needsMigration: boolean;
     migrationVersion: number;
     hasUncommittedChanges: boolean;
-    hasUncommittedNonSQLiteChanges: boolean;
+    hasUncommittedTrackedChanges: boolean;
     canSafelyDelete: boolean;
     remoteVerified: boolean;
     openFiles: string[];
@@ -115,7 +115,7 @@ export class RepositoryMigrationManager {
             needsMigration: false,
             migrationVersion: 0,
             hasUncommittedChanges: false,
-            hasUncommittedNonSQLiteChanges: false,
+            hasUncommittedTrackedChanges: false,
             canSafelyDelete: false,
             remoteVerified: false,
             openFiles: []
@@ -129,21 +129,24 @@ export class RepositoryMigrationManager {
             // Check git status
             const status = await git.statusMatrix({ fs, dir: projectPath });
             const uncommittedFiles: string[] = [];
-            const uncommittedNonSQLiteFiles: string[] = [];
+            const uncommittedTrackedFiles: string[] = [];
+
+            // Get gitignore filter function
+            const isIgnored = await this.parseGitignore(projectPath);
 
             for (const [filepath, head, workdir, stage] of status) {
                 if (workdir !== head || stage !== head) {
                     uncommittedFiles.push(filepath);
 
-                    // Check if it's not a SQLite file we want to exclude
-                    if (!filepath.includes('.sqlite')) {
-                        uncommittedNonSQLiteFiles.push(filepath);
+                    // Only include files that are NOT in .gitignore
+                    if (!isIgnored(filepath)) {
+                        uncommittedTrackedFiles.push(filepath);
                     }
                 }
             }
 
             state.hasUncommittedChanges = uncommittedFiles.length > 0;
-            state.hasUncommittedNonSQLiteChanges = uncommittedNonSQLiteFiles.length > 0;
+            state.hasUncommittedTrackedChanges = uncommittedTrackedFiles.length > 0;
 
             // Check for open files in VSCode
             const openDocuments = vscode.workspace.textDocuments;
@@ -161,7 +164,7 @@ export class RepositoryMigrationManager {
             }
 
             // Determine if we can safely delete
-            state.canSafelyDelete = !state.hasUncommittedNonSQLiteChanges &&
+            state.canSafelyDelete = !state.hasUncommittedTrackedChanges &&
                 state.openFiles.length === 0 &&
                 state.remoteVerified;
 
@@ -194,9 +197,9 @@ export class RepositoryMigrationManager {
     }
 
     /**
-     * Stage and commit only non-SQLite changes
+     * Stage and commit only tracked changes (excluding files in .gitignore)
      */
-    async stageAndCommitNonSQLiteChanges(
+    async stageAndCommitTrackedChanges(
         projectPath: string,
         progress?: vscode.Progress<{ message?: string; increment?: number; }>
     ): Promise<void> {
@@ -205,9 +208,12 @@ export class RepositoryMigrationManager {
         const status = await git.statusMatrix({ fs, dir: projectPath });
         const filesToStage: string[] = [];
 
-        // Identify files to stage (excluding SQLite files)
+        // Get gitignore filter function
+        const isIgnored = await this.parseGitignore(projectPath);
+
+        // Identify files to stage (excluding files in .gitignore)
         for (const [filepath, head, workdir, stage] of status) {
-            if ((workdir !== head || stage !== head) && !filepath.includes('.sqlite')) {
+            if ((workdir !== head || stage !== head) && !isIgnored(filepath)) {
                 filesToStage.push(filepath);
             }
         }
@@ -446,9 +452,9 @@ export class RepositoryMigrationManager {
             }
 
             // Stage 3: Stage and commit non-SQLite changes if any
-            if (migrationState.hasUncommittedNonSQLiteChanges) {
+            if (migrationState.hasUncommittedTrackedChanges) {
                 progress.report({ message: "Committing non-SQLite changes...", increment: 10 });
-                await this.stageAndCommitNonSQLiteChanges(projectPath, progress);
+                await this.stageAndCommitTrackedChanges(projectPath, progress);
             }
 
             if (token.isCancellationRequested) {
@@ -739,7 +745,7 @@ export class RepositoryMigrationManager {
     static async checkProjectNeedsMigrationStatic(projectPath: string): Promise<{
         needsMigration: boolean;
         hasUncommittedChanges: boolean;
-        hasUncommittedNonSQLiteChanges: boolean;
+        hasUncommittedTrackedChanges: boolean;
         hasRemote: boolean;
         currentUser?: string;
         error?: string;
@@ -747,7 +753,7 @@ export class RepositoryMigrationManager {
         const result = {
             needsMigration: false,
             hasUncommittedChanges: false,
-            hasUncommittedNonSQLiteChanges: false,
+            hasUncommittedTrackedChanges: false,
             hasRemote: false,
             currentUser: undefined as string | undefined,
             error: undefined as string | undefined
@@ -796,21 +802,24 @@ export class RepositoryMigrationManager {
             // Check git status
             const status = await git.statusMatrix({ fs, dir: projectPath });
             const uncommittedFiles: string[] = [];
-            const uncommittedNonSQLiteFiles: string[] = [];
+            const uncommittedTrackedFiles: string[] = [];
+
+            // Get gitignore filter function
+            const isIgnored = await RepositoryMigrationManager.parseGitignoreStatic(projectPath);
 
             for (const [filepath, head, workdir, stage] of status) {
                 if (workdir !== head || stage !== head) {
                     uncommittedFiles.push(filepath);
 
-                    // Check if it's not a SQLite file we want to exclude
-                    if (!filepath.includes('.sqlite')) {
-                        uncommittedNonSQLiteFiles.push(filepath);
+                    // Only include files that are NOT in .gitignore
+                    if (!isIgnored(filepath)) {
+                        uncommittedTrackedFiles.push(filepath);
                     }
                 }
             }
 
             result.hasUncommittedChanges = uncommittedFiles.length > 0;
-            result.hasUncommittedNonSQLiteChanges = uncommittedNonSQLiteFiles.length > 0;
+            result.hasUncommittedTrackedChanges = uncommittedTrackedFiles.length > 0;
 
         } catch (error) {
             result.error = `Migration check failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -1082,8 +1091,6 @@ export class RepositoryMigrationManager {
         }
     }
 
-
-
     /**
      * Push local changes to remote repository
      */
@@ -1170,5 +1177,100 @@ export class RepositoryMigrationManager {
         }
     }
 
+    /**
+     * Parse .gitignore file and return a function to test if a file should be ignored
+     */
+    private async parseGitignore(projectPath: string): Promise<(filepath: string) => boolean> {
+        try {
+            const gitignorePath = path.join(projectPath, '.gitignore');
+            const gitignoreContent = await fs.promises.readFile(gitignorePath, 'utf-8');
 
+            // Parse gitignore patterns
+            const patterns = gitignoreContent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line && !line.startsWith('#')) // Remove empty lines and comments
+                .map(pattern => {
+                    // Convert gitignore patterns to regex
+                    // This is a simplified implementation - for production, consider using a library like 'ignore'
+                    let regexPattern = pattern
+                        .replace(/\./g, '\\.')  // Escape dots
+                        .replace(/\*/g, '.*')   // Convert * to .*
+                        .replace(/\?/g, '.')    // Convert ? to .
+                        .replace(/\//g, '\\/'); // Escape forward slashes
+
+                    // Handle patterns that start with /
+                    if (pattern.startsWith('/')) {
+                        regexPattern = '^' + regexPattern.substring(2); // Remove leading /\/ and anchor to start
+                    } else {
+                        regexPattern = '(^|.*/)' + regexPattern; // Match anywhere in path
+                    }
+
+                    // Handle patterns that end with /
+                    if (pattern.endsWith('/')) {
+                        regexPattern = regexPattern + '($|/.*)'; // Match directory and its contents
+                    } else {
+                        regexPattern = regexPattern + '($|/.*)'; // Match file or directory
+                    }
+
+                    return new RegExp(regexPattern);
+                });
+
+            return (filepath: string) => {
+                return patterns.some(pattern => pattern.test(filepath));
+            };
+        } catch (error) {
+            // If .gitignore doesn't exist or can't be read, return a function that ignores nothing
+            console.warn('Could not read .gitignore file:', error);
+            return () => false;
+        }
+    }
+
+    /**
+     * Static version of gitignore parser
+     */
+    static async parseGitignoreStatic(projectPath: string): Promise<(filepath: string) => boolean> {
+        try {
+            const gitignorePath = path.join(projectPath, '.gitignore');
+            const gitignoreContent = await fs.promises.readFile(gitignorePath, 'utf-8');
+
+            // Parse gitignore patterns
+            const patterns = gitignoreContent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line && !line.startsWith('#')) // Remove empty lines and comments
+                .map(pattern => {
+                    // Convert gitignore patterns to regex
+                    let regexPattern = pattern
+                        .replace(/\./g, '\\.')  // Escape dots
+                        .replace(/\*/g, '.*')   // Convert * to .*
+                        .replace(/\?/g, '.')    // Convert ? to .
+                        .replace(/\//g, '\\/'); // Escape forward slashes
+
+                    // Handle patterns that start with /
+                    if (pattern.startsWith('/')) {
+                        regexPattern = '^' + regexPattern.substring(2); // Remove leading /\/ and anchor to start
+                    } else {
+                        regexPattern = '(^|.*/)' + regexPattern; // Match anywhere in path
+                    }
+
+                    // Handle patterns that end with /
+                    if (pattern.endsWith('/')) {
+                        regexPattern = regexPattern + '($|/.*)'; // Match directory and its contents
+                    } else {
+                        regexPattern = regexPattern + '($|/.*)'; // Match file or directory
+                    }
+
+                    return new RegExp(regexPattern);
+                });
+
+            return (filepath: string) => {
+                return patterns.some(pattern => pattern.test(filepath));
+            };
+        } catch (error) {
+            // If .gitignore doesn't exist or can't be read, return a function that ignores nothing
+            console.warn('Could not read .gitignore file:', error);
+            return () => false;
+        }
+    }
 } 
