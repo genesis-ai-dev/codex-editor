@@ -310,6 +310,11 @@
                 "category": "Codex Project Manager"
             },
             {
+                "command": "codex-project-manager.triggerMigration",
+                "title": "Trigger Project Migration",
+                "category": "Codex Project Manager"
+            },
+            {
                 "command": "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
                 "title": "Search Source Cells"
             },
@@ -484,6 +489,11 @@
                         ],
                         "default": 5,
                         "description": "Delay in minutes before triggering automatic sync after changes"
+                    },
+                    "codex-project-manager.migration.skipSyncVerification": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Skip remote synchronization verification during project migration. Warning: This may result in data loss if local changes haven't been pushed to remote."
                     }
                 }
             },

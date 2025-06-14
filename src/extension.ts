@@ -44,6 +44,9 @@ import {
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
+import { RepositoryMigrationManager } from "./projectManager/utils/repositoryMigration";
+import path from "path";
+import fs from "fs";
 
 export interface ActivationTiming {
     step: string;
@@ -428,6 +431,60 @@ export async function activate(context: vscode.ExtensionContext) {
             openCellLabelImporter(context)
         )
     );
+
+    // Migration is now handled at project opening level via StartupFlowProvider
+    // No need for automatic checking on extension activation
+
+    // Migration command for testing/debugging
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-project-manager.triggerMigration", async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                vscode.window.showErrorMessage("No workspace folder found");
+                return;
+            }
+
+            const migrationManager = RepositoryMigrationManager.getInstance();
+            const projectPath = workspaceFolder.uri.fsPath;
+            const projectName = workspaceFolder.name;
+
+            try {
+                // Check migration state
+                const migrationState = await migrationManager.checkMigrationRequired(projectPath);
+
+                if (migrationState.hasMigrationFlag) {
+                    vscode.window.showInformationMessage("Project has already been migrated");
+                    return;
+                }
+
+                if (migrationState.hasSuppression) {
+                    const choice = await vscode.window.showWarningMessage(
+                        "Migration was previously suppressed. Do you want to proceed anyway?",
+                        "Yes", "No"
+                    );
+                    if (choice !== "Yes") return;
+                }
+
+                if (migrationState.error) {
+                    vscode.window.showErrorMessage(`Migration check failed: ${migrationState.error}`);
+                    return;
+                }
+
+                // Confirm migration
+                const confirmChoice = await vscode.window.showWarningMessage(
+                    `This will migrate project "${projectName}" by deleting and recloning it. Continue?`,
+                    { modal: true },
+                    "Migrate"
+                );
+
+                if (confirmChoice === "Migrate") {
+                    await performWorkspaceMigration(projectPath, projectName, migrationManager);
+                }
+            } catch (error) {
+                vscode.window.showErrorMessage(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        })
+    );
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
@@ -480,6 +537,51 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         // The individual steps above already show the breakdown
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
         console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
+
+        // Perform initial sync during splash screen phase if auth API is available and user is authenticated
+        updateSplashScreenSync(60, "Checking authentication...");
+        console.log("🔄 [SPLASH SCREEN PHASE] Starting sync during splash screen...");
+
+        if (authApi) {
+            try {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated) {
+                    console.log("🔄 [SPLASH SCREEN PHASE] User is authenticated, performing initial sync during splash screen");
+                    updateSplashScreenSync(70, "Synchronizing project...");
+                    const syncStart = globalThis.performance.now();
+
+                    const syncManager = SyncManager.getInstance();
+                    // During startup, don't show info messages for connection issues
+                    try {
+                        await syncManager.executeSync("Initial workspace sync", false);
+                        trackTiming("Project Synchronization Complete", syncStart);
+                        updateSplashScreenSync(85, "Synchronization complete");
+                        console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");
+                    } catch (error) {
+                        console.error("❌ [SPLASH SCREEN PHASE] Error during initial sync:", error);
+                        trackTiming("Project Synchronization Failed", syncStart);
+                        updateSplashScreenSync(85, "Synchronization failed");
+                    }
+                } else {
+                    console.log("⏭️ [SPLASH SCREEN PHASE] User is not authenticated, skipping initial sync");
+                    updateSplashScreenSync(85, "Skipping sync (not authenticated)");
+                    const skipStart = globalThis.performance.now();
+                    // Just log this, no need to track timing for a skip
+                    console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
+                }
+            } catch (error) {
+                console.error("❌ [SPLASH SCREEN PHASE] Error checking auth status or during initial sync:", error);
+                updateSplashScreenSync(85, "Authentication error");
+                const errorStart = globalThis.performance.now();
+                // Just log this, no need to track timing for an error
+                console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
+            }
+        } else {
+            console.log("⏭️ [SPLASH SCREEN PHASE] Auth API not available, skipping initial sync");
+            updateSplashScreenSync(85, "Skipping sync (offline mode)");
+            // Just log this, no need to track timing for a skip
+            console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
+        }
 
         // Generate progress report in background (don't block startup)
         if (metadataExists) {
@@ -587,7 +689,7 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
 async function executeCommandsAfter(context: vscode.ExtensionContext) {
     try {
         // Update splash screen for post-activation tasks
-        updateSplashScreenSync(10, "Configuring editor settings...");
+        updateSplashScreenSync(90, "Configuring editor settings...");
 
         await vscode.commands.executeCommand(
             "codex-editor-extension.setEditorFontToTargetLanguage"
@@ -603,50 +705,6 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
     await vscode.workspace
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
-
-    // Update splash screen for sync operations
-    updateSplashScreenSync(30, "Checking authentication...");
-
-    // Perform initial sync if auth API is available and user is authenticated
-    if (authApi) {
-        try {
-            const authStatus = authApi.getAuthStatus();
-            if (authStatus.isAuthenticated) {
-                console.log("User is authenticated, performing initial sync");
-                updateSplashScreenSync(50, "Synchronizing project...");
-                const syncStart = globalThis.performance.now();
-
-                const syncManager = SyncManager.getInstance();
-                // During startup, don't show info messages for connection issues
-                try {
-                    await syncManager.executeSync("Initial workspace sync", false);
-                    trackTiming("Project Synchronization Complete", syncStart);
-                    updateSplashScreenSync(90, "Synchronization complete");
-                } catch (error) {
-                    console.error("Error during initial sync:", error);
-                    trackTiming("Project Synchronization Failed", syncStart);
-                    updateSplashScreenSync(90, "Synchronization failed");
-                }
-            } else {
-                console.log("User is not authenticated, skipping initial sync");
-                updateSplashScreenSync(90, "Skipping sync (not authenticated)");
-                const skipStart = globalThis.performance.now();
-                // Just log this, no need to track timing for a skip
-                console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
-            }
-        } catch (error) {
-            console.error("Error checking auth status or during initial sync:", error);
-            updateSplashScreenSync(90, "Authentication error");
-            const errorStart = globalThis.performance.now();
-            // Just log this, no need to track timing for an error
-            console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
-        }
-    } else {
-        console.log("Auth API not available, skipping initial sync");
-        updateSplashScreenSync(90, "Skipping sync (offline mode)");
-        // Just log this, no need to track timing for a skip
-        console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
-    }
 
     // Final splash screen update and close
     updateSplashScreenSync(100, "Finalizing setup...");
@@ -704,4 +762,161 @@ export function getNotebookMetadataManager(): NotebookMetadataManager {
 
 export function getAuthApi(): FrontierAPI | undefined {
     return authApi;
+}
+
+/**
+ * Check if the current workspace needs migration and prompt user if necessary
+ */
+async function checkAndPromptForMigration(context: vscode.ExtensionContext): Promise<void> {
+    try {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) return;
+
+        const projectPath = workspaceFolder.uri.fsPath;
+        const projectName = workspaceFolder.name;
+
+        // Use static method for fast check
+        const migrationCheck = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(projectPath);
+
+        if (migrationCheck.error) {
+            console.warn("Migration check failed:", migrationCheck.error);
+            return;
+        }
+
+        // Skip if fresh clone, already migrated, or suppressed
+        if (migrationCheck.isFreshClone ||
+            migrationCheck.hasUserMigrationFlag ||
+            migrationCheck.hasSuppression ||
+            !migrationCheck.needsMigration) {
+            return;
+        }
+
+        // Get detailed migration state for user messaging
+        const migrationManager = RepositoryMigrationManager.getInstance();
+        const migrationState = await migrationManager.checkMigrationRequired(projectPath);
+
+        if (migrationState.error) {
+            console.warn("Detailed migration check failed:", migrationState.error);
+            return;
+        }
+
+        // Show migration prompt
+        let message: string;
+        if (migrationState.hasUncommittedNonSQLiteChanges) {
+            message = `Project "${projectName}" needs migration to clean up database files.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n\nWould you like to migrate now?`;
+        } else {
+            message = `Project "${projectName}" needs migration to clean up database files.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n\nWould you like to migrate now?`;
+        }
+
+        const choice = await vscode.window.showInformationMessage(
+            message,
+            { modal: false },
+            "Migrate Now",
+            "Remind Me Later",
+            "Don't Ask Again"
+        );
+
+        switch (choice) {
+            case "Migrate Now":
+                await performWorkspaceMigration(projectPath, projectName, migrationManager);
+                break;
+
+            case "Don't Ask Again":
+                // Create suppression flag
+                await createMigrationSuppressionFlag(projectPath);
+                break;
+
+            case "Remind Me Later":
+            default:
+                // Do nothing, will prompt again next time
+                break;
+        }
+    } catch (error) {
+        console.error("Error checking for migration needs:", error);
+    }
+}
+
+/**
+ * Perform migration for the current workspace
+ */
+async function performWorkspaceMigration(
+    projectPath: string,
+    projectName: string,
+    migrationManager: RepositoryMigrationManager
+): Promise<void> {
+    try {
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Migrating project "${projectName}"...`,
+                cancellable: true,
+            },
+            async (progress, token) => {
+                try {
+                    // Get project details
+                    const { findAllCodexProjects } = await import("./projectManager/utils/projectUtils");
+                    const localProjects = await findAllCodexProjects();
+                    const project = localProjects.find((p) => p.path === projectPath);
+
+                    if (!project || !project.gitOriginUrl) {
+                        throw new Error("Project not found or missing git origin URL");
+                    }
+
+                    const projectWithSyncStatus = {
+                        ...project,
+                        syncStatus: "downloadedAndSynced" as const
+                    };
+
+                    // Perform the migration
+                    await migrationManager.performMigration(
+                        projectWithSyncStatus,
+                        progress,
+                        token
+                    );
+
+                    vscode.window.showInformationMessage(
+                        `Project "${projectName}" has been successfully migrated. Please reopen the project.`
+                    );
+
+                    // Close the current workspace since the project was deleted and recloned
+                    setTimeout(() => {
+                        vscode.commands.executeCommand("workbench.action.closeFolder");
+                    }, 2000);
+
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error("Workspace migration failed:", errorMessage);
+
+                    vscode.window.showErrorMessage(
+                        `Failed to migrate project: ${errorMessage}`
+                    );
+                }
+            }
+        );
+    } catch (error) {
+        console.error("Error setting up workspace migration:", error);
+        vscode.window.showErrorMessage("Failed to start migration process");
+    }
+}
+
+/**
+ * Create a flag to suppress migration prompts for this project
+ */
+async function createMigrationSuppressionFlag(projectPath: string): Promise<void> {
+    try {
+        const flagPath = path.join(projectPath, ".codex", "migration_suppressed");
+        const flagDir = path.dirname(flagPath);
+
+        // Ensure .codex directory exists
+        await fs.promises.mkdir(flagDir, { recursive: true });
+
+        const flagContent = {
+            suppressionDate: new Date().toISOString(),
+            reason: "User chose not to migrate"
+        };
+
+        await fs.promises.writeFile(flagPath, JSON.stringify(flagContent, null, 2));
+    } catch (error) {
+        console.error("Failed to create migration suppression flag:", error);
+    }
 }

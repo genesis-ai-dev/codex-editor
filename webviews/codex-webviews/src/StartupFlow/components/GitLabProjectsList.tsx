@@ -376,52 +376,66 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         [projectsWithProgress]
     );
 
+    const renderProjectActions = (project: ProjectWithSyncStatus) => {
+        if (project.syncStatus === "cloudOnlyNotSynced") {
+            return (
+                <VSCodeButton
+                    appearance="primary"
+                    onClick={() => onCloneProject(project)}
+                    title="Clone project"
+                >
+                    <i className="codicon codicon-cloud-download"></i>
+                </VSCodeButton>
+            );
+        }
+
+        if (
+            project.syncStatus === "downloadedAndSynced" ||
+            project.syncStatus === "localOnlyNotSynced"
+        ) {
+            return (
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    {project.needsMigration && (
+                        <VSCodeBadge 
+                            style={{ 
+                                backgroundColor: "var(--vscode-badge-background)",
+                                color: "var(--vscode-badge-foreground)",
+                                fontSize: "11px",
+                                padding: "2px 6px"
+                            }}
+                        >
+                            <i className="codicon codicon-sync" style={{ marginRight: "4px" }}></i>
+                            Migration Available
+                        </VSCodeBadge>
+                    )}
+                    <VSCodeButton
+                        appearance="primary"
+                        onClick={() => onOpenProject(project)}
+                        title="Open project"
+                    >
+                        <i className="codicon codicon-folder-opened"></i>
+                    </VSCodeButton>
+                    {onDeleteProject && (
+                        <VSCodeButton
+                            appearance="secondary"
+                            onClick={() => onDeleteProject(project)}
+                            title={project.needsMigration ? "Migrate project" : "Delete local project"}
+                        >
+                            <i className={project.needsMigration ? "codicon codicon-sync" : "codicon codicon-trash"}></i>
+                        </VSCodeButton>
+                    )}
+                </div>
+            );
+        }
+        return null;
+    };
+
     const renderProjectCard = (project: ProjectWithSyncStatus) => {
         if (!project) return null;
         const { cleanName, displayUrl, uniqueId } = parseProjectUrl(project.gitOriginUrl);
         const isUnpublished = !project.gitOriginUrl;
         const status = getStatusIcon(project.syncStatus);
         const isExpanded = expandedProjects[project.name];
-
-        const mainAction = () => {
-            if (project.syncStatus === "cloudOnlyNotSynced") {
-                return (
-                    <VSCodeButton
-                        appearance="secondary"
-                        onClick={() => onCloneProject(project)}
-                        title="Download project"
-                    >
-                        <i className="codicon codicon-cloud-download"></i>
-                    </VSCodeButton>
-                );
-            }
-            if (
-                project.syncStatus === "downloadedAndSynced" ||
-                project.syncStatus === "localOnlyNotSynced"
-            ) {
-                return (
-                    <div style={{ display: "flex", gap: "8px" }}>
-                        <VSCodeButton
-                            appearance="primary"
-                            onClick={() => onOpenProject(project)}
-                            title="Open project"
-                        >
-                            <i className="codicon codicon-folder-opened"></i>
-                        </VSCodeButton>
-                        {onDeleteProject && (
-                            <VSCodeButton
-                                appearance="secondary"
-                                onClick={() => onDeleteProject(project)}
-                                title="Delete local project"
-                            >
-                                <i className="codicon codicon-trash"></i>
-                            </VSCodeButton>
-                        )}
-                    </div>
-                );
-            }
-            return null;
-        };
 
         return (
             <div className={`project-card ${isExpanded ? "expanded" : ""}`} key={project.name}>
@@ -433,6 +447,18 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         />
                         <div className="project-title">
                             <span className="name">{cleanName || project.name}</span>
+                            {project.needsMigration && (
+                                <VSCodeBadge 
+                                    style={{ 
+                                        marginLeft: "8px",
+                                        backgroundColor: "var(--vscode-notificationsInfoIcon-foreground)",
+                                        color: "var(--vscode-badge-foreground)",
+                                        fontSize: "10px"
+                                    }}
+                                >
+                                    MIGRATION AVAILABLE
+                                </VSCodeBadge>
+                            )}
                             {isUnpublished && <VSCodeBadge>Unpublished</VSCodeBadge>}
                         </div>
                         {uniqueId && (
@@ -476,7 +502,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 ></progress>
                             </div>
                         )}
-                        {mainAction()}
+                        {renderProjectActions(project)}
                         {displayUrl ? (
                             <span
                                 className={`expand-button ${isExpanded ? "expanded" : ""}`}
