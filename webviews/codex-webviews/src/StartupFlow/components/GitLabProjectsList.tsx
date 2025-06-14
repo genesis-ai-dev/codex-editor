@@ -1,15 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
-import {
-    VSCodeButton,
-    VSCodeProgressRing,
-    VSCodeBadge,
-    VSCodeDivider,
-    VSCodeDropdown,
-    VSCodeTextField,
-    VSCodeOption,
-} from "@vscode/webview-ui-toolkit/react";
-import "./GitLabProjectsList.css";
+import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
+import { Input } from "../../components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { Card, CardContent, CardHeader } from "../../components/ui/card";
+import { cn } from "../../lib/utils";
 
 // Filter options for projects
 type ProjectFilter = "all" | "local" | "remote" | "synced" | "non-synced";
@@ -60,53 +56,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
     const [projectsWithProgress, setProjectsWithProgress] = useState<ProjectWithSyncStatus[]>([]);
-    const dropdownRef = useRef<HTMLSelectElement | null>(null);
-
-    // Add effect to handle dropdown changes
-    useEffect(() => {
-        const dropdown = document.getElementById("project-filter") as HTMLSelectElement;
-        if (!dropdown) return;
-
-        // Store ref to dropdown
-        dropdownRef.current = dropdown;
-
-        // Set initial selected value
-        dropdown.value = filter;
-
-        const handleChange = () => {
-            const newValue = dropdown.value;
-            if (isValidFilter(newValue)) {
-                setFilter(newValue);
-            }
-        };
-
-        dropdown.addEventListener("change", handleChange);
-        return () => dropdown.removeEventListener("change", handleChange);
-    }, []);
-
-    // Update dropdown when filter changes programmatically
-    useEffect(() => {
-        if (dropdownRef.current) {
-            dropdownRef.current.value = filter;
-        }
-    }, [filter]);
-
-    // Update dropdown option text when filter counts change due to search
-    useEffect(() => {
-        const dropdown = document.getElementById("project-filter") as HTMLSelectElement;
-        if (!dropdown) return;
-
-        // Update the option text to reflect current counts
-        const options = dropdown.querySelectorAll("vscode-option");
-        options.forEach((option: Element) => {
-            const value = option.getAttribute("value");
-            if (value && isValidFilter(value)) {
-                const count = getFilterCount(value);
-                const label = getFilterLabel(value);
-                option.textContent = `${label} (${count})`;
-            }
-        });
-    }, [searchQuery, projects]);
 
     // Add effect to update projects with progress data
     useEffect(() => {
@@ -185,142 +134,112 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 return {
                     icon: "codicon-check",
                     title: "Downloaded and synced",
-                    className: "synced",
+                    className: "text-green-500",
                 };
             case "error":
                 return {
                     icon: "codicon-error",
                     title: "Local only - not synced",
-                    className: "error",
+                    className: "text-red-500",
                 };
             case "cloudOnlyNotSynced":
                 return {
                     icon: "codicon-cloud",
                     title: "Available in cloud",
-                    className: "cloud",
+                    className: "text-blue-500",
                 };
             case "localOnlyNotSynced":
                 return {
-                    icon: "codicon-vm",
-                    title: "Local only - not synced with cloud",
-                    className: "local",
+                    icon: "codicon-file",
+                    title: "Local only - not synced",
+                    className: "text-yellow-500",
                 };
             default:
                 return {
-                    icon: "codicon-error",
-                    title: "Error",
-                    className: "error",
+                    icon: "codicon-question",
+                    title: "Unknown status",
+                    className: "text-gray-500",
                 };
         }
     };
 
-    const sharedStyles = {
-        cell: {
-            padding: "0.5rem",
-            textAlign: "center" as const,
-        },
-        table: {
-            padding: "0.5rem",
-            textAlign: "center" as const,
-            margin: "0 auto",
-        },
-    };
-
     const parseProjectUrl = (url?: string) => {
-        if (!url) return { groups: [], cleanName: "", displayUrl: "", uniqueId: "" };
+        if (!url) {
+            return {
+                groups: [],
+                cleanName: "",
+                displayUrl: "",
+                uniqueId: "",
+            };
+        }
 
         try {
-            const parsed = new URL(url);
-            const pathParts = parsed.pathname.split("/").filter(Boolean);
+            const urlObj = new URL(url);
+            const pathParts = urlObj.pathname.split("/").filter(Boolean);
 
-            // Extract groups hierarchy (all parts except last)
+            if (pathParts.length >= 2) {
             const groups = pathParts.slice(0, -1);
-            const fullName = pathParts[pathParts.length - 1]?.replace(/\.git$/, "") || "";
-            const nameParts = fullName.split("-");
-
-            // Extract 20-character ID if it exists
-            const lastPart = nameParts[nameParts.length - 1];
-            const hasUniqueId = lastPart?.length >= 20;
-            const uniqueId = hasUniqueId ? nameParts.pop()! : "";
-            const cleanName = nameParts.join("-");
-
-            // Rebuild display URL with hierarchy
-            const displayPath = [
-                ...groups,
-                `${cleanName}${parsed.pathname.endsWith(".git") ? ".git" : ""}`,
-            ].join("/");
-            const displayUrl = new URL(displayPath, parsed.origin).toString();
+                const projectNameWithExt = pathParts[pathParts.length - 1];
+                const cleanName = projectNameWithExt.replace(/\.git$/, "");
+                const displayUrl = `${urlObj.hostname}${urlObj.pathname}`;
+                const uniqueId = cleanName;
 
             return { groups, cleanName, displayUrl, uniqueId };
-        } catch {
-            return { groups: [], cleanName: "", displayUrl: "", uniqueId: "" };
+            }
+        } catch (error) {
+            console.warn("Failed to parse project URL:", url, error);
         }
+
+        return {
+            groups: [],
+            cleanName: "",
+            displayUrl: url,
+            uniqueId: "",
+        };
     };
 
     const groupProjectsByHierarchy = (projects: ProjectWithSyncStatus[]) => {
-        if (!Array.isArray(projects)) {
-            console.warn("Invalid projects data received:", projects);
-            return {};
-        }
-
         const hierarchy: Record<string, ProjectGroup> = {};
-        const ungroupedProjects: ProjectWithSyncStatus[] = [];
+        const ungrouped: ProjectWithSyncStatus[] = [];
 
         projects.forEach((project) => {
-            if (!project) return;
-
-            // If no gitOriginUrl or no groups, add to ungrouped
-            if (!project.gitOriginUrl) {
-                ungroupedProjects.push(project);
-                return;
-            }
-
             const { groups } = parseProjectUrl(project.gitOriginUrl);
 
-            // If no valid groups, add to ungrouped
-            if (!Array.isArray(groups) || groups.length === 0) {
-                ungroupedProjects.push(project);
+            if (groups.length === 0) {
+                ungrouped.push(project);
                 return;
             }
 
             let currentLevel = hierarchy;
-            const currentPath: string[] = [];
+            let currentPath = "";
 
-            for (const group of groups) {
-                if (!group) continue;
-                currentPath.push(group);
+            groups.forEach((group, index) => {
+                currentPath = currentPath ? `${currentPath}/${group}` : group;
 
-                // Create path if it doesn't exist
                 if (!currentLevel[group]) {
                     currentLevel[group] = {
                         name: group,
                         projects: [],
                         subgroups: {},
-                        isLast: currentPath.length === groups.length,
+                        isLast: index === groups.length - 1,
                     };
                 }
 
-                // Move to next level
-                const nextLevel = currentLevel[group].subgroups;
-                if (!nextLevel) {
-                    currentLevel[group].subgroups = {};
-                }
-
-                // Add project to current level
-                if (currentPath.length === groups.length) {
-                    if (!Array.isArray(currentLevel[group].projects)) {
-                        currentLevel[group].projects = [];
-                    }
+                if (index === groups.length - 1) {
                     currentLevel[group].projects.push(project);
-                    break;
+                } else {
+                    currentLevel = currentLevel[group].subgroups;
                 }
-
-                currentLevel = currentLevel[group].subgroups;
-            }
+            });
         });
 
-        return { hierarchy, ungroupedProjects };
+        return { hierarchy, ungrouped };
     };
+
+    const { hierarchy, ungrouped: ungroupedProjects } = useMemo(
+        () => groupProjectsByHierarchy(projectsWithProgress || []),
+        [projectsWithProgress]
+    );
 
     const filterProjects = (projects: ProjectWithSyncStatus[]) => {
         if (!projects) return [];
@@ -371,10 +290,52 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         });
     };
 
-    const { hierarchy, ungroupedProjects } = useMemo(
-        () => groupProjectsByHierarchy(projectsWithProgress || []),
-        [projectsWithProgress]
-    );
+    const renderProjectActions = (project: ProjectWithSyncStatus) => {
+        const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
+        const isRemote = project.syncStatus === "cloudOnlyNotSynced";
+
+        if (isLocal) {
+            return (
+                <div className="flex gap-2">
+                    <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => onOpenProject(project)}
+                        className="h-8"
+                    >
+                        <i className="codicon codicon-folder-opened mr-1" />
+                        Open
+                    </Button>
+                    {onDeleteProject && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onDeleteProject(project)}
+                            className="h-8 text-red-500 hover:text-red-600"
+                        >
+                            <i className="codicon codicon-trash" />
+                        </Button>
+                    )}
+                </div>
+            );
+        }
+
+        if (isRemote) {
+            return (
+                <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => onCloneProject(project)}
+                    className="h-8"
+                >
+                    <i className="codicon codicon-cloud-download mr-1" />
+                    Clone
+                </Button>
+            );
+        }
+
+        return null;
+    };
 
     const renderProjectCard = (project: ProjectWithSyncStatus) => {
         if (!project) return null;
@@ -383,72 +344,35 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const status = getStatusIcon(project.syncStatus);
         const isExpanded = expandedProjects[project.name];
 
-        const mainAction = () => {
-            if (project.syncStatus === "cloudOnlyNotSynced") {
-                return (
-                    <VSCodeButton
-                        appearance="secondary"
-                        onClick={() => onCloneProject(project)}
-                        title="Download project"
-                    >
-                        <i className="codicon codicon-cloud-download"></i>
-                    </VSCodeButton>
-                );
-            }
-            if (
-                project.syncStatus === "downloadedAndSynced" ||
-                project.syncStatus === "localOnlyNotSynced"
-            ) {
-                return (
-                    <div style={{ display: "flex", gap: "8px" }}>
-                        <VSCodeButton
-                            appearance="primary"
-                            onClick={() => onOpenProject(project)}
-                            title="Open project"
-                        >
-                            <i className="codicon codicon-folder-opened"></i>
-                        </VSCodeButton>
-                        {onDeleteProject && (
-                            <VSCodeButton
-                                appearance="secondary"
-                                onClick={() => onDeleteProject(project)}
-                                title="Delete local project"
-                            >
-                                <i className="codicon codicon-trash"></i>
-                            </VSCodeButton>
-                        )}
-                    </div>
-                );
-            }
-            return null;
-        };
-
         return (
-            <div className={`project-card ${isExpanded ? "expanded" : ""}`} key={project.name}>
-                <div className="card-header">
-                    <div className="status-and-name">
+            <Card key={project.name} className="mb-4">
+                <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
                         <i
-                            className={`codicon ${status.icon} status-icon ${status.className}`}
+                                className={cn("codicon", status.icon, status.className)}
                             title={status.title}
                         />
-                        <div className="project-title">
-                            <span className="name">{cleanName || project.name}</span>
-                            {isUnpublished && <VSCodeBadge>Unpublished</VSCodeBadge>}
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <span className="font-medium truncate">{cleanName || project.name}</span>
+                                {project.needsMigration && (
+                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs px-2 py-1 whitespace-nowrap">
+                                        Migration Available
+                                    </Badge>
+                                )}
+                                {isUnpublished && (
+                                    <Badge variant="outline" className="text-xs">
+                                        Unpublished
+                                    </Badge>
+                                )}
                         </div>
                         {uniqueId && (
                             <span
-                                style={{
-                                    opacity: 0.4,
-                                    transition: "opacity 0.2s ease",
-                                    fontSize: "0.9em",
-                                    color: "var(--vscode-descriptionForeground)",
-                                }}
+                                    className="text-sm text-muted-foreground opacity-40 hover:opacity-100 transition-opacity cursor-help"
                                 onMouseEnter={(e) => {
-                                    e.currentTarget.style.opacity = "1";
                                     e.currentTarget.textContent = `#${uniqueId}`;
                                 }}
                                 onMouseLeave={(e) => {
-                                    e.currentTarget.style.opacity = "0.4";
                                     e.currentTarget.textContent = `#${uniqueId.slice(0, 3)}...`;
                                 }}
                                 title={`Full ID: ${uniqueId}`}
@@ -457,99 +381,81 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             </span>
                         )}
                     </div>
-                    <div className="card-actions">
+                        <div className="flex items-center gap-2">
                         {project.completionPercentage !== undefined && (
-                            <div
-                                className="compact-progress"
-                                title={`Translation Progress: ${project.completionPercentage.toFixed(
-                                    2
-                                )}%`}
-                            >
-                                <span className="compact-progress-text">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium">
                                     {project.completionPercentage.toFixed(1)}%
                                 </span>
-                                <progress
-                                    className="compact-progress-bar"
-                                    value={Math.min(project.completionPercentage, 100)}
-                                    max="100"
-                                    title={`${project.completionPercentage.toFixed(4)}% complete`}
-                                ></progress>
+                                    <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-green-500 transition-all duration-300"
+                                            style={{
+                                                width: `${Math.min(project.completionPercentage, 100)}%`
+                                            }}
+                                        />
+                                    </div>
                             </div>
                         )}
-                        {mainAction()}
-                        {displayUrl ? (
-                            <span
-                                className={`expand-button ${isExpanded ? "expanded" : ""}`}
+                            {renderProjectActions(project)}
+                            {displayUrl && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
                                 onClick={() =>
                                     setExpandedProjects((prev) => ({
                                         ...prev,
                                         [project.name]: !prev[project.name],
                                     }))
                                 }
-                                title={isExpanded ? "Hide URL" : "Show URL"}
+                                    className="h-8 w-8 p-0"
                             >
-                                <i className="codicon codicon-chevron-down" />
-                            </span>
-                        ) : (
-                            // Add a placeholder with the same width as the expand button when there's no URL
-                            // This ensures trash buttons align between cloud and local projects
-                            <span style={{ width: "28px", display: "inline-block" }}></span>
+                                    <i className={cn(
+                                        "codicon codicon-chevron-down transition-transform",
+                                        isExpanded && "rotate-180"
+                                    )} />
+                                </Button>
                         )}
                     </div>
                 </div>
+                </CardHeader>
 
                 {isExpanded && displayUrl && (
-                    <div className="card-content">
-                        <div className="url-container">
-                            <div className="url-row">
-                                <p className="url">{displayUrl}</p>
-                                <VSCodeButton
-                                    appearance="secondary"
+                    <CardContent className="pt-0">
+                        <div className="space-y-3 border-t pt-3">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-muted-foreground font-mono">{displayUrl}</span>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
                                     onClick={() =>
                                         navigator.clipboard.writeText(project.gitOriginUrl || "")
                                     }
-                                    title="Copy URL to clipboard"
+                                    className="h-7"
                                 >
-                                    <i className="codicon codicon-copy"></i>
-                                </VSCodeButton>
+                                    <i className="codicon codicon-copy" />
+                                </Button>
                             </div>
                             {uniqueId && (
-                                <div
-                                    className="unique-id-row"
-                                    style={{
-                                        borderBottom:
-                                            project.syncStatus === "downloadedAndSynced" ||
-                                            project.syncStatus === "localOnlyNotSynced"
-                                                ? "1px solid var(--vscode-widget-border)"
-                                                : "none",
-                                        marginBottom:
-                                            project.syncStatus === "downloadedAndSynced" ||
-                                            project.syncStatus === "localOnlyNotSynced"
-                                                ? "8px"
-                                                : "0",
-                                        paddingBottom:
-                                            project.syncStatus === "downloadedAndSynced" ||
-                                            project.syncStatus === "localOnlyNotSynced"
-                                                ? "8px"
-                                                : "0",
-                                    }}
-                                >
-                                    <span className="unique-id">#{uniqueId}</span>
-                                    <VSCodeButton
-                                        appearance="secondary"
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm text-muted-foreground">#{uniqueId}</span>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={() => navigator.clipboard.writeText(uniqueId)}
-                                        title="Copy ID to clipboard"
+                                        className="h-7"
                                     >
-                                        <i className="codicon codicon-copy"></i>
-                                    </VSCodeButton>
+                                        <i className="codicon codicon-copy" />
+                                    </Button>
                                 </div>
                             )}
                             {(project.syncStatus === "downloadedAndSynced" ||
                                 project.syncStatus === "localOnlyNotSynced") && (
-                                <div className="zip-button-row">
-                                    <span className="project-name">{project.name}</span>
-                                    <VSCodeButton
-                                        appearance="secondary"
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm">{project.name}</span>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={() => {
                                             vscode.postMessage({
                                                 command: "zipProject",
@@ -557,16 +463,17 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 projectPath: project.path,
                                             });
                                         }}
-                                        title="Download as ZIP"
+                                        className="h-7"
                                     >
-                                        <i className="codicon codicon-package"></i>
-                                    </VSCodeButton>
+                                        <i className="codicon codicon-package mr-1" />
+                                        ZIP
+                                    </Button>
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </CardContent>
                 )}
-            </div>
+            </Card>
         );
     };
 
@@ -591,9 +498,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const isExpanded = expandedGroups[group.name] ?? true;
 
         return (
-            <div className="group-section" key={group.name}>
+            <div key={group.name} className="mb-6">
                 <div
-                    className="group-header"
+                    className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg cursor-pointer hover:bg-muted/70 transition-colors"
                     onClick={() =>
                         setExpandedGroups((prev) => ({
                             ...prev,
@@ -602,25 +509,28 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     }
                 >
                     <i
-                        className={`codicon ${
+                        className={cn(
+                            "codicon transition-transform",
                             isExpanded ? "codicon-chevron-down" : "codicon-chevron-right"
-                        }`}
+                        )}
                     />
                     <i className="codicon codicon-folder" />
-                    <h2 className="group-name">{(group.name || "").replace(/_/g, " ")}</h2>
-                    <VSCodeBadge>{filteredProjects.length}</VSCodeBadge>
+                    <h2 className="font-semibold">{(group.name || "").replace(/_/g, " ")}</h2>
+                    <Badge variant="secondary" className="ml-auto">
+                        {filteredProjects.length}
+                    </Badge>
                 </div>
                 {isExpanded && (
-                    <>
+                    <div className="mt-4 space-y-4">
                         {filteredProjects.length > 0 && (
-                            <div className="projects-grid">
+                            <div className="space-y-2">
                                 {filteredProjects.map((project) => renderProjectCard(project))}
                             </div>
                         )}
                         {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) =>
                             subgroup ? renderGroupSection(subgroup, depth + 1) : null
                         )}
-                    </>
+                    </div>
                 )}
             </div>
         );
@@ -678,73 +588,80 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     };
 
     return (
-        <div className="gitlab-projects-list">
-            <div className="search-filter-container">
-                <div className="search-container">
-                    <VSCodeTextField
+        <div className="flex flex-col gap-4 h-[calc(100vh-130px)] w-full">
+            <div className="sticky top-0 z-10 bg-background p-4 border-b shadow-sm">
+                <div className="flex gap-3 items-center">
+                    <div className="relative flex-1">
+                        <i className="codicon codicon-search absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                        <Input
                         placeholder="Search projects..."
                         value={searchQuery}
-                        onInput={(e: any) => setSearchQuery((e.target as HTMLInputElement).value)}
-                    >
-                        <i slot="start" className="codicon codicon-search"></i>
-                    </VSCodeTextField>
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="pl-10"
+                        />
                     {searchQuery && (
-                        <VSCodeButton
-                            appearance="icon"
+                            <Button
+                                variant="ghost"
+                                size="sm"
                             onClick={() => setSearchQuery("")}
-                            className="search-clear-button"
-                            title="Clear search"
+                                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7 p-0"
                         >
-                            <i className="codicon codicon-close"></i>
-                        </VSCodeButton>
+                                <i className="codicon codicon-close" />
+                            </Button>
                     )}
                 </div>
 
-                <div className="filter-container">
-                    <VSCodeDropdown id="project-filter">
-                        <VSCodeOption value="all">
+                    <Select value={filter} onValueChange={(value) => setFilter(value as ProjectFilter)}>
+                        <SelectTrigger className="w-48">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">
                             All Projects ({getFilterCount("all")})
-                        </VSCodeOption>
-                        <VSCodeOption value="local">
+                            </SelectItem>
+                            <SelectItem value="local">
                             Available Locally ({getFilterCount("local")})
-                        </VSCodeOption>
-                        <VSCodeOption value="remote">
+                            </SelectItem>
+                            <SelectItem value="remote">
                             Remote Only ({getFilterCount("remote")})
-                        </VSCodeOption>
-                        <VSCodeOption value="synced">
+                            </SelectItem>
+                            <SelectItem value="synced">
                             Synced Projects ({getFilterCount("synced")})
-                        </VSCodeOption>
-                        <VSCodeOption value="non-synced">
+                            </SelectItem>
+                            <SelectItem value="non-synced">
                             Non-Synced Projects ({getFilterCount("non-synced")})
-                        </VSCodeOption>
-                    </VSCodeDropdown>
+                            </SelectItem>
+                        </SelectContent>
+                    </Select>
                 </div>
             </div>
 
             {isLoading ? (
-                <div className="loading-container">
-                    <VSCodeProgressRing />
+                <div className="flex justify-center items-center p-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
             ) : (
-                <div className="projects-container">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-6">
                     {/* Debug information - only show when DEBUG_MODE is true */}
                     {DEBUG_MODE && progressData && (
-                        <div className="debug-info">
-                            <h3>Debug Information</h3>
-                            <pre>{JSON.stringify(progressData, null, 2)}</pre>
-                        </div>
+                        <Card className="p-4">
+                            <h3 className="font-semibold mb-2">Debug Information</h3>
+                            <pre className="text-xs overflow-auto">{JSON.stringify(progressData, null, 2)}</pre>
+                        </Card>
                     )}
                     {Object.entries(hierarchy || {}).map(([groupName, group]) =>
                         group ? renderGroupSection(group, 0) : null
                     )}
                     {filteredUngroupedProjects.length > 0 && (
-                        <div className="group-section">
-                            <div className="group-header">
+                        <div>
+                            <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg mb-4">
                                 <i className="codicon codicon-folder" />
-                                <h2 className="group-name">Ungrouped Projects</h2>
-                                <VSCodeBadge>{filteredUngroupedProjects.length}</VSCodeBadge>
+                                <h2 className="font-semibold">Ungrouped Projects</h2>
+                                <Badge variant="secondary" className="ml-auto">
+                                    {filteredUngroupedProjects.length}
+                                </Badge>
                             </div>
-                            <div className="projects-grid">
+                            <div className="space-y-2">
                                 {filteredUngroupedProjects.map((project) =>
                                     renderProjectCard(project)
                                 )}
@@ -754,13 +671,13 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
                     {filteredUngroupedProjects.length === 0 &&
                         Object.keys(hierarchy || {}).length === 0 && (
-                            <div className="no-results">
-                                <i className="codicon codicon-info"></i>
-                                <p>No projects match the current filters</p>
+                            <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
+                                <i className="codicon codicon-info text-4xl text-muted-foreground" />
+                                <p className="text-lg text-muted-foreground">No projects match the current filters</p>
                                 {filter !== "all" && (
-                                    <VSCodeButton onClick={() => setFilter("all")}>
+                                    <Button onClick={() => setFilter("all")}>
                                         Show All Projects
-                                    </VSCodeButton>
+                                    </Button>
                                 )}
                             </div>
                         )}

@@ -79,9 +79,29 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
         const fileContent = await vscode.workspace.fs.readFile(dbPath);
         fileBuffer = fileContent;
         console.log("File buffer loaded");
-    } catch {
-        console.log("File buffer not found, creating new database");
-        // If file doesn't exist, create new database
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isCorruption = errorMessage.includes("database disk image is malformed") ||
+            errorMessage.includes("file is not a database") ||
+            errorMessage.includes("database is locked") ||
+            errorMessage.includes("database corruption");
+
+        if (isCorruption) {
+            console.warn(`[Dictionary DB] Database corruption detected: ${errorMessage}`);
+            console.warn("[Dictionary DB] Deleting corrupt database and creating new one");
+
+            // Delete the corrupted database file
+            try {
+                await vscode.workspace.fs.delete(dbPath);
+                console.log("[Dictionary DB] Deleted corrupt database file");
+            } catch (deleteError) {
+                console.warn("[Dictionary DB] Could not delete corrupted database file:", deleteError);
+            }
+        } else {
+            console.log("File buffer not found, creating new database");
+        }
+
+        // Create new database
         const newDb = new SQL.Database();
         // Create your table structure
         newDb.run(`
@@ -126,8 +146,45 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
             db.run("UPDATE entries SET updatedAt = datetime('now') WHERE updatedAt IS NULL");
         }
     } catch (error) {
-        console.error("Error checking/adding columns to entries table:", error);
-        vscode.window.showErrorMessage(`Failed to update database schema: ${error}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isCorruption = errorMessage.includes("database disk image is malformed") ||
+            errorMessage.includes("file is not a database") ||
+            errorMessage.includes("database is locked") ||
+            errorMessage.includes("database corruption");
+
+        if (isCorruption) {
+            console.error("[Dictionary DB] Database corruption detected during schema update:", errorMessage);
+            console.warn("[Dictionary DB] Recreating corrupted database");
+
+            // Recreate the database from scratch
+            const newDb = new SQL.Database();
+            newDb.run(`
+                CREATE TABLE entries (
+                    id TEXT PRIMARY KEY,
+                    head_word TEXT NOT NULL DEFAULT '',
+                    definition TEXT,
+                    is_user_entry INTEGER NOT NULL DEFAULT 0,
+                    author_id TEXT,
+                    createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+                    updatedAt TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+        
+                CREATE INDEX idx_entries_head_word ON entries(head_word);
+            `);
+
+            // Save the new database to file
+            const newFileBuffer = newDb.export();
+            await vscode.workspace.fs.writeFile(dbPath, newFileBuffer);
+
+            console.log("[Dictionary DB] Successfully recreated database after corruption");
+            vscode.window.showWarningMessage("Dictionary database was corrupted and has been recreated. You may need to re-import your dictionary entries.");
+
+            // Return the new database
+            return newDb;
+        } else {
+            console.error("Error checking/adding columns to entries table:", error);
+            vscode.window.showErrorMessage(`Failed to update database schema: ${error}`);
+        }
     }
 
     return db;
@@ -325,7 +382,7 @@ export const updateWord = async ({
     }
 };
 
-export const deleteWord = async ({ db, id }: { db: Database; id: string }) => {
+export const deleteWord = async ({ db, id }: { db: Database; id: string; }) => {
     // First check if it's a user entry
     const checkStmt = db.prepare("SELECT is_user_entry FROM entries WHERE id = ?");
     let isUserEntry = false;
@@ -363,7 +420,7 @@ export const getPagedWords = ({
     page: number;
     pageSize: number;
     searchQuery?: string;
-}): { entries: DictionaryEntry[]; total: number } => {
+}): { entries: DictionaryEntry[]; total: number; } => {
     let total = 0;
     const entries: DictionaryEntry[] = [];
 

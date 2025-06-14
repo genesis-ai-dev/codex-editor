@@ -119,26 +119,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         setEmail((e.target as HTMLInputElement).value);
     };
 
-    // if (authState.isAuthenticated) {
-    //     return (
-    //         <div className="login-register-step">
-    //             <h2>Welcome, {authState.gitlabInfo?.username || "User"}!</h2>
-    //             <VSCodeButton onClick={onLogout}>Logout</VSCodeButton>
-    //             <VSCodeButton onClick={onSkip} appearance="icon">
-    //                 <span
-    //                     style={{
-    //                         textDecoration: "underline",
-    //                         width: "auto",
-    //                         height: "auto",
-    //                     }}
-    //                 >
-    //                     Back
-    //                 </span>
-    //             </VSCodeButton>
-    //         </div>
-    //     );
-    // }
-
     const centerBumpValue = 2.5;
 
     return (

@@ -1,5 +1,6 @@
 import React from "react";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../../components/ui/button";
+import { ZoomIn, ZoomOut } from "lucide-react";
 
 interface ZoomButtonProps {
     initialZoomLevel: number;
@@ -34,17 +35,14 @@ const ZoomButton: React.FC<ZoomButtonProps> = ({
     };
 
     return (
-        <VSCodeButton
-            style={{
-                display: "flex",
-                flex: 1,
-                borderRadius: 0,
-            }}
-            appearance="secondary"
+        <Button
+            variant="secondary"
+            size="icon"
+            className="flex-1 rounded-none"
             onClick={handleClick}
         >
-            <i className={`codicon codicon-zoom-${zoomIn ? "in" : "out"}`}></i>
-        </VSCodeButton>
+            {zoomIn ? <ZoomIn className="h-4 w-4" /> : <ZoomOut className="h-4 w-4" />}
+        </Button>
     );
 };
 

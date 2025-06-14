@@ -15,7 +15,7 @@ import path from "path";
 import { getWorkSpaceUri } from "../../utils";
 import { SavedBacktranslation } from "../../smartEdits/smartBacktranslation";
 import { initializeStateStore } from "../../stateStore";
-import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { fetchCompletionConfig } from "@/utils/llmUtils";
 import { CodexNotebookReader } from "@/serializer";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
 import { getAuthApi } from "@/extension";
@@ -32,7 +32,7 @@ import * as fs from "fs";
 // import { rejectEditSuggestion } from "../../actions/suggestions/rejectEditSuggestion";
 
 // Enable debug logging if needed
-const DEBUG_MODE = true; // Temporarily enable for testing
+const DEBUG_MODE = false;
 function debug(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[CodexCellEditorMessageHandling]", ...args);
@@ -44,6 +44,867 @@ function getProvider(): CodexCellEditorProvider | undefined {
     // Find the provider through the window object
     return (vscode.window as any).createWebviewPanel?.owner;
 }
+
+// Centralized error handler wrapper
+async function withErrorHandling<T>(
+    operation: () => Promise<T> | T,
+    context: string,
+    showUserError: boolean = true
+): Promise<T | undefined> {
+    try {
+        return await operation();
+    } catch (error) {
+        console.error(`Error ${context}:`, error);
+        if (showUserError) {
+            vscode.window.showErrorMessage(`Failed to ${context}.`);
+        }
+        return undefined;
+    }
+}
+
+// Message handler context type
+interface MessageHandlerContext {
+    event: EditorPostMessages;
+    webviewPanel: vscode.WebviewPanel;
+    document: CodexCellDocument;
+    updateWebview: () => void;
+    provider: CodexCellEditorProvider;
+}
+
+// Individual message handlers
+const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
+    webviewReady: () => {
+        console.log("Webview is ready");
+    },
+
+    addWord: async ({ event, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord" }>;
+        await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);
+        webviewPanel.webview.postMessage({
+            type: "wordAdded",
+            content: typedEvent.words,
+        });
+    },
+
+    searchSimilarCellIds: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "searchSimilarCellIds" }>;
+        const response = await vscode.commands.executeCommand<
+            Array<{ cellId: string; score: number }>
+        >(
+            "codex-editor-extension.searchSimilarCellIds",
+            typedEvent.content.cellId,
+            5,
+            0.2
+        );
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsSimilarCellIdsResponse",
+            content: response || [],
+        });
+    },
+
+    "from-quill-spellcheck-getSpellCheckResponse": async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse" }>;
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
+        if (!spellcheckEnabled) {
+            console.log("Spellcheck is disabled, skipping spell check");
+            return;
+        }
+
+        const response = await vscode.commands.executeCommand(
+            "codex-editor-extension.spellCheckText",
+            typedEvent.content.cellContent
+        );
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsSpellCheckResponse",
+            content: response as SpellCheckResponse,
+        });
+    },
+
+    getAlertCodes: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes" }>;
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
+        if (!spellcheckEnabled) {
+            console.log("Spellcheck is disabled, skipping alert codes");
+            return;
+        }
+        const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
+            "codex-editor-extension.alertCodes",
+            typedEvent.content
+        );
+
+        const content: { [cellId: string]: number } = {};
+        result.forEach((item) => {
+            content[item.cellId] = item.code;
+        });
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsgetAlertCodeResponse",
+            content,
+        });
+    },
+
+    saveHtml: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml" }>;
+        if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
+            console.warn("Attempted to update content in a different file. This operation is not allowed.");
+            return;
+        }
+
+        const oldContent = document.getCellContent(typedEvent.content.cellMarkers[0]);
+        const oldText = oldContent?.cellContent || "";
+        const newText = typedEvent.content.cellContent || "";
+
+        if (oldText !== newText) {
+            await vscode.commands.executeCommand(
+                "codex-smart-edits.recordIceEdit",
+                oldText,
+                newText
+            );
+            provider.updateFileStatus("dirty");
+        }
+
+        document.updateCellContent(
+            typedEvent.content.cellMarkers[0],
+            typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent,
+            EditType.USER_EDIT
+        );
+    },
+
+    getContent: ({ updateWebview }) => {
+        updateWebview();
+    },
+
+    setCurrentIdToGlobalState: ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState" }>;
+        const uri = document.uri.toString();
+        provider.updateCellIdState(typedEvent.content.currentLineId, uri);
+    },
+
+    llmCompletion: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "llmCompletion" }>;
+        debug("llmCompletion message received", { event, document, provider, webviewPanel });
+
+        const cellId = typedEvent.content.currentLineId;
+        const addContentToValue = typedEvent.content.addContentToValue;
+
+        const completionResult = await provider.enqueueTranslation(
+            cellId,
+            document,
+            addContentToValue
+        );
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsLLMCompletionResponse",
+            content: {
+                completion: completionResult || "",
+            },
+        });
+    },
+
+    stopAutocompleteChapter: ({ provider }) => {
+        console.log("stopAutocompleteChapter message received");
+        const cancelled = provider.cancelAutocompleteChapter();
+        if (cancelled) {
+            vscode.window.showInformationMessage("Autocomplete operation stopped.");
+        } else {
+            console.log("No active autocomplete operation to stop");
+        }
+    },
+
+    stopSingleCellTranslation: ({ provider }) => {
+        console.log("stopSingleCellTranslation message received");
+        if (provider?.singleCellTranslationState.isProcessing) {
+            provider.clearTranslationQueue();
+            provider.updateSingleCellTranslation(1.0);
+            vscode.window.showInformationMessage("Translation cancelled.");
+        }
+    },
+
+    cellError: ({ event, provider }) => {
+        console.log("cellError message received", { event });
+        const cellId = (event as any).content?.cellId;
+        if (cellId && typeof cellId === "string") {
+            provider.markCellComplete(cellId);
+        }
+    },
+
+    requestAutocompleteChapter: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestAutocompleteChapter" }>;
+        console.log("requestAutocompleteChapter message received", { event });
+        await provider.performAutocompleteChapter(
+            document,
+            webviewPanel,
+            typedEvent.content as QuillCellContent[]
+        );
+    },
+
+    updateTextDirection: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateTextDirection" }>;
+        const updatedMetadata = {
+            textDirection: typedEvent.direction,
+        };
+        await document.updateNotebookMetadata(updatedMetadata);
+        await document.save(new vscode.CancellationTokenSource().token);
+        console.log("Text direction updated successfully.");
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: await document.getNotebookMetadata(),
+        });
+    },
+
+    getSourceText: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getSourceText" }>;
+        const sourceText = (await vscode.commands.executeCommand(
+            "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+            typedEvent.content.cellId
+        )) as { cellId: string; content: string };
+        console.log("providerSendsSourceText", { sourceText });
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsSourceText",
+            content: sourceText.content,
+        });
+    },
+
+    openSourceText: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "openSourceText" }>;
+        const workspaceFolderUri = getWorkSpaceUri();
+        if (!workspaceFolderUri) {
+            throw new Error("No workspace folder found");
+        }
+        const currentFileName = document.uri.fsPath;
+        const baseFileName = path.basename(currentFileName);
+        const sourceFileName = baseFileName.replace(".codex", ".source");
+        const sourceUri = vscode.Uri.joinPath(
+            workspaceFolderUri,
+            ".project",
+            "sourceTexts",
+            sourceFileName
+        );
+
+        await vscode.commands.executeCommand("codexNotebookTreeView.openSourceFile", {
+            sourceFileUri: sourceUri,
+        });
+        provider.postMessageToWebview(webviewPanel, {
+            type: "jumpToSection",
+            content: typedEvent.content.chapterNumber.toString(),
+        });
+    },
+
+    makeChildOfCell: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "makeChildOfCell" }>;
+        document.addCell(
+            typedEvent.content.newCellId,
+            typedEvent.content.referenceCellId,
+            typedEvent.content.direction,
+            typedEvent.content.cellType,
+            typedEvent.content.data
+        );
+    },
+
+    deleteCell: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "deleteCell" }>;
+        console.log("deleteCell message received", { event });
+        document.deleteCell(typedEvent.content.cellId);
+    },
+
+    updateCellTimestamps: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellTimestamps" }>;
+        console.log("updateCellTimestamps message received", { event });
+        document.updateCellTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
+    },
+
+    updateCellLabel: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel" }>;
+        console.log("updateCellLabel message received", { event });
+        document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
+    },
+
+    updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata" }>;
+        console.log("updateNotebookMetadata message received", { event });
+        const newMetadata = typedEvent.content;
+        await document.updateNotebookMetadata(newMetadata);
+        await document.save(new vscode.CancellationTokenSource().token);
+        vscode.window.showInformationMessage("Notebook metadata updated successfully.");
+        provider.refreshWebview(webviewPanel, document);
+    },
+
+    pickVideoFile: async ({ document, webviewPanel, provider }) => {
+        console.log("pickVideoFile message received");
+        const result = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            openLabel: "Select Video File",
+            filters: {
+                Videos: ["mp4", "mkv", "avi", "mov"],
+            },
+        });
+        const fileUri = result?.[0];
+        if (fileUri) {
+            const videoUrl = fileUri.toString();
+            await document.updateNotebookMetadata({ videoUrl });
+            await document.save(new vscode.CancellationTokenSource().token);
+            provider.refreshWebview(webviewPanel, document);
+        }
+    },
+
+    replaceDuplicateCells: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "replaceDuplicateCells" }>;
+        console.log("replaceDuplicateCells message received", { event });
+        document.replaceDuplicateCells(typedEvent.content);
+    },
+
+    saveTimeBlocks: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "saveTimeBlocks" }>;
+        console.log("saveTimeBlocks message received", { event });
+        typedEvent.content.forEach((cell) => {
+            document.updateCellTimestamps(cell.id, {
+                startTime: cell.begin,
+                endTime: cell.end,
+            });
+        });
+    },
+
+    supplyRecentEditHistory: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory" }>;
+        console.log("supplyRecentEditHistory message received", { event });
+        await vscode.commands.executeCommand(
+            "codex-smart-edits.supplyRecentEditHistory",
+            typedEvent.content.cellId,
+            typedEvent.content.editHistory
+        );
+    },
+
+    exportFile: async ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile" }>;
+        const notebookName = path.parse(document.uri.fsPath).name;
+        const fileExtension = typedEvent.content.format;
+        const fileName = `${notebookName}.${fileExtension}`;
+
+        const saveUri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(fileName),
+            filters: {
+                "Subtitle files": ["vtt", "srt"],
+            },
+        });
+
+        if (saveUri) {
+            await vscode.workspace.fs.writeFile(
+                saveUri,
+                Buffer.from(typedEvent.content.subtitleData, "utf-8")
+            );
+            vscode.window.showInformationMessage(
+                `File exported successfully as ${fileExtension.toUpperCase()}`
+            );
+        }
+    },
+
+    executeCommand: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "executeCommand" }>;
+        await vscode.commands.executeCommand(typedEvent.content.command, ...typedEvent.content.args);
+    },
+
+    togglePinPrompt: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt" }>;
+        console.log("togglePinPrompt message received", { event });
+        await vscode.commands.executeCommand(
+            "codex-smart-edits.togglePinPrompt",
+            typedEvent.content.cellId,
+            typedEvent.content.promptText
+        );
+    },
+
+    generateBacktranslation: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation" }>;
+        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+            "codex-smart-edits.generateBacktranslation",
+            typedEvent.content.text,
+            typedEvent.content.cellId
+        );
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsBacktranslation",
+            content: backtranslation,
+        });
+    },
+
+    editBacktranslation: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation" }>;
+        const updatedBacktranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+            "codex-smart-edits.editBacktranslation",
+            typedEvent.content.cellId,
+            typedEvent.content.newText,
+            typedEvent.content.existingBacktranslation
+        );
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsUpdatedBacktranslation",
+            content: updatedBacktranslation,
+        });
+    },
+
+    getBacktranslation: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getBacktranslation" }>;
+        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+            "codex-smart-edits.getBacktranslation",
+            typedEvent.content.cellId
+        );
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsExistingBacktranslation",
+            content: backtranslation,
+        });
+    },
+
+    setBacktranslation: async ({ event, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation" }>;
+        const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
+            "codex-smart-edits.setBacktranslation",
+            typedEvent.content.cellId,
+            typedEvent.content.originalText,
+            typedEvent.content.userBacktranslation
+        );
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerConfirmsBacktranslationSet",
+            content: backtranslation,
+        });
+    },
+
+    rejectEditSuggestion: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion" }>;
+        await vscode.commands.executeCommand(
+            "codex-smart-edits.rejectEditSuggestion",
+            typedEvent.content
+        );
+    },
+
+    webviewFocused: ({ event, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "webviewFocused" }>;
+        if (provider.currentDocument && typedEvent.content?.uri) {
+            const newUri = vscode.Uri.parse(typedEvent.content.uri);
+            if (newUri.scheme === "file") {
+                provider.currentDocument.updateUri(newUri);
+            }
+        }
+    },
+
+    updateCachedChapter: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCachedChapter" }>;
+        await provider.updateCachedChapter(document.uri.toString(), typedEvent.content);
+    },
+
+    updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode" }>;
+        const updatedMetadata = {
+            cellDisplayMode: typedEvent.mode,
+        };
+        await document.updateNotebookMetadata(updatedMetadata);
+        await document.save(new vscode.CancellationTokenSource().token);
+        console.log("Cell display mode updated successfully.");
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerUpdatesNotebookMetadataForWebview",
+            content: await document.getNotebookMetadata(),
+        });
+    },
+
+    validateCell: async ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "validateCell" }>;
+        if (typedEvent.content?.cellId) {
+            await provider.enqueueValidation(
+                typedEvent.content.cellId,
+                document,
+                typedEvent.content.validate
+            );
+        }
+    },
+
+    getValidationCount: async ({ webviewPanel, provider }) => {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const validationCount = config.get("validationCount", 1);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "validationCount",
+            content: validationCount,
+        });
+    },
+
+    getCurrentUsername: async ({ webviewPanel, provider }) => {
+        const authApi = await provider.getAuthApi();
+        const userInfo = await authApi?.getUserInfo();
+        const username = userInfo?.username || "anonymous";
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "currentUsername",
+            content: { username },
+        });
+    },
+
+    togglePrimarySidebar: async () => {
+        vscode.window.showInformationMessage("togglePrimarySidebar");
+        await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+        await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+    },
+
+    toggleSecondarySidebar: async () => {
+        await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
+    },
+
+    getEditorPosition: async ({ webviewPanel }) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        let position = "unknown";
+
+        if (activeEditor) {
+            const visibleEditors = vscode.window.visibleTextEditors;
+
+            if (visibleEditors.length <= 1) {
+                position = "single";
+            } else {
+                const sortedEditors = [...visibleEditors].sort(
+                    (a, b) => (a.viewColumn || 0) - (b.viewColumn || 0)
+                );
+
+                const activeEditorIndex = sortedEditors.findIndex(
+                    (editor) => editor.document.uri.toString() === activeEditor.document.uri.toString()
+                );
+
+                if (activeEditorIndex === 0) {
+                    position = "leftmost";
+                } else if (activeEditorIndex === sortedEditors.length - 1) {
+                    position = "rightmost";
+                } else {
+                    position = "center";
+                }
+            }
+        }
+
+        webviewPanel.webview.postMessage({
+            type: "editorPosition",
+            position,
+        });
+    },
+
+    queueValidation: ({ event, document, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "queueValidation" }>;
+        if (typedEvent.content?.cellId) {
+            provider.queueValidation(
+                typedEvent.content.cellId,
+                document,
+                typedEvent.content.validate,
+                typedEvent.content.pending
+            );
+        }
+    },
+
+    applyPendingValidations: async ({ provider }) => {
+        await provider.applyPendingValidations();
+    },
+
+    clearPendingValidations: ({ provider }) => {
+        provider.clearPendingValidations();
+    },
+
+    jumpToChapter: ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "jumpToChapter" }>;
+        provider.updateCachedChapter(document.uri.toString(), typedEvent.chapterNumber);
+        provider.postMessageToWebview(webviewPanel, {
+            type: "setChapterNumber",
+            content: typedEvent.chapterNumber,
+        });
+    },
+
+    closeCurrentDocument: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "closeCurrentDocument" }>;
+        console.log("Close document request received:", typedEvent.content);
+        const fileUri = typedEvent.content?.uri;
+        const isSourceDocument = typedEvent.content?.isSource === true;
+
+        if (fileUri) {
+            const urisToCheck = [
+                vscode.Uri.file(fileUri),
+                !fileUri.startsWith("file://") ? vscode.Uri.file(fileUri) : undefined,
+            ].filter((uri): uri is vscode.Uri => uri !== undefined);
+
+            const visibleEditors = vscode.window.visibleTextEditors;
+            let found = false;
+
+            for (const uri of urisToCheck) {
+                if (found) break;
+                for (const editor of visibleEditors) {
+                    if (editor.document.uri.fsPath === uri.fsPath) {
+                        await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+                        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!found) {
+                console.log("Could not find the specific editor to close, closing active editor");
+                await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+            }
+        } else if (isSourceDocument) {
+            const visibleEditors = vscode.window.visibleTextEditors;
+            let found = false;
+
+            for (const editor of visibleEditors) {
+                if (editor.document.uri.fsPath.endsWith(".source")) {
+                    await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+                    await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+            }
+        } else {
+            await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        }
+    },
+
+    toggleSidebar: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "toggleSidebar" }>;
+        console.log("toggleSidebar message received");
+        await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
+        if (typedEvent.content?.isOpening) {
+            await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+        }
+    },
+
+    triggerSync: ({ provider }) => {
+        console.log("triggerSync message received");
+        provider.triggerSync();
+    },
+
+    triggerReindexing: async () => {
+        console.log("Triggering reindexing after all translations completed");
+        await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
+    },
+
+    requestAudioAttachments: async ({ document, webviewPanel, provider }) => {
+        console.log("requestAudioAttachments message received");
+        const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+        const audioCells: { [cellId: string]: boolean } = {};
+        for (const cellId of Object.keys(audioAttachments)) {
+            audioCells[cellId] = true;
+        }
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: audioCells,
+        });
+    },
+
+    requestAudioForCell: async ({ event, document, webviewPanel }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell" }>;
+        console.log("requestAudioForCell message received for cell:", typedEvent.content.cellId);
+        const cellId = typedEvent.content.cellId;
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            debug("No workspace folder found");
+            return;
+        }
+
+        // Get the document data to check cell metadata
+        const documentText = document.getText();
+        const notebookData = JSON.parse(documentText);
+
+        // Find the specific cell
+        if (notebookData.cells && Array.isArray(notebookData.cells)) {
+            const cell = notebookData.cells.find((c: any) => c.metadata?.id === cellId);
+
+            if (cell?.metadata?.attachments) {
+                // Check for audio attachments in metadata
+                for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
+                    if (attachment && (attachment as any).type === "audio") {
+                        const attachmentPath = (attachment as any).url;
+                        const fullPath = path.isAbsolute(attachmentPath)
+                            ? attachmentPath
+                            : path.join(workspaceFolder.uri.fsPath, attachmentPath);
+
+                        if (fs.existsSync(fullPath)) {
+                            const fileData = await fs.promises.readFile(fullPath);
+                            const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
+
+                            webviewPanel.webview.postMessage({
+                                type: "providerSendsAudioData",
+                                content: {
+                                    cellId: cellId,
+                                    audioId: attachmentId,
+                                    audioData: base64Data
+                                }
+                            });
+
+                            debug("Sent audio data for cell:", cellId);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no attachment in metadata, check filesystem for legacy files
+        const bookAbbr = cellId.split(' ')[0];
+        const attachmentsPath = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            bookAbbr
+        );
+
+        if (fs.existsSync(attachmentsPath)) {
+            const files = fs.readdirSync(attachmentsPath);
+            const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+
+            for (const audioFile of files) {
+                if (audioExtensions.some(ext => audioFile.toLowerCase().endsWith(ext))) {
+                    const cellIdPattern = cellId.replace(/[:\s]/g, '_');
+                    if (audioFile.includes(cellIdPattern) || audioFile.includes(cellId)) {
+                        const fullPath = path.join(attachmentsPath, audioFile);
+
+                        const fileData = await fs.promises.readFile(fullPath);
+                        const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
+                            audioFile.endsWith('.mp3') ? 'audio/mp3' :
+                                audioFile.endsWith('.m4a') ? 'audio/mp4' :
+                                    audioFile.endsWith('.ogg') ? 'audio/ogg' :
+                                        'audio/wav';
+                        const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
+
+                        webviewPanel.webview.postMessage({
+                            type: "providerSendsAudioData",
+                            content: {
+                                cellId: cellId,
+                                audioId: audioFile.replace(/\.[^/.]+$/, ""),
+                                audioData: base64Data
+                            }
+                        });
+
+                        debug("Sent legacy audio data for cell:", cellId);
+                        return;
+                    }
+                }
+            }
+        }
+
+        debug("No audio attachment found for cell:", cellId);
+    },
+
+    saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment" }>;
+        console.log("saveAudioAttachment message received", {
+            cellId: typedEvent.content.cellId,
+            audioId: typedEvent.content.audioId,
+            fileExtension: typedEvent.content.fileExtension
+        });
+
+        const documentSegment = typedEvent.content.cellId.split(' ')[0];
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        const attachmentsDir = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            documentSegment
+        );
+
+        await fs.promises.mkdir(attachmentsDir, { recursive: true });
+
+        const fileName = `${typedEvent.content.audioId}.${typedEvent.content.fileExtension}`;
+        const filePath = path.join(attachmentsDir, fileName);
+
+        const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        await fs.promises.writeFile(filePath, buffer);
+
+        const relativePath = path.relative(workspaceFolder.uri.fsPath, filePath);
+        await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, {
+            url: relativePath,
+            type: "audio"
+        });
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "audioAttachmentSaved",
+            content: {
+                cellId: typedEvent.content.cellId,
+                audioId: typedEvent.content.audioId,
+                success: true
+            }
+        });
+
+        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+        const audioCells: { [cellId: string]: boolean } = {};
+        for (const cellId of Object.keys(updatedAudioAttachments)) {
+            audioCells[cellId] = true;
+        }
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: audioCells as any,
+        });
+
+        debug("Audio attachment saved successfully:", filePath);
+    },
+
+    deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "deleteAudioAttachment" }>;
+        console.log("deleteAudioAttachment message received", {
+            cellId: typedEvent.content.cellId,
+            audioId: typedEvent.content.audioId
+        });
+
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        const documentSegment = typedEvent.content.cellId.split(' ')[0];
+        const attachmentsDir = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            documentSegment
+        );
+
+        try {
+            const files = await fs.promises.readdir(attachmentsDir);
+            const audioFile = files.find(file => file.startsWith(typedEvent.content.audioId));
+
+            if (audioFile) {
+                const filePath = path.join(attachmentsDir, audioFile);
+                await fs.promises.unlink(filePath);
+                debug("Deleted audio file:", filePath);
+            }
+        } catch (err) {
+            debug("Error reading attachments directory:", err);
+        }
+
+        await document.removeCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "audioAttachmentDeleted",
+            content: {
+                cellId: typedEvent.content.cellId,
+                audioId: typedEvent.content.audioId,
+                success: true
+            }
+        });
+
+        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+        const audioCells: { [cellId: string]: boolean } = {};
+        for (const cellId of Object.keys(updatedAudioAttachments)) {
+            audioCells[cellId] = true;
+        }
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: audioCells as any,
+        });
+
+        debug("Audio attachment deleted successfully");
+    },
+};
 
 export async function performLLMCompletion(
     currentCellId: string,
@@ -81,7 +942,6 @@ export async function performLLMCompletion(
     }
 }
 
-// export function createMessageHandlers(provider: CodexCellEditorProvider) {
 export const handleGlobalMessage = async (
     provider: CodexCellEditorProvider,
     event: GlobalMessage
@@ -110,1212 +970,23 @@ export const handleMessages = async (
     updateWebview: () => void,
     provider: CodexCellEditorProvider
 ) => {
-    switch (event.command) {
-        case "webviewReady":
-            // The webview is ready to receive messages
-            console.log("Webview is ready");
-            return;
-        case "requestUsername": {
-            // Send the current username to the webview
-            try {
-                const api = await getAuthApi();
-                const username = api ? api.username : "anonymous_user";
-                console.log("Sending username to webview:", username);
-                webviewPanel.webview.postMessage({
-                    type: "setUsername",
-                    value: username,
-                });
-            } catch (error) {
-                console.error("Error getting username:", error);
-                // Send a default username if there's an error
-                webviewPanel.webview.postMessage({
-                    type: "setUsername",
-                    value: "anonymous_user",
-                });
-            }
-            return;
-        }
-        case "addWord": {
-            try {
-                const result = await vscode.commands.executeCommand(
-                    "spellcheck.addWord",
-                    event.words
-                );
-                webviewPanel.webview.postMessage({
-                    type: "wordAdded",
-                    content: event.words,
-                });
-            } catch (error) {
-                console.error("Error adding word:", error);
-                vscode.window.showErrorMessage(`Failed to add word to dictionary:`);
-            }
-            return;
-        }
-
-        case "searchSimilarCellIds": {
-            try {
-                const response = await vscode.commands.executeCommand<
-                    Array<{ cellId: string; score: number }>
-                >(
-                    "translators-copilot.searchSimilarCellIds",
-                    event.content.cellId,
-                    5, // Default k value from searchSimilarCellIds
-                    0.2 // Default fuzziness from searchSimilarCellIds
-                );
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsSimilarCellIdsResponse",
-                    content: response || [], // Ensure we always return an array
-                });
-            } catch (error) {
-                console.error("Error searching for similar cell IDs:", error);
-                vscode.window.showErrorMessage("Failed to search for similar cell IDs.");
-            }
-            return;
-        }
-        case "from-quill-spellcheck-getSpellCheckResponse": {
-            try {
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const currentSpellcheckIsEnabledValue = config.get("spellcheckIsEnabled", false);
-                if (!currentSpellcheckIsEnabledValue) {
-                    console.log("Spellcheck is disabled, skipping spell check");
-                    return;
-                }
-
-                const response = await vscode.commands.executeCommand(
-                    "translators-copilot.spellCheckText",
-                    event.content.cellContent
-                );
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsSpellCheckResponse",
-                    content: response as SpellCheckResponse,
-                });
-            } catch (error) {
-                console.error("Error during spell check:", error);
-                vscode.window.showErrorMessage("Spell check failed.");
-            }
-            return;
-        }
-
-        case "getAlertCodes": {
-            try {
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const currentSpellcheckIsEnabledValue = config.get("spellcheckIsEnabled", false);
-                if (!currentSpellcheckIsEnabledValue) {
-                    console.log("Spellcheck is disabled, skipping alert codes");
-                    return;
-                }
-                const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-                    "translators-copilot.alertCodes",
-                    event.content
-                );
-
-                const content: { [cellId: string]: number } = {};
-
-                result.forEach((item) => {
-                    content[item.cellId] = item.code;
-                });
-
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsgetAlertCodeResponse",
-                    content,
-                });
-            } catch (error) {
-                console.error("Error during getAlertCode:", error);
-                // vscode.window.showErrorMessage(
-                //     "Failed to check if text is problematic."
-                // );
-            }
-            return;
-        }
-        case "saveHtml":
-            try {
-                // Only allow updates to the document that sent the message
-                if (document.uri.toString() !== (event.content.uri || document.uri.toString())) {
-                    console.warn(
-                        "Attempted to update content in a different file. This operation is not allowed."
-                    );
-                    return;
-                }
-
-                const oldContent = document.getCellContent(event.content.cellMarkers[0]);
-                const oldText = oldContent?.cellContent || "";
-                const newText = event.content.cellContent || "";
-
-                // Only record ICE edit if content actually changed
-                if (oldText !== newText) {
-                    await vscode.commands.executeCommand(
-                        "codex-smart-edits.recordIceEdit",
-                        oldText,
-                        newText
-                    );
-
-                    // Mark file as dirty
-                    provider.updateFileStatus("dirty");
-                }
-
-                document.updateCellContent(
-                    event.content.cellMarkers[0],
-                    event.content.cellContent === "<span></span>" ? "" : event.content.cellContent,
-                    EditType.USER_EDIT
-                );
-            } catch (error) {
-                console.error("Error saving HTML:", error);
-                vscode.window.showErrorMessage("Failed to save HTML content.");
-            }
-            return;
-        case "getContent":
-            updateWebview();
-            return;
-        case "setCurrentIdToGlobalState":
-            try {
-                const uri = document.uri.toString();
-                provider.updateCellIdState(event.content.currentLineId, uri);
-            } catch (error) {
-                console.error("Error setting current ID to global state:", error);
-                vscode.window.showErrorMessage("Failed to set current ID in global state.");
-            }
-            return;
-        case "llmCompletion": {
-            try {
-                debug("llmCompletion message received", {
-                    event,
-                    document,
-                    provider,
-                    webviewPanel,
-                    updateWebview,
-                });
-
-                const cellId = event.content.currentLineId;
-                const addContentToValue = event.content.addContentToValue;
-
-                // Directly add to the unified translation queue
-                const completionResult = await provider.enqueueTranslation(
-                    cellId,
-                    document,
-                    addContentToValue
-                );
-
-                // Send the result back to the webview when complete
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsLLMCompletionResponse",
-                    content: {
-                        completion: completionResult || "",
-                    },
-                });
-            } catch (error) {
-                console.error("Error during LLM completion:", error);
-                vscode.window.showErrorMessage("LLM completion failed.");
-
-                // Use provider state management for failure
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                provider.failSingleCellTranslation(errorMessage);
-            }
-            return;
-        }
-        case "stopAutocompleteChapter": {
-            console.log("stopAutocompleteChapter message received");
-            try {
-                // Call the method to cancel the ongoing operation
-                const cancelled = provider.cancelAutocompleteChapter();
-
-                if (cancelled) {
-                    vscode.window.showInformationMessage("Autocomplete operation stopped.");
-                } else {
-                    console.log("No active autocomplete operation to stop");
-                }
-
-                // Provider's cancelAutocompleteChapter already handles updating the state and broadcasting
-            } catch (error) {
-                console.error("Error stopping autocomplete chapter:", error);
-                vscode.window.showErrorMessage("Failed to stop autocomplete operation.");
-            }
-            return;
-        }
-        case "stopSingleCellTranslation" as any: {
-            console.log("stopSingleCellTranslation message received");
-            try {
-                // Only attempt to clear if we have a provider
-                if (provider) {
-                    // Single cell translations will have a specific flag set
-                    if (provider.singleCellTranslationState.isProcessing) {
-                        // Clear the queue and reset state
-                        provider.clearTranslationQueue();
-                        provider.completeSingleCellTranslation();
-
-                        vscode.window.showInformationMessage("Translation cancelled.");
-                    }
-                }
-            } catch (error) {
-                console.error("Error stopping single cell translations:", error);
-                vscode.window.showErrorMessage("Failed to stop translation.");
-            }
-            return;
-        }
-        case "cellError" as any: {
-            console.log("cellError message received", { event });
-            try {
-                // Extract cell ID from the event content safely
-                const cellId = (event as any).content?.cellId;
-                if (cellId && typeof cellId === "string") {
-                    // Mark the cell as complete in the provider's state tracking
-                    provider.markCellComplete(cellId);
-                }
-            } catch (error) {
-                console.error("Error handling cell error:", error);
-            }
-            return;
-        }
-        case "requestAutocompleteChapter": {
-            console.log("requestAutocompleteChapter message received", { event });
-            try {
-                await provider.performAutocompleteChapter(
-                    document,
-                    webviewPanel,
-                    event.content as QuillCellContent[]
-                );
-            } catch (error) {
-                console.error("Error during autocomplete chapter:", error);
-                vscode.window.showErrorMessage("Autocomplete chapter failed.");
-            }
-            return;
-        }
-        case "updateTextDirection": {
-            try {
-                const updatedMetadata = {
-                    textDirection: event.direction,
-                };
-                await document.updateNotebookMetadata(updatedMetadata);
-                await document.save(new vscode.CancellationTokenSource().token);
-                console.log("Text direction updated successfully.");
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerUpdatesNotebookMetadataForWebview",
-                    content: await document.getNotebookMetadata(),
-                });
-            } catch (error) {
-                console.error("Error updating notebook text direction:", error);
-                vscode.window.showErrorMessage("Failed to update text direction.");
-            }
-            return;
-        }
-        case "getSourceText": {
-            try {
-                const sourceText = (await vscode.commands.executeCommand(
-                    "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
-                    event.content.cellId
-                )) as { cellId: string; content: string };
-                console.log("providerSendsSourceText", { sourceText });
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsSourceText",
-                    content: sourceText.content,
-                });
-            } catch (error) {
-                console.error("Error getting source text:", error);
-                vscode.window.showErrorMessage("Failed to get source text.");
-            }
-            return;
-        }
-        case "openSourceText": {
-            try {
-                const workspaceFolderUri = getWorkSpaceUri();
-                if (!workspaceFolderUri) {
-                    throw new Error("No workspace folder found");
-                }
-                const currentFileName = document.uri.fsPath;
-                const baseFileName = path.basename(currentFileName);
-                const sourceFileName = baseFileName.replace(".codex", ".source");
-                const sourceUri = vscode.Uri.joinPath(
-                    workspaceFolderUri,
-                    ".project",
-                    "sourceTexts",
-                    sourceFileName
-                );
-
-                await vscode.commands.executeCommand("codexNotebookTreeView.openSourceFile", {
-                    sourceFileUri: sourceUri,
-                });
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "jumpToSection",
-                    content: event.content.chapterNumber.toString(),
-                });
-            } catch (error) {
-                console.error("Error opening source text:", error);
-                vscode.window.showErrorMessage("Failed to open source text.");
-            }
-            return;
-        }
-        case "makeChildOfCell": {
-            try {
-                document.addCell(
-                    event.content.newCellId,
-                    event.content.referenceCellId,
-                    event.content.direction,
-                    event.content.cellType,
-                    event.content.data
-                );
-            } catch (error) {
-                console.error("Error making child:", error);
-                vscode.window.showErrorMessage("Failed to make child.");
-            }
-            return;
-        }
-        case "deleteCell": {
-            console.log("deleteCell message received", { event });
-            try {
-                document.deleteCell(event.content.cellId);
-            } catch (error) {
-                console.error("Error deleting cell:", error);
-                vscode.window.showErrorMessage("Failed to delete cell.");
-            }
-            return;
-        }
-        case "updateCellTimestamps": {
-            console.log("updateCellTimestamps message received", { event });
-            try {
-                document.updateCellTimestamps(event.content.cellId, event.content.timestamps);
-            } catch (error) {
-                console.error("Error updating cell timestamps:", error);
-                vscode.window.showErrorMessage("Failed to update cell timestamps.");
-            }
-            return;
-        }
-        case "updateCellLabel": {
-            console.log("updateCellLabel message received", { event });
-            try {
-                document.updateCellLabel(event.content.cellId, event.content.cellLabel);
-            } catch (error) {
-                console.error("Error updating cell label:", error);
-                vscode.window.showErrorMessage("Failed to update cell label.");
-            }
-            return;
-        }
-        case "updateNotebookMetadata": {
-            console.log("updateNotebookMetadata message received", { event });
-            try {
-                const newMetadata = event.content;
-                await document.updateNotebookMetadata(newMetadata);
-                await document.save(new vscode.CancellationTokenSource().token);
-                vscode.window.showInformationMessage("Notebook metadata updated successfully.");
-
-                // Refresh the entire webview to ensure all data is up-to-date
-                provider.refreshWebview(webviewPanel, document);
-            } catch (error) {
-                console.error("Error updating notebook metadata:", error);
-                vscode.window.showErrorMessage("Failed to update notebook metadata.");
-            }
-            return;
-        }
-        case "pickVideoFile": {
-            console.log("pickVideoFile message received", { event });
-            try {
-                const result = await vscode.window.showOpenDialog({
-                    canSelectMany: false,
-                    openLabel: "Select Video File",
-                    filters: {
-                        Videos: ["mp4", "mkv", "avi", "mov"],
-                    },
-                });
-                const fileUri = result?.[0];
-                if (fileUri) {
-                    const videoUrl = fileUri.toString();
-                    await document.updateNotebookMetadata({ videoUrl });
-                    await document.save(new vscode.CancellationTokenSource().token);
-                    provider.refreshWebview(webviewPanel, document);
-                }
-            } catch (error) {
-                console.error("Error picking video file:", error);
-                vscode.window.showErrorMessage("Failed to pick video file.");
-            }
-            return;
-        }
-        case "replaceDuplicateCells": {
-            console.log("replaceDuplicateCells message received", { event });
-            try {
-                document.replaceDuplicateCells(event.content);
-            } catch (error) {
-                console.error("Error replacing duplicate cells:", error);
-                vscode.window.showErrorMessage("Failed to replace duplicate cells.");
-            }
-            return;
-        }
-        case "saveTimeBlocks": {
-            console.log("saveTimeBlocks message received", { event });
-            try {
-                event.content.forEach((cell) => {
-                    document.updateCellTimestamps(cell.id, {
-                        startTime: cell.begin,
-                        endTime: cell.end,
-                    });
-                });
-            } catch (error) {
-                console.error("Error updating cell timestamps:", error);
-                vscode.window.showErrorMessage("Failed to update cell timestamps.");
-            }
-            return;
-        }
-
-        case "supplyRecentEditHistory": {
-            console.log("supplyRecentEditHistory message received", { event });
-            const result = await vscode.commands.executeCommand(
-                "codex-smart-edits.supplyRecentEditHistory",
-                event.content.cellId,
-                event.content.editHistory
-            );
-            return;
-        }
-        case "exportFile": {
-            try {
-                // Get the notebook filename to use as base for the exported filename
-                const notebookName = path.parse(document.uri.fsPath).name;
-                const fileExtension = event.content.format;
-                const fileName = `${notebookName}.${fileExtension}`;
-
-                // Show save file dialog with appropriate filters
-                const saveUri = await vscode.window.showSaveDialog({
-                    defaultUri: vscode.Uri.file(fileName),
-                    filters: {
-                        "Subtitle files": ["vtt", "srt"],
-                    },
-                });
-
-                if (saveUri) {
-                    await vscode.workspace.fs.writeFile(
-                        saveUri,
-                        Buffer.from(event.content.subtitleData, "utf-8")
-                    );
-
-                    vscode.window.showInformationMessage(
-                        `File exported successfully as ${fileExtension.toUpperCase()}`
-                    );
-                }
-            } catch (error) {
-                console.error("Error exporting file:", error);
-                vscode.window.showErrorMessage(
-                    `Failed to export ${event.content.format.toUpperCase()} file`
-                );
-            }
-            return;
-        }
-        case "executeCommand": {
-            try {
-                await vscode.commands.executeCommand(event.content.command, ...event.content.args);
-            } catch (error) {
-                console.error("Error executing command:", error);
-                vscode.window.showErrorMessage(
-                    `Failed to execute command: ${event.content.command}`
-                );
-            }
-            return;
-        }
-        case "togglePinPrompt": {
-            console.log("togglePinPrompt message received", { event });
-            await vscode.commands.executeCommand(
-                "codex-smart-edits.togglePinPrompt",
-                event.content.cellId,
-                event.content.promptText
-            );
-            return;
-        }
-        case "generateBacktranslation": {
-            try {
-                const backtranslation =
-                    await vscode.commands.executeCommand<SavedBacktranslation | null>(
-                        "codex-smart-edits.generateBacktranslation",
-                        event.content.text,
-                        event.content.cellId
-                    );
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsBacktranslation",
-                    content: backtranslation,
-                });
-            } catch (error) {
-                console.error("Error generating backtranslation:", error);
-                vscode.window.showErrorMessage("Failed to generate backtranslation.");
-            }
-            return;
-        }
-
-        case "editBacktranslation": {
-            try {
-                const updatedBacktranslation =
-                    await vscode.commands.executeCommand<SavedBacktranslation | null>(
-                        "codex-smart-edits.editBacktranslation",
-                        event.content.cellId,
-                        event.content.newText,
-                        event.content.existingBacktranslation
-                    );
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsUpdatedBacktranslation",
-                    content: updatedBacktranslation,
-                });
-            } catch (error) {
-                console.error("Error editing backtranslation:", error);
-                vscode.window.showErrorMessage("Failed to edit backtranslation.");
-            }
-            return;
-        }
-
-        case "getBacktranslation": {
-            try {
-                const backtranslation =
-                    await vscode.commands.executeCommand<SavedBacktranslation | null>(
-                        "codex-smart-edits.getBacktranslation",
-                        event.content.cellId
-                    );
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsExistingBacktranslation",
-                    content: backtranslation,
-                });
-            } catch (error) {
-                console.error("Error getting backtranslation:", error);
-                vscode.window.showErrorMessage("Failed to get backtranslation.");
-            }
-            return;
-        }
-
-        case "setBacktranslation": {
-            try {
-                const backtranslation =
-                    await vscode.commands.executeCommand<SavedBacktranslation | null>(
-                        "codex-smart-edits.setBacktranslation",
-                        event.content.cellId,
-                        event.content.originalText,
-                        event.content.userBacktranslation
-                    );
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerConfirmsBacktranslationSet",
-                    content: backtranslation,
-                });
-            } catch (error) {
-                console.error("Error setting backtranslation:", error);
-                vscode.window.showErrorMessage("Failed to set backtranslation.");
-            }
-            return;
-        }
-
-        case "rejectEditSuggestion": {
-            try {
-                await vscode.commands.executeCommand(
-                    "codex-smart-edits.rejectEditSuggestion",
-                    event.content
-                );
-            } catch (error) {
-                console.error("Error rejecting edit suggestion:", error);
-                vscode.window.showErrorMessage("Failed to reject edit suggestion.");
-            }
-            return;
-        }
-
-        case "webviewFocused": {
-            try {
-                if (provider.currentDocument && event.content?.uri) {
-                    // Only update if we have both a document and a valid URI
-                    const newUri = vscode.Uri.parse(event.content.uri);
-                    if (newUri.scheme === "file") {
-                        // Ensure it's a valid file URI
-                        provider.currentDocument.updateUri(newUri);
-                    }
-                }
-            } catch (error) {
-                console.error("Error handling webview focus:", error, event);
-                vscode.window.showErrorMessage("Failed to update document reference on focus");
-            }
-            return;
-        }
-        case "updateCachedChapter": {
-            await provider.updateCachedChapter(document.uri.toString(), event.content);
-            return;
-        }
-        case "updateCellDisplayMode": {
-            try {
-                const updatedMetadata = {
-                    cellDisplayMode: event.mode,
-                };
-                await document.updateNotebookMetadata(updatedMetadata);
-                await document.save(new vscode.CancellationTokenSource().token);
-                console.log("Cell display mode updated successfully.");
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerUpdatesNotebookMetadataForWebview",
-                    content: await document.getNotebookMetadata(),
-                });
-            } catch (error) {
-                console.error("Error updating cell display mode:", error);
-                vscode.window.showErrorMessage("Failed to update cell display mode.");
-            }
-            return;
-        }
-        case "validateCell":
-            if (event.content && event.content.cellId) {
-                try {
-                    // Directly queue the validation for immediate processing
-                    await provider.enqueueValidation(
-                        event.content.cellId,
-                        document,
-                        event.content.validate
-                    );
-
-                    // Update is now handled within the queue processing
-                } catch (error) {
-                    console.error(`Error validating cell ${event.content.cellId}:`, error);
-                    vscode.window.showErrorMessage("Failed to validate cell.");
-                }
-            }
-            break;
-        case "getValidationCount": {
-            try {
-                // Get the configured number of validations required from settings
-                const config = vscode.workspace.getConfiguration("codex-project-manager");
-                const validationCount = config.get("validationCount", 1);
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "validationCount",
-                    content: validationCount,
-                });
-            } catch (error) {
-                console.error("Error getting validation count:", error);
-                vscode.window.showErrorMessage("Failed to get validation count.");
-            }
-            return;
-        }
-        case "getCurrentUsername": {
-            try {
-                const authApi = await provider.getAuthApi();
-                const userInfo = await authApi?.getUserInfo();
-                const username = userInfo?.username || "anonymous";
-
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "currentUsername",
-                    content: { username },
-                });
-            } catch (error) {
-                console.error("Error getting current username:", error);
-                // vscode.window.showErrorMessage("Failed to get current username.");
-            }
-            return;
-        }
-        case "togglePrimarySidebar": {
-            vscode.window.showInformationMessage("togglePrimarySidebar");
-            try {
-                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
-                await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
-            } catch (error) {
-                console.error("Error toggling primary sidebar:", error);
-                vscode.window.showErrorMessage("Failed to toggle primary sidebar");
-            }
-            return;
-        }
-        case "toggleSecondarySidebar": {
-            try {
-                await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
-            } catch (error) {
-                console.error("Error toggling secondary sidebar:", error);
-                vscode.window.showErrorMessage("Failed to toggle secondary sidebar");
-            }
-            return;
-        }
-        case "getEditorPosition": {
-            try {
-                const activeEditor = vscode.window.activeTextEditor;
-                let position = "unknown";
-
-                if (activeEditor) {
-                    // Get all visible editors to determine the layout
-                    const visibleEditors = vscode.window.visibleTextEditors;
-
-                    // If there's only one editor, it's both leftmost and rightmost
-                    if (visibleEditors.length <= 1) {
-                        position = "single";
-                    } else {
-                        // Sort editors by their view column
-                        const sortedEditors = [...visibleEditors].sort(
-                            (a, b) => (a.viewColumn || 0) - (b.viewColumn || 0)
-                        );
-
-                        // Find the index of the active editor in the sorted array
-                        const activeEditorIndex = sortedEditors.findIndex(
-                            (editor) =>
-                                editor.document.uri.toString() ===
-                                activeEditor.document.uri.toString()
-                        );
-
-                        if (activeEditorIndex === 0) {
-                            position = "leftmost";
-                        } else if (activeEditorIndex === sortedEditors.length - 1) {
-                            position = "rightmost";
-                        } else {
-                            position = "center";
-                        }
-                    }
-                }
-
-                webviewPanel.webview.postMessage({
-                    type: "editorPosition",
-                    position,
-                });
-            } catch (error) {
-                console.error("Error determining editor position:", error);
-                webviewPanel.webview.postMessage({
-                    type: "editorPosition",
-                    position: "unknown",
-                });
-            }
-            return;
-        }
-        case "queueValidation":
-            if (event.content && event.content.cellId) {
-                try {
-                    // Queue the validation instead of processing immediately
-                    provider.queueValidation(
-                        event.content.cellId,
-                        document,
-                        event.content.validate,
-                        event.content.pending
-                    );
-
-                    // No need to call updateWebview - pending state is handled via messages
-                } catch (error) {
-                    console.error(
-                        `Error queuing validation for cell ${event.content.cellId}:`,
-                        error
-                    );
-                    vscode.window.showErrorMessage("Failed to queue validation.");
-                }
-            }
-            break;
-        case "applyPendingValidations":
-            try {
-                await provider.applyPendingValidations();
-                // Webview updates will be handled by the validation process
-            } catch (error) {
-                console.error("Error applying pending validations:", error);
-                vscode.window.showErrorMessage("Failed to apply validations.");
-            }
-            break;
-        case "clearPendingValidations":
-            try {
-                // Clear all pending validations without applying them
-                provider.clearPendingValidations();
-
-                // Webview updates will be handled by the provider
-            } catch (error) {
-                console.error("Error clearing pending validations:", error);
-                vscode.window.showErrorMessage("Failed to clear validations.");
-            }
-            break;
-        case "jumpToChapter":
-            try {
-                provider.updateCachedChapter(document.uri.toString(), event.chapterNumber);
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "setChapterNumber",
-                    content: event.chapterNumber,
-                });
-            } catch (error) {
-                console.error("Error jumping to chapter:", error);
-                vscode.window.showErrorMessage("Failed to jump to chapter.");
-            }
-            return;
-        case "closeCurrentDocument":
-            try {
-                console.log("Close document request received:", event.content);
-                // Get the URI from the content if available
-                const fileUri = event.content?.uri;
-                const isSourceDocument = event.content?.isSource === true;
-
-                if (fileUri) {
-                    // We have a specific URI to close
-                    const urisToCheck = [
-                        // Check as-is
-                        vscode.Uri.file(fileUri),
-                        // Also check with file:// prefix if not already present
-                        !fileUri.startsWith("file://") ? vscode.Uri.file(fileUri) : undefined,
-                    ].filter((uri): uri is vscode.Uri => uri !== undefined);
-
-                    // Get all visible editors
-                    const visibleEditors = vscode.window.visibleTextEditors;
-                    let found = false;
-
-                    // Try to find the editor with the matching URI
-                    for (const uri of urisToCheck) {
-                        if (found) break;
-
-                        for (const editor of visibleEditors) {
-                            // Compare file system paths to account for different URI formats
-                            if (editor.document.uri.fsPath === uri.fsPath) {
-                                // Found the editor we want to close
-                                await vscode.window.showTextDocument(
-                                    editor.document,
-                                    editor.viewColumn
-                                );
-                                await vscode.commands.executeCommand(
-                                    "workbench.action.closeActiveEditor"
-                                );
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (!found) {
-                        // Fallback to just closing the active editor
-                        console.log(
-                            "Could not find the specific editor to close, closing active editor"
-                        );
-                        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-                    }
-                } else if (isSourceDocument) {
-                    // For source documents without specific URI, try to find by extension
-                    const visibleEditors = vscode.window.visibleTextEditors;
-                    let found = false;
-
-                    for (const editor of visibleEditors) {
-                        if (editor.document.uri.fsPath.endsWith(".source")) {
-                            // Found a source editor to close
-                            await vscode.window.showTextDocument(
-                                editor.document,
-                                editor.viewColumn
-                            );
-                            await vscode.commands.executeCommand(
-                                "workbench.action.closeActiveEditor"
-                            );
-                            found = true;
-                            break;
-                        }
-                    }
-
-                    if (!found) {
-                        // Fallback to just closing the active editor
-                        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-                    }
-                } else {
-                    // No URI and not source, just close the active editor
-                    await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-                }
-            } catch (error) {
-                console.error("Error closing document:", error);
-                vscode.window.showErrorMessage("Failed to close document.");
-            }
-            return;
-        case "toggleSidebar": {
-            console.log("toggleSidebar message received");
-            try {
-                // Toggle main menu visibility
-                await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
-
-                // Only focus the main menu if we're opening the sidebar (not closing it)
-                if (event.content?.isOpening) {
-                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                }
-            } catch (error) {
-                console.error("Error toggling main menu visibility:", error);
-                vscode.window.showErrorMessage("Failed to toggle sidebar visibility.");
-            }
-            return;
-        }
-        case "triggerSync": {
-            console.log("triggerSync message received");
-            try {
-                // Trigger an immediate sync using the provider's method
-                provider.triggerSync();
-            } catch (error) {
-                console.error("Error triggering sync:", error);
-                vscode.window.showErrorMessage("Failed to trigger sync.");
-            }
-            return;
-        }
-        case "triggerReindexing": {
-            console.log("Triggering reindexing after all translations completed");
-            // Execute the force reindex command - this will ensure all indices are updated
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
-            break;
-        }
-        case "requestAudioAttachments": {
-            console.log("requestAudioAttachments message received");
-            try {
-                const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-
-                // Convert to boolean mapping for webview
-                const audioCells: { [cellId: string]: boolean } = {};
-                for (const cellId of Object.keys(audioAttachments)) {
-                    audioCells[cellId] = true;
-                }
-
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: audioCells,
-                });
-            } catch (error) {
-                console.error("Error requesting audio attachments:", error);
-                vscode.window.showErrorMessage("Failed to request audio attachments.");
-            }
-            return;
-        }
-        case "requestAudioForCell": {
-            console.log("requestAudioForCell message received for cell:", event.content.cellId);
-            try {
-                const cellId = event.content.cellId;
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!workspaceFolder) {
-                    debug("No workspace folder found");
-                    return;
-                }
-
-                // Get the document data to check cell metadata
-                const documentText = document.getText();
-                const notebookData = JSON.parse(documentText);
-
-                // Find the specific cell
-                if (notebookData.cells && Array.isArray(notebookData.cells)) {
-                    const cell = notebookData.cells.find((c: any) => c.metadata?.id === cellId);
-
-                    if (cell?.metadata?.attachments) {
-                        // Check for audio attachments in metadata
-                        for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                            if (attachment && (attachment as any).type === "audio") {
-                                const attachmentPath = (attachment as any).url;
-                                const fullPath = path.isAbsolute(attachmentPath)
-                                    ? attachmentPath
-                                    : path.join(workspaceFolder.uri.fsPath, attachmentPath);
-
-                                try {
-                                    if (fs.existsSync(fullPath)) {
-                                        const fileData = await fs.promises.readFile(fullPath);
-                                        const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
-
-                                        // Send the audio data to the webview
-                                        webviewPanel.webview.postMessage({
-                                            type: "providerSendsAudioData",
-                                            content: {
-                                                cellId: cellId,
-                                                audioId: attachmentId,
-                                                audioData: base64Data
-                                            }
-                                        });
-
-                                        debug("Sent audio data for cell:", cellId);
-                                        return; // Found and sent, we're done
-                                    }
-                                } catch (err) {
-                                    console.error(`Error reading audio file ${fullPath}:`, err);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // If no attachment in metadata, check filesystem for legacy files
-                const bookAbbr = cellId.split(' ')[0];
-                const attachmentsPath = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    bookAbbr
-                );
-
-                if (fs.existsSync(attachmentsPath)) {
-                    const files = fs.readdirSync(attachmentsPath);
-                    const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
-
-                    for (const audioFile of files) {
-                        if (audioExtensions.some(ext => audioFile.toLowerCase().endsWith(ext))) {
-                            // Check if this file matches the cell
-                            const cellIdPattern = cellId.replace(/[:\s]/g, '_');
-                            if (audioFile.includes(cellIdPattern) || audioFile.includes(cellId)) {
-                                const fullPath = path.join(attachmentsPath, audioFile);
-
-                                try {
-                                    const fileData = await fs.promises.readFile(fullPath);
-                                    const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
-                                        audioFile.endsWith('.mp3') ? 'audio/mp3' :
-                                            audioFile.endsWith('.m4a') ? 'audio/mp4' :
-                                                audioFile.endsWith('.ogg') ? 'audio/ogg' :
-                                                    'audio/wav';
-                                    const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
-
-                                    webviewPanel.webview.postMessage({
-                                        type: "providerSendsAudioData",
-                                        content: {
-                                            cellId: cellId,
-                                            audioId: audioFile.replace(/\.[^/.]+$/, ""),
-                                            audioData: base64Data
-                                        }
-                                    });
-
-                                    debug("Sent legacy audio data for cell:", cellId);
-                                    return; // Found and sent
-                                } catch (err) {
-                                    console.error(`Error reading audio file ${fullPath}:`, err);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                debug("No audio attachment found for cell:", cellId);
-            } catch (error) {
-                console.error("Error requesting audio for cell:", error);
-            }
-            return;
-        }
-        case "saveAudioAttachment": {
-            console.log("saveAudioAttachment message received", {
-                cellId: event.content.cellId,
-                audioId: event.content.audioId,
-                fileExtension: event.content.fileExtension
-            });
-            try {
-                // Extract document segment from cellId (e.g., "JUD" from "JUD 1:1")
-                const documentSegment = event.content.cellId.split(' ')[0];
-
-                // Get workspace folder
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!workspaceFolder) {
-                    throw new Error("No workspace folder found");
-                }
-
-                // Build the attachments directory path
-                const attachmentsDir = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    documentSegment
-                );
-
-                // Ensure directory exists
-                await fs.promises.mkdir(attachmentsDir, { recursive: true });
-
-                // Build the full file path
-                const fileName = `${event.content.audioId}.${event.content.fileExtension}`;
-                const filePath = path.join(attachmentsDir, fileName);
-
-                // Extract base64 data (remove data URL prefix)
-                const base64Data = event.content.audioData.split(',')[1] || event.content.audioData;
-                const buffer = Buffer.from(base64Data, 'base64');
-
-                // Write the file
-                await fs.promises.writeFile(filePath, buffer);
-
-                // Update cell metadata with attachment reference
-                const relativePath = path.relative(workspaceFolder.uri.fsPath, filePath);
-                await document.updateCellAttachment(event.content.cellId, event.content.audioId, {
-                    url: relativePath,
-                    type: "audio"
-                });
-
-                // Send success response
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "audioAttachmentSaved",
-                    content: {
-                        cellId: event.content.cellId,
-                        audioId: event.content.audioId,
-                        success: true
-                    }
-                });
-
-                // Rescan and send updated audio attachments
-                const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-                const audioCells: { [cellId: string]: boolean } = {};
-                for (const cellId of Object.keys(updatedAudioAttachments)) {
-                    audioCells[cellId] = true;
-                }
-
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: audioCells as any,
-                });
-
-                debug("Audio attachment saved successfully:", filePath);
-            } catch (error) {
-                console.error("Error saving audio attachment:", error);
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "audioAttachmentSaved",
-                    content: {
-                        cellId: event.content.cellId,
-                        audioId: event.content.audioId,
-                        success: false,
-                        error: error instanceof Error ? error.message : String(error)
-                    }
-                });
-                vscode.window.showErrorMessage("Failed to save audio attachment.");
-            }
-            return;
-        }
-        case "deleteAudioAttachment": {
-            console.log("deleteAudioAttachment message received", {
-                cellId: event.content.cellId,
-                audioId: event.content.audioId
-            });
-            try {
-                // Get workspace folder
-                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-                if (!workspaceFolder) {
-                    throw new Error("No workspace folder found");
-                }
-
-                // Extract document segment from cellId
-                const documentSegment = event.content.cellId.split(' ')[0];
-
-                // Build the attachments directory path
-                const attachmentsDir = path.join(
-                    workspaceFolder.uri.fsPath,
-                    ".project",
-                    "attachments",
-                    documentSegment
-                );
-
-                // Find and delete the file with the given audioId
-                try {
-                    const files = await fs.promises.readdir(attachmentsDir);
-                    const audioFile = files.find(file => file.startsWith(event.content.audioId));
-
-                    if (audioFile) {
-                        const filePath = path.join(attachmentsDir, audioFile);
-                        await fs.promises.unlink(filePath);
-                        debug("Deleted audio file:", filePath);
-                    }
-                } catch (err) {
-                    // Directory might not exist if no attachments
-                    debug("Error reading attachments directory:", err);
-                }
-
-                // Remove attachment from cell metadata
-                await document.removeCellAttachment(event.content.cellId, event.content.audioId);
-
-                // Send success response
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "audioAttachmentDeleted",
-                    content: {
-                        cellId: event.content.cellId,
-                        audioId: event.content.audioId,
-                        success: true
-                    }
-                });
-
-                // Rescan and send updated audio attachments
-                const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-                const audioCells: { [cellId: string]: boolean } = {};
-                for (const cellId of Object.keys(updatedAudioAttachments)) {
-                    audioCells[cellId] = true;
-                }
-
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "providerSendsAudioAttachments",
-                    attachments: audioCells as any,
-                });
-
-                debug("Audio attachment deleted successfully");
-            } catch (error) {
-                console.error("Error deleting audio attachment:", error);
-                provider.postMessageToWebview(webviewPanel, {
-                    type: "audioAttachmentDeleted",
-                    content: {
-                        cellId: event.content.cellId,
-                        audioId: event.content.audioId,
-                        success: false,
-                        error: error instanceof Error ? error.message : String(error)
-                    }
-                });
-                vscode.window.showErrorMessage("Failed to delete audio attachment.");
-            }
-            return;
-        }
+    const context: MessageHandlerContext = {
+        event,
+        webviewPanel,
+        document,
+        updateWebview,
+        provider,
+    };
+
+    const handler = messageHandlers[event.command];
+    if (handler) {
+        await withErrorHandling(
+            () => handler(context),
+            `handle ${event.command}`,
+            true // Show user error for most operations
+        );
+    } else {
+        console.warn(`Unknown message command: ${event.command}`);
     }
 };
 

@@ -11,7 +11,7 @@ import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
 import ValidationButton from "./ValidationButton";
-import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../components/ui/button";
 import { getTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell display modes
 import "./TranslationAnimations.css"; // Import the animation CSS
@@ -501,9 +501,30 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,
                 ...getBorderStyle(),
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.5rem",
+                padding: "0.25rem",
+                cursor: isSourceText ? "default" : "pointer",
+                border: "1px solid transparent",
+                borderRadius: "4px",
+                overflow: "hidden",
+                maxWidth: "100%",
+                boxSizing: "border-box",
+                transition: "border 0.3s ease",
+                overflowWrap: "break-word",
+                wordWrap: "break-word",
+                wordBreak: "break-word",
             }}
         >
-            <div className="cell-header">
+            <div
+                className="cell-header"
+                style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                }}
+            >
                 {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
                     <div
                         className="cell-actions"
@@ -537,8 +558,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                 }
                                 content={
                                     !isSourceText && (
-                                        <VSCodeButton
-                                            appearance="icon"
+                                        <Button
                                             style={{
                                                 height: "16px",
                                                 width: "16px",
@@ -562,7 +582,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                                 }`}
                                                 style={{ fontSize: "12px" }}
                                             ></i>
-                                        </VSCodeButton>
+                                        </Button>
                                     )
                                 }
                             />
@@ -577,12 +597,18 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         {getAlertDot()}
                     </div>
                 )}
-                <div className="cell-label">
+                <div
+                    className={`cell-label ${
+                        cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                            ? "font-medium whitespace-nowrap min-w-fit leading-normal flex items-center h-full"
+                            : ""
+                    }`}
+                >
                     {cellLabelOrGeneratedLabel && (
                         <span
                             className="cell-label-text"
-                            style={
-                                cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                            style={{
+                                ...(cellDisplayMode === CELL_DISPLAY_MODES.INLINE
                                     ? {
                                           fontSize: "0.7em",
                                           verticalAlign: "super",
@@ -591,8 +617,13 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                           marginRight: "2px",
                                           fontWeight: "normal",
                                       }
-                                    : {}
-                            }
+                                    : {}),
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                maxWidth: "200px", // Adjust this value as needed
+                                display: "block",
+                            }}
                         >
                             {cellLabelOrGeneratedLabel}
                         </span>

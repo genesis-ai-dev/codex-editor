@@ -1,9 +1,8 @@
 import OpenAI from "openai";
-import { CompletionConfig } from "../providers/translationSuggestions/inlineCompletionsProvider";
 import { ChatMessage } from "../../types";
-import * as vscode from "vscode";
 import { ChatCompletionMessageParam } from "openai/resources";
 import { getAuthApi } from "../extension";
+import * as vscode from "vscode";
 
 /**
  * Calls the Language Model (LLM) with the given messages and configuration.
@@ -223,3 +222,53 @@ export async function performReflection(
 
     return text;
 }
+
+export interface CompletionConfig {
+    endpoint: string;
+    apiKey: string;
+    model: string;
+    customModel: string;
+    contextSize: string;
+    additionalResourceDirectory: string;
+    contextOmission: boolean;
+    sourceBookWhitelist: string;
+    maxTokens: number;
+    temperature: number;
+    mainChatLanguage: string;
+    chatSystemMessage: string;
+    numberOfFewShotExamples: number;
+    debugMode: boolean;
+}
+export async function fetchCompletionConfig(): Promise<CompletionConfig> {
+    try {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        // if (sharedStateExtension) {
+        //     const stateStore = sharedStateExtension.exports;
+        //     stateStore.updateStoreState({
+        //         key: "currentUserAPI",
+        //         value: config.get("api_key", undefined, true) || "",
+        //     });
+        // }
+        return {
+            endpoint: config.get("llmEndpoint") || "https://api.openai.com/v1",
+            apiKey: config.get("api_key") || "",
+            model: config.get("model") || "gpt-4o",
+            customModel: config.get("customModel") || "",
+            contextSize: config.get("contextSize") || "large",
+            additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
+            contextOmission: config.get("experimentalContextOmission") || false,
+            sourceBookWhitelist: config.get("sourceBookWhitelist") || "",
+            maxTokens: config.get("max_tokens") || 2048,
+            temperature: config.get("temperature") || 0.8,
+            mainChatLanguage: config.get("main_chat_language") || "English",
+            chatSystemMessage: config.get("chatSystemMessage") ||
+                "This is a chat between a helpful Bible translation assistant and a Bible translator...",
+            numberOfFewShotExamples: config.get("numberOfFewShotExamples") || 30,
+            debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
+        };
+    } catch (error) {
+        console.error("Error getting completion configuration", error);
+        throw new Error("Failed to get completion configuration");
+    }
+}
+

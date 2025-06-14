@@ -285,6 +285,19 @@
         color: var(--muted-foreground);
         font-family: monospace;
     }
+
+    /* Theme-aware waveform colors for canvas access */
+    .waveform-canvas {
+        --waveform-background: var(--background);
+        --waveform-foreground: var(--foreground);
+        --waveform-muted: var(--muted);
+        --waveform-muted-foreground: var(--muted-foreground);
+        --waveform-primary: var(--primary);
+        --waveform-border: var(--border);
+        --waveform-wave-color: var(--muted-foreground);
+        --waveform-progress-color: var(--primary);
+        --waveform-cursor-color: var(--foreground);
+    }
 }
 
 @theme inline {

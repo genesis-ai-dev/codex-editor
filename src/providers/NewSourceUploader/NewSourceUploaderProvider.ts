@@ -1,8 +1,30 @@
 import * as vscode from "vscode";
 import { NewSourceUploaderPostMessages } from "@newSourceUploaderTypes";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { NotebookPreview } from "@types";
+
+// Helper function to close open files if they exist
+async function closeFileIfOpen(uri: vscode.Uri): Promise<void> {
+    try {
+        // Get all visible editors
+        const visibleEditors = vscode.window.visibleTextEditors;
+
+        // Look for editors with matching file system paths
+        for (const editor of visibleEditors) {
+            if (editor.document.uri.fsPath === uri.fsPath) {
+                // Found the editor we want to close
+                await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+                await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+                break;
+            }
+        }
+    } catch (error) {
+        console.warn(`Failed to close file ${uri.fsPath}:`, error);
+        // Don't throw - just log the warning and continue
+    }
+}
 
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
@@ -16,7 +38,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         openContext: vscode.CustomDocumentOpenContext,
         token: vscode.CancellationToken
     ): Promise<vscode.CustomDocument> {
-        return { uri, dispose: () => {} };
+        return { uri, dispose: () => { } };
     }
 
     public async resolveCustomTextEditor(
@@ -121,10 +143,26 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
             const codexNotebook: NotebookPreview = {
                 name: fileName,
-                cells: sourceNotebook.cells.map((cell) => ({
-                    ...cell,
-                    value: "",
-                })),
+                cells: sourceNotebook.cells.map((cell) => {
+                    // Check if the cell contains images - if so, preserve them in the codex cell
+                    const hasImages = cell.value && /<img\s[^>]*>/i.test(cell.value);
+
+                    if (hasImages) {
+                        // Extract only the image tags from the HTML content
+                        const imageMatches = cell.value.match(/<img\s[^>]*>/gi);
+                        const imageContent = imageMatches ? imageMatches.join('\n') : '';
+                        return {
+                            ...cell,
+                            value: imageContent,
+                        };
+                    } else {
+                        // For non-image cells, set value to empty string as before
+                        return {
+                            ...cell,
+                            value: "",
+                        };
+                    }
+                }),
                 metadata: {
                     id: fileName,
                     textDirection: "ltr",
@@ -138,13 +176,37 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 },
             };
 
+            // Get workspace folder to construct URIs
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+
+            // Create URIs for the files that will be created
+            const sourceUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "sourceTexts",
+                `${fileName}.source`
+            );
+            const codexUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                "files",
+                "target",
+                `${fileName}.codex`
+            );
+
+            // Close any existing open files with these names before creating new ones
+            await closeFileIfOpen(sourceUri);
+            await closeFileIfOpen(codexUri);
+
             // Simulate validation delay
             await createNoteBookPair({
                 token,
                 sourceNotebooks: [sourceNotebook],
                 codexNotebooks: [codexNotebook],
             });
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             // Send processing progress update
             webviewPanel.webview.postMessage({
                 command: "progressUpdate",
@@ -222,45 +284,13 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
-        // Get path to the NewSourceUploader webview built files
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "NewSourceUploader",
-                "index.js"
-            )
-        );
-
-        // Use a nonce to only allow specific scripts to be run
-        const nonce = this.getNonce();
-
-        return `<!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
-            <title>DOCX to HTML Converter</title>
-            <style>
-                #root {
-                    height: 100vh;
-                    width: 100vw;
-                    overflow-y: auto;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="root"></div>
-            <script nonce="${nonce}">
-                // Setup communication with extension - acquire API once and make it global
-                window.vscodeApi = acquireVsCodeApi();
-            </script>
-            <script nonce="${nonce}" src="${scriptUri}"></script>
-        </body>
-        </html>`;
+        return getWebviewHtml(webview, this.context, {
+            title: "DOCX to HTML Converter",
+            scriptPath: ["NewSourceUploader", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data:;`,
+            inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
+            customScript: "window.vscodeApi = acquireVsCodeApi();"
+        });
     }
 
     private getNonce(): string {

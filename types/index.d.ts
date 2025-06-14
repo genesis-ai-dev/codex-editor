@@ -167,6 +167,7 @@ type CommentPostMessages =
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
+    | { command: "updateUser"; user: { id: any; name: any; avatar: any; }; }
     | { command: "navigateToMainMenu"; };
 
 interface SelectedTextDataWithContext {
@@ -380,6 +381,7 @@ export type ProjectSyncStatus =
 export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     completionPercentage?: number;
+    needsMigration?: boolean;
 };
 
 export type MessagesFromStartupFlowProvider =
@@ -395,7 +397,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "error"; message: string; }
     | { command: "extension.checkResponse"; isInstalled: boolean; }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string; }
-    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; }
+    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; migrated?: boolean; }
     | {
         command: "updateAuthState";
         success: boolean;
@@ -611,7 +613,6 @@ export type EditorPostMessages =
     | { command: "clearPendingValidations"; }
     | { command: "getCurrentUsername"; }
     | { command: "getValidationCount"; }
-    | { command: "requestUsername"; }
     | { command: "stopAutocompleteChapter"; }
     | { command: "stopSingleCellTranslation"; }
     | { command: "triggerReindexing"; }
@@ -1350,6 +1351,7 @@ interface LocalProject {
     gitOriginUrl?: string;
     description: string;
     isOutdated?: boolean;
+    needsMigration?: boolean;
 }
 
 interface BasePreview {
@@ -1639,12 +1641,6 @@ export type WelcomeViewReceiveMessages =
     | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string; }
     | { command: "showLoginLoading"; loading: boolean; };
 
-// Add to your global WebviewMessage type
-export type WebviewMessage =
-    | ChatViewMessage
-    | StartupFlowMessage
-    // Add other message types...
-    | SplashScreenMessage;
 
 export interface SplashScreenMessage {
     command: "update" | "complete" | "animationComplete";

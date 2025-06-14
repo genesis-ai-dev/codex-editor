@@ -3,10 +3,13 @@ import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { cn } from "../lib/utils";
 import "../tailwind.css";
 
-// Declare the global vscode object that's already acquired by something else
-declare const vscode: any;
+// Declare the acquireVsCodeApi function and acquire the VS Code API
+declare function acquireVsCodeApi(): any;
+const vscode = acquireVsCodeApi();
 
 interface MenuButton {
     id: string;
@@ -115,49 +118,63 @@ function MainMenu() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                         {section.buttons.map((button) => (
-                            <button
-                                key={button.id}
-                                onClick={() => handleButtonClick(button)}
-                                className={`group relative p-4 rounded-lg border transition-all duration-200 text-left hover:shadow-sm ${
-                                    button.viewId && state.activeViewId === button.viewId
-                                        ? "border-primary bg-primary/5 shadow-sm"
-                                        : "border-border hover:border-primary/50 hover:bg-accent/50"
-                                }`}
-                                title={button.description || ""}
-                            >
-                                {button.viewId && state.activeViewId === button.viewId && (
-                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-sm" />
-                                )}
-
-                                <div className="flex items-start gap-3">
-                                    <div
-                                        className={`flex items-center justify-center w-10 h-10 rounded-md transition-colors ${
+                            <Tooltip key={button.id}>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant={
                                             button.viewId && state.activeViewId === button.viewId
-                                                ? "bg-primary text-primary-foreground"
-                                                : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
-                                        }`}
-                                    >
-                                        <i className={`codicon codicon-${button.icon} text-base`} />
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                        <h3
-                                            className={`font-medium text-sm leading-tight ${
-                                                button.viewId && state.activeViewId === button.viewId
-                                                    ? "text-primary"
-                                                    : "text-foreground group-hover:text-primary"
-                                            }`}
-                                        >
-                                            {button.label}
-                                        </h3>
-                                        {button.description && (
-                                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                                                {button.description}
-                                            </p>
+                                                ? "default"
+                                                : "outline"
+                                        }
+                                        onClick={() => handleButtonClick(button)}
+                                        className={cn(
+                                            "group relative p-3 h-auto text-left justify-start",
+                                            button.viewId &&
+                                                state.activeViewId === button.viewId &&
+                                                "shadow-sm"
                                         )}
-                                    </div>
-                                </div>
-                            </button>
+                                    >
+                                        {button.viewId && state.activeViewId === button.viewId && (
+                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-sm" />
+                                        )}
+
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className={cn(
+                                                    "flex items-center justify-center w-8 h-8 rounded-md transition-colors",
+                                                    button.viewId &&
+                                                        state.activeViewId === button.viewId
+                                                        ? "bg-primary-foreground text-primary"
+                                                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
+                                                )}
+                                            >
+                                                <i
+                                                    className={`codicon codicon-${button.icon} text-sm`}
+                                                />
+                                            </div>
+
+                                            <div className="flex-1 min-w-0">
+                                                <h3
+                                                    className={cn(
+                                                        "font-medium text-sm leading-tight",
+                                                        button.viewId &&
+                                                            state.activeViewId === button.viewId
+                                                            ? "text-primary-foreground"
+                                                            : "text-foreground group-hover:text-primary"
+                                                    )}
+                                                >
+                                                    {button.label}
+                                                </h3>
+                                            </div>
+                                        </div>
+                                    </Button>
+                                </TooltipTrigger>
+                                {button.description && (
+                                    <TooltipContent>
+                                        <p>{button.description}</p>
+                                    </TooltipContent>
+                                )}
+                            </Tooltip>
                         ))}
                     </div>
                 </div>

@@ -3,6 +3,8 @@ import * as path from "path";
 import * as fs from "fs";
 import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { BaseWebviewProvider } from "../../globalProvider";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 interface CodexMetadata {
     id: string;
@@ -35,9 +37,8 @@ export interface CodexItem {
     sortOrder?: string;
 }
 
-export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
+export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
-    private _view?: vscode.WebviewView;
     private codexItems: CodexItem[] = [];
     private dictionaryItems: CodexItem[] = [];
     private disposables: vscode.Disposable[] = [];
@@ -45,10 +46,19 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
     private serializer = new CodexContentSerializer();
     private bibleBookMap: Map<string, BibleBookInfo> = new Map();
 
-    constructor(private readonly context: vscode.ExtensionContext) {
+    constructor(context: vscode.ExtensionContext) {
+        super(context);
         this.loadBibleBookMap();
         this.buildInitialData();
         this.registerWatchers();
+    }
+
+    protected getWebviewId(): string {
+        return "navigation-sidebar";
+    }
+
+    protected getScriptPath(): string[] {
+        return ["NavigationView", "index.js"];
     }
 
     private loadBibleBookMap(): void {
@@ -91,19 +101,22 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         );
     }
 
-    public async resolveWebviewView(webviewView: vscode.WebviewView) {
-        this._view = webviewView;
+    protected onWebviewResolved(webviewView: vscode.WebviewView): void {
+        // Initial data load
+        if (this.codexItems.length === 0 && this.dictionaryItems.length === 0) {
+            this.loadBibleBookMap();
+            this.buildInitialData();
+        } else {
+            this.sendItemsToWebview();
+        }
+    }
 
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this.context.extensionUri],
-        };
+    protected onWebviewReady(): void {
+        this.loadBibleBookMap();
+        this.buildInitialData();
+    }
 
-        // Set up the HTML content
-        webviewView.webview.html = await this.getHtmlForWebview(webviewView);
-
-        // Handle messages from the webview
-        webviewView.webview.onDidReceiveMessage(async (message) => {
+    protected async handleMessage(message: any): Promise<void> {
             switch (message.command) {
                 case "openFile":
                     try {
@@ -186,6 +199,75 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                     this.loadBibleBookMap();
                     await this.buildInitialData();
                     break;
+                case "deleteFile":
+                    try {
+                        const confirmed = await vscode.window.showWarningMessage(
+                            `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
+                            { modal: true },
+                            "Delete"
+                        );
+
+                        if (confirmed === "Delete") {
+                            const deletedFiles: string[] = [];
+                            const errors: string[] = [];
+
+                            // Convert the path to a proper Uri for the codex file
+                            const normalizedPath = message.uri.replace(/\\/g, "/");
+                            const codexUri = vscode.Uri.file(normalizedPath);
+
+                            // Delete the codex file
+                            try {
+                                await vscode.workspace.fs.delete(codexUri);
+                                deletedFiles.push(`${message.label}.codex`);
+                            } catch (error) {
+                                console.error("Error deleting codex file:", error);
+                                errors.push(`Failed to delete codex file: ${error}`);
+                            }
+
+                            // For codex documents, also delete the corresponding source file
+                            if (message.type === "codexDocument") {
+                                try {
+                                    const workspaceFolderUri = vscode.workspace.workspaceFolders?.[0].uri;
+                                    if (workspaceFolderUri) {
+                                        const baseFileName = path.basename(normalizedPath);
+                                        const sourceFileName = baseFileName.replace(".codex", ".source");
+                                        const sourceUri = vscode.Uri.joinPath(
+                                            workspaceFolderUri,
+                                            ".project",
+                                            "sourceTexts",
+                                            sourceFileName
+                                        );
+
+                                        await vscode.workspace.fs.delete(sourceUri);
+                                        deletedFiles.push(`${message.label}.source`);
+                                    }
+                                } catch (error) {
+                                    console.error("Error deleting source file:", error);
+                                    errors.push(`Failed to delete source file: ${error}`);
+                                }
+                            }
+
+                            // Show appropriate message based on results
+                            if (deletedFiles.length > 0 && errors.length === 0) {
+                                vscode.window.showInformationMessage(
+                                    `Successfully deleted: ${deletedFiles.join(", ")}`
+                                );
+                            } else if (deletedFiles.length > 0 && errors.length > 0) {
+                                vscode.window.showWarningMessage(
+                                    `Partially deleted: ${deletedFiles.join(", ")}. Errors: ${errors.join("; ")}`
+                                );
+                            } else {
+                                vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${errors.join("; ")}`);
+                            }
+
+                            // Refresh the data to update the view
+                            await this.buildInitialData();
+                        }
+                    } catch (error) {
+                        console.error("Error deleting file:", error);
+                        vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${error}`);
+                    }
+                    break;
                 case "getBookNames": {
                     this.loadBibleBookMap();
                     if (this._view) {
@@ -196,207 +278,35 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                     }
                     break;
                 }
-                case "navigateToMainMenu":
-                    try {
-                        await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
-                    } catch (error) {
-                        console.error("Error navigating to main menu:", error);
-                    }
-                    break;
             }
-        });
-
-        // Initial data load
-        if (this.codexItems.length === 0 && this.dictionaryItems.length === 0) {
-            this.loadBibleBookMap();
-            await this.buildInitialData();
-        } else {
-            this.sendItemsToWebview();
         }
-    }
 
-    private async getHtmlForWebview(webviewView: vscode.WebviewView): Promise<string> {
-        const styleResetUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const scriptUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "NavigationView",
-                "index.js"
-            )
-        );
-        const codiconsUri = webviewView.webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
-
-        const nonce = this.getNonce();
-
-        return /* html */ `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none';
-                    img-src ${webviewView.webview.cspSource} https: data:;
-                    style-src ${webviewView.webview.cspSource} 'unsafe-inline';
-                    script-src 'nonce-${nonce}';
-                    font-src ${webviewView.webview.cspSource};">
-                <link href="${styleResetUri}" rel="stylesheet">
-                <link href="${styleVSCodeUri}" rel="stylesheet">
-                <link href="${codiconsUri}" rel="stylesheet">
-                <script nonce="${nonce}">
-                    const vscode = acquireVsCodeApi();
-                </script>
-                <style>
-                    .progress-container {
-                        margin: 6px 0;
-                    }
-                    
-                    .progress-label {
-                        display: flex;
-                        justify-content: space-between;
-                        margin-bottom: 4px;
-                        font-size: 12px;
-                        color: var(--vscode-foreground);
-                        opacity: 0.8;
-                    }
-                    
-                    .progress-bar {
-                        height: 4px;
-                        border-radius: 2px;
-                        background-color: var(--vscode-progressBar-background);
-                        position: relative;
-                        overflow: hidden;
-                        transition: all 0.3s ease;
-                    }
-                    
-                    .progress-fill {
-                        height: 100%;
-                        border-radius: 2px;
-                        background: linear-gradient(90deg, 
-                            var(--vscode-progressBar-background) 0%, 
-                            var(--vscode-charts-green) 100%);
-                        transition: width 0.5s ease-out;
-                    }
-                    
-                    .progress-complete .progress-fill {
-                        background: var(--vscode-charts-green);
-                    }
-                    
-                    .tree-item {
-                        padding: 6px 0;
-                        cursor: pointer;
-                        transition: background-color 0.2s;
-                    }
-                    
-                    .tree-item:hover {
-                        background-color: var(--vscode-list-hoverBackground);
-                    }
-                    
-                    .tree-item-content {
-                        display: flex;
-                        align-items: center;
-                        padding: 0 8px;
-                    }
-                    
-                    .item-icon {
-                        margin-right: 6px;
-                        color: var(--vscode-foreground);
-                        opacity: 0.7;
-                    }
-                    
-                    .folder-icon {
-                        color: var(--vscode-charts-yellow);
-                    }
-                    
-                    .file-icon {
-                        color: var(--vscode-charts-blue);
-                    }
-                    
-                    .dictionary-icon {
-                        color: var(--vscode-charts-purple);
-                    }
-                    
-                    .search-container {
-                        padding: 8px;
-                        position: sticky;
-                        top: 0;
-                        background: var(--vscode-sideBar-background);
-                        z-index: 10;
-                        display: flex;
-                        align-items: center;
-                    }
-                    
-                    .search-input {
-                        flex: 1;
-                        height: 24px;
-                        border-radius: 4px;
-                        background: var(--vscode-input-background);
-                        border: 1px solid var(--vscode-input-border, transparent);
-                        color: var(--vscode-input-foreground);
-                        padding: 0 8px;
-                        outline: none;
-                    }
-                    
-                    .search-input:focus {
-                        border-color: var(--vscode-focusBorder);
-                    }
-                    
-                    .refresh-button {
-                        margin-left: 8px;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        width: 24px;
-                        height: 24px;
-                        border-radius: 4px;
-                        background: transparent;
-                        border: none;
-                        color: var(--vscode-foreground);
-                        cursor: pointer;
-                    }
-                    
-                    .refresh-button:hover {
-                        background: var(--vscode-button-hoverBackground);
-                    }
-                    
-                    .header {
-                        font-size: 13px;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                        padding: 8px;
-                        color: var(--vscode-foreground);
-                        opacity: 0.6;
-                        border-bottom: 1px solid var(--vscode-panel-border);
-                    }
-                    
-                    .complete-check {
-                        margin-left: auto;
-                        color: var(--vscode-charts-green);
-                    }
-                </style>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>
-        `;
+    protected getHtmlForWebview(webviewView: vscode.WebviewView): string {
+        return getWebviewHtml(webviewView.webview, this._context, {
+            scriptPath: this.getScriptPath(),
+            csp: `default-src 'none'; img-src ${webviewView.webview.cspSource} https: data:; style-src ${webviewView.webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; font-src ${webviewView.webview.cspSource};`,
+            inlineStyles: `
+                .progress-container { margin: 6px 0; }
+                .progress-label { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; color: var(--vscode-foreground); opacity: 0.8; }
+                .progress-bar { height: 4px; border-radius: 2px; background-color: var(--vscode-progressBar-background); position: relative; overflow: hidden; transition: all 0.3s ease; }
+                .progress-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--vscode-progressBar-background) 0%, var(--vscode-charts-green) 100%); transition: width 0.5s ease-out; }
+                .progress-complete .progress-fill { background: var(--vscode-charts-green); }
+                .tree-item { padding: 6px 0; cursor: pointer; transition: background-color 0.2s; }
+                .tree-item:hover { background-color: var(--vscode-list-hoverBackground); }
+                .tree-item-content { display: flex; align-items: center; padding: 0 8px; }
+                .item-icon { margin-right: 6px; color: var(--vscode-foreground); opacity: 0.7; }
+                .folder-icon { color: var(--vscode-charts-yellow); }
+                .file-icon { color: var(--vscode-charts-blue); }
+                .dictionary-icon { color: var(--vscode-charts-purple); }
+                .search-container { padding: 8px; position: sticky; top: 0; background: var(--vscode-sideBar-background); z-index: 10; display: flex; align-items: center; }
+                .search-input { flex: 1; height: 24px; border-radius: 4px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); color: var(--vscode-input-foreground); padding: 0 8px; outline: none; }
+                .search-input:focus { border-color: var(--vscode-focusBorder); }
+                .refresh-button { margin-left: 8px; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 4px; background: transparent; border: none; color: var(--vscode-foreground); cursor: pointer; }
+                .refresh-button:hover { background: var(--vscode-button-hoverBackground); }
+                .header { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px; color: var(--vscode-foreground); opacity: 0.6; border-bottom: 1px solid var(--vscode-panel-border); }
+                .complete-check { margin-left: auto; color: var(--vscode-charts-green); }
+            `
+        });
     }
 
     private async buildInitialData(): Promise<void> {
@@ -627,16 +537,9 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
         };
     }
 
-    private getNonce(): string {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
-    }
-
     public dispose(): void {
         this.disposables.forEach((d) => d.dispose());
     }
 }
+
+

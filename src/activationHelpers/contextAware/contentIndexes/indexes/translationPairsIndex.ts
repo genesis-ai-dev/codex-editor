@@ -269,9 +269,9 @@ export function searchTranslationPairs(
     query: string,
     includeIncomplete: boolean = false,
     k: number = 15,
-    options: { completeBoost?: number; targetContentBoost?: number; } = {}
+    options: { completeBoost?: number; targetContentBoost?: number; isParallelPassagesWebview?: boolean; } = {}
 ): TranslationPair[] {
-    const { completeBoost = 1, targetContentBoost = 1, ...searchOptions } = options;
+    const { completeBoost = 1, targetContentBoost = 1, isParallelPassagesWebview = false, ...searchOptions } = options;
 
     const searchResults = translationPairsIndex.search(query, {
         fields: ["sourceContent", "targetContent"],
@@ -283,27 +283,87 @@ export function searchTranslationPairs(
             targetContent: 2 * targetContentBoost,
         },
         filter: includeIncomplete ? undefined : (doc: any) => !!doc.targetContent,
+        isParallelPassagesWebview,
         ...searchOptions
     });
 
-    const results = searchResults.map((result: any) => ({
-        cellId: result.cellId,
-        sourceCell: {
-            cellId: result.cellId,
-            content: result.sourceContent,
-            uri: result.uri,
-            line: result.line,
-            notebookId: result.notebookId || "",
-        },
-        targetCell: {
-            cellId: result.cellId,
-            content: result.targetContent,
-            uri: result.uri,
-            line: result.line,
-            notebookId: result.notebookId || "",
-        },
-        score: result.score * (result.targetContent ? completeBoost : 1),
-    }));
+    const cellMap = new Map<string, { source?: any; target?: any; score: number; }>();
 
-    return results.sort((a, b) => b.score - a.score).slice(0, k);
+    for (const result of searchResults) {
+        const cellId = result.cellId;
+        if (!cellMap.has(cellId)) {
+            cellMap.set(cellId, { score: result.score });
+        }
+
+        const cellData = cellMap.get(cellId)!;
+
+        cellData.score = Math.max(cellData.score, result.score);
+
+        if (result.sourceContent) {
+            cellData.source = result;
+        }
+        if (result.targetContent) {
+            cellData.target = result;
+        }
+    }
+
+    // Convert grouped results to TranslationPair objects
+    const results: (TranslationPair & { score: number; })[] = [];
+
+    for (const [cellId, cellData] of cellMap.entries()) {
+        const sourceResult = cellData.source;
+        const targetResult = cellData.target;
+
+        // Skip if we don't have source content and we're not including incomplete
+        if (!sourceResult && !includeIncomplete) {
+            continue;
+        }
+
+        // Skip if we don't have target content and we're not including incomplete
+        if (!targetResult && !includeIncomplete) {
+            continue;
+        }
+
+        // For search passages webview, prefer raw content if available for proper HTML display
+        const sourceContent = sourceResult ? (
+            isParallelPassagesWebview && sourceResult.rawContent
+                ? sourceResult.rawContent
+                : sourceResult.sourceContent || sourceResult.content
+        ) : "";
+
+        const targetContent = targetResult ? (
+            isParallelPassagesWebview && targetResult.rawTargetContent
+                ? targetResult.rawTargetContent
+                : targetResult.targetContent
+        ) : "";
+
+        const uri = sourceResult?.uri || targetResult?.uri || "";
+        const line = sourceResult?.line || targetResult?.line || 0;
+        const notebookId = sourceResult?.notebookId || targetResult?.notebookId || "";
+
+        results.push({
+            cellId,
+            sourceCell: {
+                cellId,
+                content: sourceContent,
+                uri,
+                line,
+                notebookId,
+            },
+            targetCell: {
+                cellId,
+                content: targetContent,
+                uri,
+                line,
+                notebookId,
+            },
+            score: cellData.score * (targetContent ? completeBoost : 1),
+        });
+    }
+
+    // Sort by score and remove score property before returning
+    return results
+        .sort((a, b) => b.score - a.score)
+        .slice(0, k)
+        .map(({ score, ...pair }) => pair);
 }

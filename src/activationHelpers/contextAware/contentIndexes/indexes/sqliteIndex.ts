@@ -4,11 +4,12 @@ import { createHash } from "crypto";
 import { TranslationPair, MinimalCellResult } from "../../../../../types";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { ActivationTiming } from "../../../../extension";
+import { debounce } from "lodash";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 2;
+const CURRENT_SCHEMA_VERSION = 4;
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -19,6 +20,7 @@ export class SQLiteIndexManager {
     private currentProgressTimer: NodeJS.Timeout | null = null;
     private currentProgressStartTime: number | null = null;
     private currentProgressName: string | null = null;
+    private enableRealtimeProgress: boolean = true;
 
     private trackProgress(step: string, stepStartTime: number): number {
         const stepEndTime = globalThis.performance.now();
@@ -54,19 +56,22 @@ export class SQLiteIndexManager {
         this.progressTimings.push({ step: stepName, duration: 0, startTime });
         updateSplashScreenTimings(this.progressTimings);
 
-        // Start real-time updates every 50ms for more responsive updates
-        this.currentProgressTimer = setInterval(() => {
-            if (this.currentProgressStartTime && this.currentProgressName) {
-                const currentDuration = globalThis.performance.now() - this.currentProgressStartTime;
+        // Start real-time updates only if enabled (to avoid performance issues)
+        if (this.enableRealtimeProgress) {
+            this.currentProgressTimer = setInterval(() => {
+                if (this.currentProgressStartTime && this.currentProgressName) {
+                    const currentDuration = globalThis.performance.now() - this.currentProgressStartTime;
 
-                // Update the last timing entry with current duration
-                const lastIndex = this.progressTimings.length - 1;
-                if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
-                    this.progressTimings[lastIndex].duration = currentDuration;
-                    updateSplashScreenTimings(this.progressTimings);
+                    // Update the last timing entry with current duration
+                    const lastIndex = this.progressTimings.length - 1;
+                    if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
+                        this.progressTimings[lastIndex].duration = currentDuration;
+                        // Only update splash screen every 500ms to avoid performance issues
+                        updateSplashScreenTimings(this.progressTimings);
+                    }
                 }
-            }
-        }, 50) as unknown as NodeJS.Timeout;
+            }, 500) as unknown as NodeJS.Timeout;
+        }
 
         return startTime;
     }
@@ -93,6 +98,22 @@ export class SQLiteIndexManager {
         this.currentProgressStartTime = null;
 
         return globalThis.performance.now();
+    }
+
+    // Method to disable real-time progress updates for better performance
+    public disableRealtimeProgress(): void {
+        this.enableRealtimeProgress = false;
+        if (this.currentProgressTimer) {
+            clearInterval(this.currentProgressTimer);
+            this.currentProgressTimer = null;
+        }
+    }
+
+    // Public method to add progress entries from external functions
+    public addProgressEntry(step: string, duration: number, startTime: number): void {
+        this.progressTimings.push({ step, duration, startTime });
+        updateSplashScreenTimings(this.progressTimings);
+        console.log(`[Index] ${step}: ${duration.toFixed(2)}ms`);
     }
 
     async initialize(context: vscode.ExtensionContext): Promise<void> {
@@ -146,7 +167,31 @@ export class SQLiteIndexManager {
 
             // Ensure schema is up to date
             await this.ensureSchema();
-        } catch {
+        } catch (error) {
+            stepStart = this.trackProgress("Handle database error", stepStart);
+
+            // Check if this is a corruption error
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isCorruption = errorMessage.includes("database disk image is malformed") ||
+                errorMessage.includes("file is not a database") ||
+                errorMessage.includes("database is locked") ||
+                errorMessage.includes("database corruption");
+
+            if (isCorruption) {
+                console.warn(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
+                console.warn("[SQLiteIndex] Deleting corrupt database and creating new one");
+
+                // Delete the corrupted database file
+                try {
+                    await vscode.workspace.fs.delete(dbPath);
+                    stepStart = this.trackProgress("Delete corrupted database", stepStart);
+                } catch (deleteError) {
+                    console.warn("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
+                }
+            } else {
+                console.log("[SQLiteIndex] Database file not found or other error, creating new database");
+            }
+
             stepStart = this.trackProgress("Create new database", stepStart);
             console.log("Creating new index database");
             this.db = new this.sql!.Database();
@@ -320,32 +365,89 @@ export class SQLiteIndexManager {
         const ensureStart = globalThis.performance.now();
         let stepStart = ensureStart;
 
-        // Check current schema version
-        stepStart = this.trackProgress("Check database schema version", stepStart);
-        const currentVersion = this.getSchemaVersion();
-        console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
+        try {
+            // Check current schema version
+            stepStart = this.trackProgress("Check database schema version", stepStart);
+            const currentVersion = this.getSchemaVersion();
+            console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
 
-        if (currentVersion === 0) {
-            // New database - create with latest schema
-            stepStart = this.trackProgress("Initialize new database schema", stepStart);
-            console.log("[SQLiteIndex] Setting up new database with latest schema");
-            await this.createSchema();
-            this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-            this.trackProgress("New database schema initialized", stepStart);
-            console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
-        } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
-            // Old database - recreate instead of migrating to ensure clean schema
-            stepStart = this.trackProgress("Recreate outdated database", stepStart);
-            console.log(`[SQLiteIndex] Old schema detected (version ${currentVersion}). Recreating database for clean slate.`);
-            await this.recreateDatabase();
-            this.trackProgress("Database recreation complete", stepStart);
-            console.log(`[SQLiteIndex] Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
-        } else {
-            stepStart = this.trackProgress("Verify database schema", stepStart);
-            console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
+            if (currentVersion === 0) {
+                // New database - create with latest schema
+                stepStart = this.trackProgress("Initialize new database schema", stepStart);
+                console.log("[SQLiteIndex] Setting up new database with latest schema");
+                await this.createSchema();
+                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                this.trackProgress("New database schema initialized", stepStart);
+                console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
+            } else if (currentVersion > CURRENT_SCHEMA_VERSION) {
+                // Database schema is ahead of code - recreate to avoid compatibility issues
+                stepStart = this.trackProgress("Handle future schema version", stepStart);
+                console.warn(`[SQLiteIndex] Database schema version ${currentVersion} is ahead of code version ${CURRENT_SCHEMA_VERSION}`);
+                console.warn("[SQLiteIndex] Recreating database to ensure compatibility");
+
+                await this.recreateDatabase();
+                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+                this.trackProgress("Future schema compatibility resolved", stepStart);
+                console.log(`[SQLiteIndex] Database recreated with compatible schema version ${CURRENT_SCHEMA_VERSION}`);
+            } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
+                // Handle migrations based on version
+                stepStart = this.trackProgress("Migrate database schema", stepStart);
+                console.log(`[SQLiteIndex] Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
+
+                if (currentVersion < 3) {
+                    // Migration for content sanitization (version 2 -> 3)
+                    // Note: We now delete the database and reindex instead of migrating
+                    console.log("[SQLiteIndex] Schema version 3 requires clean reindex - database will be recreated");
+                    await this.recreateDatabase();
+                } else if (currentVersion < 4) {
+                    // Migration for improved content sanitization (version 3 -> 4)
+                    // This version ensures HTML tags are properly sanitized from content column
+                    console.log("[SQLiteIndex] Schema version 4 requires clean reindex for content sanitization - database will be recreated");
+
+                    // Show user notification about the one-time migration
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage("Codex: Upgrading search index to new clean format. This is a one-time operation...");
+
+                    await this.recreateDatabase();
+                }
+
+                // Update schema version after successful migration
+                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+                this.trackProgress("Database migration complete", stepStart);
+                console.log(`[SQLiteIndex] Database migrated to schema version ${CURRENT_SCHEMA_VERSION}`);
+            } else {
+                stepStart = this.trackProgress("Verify database schema", stepStart);
+                console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
+
+                // Schema is current - no additional checks needed
+            }
+
+            this.trackProgress("Database Schema Setup Complete", ensureStart);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isCorruption = errorMessage.includes("database disk image is malformed") ||
+                errorMessage.includes("file is not a database") ||
+                errorMessage.includes("database is locked") ||
+                errorMessage.includes("database corruption");
+
+            if (isCorruption) {
+                console.error(`[SQLiteIndex] Database corruption detected during schema operations: ${errorMessage}`);
+                console.warn("[SQLiteIndex] Recreating corrupted database");
+                stepStart = this.trackProgress("Recreate corrupted database", stepStart);
+
+                // Force recreate the database
+                this.db = new this.sql!.Database();
+                await this.createSchema();
+                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
+
+                this.trackProgress("Database corruption recovery complete", stepStart);
+                console.log("[SQLiteIndex] Successfully recreated database after corruption");
+            } else {
+                // Re-throw non-corruption errors
+                throw error;
+            }
         }
-
-        this.trackProgress("Database Schema Setup Complete", ensureStart);
     }
 
     private async recreateDatabase(): Promise<void> {
@@ -385,6 +487,10 @@ export class SQLiteIndexManager {
 
         console.log("[SQLiteIndex] Creating fresh schema...");
         await this.createSchema();
+
+        // Yield control after schema creation
+        await new Promise(resolve => setImmediate(resolve));
+
         this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
     }
 
@@ -439,7 +545,7 @@ export class SQLiteIndexManager {
         }
     }
 
-    private setSchemaVersion(version: number): void {
+    setSchemaVersion(version: number): void {
         if (!this.db) return;
 
         // Create schema_info table if it doesn't exist
@@ -501,8 +607,12 @@ export class SQLiteIndexManager {
 
         // Use rawContent if provided, otherwise fall back to content
         const actualRawContent = rawContent || content;
-        const contentHash = this.computeContentHash(content + (rawContent || ""));
-        const wordCount = content.split(/\s+/).filter((w) => w.length > 0).length;
+
+        // Sanitize content for storage - remove HTML tags for clean searching/indexing
+        const sanitizedContent = this.sanitizeContent(content);
+
+        const contentHash = this.computeContentHash(sanitizedContent + (rawContent || ""));
+        const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
         const checkStmt = this.db.prepare(`
@@ -527,7 +637,7 @@ export class SQLiteIndexManager {
             return { id: existingCell.id, isNew: false, contentChanged: false };
         }
 
-        // Upsert the cell
+        // Upsert the cell - store sanitized content in content column, original in raw_content
         const upsertStmt = this.db.prepare(`
             INSERT INTO cells (cell_id, file_id, cell_type, content, content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -547,12 +657,12 @@ export class SQLiteIndexManager {
                 cellId,
                 fileId,
                 cellType,
-                content,
+                sanitizedContent, // Store sanitized content in content column
                 contentHash,
                 lineNumber || null,
                 wordCount,
                 metadata ? JSON.stringify(metadata) : null,
-                actualRawContent,
+                actualRawContent, // Store original/raw content in raw_content column
             ]);
             upsertStmt.step();
             const result = upsertStmt.getAsObject();
@@ -677,13 +787,20 @@ export class SQLiteIndexManager {
     async removeAll(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        this.db.run("DELETE FROM translation_pairs");
-        this.db.run("DELETE FROM words");
-        this.db.run("DELETE FROM cells");
-        this.db.run("DELETE FROM files");
-        this.db.run("DELETE FROM cells_fts");
+        // Use a transaction for better performance and make it non-blocking
+        await this.runInTransaction(() => {
+            // Delete in reverse dependency order to avoid foreign key issues
+            this.db!.run("DELETE FROM cells_fts");
+            this.db!.run("DELETE FROM translation_pairs");
+            this.db!.run("DELETE FROM words");
+            this.db!.run("DELETE FROM cells");
+            this.db!.run("DELETE FROM files");
+        });
 
-        this.debouncedSave();
+        // Use setImmediate to make the save operation non-blocking
+        setImmediate(() => {
+            this.debouncedSave();
+        });
     }
 
     // Get document count
@@ -710,7 +827,7 @@ export class SQLiteIndexManager {
      * @param options.limit - Maximum results to return (default: 50)
      * @param options.fuzzy - Fuzzy matching threshold (default: 0.2)
      * @param options.returnRawContent - If true, return raw content with HTML; if false, return sanitized content (default: false)
-     * @param options.isParallelPassagesWebview - If true, this search is for the parallel passages webview display (default: false)
+     * @param options.isParallelPassagesWebview - If true, this search is for the search passages webview display (default: false)
      * @returns Array of search results with raw or sanitized content based on options
      */
     search(query: string, options?: any): any[] {
@@ -721,7 +838,7 @@ export class SQLiteIndexManager {
         const boost = options?.boost || {};
 
         // Determine content type based on caller
-        // Parallel passages webview needs raw content for proper HTML display
+        // Pearch passages webview needs raw content for proper HTML display
         // Everything else (LLM, etc.) should get sanitized content
         const returnRawContent = options?.returnRawContent || options?.isParallelPassagesWebview || false;
 
@@ -778,7 +895,7 @@ export class SQLiteIndexManager {
                 f.file_path as uri,
                 bm25(cells_fts) as score
             FROM cells_fts
-            JOIN cells c ON cells_fts.rowid = c.id
+            JOIN cells c ON cells_fts.cell_id = c.cell_id
             JOIN files f ON c.file_id = f.id
             WHERE cells_fts MATCH ?
             ORDER BY score DESC
@@ -1070,7 +1187,7 @@ export class SQLiteIndexManager {
                 f.file_path, f.file_type,
                 bm25(cells_fts) as rank
             FROM cells_fts
-            JOIN cells c ON cells_fts.rowid = c.id
+            JOIN cells c ON cells_fts.cell_id = c.cell_id
             JOIN files f ON c.file_id = f.id
             WHERE cells_fts MATCH ?
         `;
@@ -1289,14 +1406,122 @@ export class SQLiteIndexManager {
         return { version, tables, cellsColumns, ftsColumns };
     }
 
-    private debouncedSave(): void {
+    private debouncedSave = debounce(async () => {
+        try {
+            await this.saveDatabase();
+        } catch (error) {
+            console.error("Error in debounced save:", error);
+        }
+    }, this.SAVE_DEBOUNCE_MS);
+
+    // Force immediate save for critical updates (like during queued translations)
+    async forceSave(): Promise<void> {
         if (this.saveDebounceTimer) {
             clearTimeout(this.saveDebounceTimer);
+            this.saveDebounceTimer = null;
         }
 
-        this.saveDebounceTimer = setTimeout(() => {
-            this.saveDatabase().catch(console.error);
-        }, this.SAVE_DEBOUNCE_MS) as unknown as NodeJS.Timeout;
+        try {
+            await this.saveDatabase();
+        } catch (error) {
+            console.error("Error in force save:", error);
+            throw error;
+        }
+    }
+
+    // Force FTS index to rebuild/refresh for immediate search visibility
+    async refreshFTSIndex(): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        try {
+            // Force FTS5 to rebuild its index
+            this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('rebuild')");
+        } catch (error) {
+            // If rebuild fails, try optimize instead
+            try {
+                this.db.run("INSERT INTO cells_fts(cells_fts) VALUES('optimize')");
+            } catch (optimizeError) {
+                // If both fail, silently continue - the triggers should handle synchronization
+            }
+        }
+    }
+
+    // Ensure all pending writes are committed and visible for search
+    async flushPendingWrites(): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Execute a dummy query to ensure any autocommit transactions are flushed
+        try {
+            this.db.run("BEGIN IMMEDIATE; COMMIT;");
+        } catch (error) {
+            // Database might already be in a transaction, that's fine
+        }
+    }
+
+    // Immediate cell update with FTS synchronization
+    async upsertCellWithFTSSync(
+        cellId: string,
+        fileId: number,
+        cellType: "source" | "target",
+        content: string,
+        lineNumber?: number,
+        metadata?: any,
+        rawContent?: string
+    ): Promise<{ id: number; isNew: boolean; contentChanged: boolean; }> {
+        const result = await this.upsertCell(cellId, fileId, cellType, content, lineNumber, metadata, rawContent);
+
+        // Force FTS synchronization for immediate search visibility
+        if (result.contentChanged) {
+            try {
+                // Manually sync this specific cell to FTS if triggers didn't work
+                const actualRawContent = rawContent || content;
+                this.db!.run(`
+                    INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    VALUES (?, ?, ?, ?)
+                `, [cellId, content, actualRawContent, cellType]);
+            } catch (error) {
+                // Trigger should have handled it, continue silently
+            }
+        }
+
+        return result;
+    }
+
+    // Debug method to check if a cell is in the FTS index
+    async isCellInFTSIndex(cellId: string): Promise<boolean> {
+        if (!this.db) return false;
+
+        const stmt = this.db.prepare("SELECT cell_id FROM cells_fts WHERE cell_id = ? LIMIT 1");
+        try {
+            stmt.bind([cellId]);
+            return stmt.step();
+        } finally {
+            stmt.free();
+        }
+    }
+
+    // Debug method to get FTS index count vs regular table count
+    async getFTSDebugInfo(): Promise<{ cellsCount: number; ftsCount: number; }> {
+        if (!this.db) return { cellsCount: 0, ftsCount: 0 };
+
+        const cellsStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells");
+        const ftsStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells_fts");
+
+        let cellsCount = 0;
+        let ftsCount = 0;
+
+        try {
+            cellsStmt.step();
+            cellsCount = cellsStmt.getAsObject().count as number;
+
+            ftsStmt.step();
+            ftsCount = ftsStmt.getAsObject().count as number;
+        } finally {
+            cellsStmt.free();
+            ftsStmt.free();
+        }
+
+        return { cellsCount, ftsCount };
     }
 
     async saveDatabase(): Promise<void> {
@@ -1320,7 +1545,7 @@ export class SQLiteIndexManager {
     }
 
     async close(): Promise<void> {
-        // Clean up real-time progress timer
+        // Clean up all timers to prevent memory leaks
         if (this.currentProgressTimer) {
             clearInterval(this.currentProgressTimer);
             this.currentProgressTimer = null;
@@ -1328,12 +1553,29 @@ export class SQLiteIndexManager {
 
         if (this.saveDebounceTimer) {
             clearTimeout(this.saveDebounceTimer);
-            await this.saveDatabase();
+            this.saveDebounceTimer = null;
         }
 
+        // Reset progress tracking state to prevent memory leaks
+        this.currentProgressName = null;
+        this.currentProgressStartTime = null;
+        this.progressTimings = [];
+
+        // Save and close database
         if (this.db) {
-            this.db.close();
-            this.db = null;
+            try {
+                await this.saveDatabase();
+                this.db.close();
+                this.db = null;
+                console.log("[SQLiteIndex] Database connection closed and resources cleaned up");
+            } catch (error) {
+                console.error("[SQLiteIndex] Error during database close:", error);
+                // Still close the database even if save fails
+                if (this.db) {
+                    this.db.close();
+                    this.db = null;
+                }
+            }
         }
     }
 
@@ -1349,6 +1591,71 @@ export class SQLiteIndexManager {
         } catch (error) {
             this.db.run("ROLLBACK");
             throw error;
+        }
+    }
+
+    // Helper function to sanitize HTML content (same as in codexDocument.ts)
+    private sanitizeContent(htmlContent: string): string {
+        if (!htmlContent) return '';
+
+        // Remove HTML tags but preserve the text content
+        return htmlContent
+            .replace(/<[^>]*>/g, '') // Remove HTML tags
+            .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
+            .replace(/&amp;/g, '&')  // Replace HTML entities
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .trim(); // Remove leading/trailing whitespace
+    }
+
+
+
+    // Delete the database file from disk
+    private async deleteDatabaseFile(): Promise<void> {
+        try {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+
+            const dbPath = vscode.Uri.joinPath(workspaceFolder.uri, ...INDEX_DB_PATH);
+
+            try {
+                await vscode.workspace.fs.delete(dbPath);
+                console.log("[SQLiteIndex] Database file deleted successfully");
+            } catch (deleteError) {
+                console.warn("[SQLiteIndex] Could not delete database file:", deleteError);
+                // Don't throw here - we want to continue with reindex even if file deletion fails
+            }
+        } catch (error) {
+            console.error("[SQLiteIndex] Error deleting database file:", error);
+        }
+    }
+
+    // Manual command to delete database and trigger reindex
+    async deleteDatabaseAndTriggerReindex(): Promise<void> {
+        console.log("[SQLiteIndex] Manual database deletion requested...");
+
+        // Show user confirmation
+        const vscode = await import('vscode');
+        const confirm = await vscode.window.showWarningMessage(
+            "This will delete the search index database and trigger a complete reindex. This may take several minutes. Continue?",
+            { modal: true },
+            "Yes, Delete and Reindex"
+        );
+
+        if (confirm === "Yes, Delete and Reindex") {
+            vscode.window.showInformationMessage("Codex: Deleting database and starting reindex...");
+
+            // Close current database connection
+            await this.close();
+
+            // Delete the database file
+            await this.deleteDatabaseFile();
+
+            vscode.window.showInformationMessage("Codex: Database deleted. Please reload the extension to trigger reindex.");
         }
     }
 }

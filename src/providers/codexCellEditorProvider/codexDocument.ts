@@ -15,6 +15,9 @@ import {
 import { CodexCellTypes, EditType } from "../../../types/enums";
 import { getAuthApi } from "@/extension";
 import { randomUUID } from "crypto";
+import { CodexContentSerializer } from "../../serializer";
+import { debounce } from "lodash";
+import { getSQLiteIndexManager } from "../../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 
 // Define debug function locally
 const DEBUG_MODE = false;
@@ -41,11 +44,15 @@ function isValidationEntry(value: any): value is ValidationEntry {
 export class CodexCellDocument implements vscode.CustomDocument {
     uri: vscode.Uri;
     private _documentData: CodexNotebookAsJSONData;
-    public _sourceCellMap: { [k: string]: { content: string; versions: string[] } } = {};
+    public _sourceCellMap: { [k: string]: { content: string; versions: string[]; }; } = {};
     private _edits: Array<any>;
     private _isDirty: boolean = false;
-    private _cachedUserInfo: { username: string; email?: string } | null = null;
+    private _cachedUserInfo: { username: string; email?: string; } | null = null;
     private _author: string = "anonymous";
+
+    // Cache for immediate indexing optimization
+    private _cachedFileId: number | null = null;
+    private _indexManager = getSQLiteIndexManager();
 
     private _onDidDispose = new vscode.EventEmitter<void>();
     public readonly onDidDispose = this._onDidDispose.event;
@@ -279,7 +286,73 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: [{ cellId, newContent, editType }],
         });
+
+        // IMMEDIATE INDEXING: Add the cell to the database immediately after translation
+        if (editType === EditType.LLM_GENERATION || editType === EditType.USER_EDIT) {
+            this.addCellToIndexImmediately(cellId, newContent, editType);
+        }
     }
+
+    // Helper function to sanitize HTML content
+    private sanitizeContent(htmlContent: string): string {
+        // Remove HTML tags but preserve the text content
+        return htmlContent
+            .replace(/<[^>]*>/g, '') // Remove HTML tags
+            .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
+            .replace(/&amp;/g, '&')  // Replace HTML entities
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .trim(); // Remove leading/trailing whitespace
+    }
+
+    // Optimized immediate indexing - fire and forget, no bottlenecks
+    private addCellToIndexImmediately(
+        cellId: string,
+        content: string,
+        editType: EditType
+    ): void {
+        // Fire and forget - don't await, don't block the translation flow
+        setImmediate(async () => {
+            try {
+                // Refresh index manager reference if it's not available
+                if (!this._indexManager) {
+                    this._indexManager = getSQLiteIndexManager();
+                    if (!this._indexManager) return;
+                }
+
+                // Use cached file ID or get it once
+                let fileId = this._cachedFileId;
+                if (!fileId) {
+                    fileId = await this._indexManager.upsertFile(
+                        this.uri.toString(),
+                        "codex",
+                        Date.now()
+                    );
+                    this._cachedFileId = fileId;
+                }
+
+                // Sanitize content for search while preserving raw content with HTML
+                const sanitizedContent = this.sanitizeContent(content);
+
+                // Add cell to index immediately - triggers will handle FTS sync
+                await this._indexManager.upsertCell(
+                    cellId,
+                    fileId,
+                    "target",
+                    sanitizedContent,  // Sanitized content for search
+                    undefined,
+                    { editType, lastUpdated: Date.now() },
+                    content           // Raw content with HTML tags
+                );
+            } catch (error) {
+                // Silent failure - don't log, don't throw
+                // The background reindexing will catch any missed cells
+            }
+        });
+    }
+
     public replaceDuplicateCells(content: QuillCellContent) {
         let indexOfCellToDelete = this._documentData.cells.findIndex((cell) => {
             return cell.metadata?.id === content.cellMarkers[0];
@@ -977,7 +1050,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param attachmentId The unique ID of the attachment
      * @param attachmentData The attachment data (url and type)
      */
-    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string }): void {
+    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string; }): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );

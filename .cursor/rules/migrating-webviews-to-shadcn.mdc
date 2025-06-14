@@ -1,0 +1,30 @@
+---
+description: Adding ShadCN components into VS Code webviews (or removing webview-ui-toolkit dependencies)
+globs: 
+alwaysApply: false
+---
+## Migration Rule: VSCode Components to ShadCN
+
+When migrating from VSCode webview components to ShadCN components:
+
+### Button Migration
+- `VSCodeButton` → `Button` from `../components/ui/button`
+- **Appearance mapping:**
+  - `appearance="icon"` → `variant="outline"`
+  - `appearance="secondary"` → `variant="secondary"`
+  - `appearance="primary"` or no appearance → `variant="default"`
+- **Import path:** Use relative paths like `../components/ui/button` (not aliases)
+- **Remove unsupported props:** VSCode-specific props like `appearance` don't exist in ShadCN
+- **Preserve functionality:** Keep all event handlers, styles, and other standard HTML button props
+
+### Other Components
+- `VSCodeBadge` → `Badge` from `../components/ui/badge`
+- `VSCodeCard` → `Card, CardContent, CardHeader` etc. from `../components/ui/card`
+- Always check ShadCN component API for available variants and props
+- Use `cn()` utility from `../lib/utils` for conditional className merging when needed
+
+### General Rules
+- **No import aliases** - use direct relative paths
+- **Check variants** - ShadCN uses `variant` prop instead of `appearance`
+- **Preserve accessibility** - keep aria-labels, titles, etc.
+- **Test thoroughly** - ShadCN styling may differ from VSCode components

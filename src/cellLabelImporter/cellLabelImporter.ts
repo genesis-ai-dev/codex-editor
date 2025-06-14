@@ -11,6 +11,7 @@ import { importLabelsFromVscodeUri } from "./fileHandler";
 import { matchCellLabels } from "./matcher";
 import { copyToTempStorage, getColumnHeaders } from "./utils";
 import { updateCellLabels } from "./updater";
+import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
 
 // Interface for the cell label data
 interface CellLabelData {
@@ -48,16 +49,6 @@ interface CellMetadata {
         author?: string;
     }>;
     cellLabel?: string;
-}
-
-// Helper function to generate nonce (from navigationWebviewProvider)
-function getNonce(): string {
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
 }
 
 async function getHtmlForCellLabelImporterView(
@@ -101,9 +92,7 @@ async function getHtmlForCellLabelImporterView(
     const styleResetUri = webview.asWebviewUri(
         vscode.Uri.joinPath(context.extensionUri, "src", "assets", "reset.css")
     );
-    const styleVSCodeUri = webview.asWebviewUri(
-        vscode.Uri.joinPath(context.extensionUri, "src", "assets", "vscode.css")
-    );
+    // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
     const codiconsUri = webview.asWebviewUri(
         vscode.Uri.joinPath(
             context.extensionUri,
@@ -126,7 +115,6 @@ async function getHtmlForCellLabelImporterView(
                 script-src 'nonce-${nonce}';
                 font-src ${webview.cspSource};">
             <link href="${styleResetUri}" rel="stylesheet">
-            <link href="${styleVSCodeUri}" rel="stylesheet">
             <link href="${codiconsUri}" rel="stylesheet">
             
             <script nonce="${nonce}">

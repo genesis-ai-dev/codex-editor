@@ -94,7 +94,7 @@ export class SmartBacktranslation {
     private async findSimilarEntries(originalText: string): Promise<TranslationPair[]> {
         try {
             const results = await vscode.commands.executeCommand<TranslationPair[]>(
-                "translators-copilot.searchParallelCells",
+                "codex-editor-extension.searchParallelCells",
                 originalText
             );
             return results || [];

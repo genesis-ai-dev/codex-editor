@@ -1,7 +1,7 @@
 {
     "name": "codex-editor-extension",
     "displayName": "Codex Translation Editor",
-    "description": "Support for `.codex` notebooks and translation source files. Includes Translator's Copilot Language Server for translation drafting and checking diagnostics and features.",
+    "description": "Support for `.codex` notebooks and translation source files. Includes Codex Language Server for translation drafting and checking diagnostics and features.",
     "publisher": "project-accelerate",
     "homepage": "https://codex-editor.gitbook.io/",
     "repository": {
@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -27,13 +27,7 @@
         "readFile"
     ],
     "contributes": {
-        "keybindings": [
-            {
-                "command": "extension.triggerInlineCompletion",
-                "key": "alt+z",
-                "when": "editorTextFocus && !inputDisabled"
-            }
-        ],
+        "keybindings": [],
         "views": {
             "codex-main-menu": [
                 {
@@ -44,13 +38,13 @@
                     "contextualTitle": "Codex Main Menu"
                 }
             ],
-            "parallel-passages-view": [
+            "search-passages-view": [
                 {
                     "type": "webview",
-                    "id": "parallel-passages-sidebar",
-                    "name": "Parallel Passages",
+                    "id": "search-passages-sidebar",
+                    "name": "Search Passages",
                     "icon": "$(eye)",
-                    "contextualTitle": "Parallel Passages"
+                    "contextualTitle": "Search Passages"
                 }
             ],
             "codex-files-view": [
@@ -91,15 +85,6 @@
                     "id": "codex-editor.editAnalysis",
                     "name": "AI Metrics"
                 }
-            ],
-            "genesis-translator-sidebar-view": [
-                {
-                    "type": "webview",
-                    "id": "genesis-translator-sidebar",
-                    "name": "Genesis Translator",
-                    "icon": "$(comment-discussion)",
-                    "contextualTitle": "Genesis Translator"
-                }
             ]
         },
         "viewsContainers": {
@@ -120,19 +105,9 @@
                     "icon": "$(tools)"
                 },
                 {
-                    "id": "parallel-passages-view",
-                    "title": "Parallel Passages",
+                    "id": "search-passages-view",
+                    "title": "Search Passages",
                     "icon": "$(eye)"
-                },
-                {
-                    "id": "semantic-view",
-                    "title": "Semantic View",
-                    "icon": "$(unfold)"
-                },
-                {
-                    "id": "genesis-translator-sidebar-view",
-                    "title": "Translator's Copilot",
-                    "icon": "$(comment-discussion)"
                 },
                 {
                     "id": "comments-sidebar-view",
@@ -162,290 +137,13 @@
                     "group": "navigation"
                 }
             ],
-            "editor/context": [
-                {
-                    "command": "codex-editor-extension.triggerInlineCompletion",
-                    "title": "Autocomplete",
-                    "group": "translators-copilot",
-                    "icon": "$(sparkle)",
-                    "when": "editorTextFocus && editorLangId == scripture"
-                }
-            ],
             "commandPalette": [
                 {
-                    "command": "codex-editor-extension.triggerInlineCompletion",
-                    "title": "Translators Copilot: Autocomplete",
-                    "when": "editorTextFocus && editorLangId == scripture"
-                },
-                {
-                    "command": "translators-copilot.getFileStats",
-                    "title": "Translators Copilot: Show File Statistics"
-                },
-                {
-                    "command": "translators-copilot.getFileInfo",
-                    "title": "Translators Copilot: Show Detailed File Information"
-                },
-                {
-                    "command": "translators-copilot.showFileStatsView",
-                    "title": "Translators Copilot: Show Translation Progress View"
+                    "command": "codex-editor-extension.getFileStats",
+                    "title": "Codex Extension: Show File Statistics"
                 }
             ]
         },
-        "walkthroughs": [
-            {
-                "id": "setupLocalLLM",
-                "title": "Set up Local/Offline Translator's Copilot",
-                "description": "A simple walkthrough to help you set up a large language model on your device to benefit from the Copilot feature.",
-                "steps": [
-                    {
-                        "id": "downloadLMStudio",
-                        "title": "Download LM Studio",
-                        "description": "Download LM Studio to get a local LLM running to power your Translator's Copilot.\n\n[Download LM Studio](https://lmstudio.ai)",
-                        "media": {
-                            "image": "./src/media/lmstudio.gif",
-                            "altText": "LM Studio"
-                        }
-                    },
-                    {
-                        "id": "downloadModel",
-                        "title": "Download Model",
-                        "media": {
-                            "image": "./src/media/download-model.png",
-                            "altText": "Download Model"
-                        },
-                        "description": "Download the model you want to use for your Copilot. Not sure which one to try? Try searching LM Studio for `TheBloke/neural-chat-7B-v3-1-GGUF` (note the specific file you want is the `neural-chat-7b-v3-1.Q4_K_S.gguf` variant)."
-                    },
-                    {
-                        "id": "loadModel",
-                        "title": "Initialize Downloaded Model",
-                        "media": {
-                            "image": "./src/media/load-model.png",
-                            "altText": "Load Model"
-                        },
-                        "description": "Load the model you want to use for your Copilot. Click on the model dropdown at the top-center of the LM Studio screen, then select the model you downloaded (e.g., `neural-chat-7b-v3-1.Q4_K_S.gguf`)."
-                    },
-                    {
-                        "id": "startLocalServer",
-                        "title": "Start AI Model",
-                        "media": {
-                            "image": "./src/media/start-server.png",
-                            "altText": "Start AI Model"
-                        },
-                        "description": "Make the AI model you downloaded accessible by the Translator's Copilot by clicking on the green play 'Start Server' button in LM Studio."
-                    },
-                    {
-                        "id": "setMainChatLanguage",
-                        "title": "Set Main Chat Language",
-                        "media": {
-                            "image": "./src/media/set-main-chat-language.png",
-                            "altText": "Set Main Chat Language"
-                        },
-                        "description": "Set your main chat language (also accessible in the Translator's Copilot settings).\n\n[Set Chat Language](command:translators-copilot.setMainChatLanguage)"
-                    },
-                    {
-                        "id": "tryChatting",
-                        "title": "Try Chatting with the Translator's Copilot",
-                        "media": {
-                            "image": "./src/media/try-chatting.png",
-                            "altText": "Try Chatting"
-                        },
-                        "description": "Try chatting with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
-                    },
-                    {
-                        "id": "tryInlineCompletions",
-                        "title": "Try Inline Completions",
-                        "media": {
-                            "image": "./src/media/inline-completions.gif",
-                            "altText": "Try Inline Completions"
-                        },
-                        "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
-                    }
-                ]
-            },
-            {
-                "id": "setupOpenAILLM",
-                "title": "Set up OpenAI Translator's Copilot",
-                "description": "A simple walkthrough to help you set up a large language model on your device to benefit from the Copilot feature.",
-                "steps": [
-                    {
-                        "id": "getAPIKey",
-                        "title": "Get OpenAI API Key",
-                        "description": "Get your OpenAI API key from the OpenAI website.\n\n[Get OpenAI API Key](https://platform.openai.com/signup)",
-                        "media": {
-                            "image": "./src/media/openai-api-key.png",
-                            "altText": "OpenAI API Key"
-                        }
-                    },
-                    {
-                        "id": "setAPIKey",
-                        "title": "Set OpenAI API Key",
-                        "media": {
-                            "image": "./src/media/set-api-key.png",
-                            "altText": "Set API Key"
-                        },
-                        "description": "Set your OpenAI API key in the Translator's Copilot settings.\n\n[Set API Key](command:translators-copilot.setLLMApiKey)"
-                    },
-                    {
-                        "id": "setMainChatLanguage",
-                        "title": "Set Main Chat Language",
-                        "media": {
-                            "image": "./src/media/set-main-chat-language.png",
-                            "altText": "Set Main Chat Language"
-                        },
-                        "description": "Set your main chat language (also accessible in the Translator's Copilot settings).\n\n[Set Chat Language](command:translators-copilot.setMainChatLanguage)"
-                    },
-                    {
-                        "id": "tryChatting",
-                        "title": "Try Chatting with the Translator's Copilot",
-                        "media": {
-                            "image": "./src/media/try-chatting.png",
-                            "altText": "Try Chatting"
-                        },
-                        "description": "Try chatting with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
-                    },
-                    {
-                        "id": "tryInlineCompletions",
-                        "title": "Try Inline Completions",
-                        "media": {
-                            "image": "./src/media/inline-completions.gif",
-                            "altText": "Try Inline Completions"
-                        },
-                        "description": "Try inline completions with the Translator's Copilot by clicking on the chat button in the sidebar, then clicking on the 'Chat' button in the top-right of the chat window."
-                    }
-                ]
-            },
-            {
-                "id": "codexWalkthrough",
-                "title": "Start a Codex Project",
-                "description": "A simple walkthrough to help you start a new Codex translation project.",
-                "steps": [
-                    {
-                        "id": "openFolder",
-                        "title": "Open Project Folder",
-                        "description": "First, let's open a folder where your new Codex project will be initialized.\n[Open Project Folder](command:workbench.action.files.openFolder)",
-                        "media": {
-                            "image": "./src/media/folder-active.png",
-                            "altText": "Open Project Folder"
-                        },
-                        "completionEvents": [
-                            "onSettingChanged:workbenchState"
-                        ],
-                        "when": "workbenchState == empty"
-                    },
-                    {
-                        "id": "projectName",
-                        "title": "Name Project",
-                        "description": "Now that we have a folder, let's name your new Codex project.\n[Name Project](command:codex-project-manager.nameProject)",
-                        "media": {
-                            "image": "./src/media/name-project.png",
-                            "altText": "Name Project"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.renameProject"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "selectSourceLanguage",
-                        "title": "Select Source Language",
-                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select Source Language](command:codex-project-manager.changeSourceLanguage)\n",
-                        "media": {
-                            "image": "./src/media/source-and-target.png",
-                            "altText": "Select Source Language"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.changeSourceLanguage"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "selectTargetLanguage",
-                        "title": "Select Target Language",
-                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Select target Language](command:codex-project-manager.changeTargetLanguage)\n",
-                        "media": {
-                            "image": "./src/media/source-and-target.png",
-                            "altText": "Select Source Language"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.changeTargetLanguage"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "setAbbreviation",
-                        "title": "Set Project Abbreviation",
-                        "description": "Let's set an abbreviation for your Codex project.\n[Set Abbreviation](command:codex-project-manager.editAbbreviation)",
-                        "media": {
-                            "image": "./src/media/set-abbreviation.png",
-                            "altText": "Set Project Abbreviation"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.editAbbreviation"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "setValidationCount",
-                        "title": "Set Validation Count",
-                        "description": "Now, let's set the number of validations required for each translation.\n[Set Validation Count](command:codex-project-manager.setValidationCount)",
-                        "media": {
-                            "image": "./src/media/select-category.png",
-                            "altText": "Set Validation Count"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.setValidationCount"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "addSourceText",
-                        "title": "Add Source Text",
-                        "description": "Now that we have a folder, let's add a source Text to your Codex project.\n[Download Source Text](command:codex-project-manager.downloadSourceText)\n or \n [Import Local USFM Text](command:codex-project-manager.importLocalUsfmSourceText)",
-                        "media": {
-                            "image": "./src/media/add-source-text.png",
-                            "altText": "Add Source Text"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.downloadSourceText",
-                            "onCommand:codex-project-manager.importLocalUsfmSourceBible"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "initializeProject",
-                        "title": "Create files",
-                        "description": "Now that we have a folder, let's initialize your new Codex project.\n[Create New Project](command:codex-project-manager.initializeNewProject)\n or \n [Import USFM Project](command:codex-project-manager.initializeImportProject)",
-                        "media": {
-                            "image": "./src/media/initialize-project.png",
-                            "altText": "Initialize Project"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.initializeNewProject"
-                        ],
-                        "when": "workbenchState !== empty"
-                    },
-                    {
-                        "id": "startTranslating",
-                        "title": "Start Translating",
-                        "description": "Now that we've initialized all these files, let's start translating your new Codex project.\n[Start Translating](command:codex-project-manager.startTranslating)",
-                        "media": {
-                            "image": "./src/media/edit.png",
-                            "altText": "Start Translating"
-                        },
-                        "completionEvents": [
-                            "onCommand:codex-project-manager.startTranslating"
-                        ],
-                        "when": "workbenchState !== empty"
-                    }
-                ]
-            }
-        ],
-        "submenus": [
-            {
-                "id": "translators-copilot",
-                "label": "Translators Copilot"
-            }
-        ],
         "commands": [
             {
                 "command": "codex-project-manager.openNewSourceUpload",
@@ -457,29 +155,10 @@
                 "title": "JOSH_COMMAND"
             },
             {
-                "command": "codex-editor-extension.triggerInlineCompletion",
-                "title": "Autocomplete",
-                "group": "translators-copilot",
-                "icon": "$(sparkle)",
-                "when": "editorTextFocus && editorLangId == scripture"
-            },
-            {
-                "command": "translators-copilot.searchIndex",
-                "title": "Search Index",
-                "icon": "$(search)",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.forceReindex",
+                "command": "codex-editor-extension.forceReindex",
                 "title": "Force Reindex",
                 "icon": "$(refresh)",
-                "category": "Translators Copilot"
-            },
-            {
-                "command": "translators-copilot.showFileStatsView",
-                "title": "Show Translation Progress",
-                "icon": "$(graph)",
-                "category": "Translators Copilot"
+                "category": "Codex Extension"
             },
             {
                 "title": "Start a new Project",
@@ -547,23 +226,18 @@
                 "title": "Sync"
             },
             {
-                "command": "translators-copilot.getTranslationPairFromProject",
+                "command": "codex-editor-extension.getTranslationPairFromProject",
                 "title": "Get Translation Pair from Project",
-                "category": "Translators Copilot"
+                "category": "Codex Extension"
             },
             {
-                "command": "translators-copilot.showIndexOptions",
+                "command": "codex-editor-extension.showIndexOptions",
                 "title": "Show Index Options",
-                "category": "Translators Copilot"
+                "category": "Codex Extension"
             },
             {
                 "command": "codex-editor-extension.setEditorFontToTargetLanguage",
                 "title": "Set Editor Font to Target Language",
-                "category": "Codex Editor"
-            },
-            {
-                "command": "codex-editor-extension.getBibleDataRecordById",
-                "title": "Get Bible Data Record by ID",
                 "category": "Codex Editor"
             },
             {
@@ -636,23 +310,28 @@
                 "category": "Codex Project Manager"
             },
             {
-                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "command": "codex-project-manager.triggerMigration",
+                "title": "Trigger Project Migration",
+                "category": "Codex Project Manager"
+            },
+            {
+                "command": "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
                 "title": "Search Source Cells"
             },
             {
-                "command": "translators-copilot.getSourceCellByCellIdFromAllSourceCells",
+                "command": "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
                 "title": "Get Source Cell by Cell ID"
             },
             {
-                "command": "translators-copilot.getTranslationPairFromProject",
+                "command": "codex-editor-extension.getTranslationPairFromProject",
                 "title": "Get Translation Pair from Project"
             },
             {
-                "command": "translators-copilot.getTranslationPairsFromSourceCellQuery",
+                "command": "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
                 "title": "Get Translation Pairs from Source Cell Query"
             },
             {
-                "command": "translators-copilot.getTargetCellByCellId",
+                "command": "codex-editor-extension.getTargetCellByCellId",
                 "title": "Get Target Cell by Cell ID"
             },
             {
@@ -689,12 +368,12 @@
                 "title": "Open Export View"
             },
             {
-                "command": "translators-copilot.getFileStats",
-                "title": "Translators Copilot: Show File Statistics"
+                "command": "codex-editor-extension.getFileStats",
+                "title": "Codex Extension: Show File Statistics"
             },
             {
-                "command": "translators-copilot.getFileInfo",
-                "title": "Translators Copilot: Show Detailed File Information"
+                "command": "codex-editor-extension.getFileInfo",
+                "title": "Codex Extension: Show Detailed File Information"
             }
         ],
         "configuration": [
@@ -810,6 +489,11 @@
                         ],
                         "default": 5,
                         "description": "Delay in minutes before triggering automatic sync after changes"
+                    },
+                    "codex-project-manager.migration.skipSyncVerification": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Skip remote synchronization verification during project migration. Warning: This may result in data loss if local changes haven't been pushed to remote."
                     }
                 }
             },
@@ -842,42 +526,42 @@
                 }
             },
             {
-                "title": "Translators Copilot Server",
+                "title": "Codex Extension Server",
                 "properties": {
-                    "translators-copilot-server.enable": {
+                    "codex-editor-extension-server.enable": {
                         "type": "boolean",
                         "default": true,
-                        "description": "Enable or disable the Translators Copilot feature."
+                        "description": "Enable or disable the Codex Extension feature."
                     },
-                    "translators-copilot-server.primarySourceText": {
+                    "codex-editor-extension-server.primarySourceText": {
                         "type": "string",
                         "default": "",
-                        "description": "The source text to use for the Translators Copilot feature."
+                        "description": "The source text to use for the Codex Extension feature."
                     }
                 }
             },
             {
-                "title": "Translators Copilot",
+                "title": "Codex Extension",
                 "properties": {
-                    "translators-copilot.api_key": {
+                    "codex-editor-extension.api_key": {
                         "title": "API Key",
                         "type": "string",
                         "default": "",
                         "description": "Your own OpenAI API key. Ignorable for local LLM. NOTE: Do not set this in workspace settings. This may compromise your key if .vscode/settings.json is saved to the cloud."
                     },
-                    "translators-copilot.max_tokens": {
+                    "codex-editor-extension.max_tokens": {
                         "title": "Max Tokens",
                         "type": "number",
                         "default": 2048,
                         "description": "The maximum number of output tokens for the completion API."
                     },
-                    "translators-copilot.temperature": {
+                    "codex-editor-extension.temperature": {
                         "title": "Temperature",
                         "type": "number",
                         "default": 0.8,
                         "description": "The randomness level of output generation. A higher value leads to more random outputs."
                     },
-                    "translators-copilot.main_chat_language": {
+                    "codex-editor-extension.main_chat_language": {
                         "title": "Main Chat Language",
                         "type": "string",
                         "default": "English",
@@ -938,14 +622,14 @@
                         ],
                         "description": "The main language used for the chat interface."
                     },
-                    "translators-copilot.chatSystemMessage": {
+                    "codex-editor-extension.chatSystemMessage": {
                         "title": "Rules for AI (System Message)",
                         "type": "string",
                         "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
                         "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language.",
                         "editPresentation": "multilineText"
                     },
-                    "translators-copilot.sourceTextSelectionMode": {
+                    "codex-editor-extension.sourceTextSelectionMode": {
                         "type": "string",
                         "default": "auto",
                         "description": "The method of selecting the source text. If set to manual, use 'ctrl + s, ctrl + b' to change the source text.",
@@ -954,12 +638,12 @@
                             "manual"
                         ]
                     },
-                    "translators-copilot.numberOfFewShotExamples": {
+                    "codex-editor-extension.numberOfFewShotExamples": {
                         "type": "number",
                         "default": 30,
                         "description": "The number of sample translation pairs to show the Copilot."
                     },
-                    "translators-copilot.contextSize": {
+                    "codex-editor-extension.contextSize": {
                         "type": "string",
                         "default": "medium",
                         "description": "The size of the context to be used for completion. Small is 5 cells, medium is 10 cells, large is 50 cells.",
@@ -969,22 +653,22 @@
                             "large"
                         ]
                     },
-                    "translators-copilot.additionalResourcesDirectory": {
+                    "codex-editor-extension.additionalResourcesDirectory": {
                         "type": "string",
                         "default": "",
                         "description": "The directory path containing additional resources for completion context. Will read all files in directory and put them in the context. No resources if path is invalid."
                     },
-                    "translators-copilot.llmEndpoint": {
+                    "codex-editor-extension.llmEndpoint": {
                         "type": "string",
                         "default": "https://api.openai.com/v1",
                         "description": "The endpoint for the completion API. Currently only supports OpenAI API, or openai-compatible local endpoints such as LM Studio, etc."
                     },
-                    "translators-copilot.wsEndpoint": {
+                    "codex-editor-extension.wsEndpoint": {
                         "type": "string",
                         "default": "wss://api.openai.com/v1/chat/completions",
                         "description": "The endpoint for the realtime chat API. Currently only supports OpenAI API."
                     },
-                    "translators-copilot.model": {
+                    "codex-editor-extension.model": {
                         "title": "LLM Model",
                         "type": "string",
                         "enum": [
@@ -996,49 +680,49 @@
                         "default": "gpt-4o",
                         "description": "Model name selected for inference. Ignorable for local LLM. If you are using a custom LLM, set to 'custom' and update the customModel setting below."
                     },
-                    "translators-copilot.customModel": {
+                    "codex-editor-extension.customModel": {
                         "title": "Custom LLM Model",
                         "type": "string",
                         "default": "",
                         "description": "Custom LLM model to use for inference. Ignorable for OpenAI API."
                     },
-                    "translators-copilot.sourceBookWhitelist": {
+                    "codex-editor-extension.sourceBookWhitelist": {
                         "title": "Source Book Whitelist",
                         "type": "string",
                         "default": "",
                         "description": "Limits context building to specified books. Leave empty to include all. We recommend to leave empty for best results."
                     },
-                    "translators-copilot.debugMode": {
+                    "codex-editor-extension.debugMode": {
                         "title": "Debugging Mode",
                         "type": "boolean",
                         "default": false,
                         "description": "If activated, inline completion LLM prompts will be saved to the `copilot-messages.log` file in the project."
                     },
-                    "translators-copilot.wordFrequencyThreshold": {
+                    "codex-editor-extension.wordFrequencyThreshold": {
                         "title": "Word Frequency Threshold",
                         "type": "number",
                         "default": 50,
                         "description": "The minimum frequency of a word to be automatically added to the dictionary. Changing this value will trigger updates to the dictionary."
                     },
-                    "translators-copilot.enableDoctrineGrading": {
+                    "codex-editor-extension.enableDoctrineGrading": {
                         "title": "Enable Doctrine Grading",
                         "type": "boolean",
                         "default": false,
                         "description": "Enable or disable doctrine grading."
                     },
-                    "translators-copilot.enableChatReflection": {
+                    "codex-editor-extension.enableChatReflection": {
                         "title": "Enable Chat Reflection",
                         "type": "boolean",
                         "default": false,
                         "description": "After giving an initial response in the chat, the Copilot will reflect on the response and replace it with a new one after a bit."
                     },
-                    "translators-copilot.chatReflectionConcern": {
+                    "codex-editor-extension.chatReflectionConcern": {
                         "title": "Chat Reflection Concern",
                         "type": "string",
                         "default": "",
                         "description": "This is an optional field to specify what the reflection should focus on in the chat response.  Use this to set a specific topic to focus on or perspective to keep in mind."
                     },
-                    "translators-copilot.textDirection": {
+                    "codex-editor-extension.textDirection": {
                         "type": "string",
                         "enum": [
                             "ltr",
@@ -1046,6 +730,13 @@
                         ],
                         "default": "ltr",
                         "description": "Text direction for the editor (left-to-right or right-to-left)"
+                    },
+                    "codex-editor-extension.cellsPerPage": {
+                        "type": "number",
+                        "default": 50,
+                        "minimum": 5,
+                        "maximum": 200,
+                        "description": "Number of cells to display per page when a chapter has many cells. Helps with performance for large chapters."
                     }
                 }
             }

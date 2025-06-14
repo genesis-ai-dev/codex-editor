@@ -14,16 +14,16 @@ import createQuillDeltaFromDeltaOps from "./react-quill-spellcheck";
 import { CodexCellTypes } from "../../../../types/enums";
 import { AddParatextButton } from "./AddParatextButton";
 import ReactMarkdown from "react-markdown";
-import "./TextCellEditorStyles.css";
+// import "./TextCellEditorStyles.css";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
-import "./TextEditor.css";
+// import "./TextEditor.css";
 import SourceCellContext from "./contextProviders/SourceCellContext";
 import ConfirmationButton from "./ConfirmationButton";
 import { generateChildCellId } from "../../../../src/providers/codexCellEditorProvider/utils/cellUtils";
 import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
-import WaveSurfer from "wavesurfer.js";
+import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -35,6 +35,8 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+
+const USE_AUDIO_TAB = true;
 
 // Icons from lucide-react (already installed with ShadCN)
 import {
@@ -197,7 +199,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-    const [_audioUrl, _setAudioUrl] = useState<string | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isRecording, setIsRecording] = useState(false);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingStatus, setRecordingStatus] = useState<string>("");
@@ -215,79 +217,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
     } | null>(null);
     const transcriptionClientRef = useRef<WhisperTranscriptionClient | null>(null);
 
-    // Waveform-related state
-    const [waveSurfer, setWaveSurfer] = useState<WaveSurfer | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [duration, setDuration] = useState(0);
-    const [currentTime, setCurrentTime] = useState(0);
-    const waveformRef = useRef<HTMLDivElement>(null);
-
-    // Use the internal state with validation
-    const audioUrl = _audioUrl;
-    const setAudioUrl = _setAudioUrl;
-
-    // Safe setter for audio URL that prevents file paths
-    const safeSetAudioUrl = (url: string | null) => {
-        if (!url) {
-            setAudioUrl(null);
-            return;
-        }
-
-        // Only allow valid URL schemes
-        if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("http")) {
-            setAudioUrl(url);
-        } else {
-            console.error(`[Audio] Blocked invalid audio URL (likely a file path): ${url}`);
-            setRecordingStatus("Error: Invalid audio source");
-            // Don't set the URL, wait for proper base64 data
-        }
-    };
-
-    // Debug audio URL changes
+    // Effect to always derive audioUrl from audioBlob
     useEffect(() => {
-        if (audioUrl) {
-            console.log(`[Audio Debug] audioUrl changed for cell ${cellMarkers[0]}:`, audioUrl);
-            console.trace(); // This will show the call stack
+        if (audioBlob) {
+            const url = URL.createObjectURL(audioBlob);
+            setAudioUrl(url);
+            return () => {
+                URL.revokeObjectURL(url);
+            };
+        } else {
+            setAudioUrl(null);
         }
-    }, [audioUrl, cellMarkers]);
-
-    // Add keyboard navigation for tabs
-    const handleTabKeyDown = (
-        event: React.KeyboardEvent<HTMLButtonElement>,
-        tabName: "source" | "backtranslation" | "footnotes" | "audio"
-    ) => {
-        const tabs = ["source", "backtranslation", "footnotes", "audio"];
-        const currentIndex = tabs.indexOf(activeTab);
-
-        switch (event.key) {
-            case "ArrowLeft": {
-                event.preventDefault();
-                const prevIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
-                const prevTab = tabs[prevIndex];
-                // Only navigate to enabled tabs
-                if (prevTab === "source" && !sourceText) return;
-                setActiveTab(prevTab as "source" | "backtranslation" | "footnotes" | "audio");
-                break;
-            }
-            case "ArrowRight": {
-                event.preventDefault();
-                const nextIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
-                const nextTab = tabs[nextIndex];
-                // Only navigate to enabled tabs
-                if (nextTab === "source" && !sourceText) return;
-                setActiveTab(nextTab as "source" | "backtranslation" | "footnotes" | "audio");
-                break;
-            }
-            case "Home":
-                event.preventDefault();
-                setActiveTab("source");
-                break;
-            case "End":
-                event.preventDefault();
-                setActiveTab("footnotes");
-                break;
-        }
-    };
+    }, [audioBlob]);
 
     useEffect(() => {
         if (showFlashingBorder && cellEditorRef.current) {
@@ -765,7 +706,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 }
 
                 const url = URL.createObjectURL(blob);
-                safeSetAudioUrl(url);
+                setAudioUrl(url);
                 setRecordingStatus("Recording complete");
 
                 // Stop all tracks to release microphone
@@ -818,35 +759,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             // Store the audio ID temporarily
             sessionStorage.setItem(`audio-id-${cellMarkers[0]}`, uniqueId);
 
-            // Clean up previous blob URL if it exists
-            if (audioUrl && audioUrl.startsWith("blob:")) {
-                URL.revokeObjectURL(audioUrl);
-            }
-
-            // Create a new blob URL for immediate playback
-            const blobUrl = URL.createObjectURL(blob);
-            safeSetAudioUrl(blobUrl);
+            // Set the audioBlob (audioUrl will be derived automatically)
             setAudioBlob(blob);
         };
         reader.readAsDataURL(blob);
     };
 
     const discardAudio = () => {
-        if (audioUrl) {
-            URL.revokeObjectURL(audioUrl);
-        }
-        safeSetAudioUrl(null);
+        // Clean up audioBlob and audioUrl
         setAudioBlob(null);
         setRecordingStatus("");
-
-        // Clean up wavesurfer instance
-        if (waveSurfer) {
-            waveSurfer.destroy();
-            setWaveSurfer(null);
-        }
-        setIsPlaying(false);
-        setDuration(0);
-        setCurrentTime(0);
 
         // Cancel any ongoing transcription
         if (transcriptionClientRef.current) {
@@ -997,8 +919,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 URL.revokeObjectURL(audioUrl);
             }
 
-            const url = URL.createObjectURL(file);
-            safeSetAudioUrl(url);
+            // Don't create blob URLs anymore - just use the Blob directly
             setRecordingStatus("Audio file loaded");
 
             // Save to cell
@@ -1024,15 +945,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const handleAudioResponse = async (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments list
+            // Handle audio attachments list (no longer set audioUrl from file path)
             if (message.type === "providerSendsAudioAttachments") {
-                const audioPath = message.attachments[cellMarkers[0]];
-                if (audioPath) {
-                    // We have an audio file path, but don't use it directly
-                    // Just update status - the actual data will come through providerSendsAudioData
-                    setRecordingStatus("Loading audio...");
-                    // Don't set audioUrl here! Wait for the base64 data
-                }
+                // No-op: we only care about actual audio data
             }
 
             // Handle specific audio data
@@ -1045,16 +960,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         // Convert base64 to blob to avoid CSP issues
                         const base64Response = await fetch(message.content.audioData);
                         const blob = await base64Response.blob();
-
-                        // Clean up previous blob URL if it exists
-                        if (audioUrl && audioUrl.startsWith("blob:")) {
-                            URL.revokeObjectURL(audioUrl);
-                        }
-
-                        const blobUrl = URL.createObjectURL(blob);
-
-                        setAudioBlob(blob);
-                        safeSetAudioUrl(blobUrl);
+                        setAudioBlob(blob); // This will trigger the effect above to set audioUrl
                         setRecordingStatus("Audio loaded");
 
                         // Check for existing transcription in the audio attachment metadata
@@ -1076,38 +982,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     } catch (error) {
                         console.error("Error converting audio data to blob:", error);
                         setRecordingStatus("Error loading audio");
-                    }
-                } else if (message.content.audioUrl) {
-                    // Validate that this is a proper URL the webview can access
-                    const url = message.content.audioUrl;
-                    if (
-                        url.startsWith("blob:") ||
-                        url.startsWith("data:") ||
-                        url.startsWith("http")
-                    ) {
-                        safeSetAudioUrl(url);
-                        setRecordingStatus("Audio loaded");
-                    } else {
-                        // This is likely a file path, which won't work in the webview
-                        console.error("Received invalid audio URL (file path?):", url);
-                        setRecordingStatus("Error: Invalid audio URL");
-                    }
-
-                    // Check for existing transcription in the audio attachment metadata
-                    if (message.content.transcription) {
-                        setSavedTranscription({
-                            content: message.content.transcription.content,
-                            timestamp: message.content.transcription.timestamp,
-                            language: message.content.transcription.language,
-                        });
-                    }
-
-                    // Store the audio ID
-                    if (message.content.audioId) {
-                        sessionStorage.setItem(
-                            `audio-id-${cellMarkers[0]}`,
-                            message.content.audioId
-                        );
                     }
                 }
             }
@@ -1143,84 +1017,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         window.addEventListener("message", handleAudioResponse);
         return () => window.removeEventListener("message", handleAudioResponse);
-    }, [cellMarkers, audioUrl]);
-
-    // Initialize waveform when audio is available
-    useEffect(() => {
-        if (
-            audioUrl &&
-            waveformRef.current &&
-            (audioUrl.startsWith("blob:") ||
-                audioUrl.startsWith("data:") ||
-                audioUrl.startsWith("http"))
-        ) {
-            // Clean up existing wavesurfer instance
-            if (waveSurfer) {
-                waveSurfer.destroy();
-            }
-
-            // Create new WaveSurfer instance
-            const ws = WaveSurfer.create({
-                container: waveformRef.current,
-                waveColor: "rgba(59, 130, 246, 0.6)",
-                progressColor: "rgba(37, 99, 235, 1)",
-                cursorColor: "rgba(37, 99, 235, 1)",
-                barWidth: 2,
-                barGap: 1,
-                height: 60,
-                normalize: true,
-                backend: "WebAudio",
-                interact: true,
-            });
-
-            ws.load(audioUrl);
-
-            ws.on("ready", () => {
-                setDuration(ws.getDuration());
-            });
-
-            ws.on("timeupdate", () => {
-                setCurrentTime(ws.getCurrentTime());
-            });
-
-            ws.on("seeking", () => {
-                setCurrentTime(ws.getCurrentTime());
-            });
-
-            ws.on("play", () => {
-                setIsPlaying(true);
-            });
-
-            ws.on("pause", () => {
-                setIsPlaying(false);
-            });
-
-            ws.on("finish", () => {
-                setIsPlaying(false);
-                setCurrentTime(0);
-            });
-
-            setWaveSurfer(ws);
-
-            return () => {
-                ws.destroy();
-            };
-        }
-    }, [audioUrl]);
-
-    // Format time display
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, "0")}`;
-    };
-
-    // Toggle play/pause
-    const togglePlayback = () => {
-        if (waveSurfer) {
-            waveSurfer.playPause();
-        }
-    };
+    }, [cellMarkers]);
 
     // Clean up media recorder and stream on unmount
     useEffect(() => {
@@ -1229,21 +1026,13 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 mediaRecorder.stop();
                 mediaRecorder.stream.getTracks().forEach((track) => track.stop());
             }
-            // Clean up blob URL if it exists
-            if (audioUrl && audioUrl.startsWith("blob:")) {
-                URL.revokeObjectURL(audioUrl);
-            }
             // Clean up transcription client if active
             if (transcriptionClientRef.current) {
                 transcriptionClientRef.current.abort();
                 transcriptionClientRef.current = null;
             }
-            // Clean up wavesurfer instance
-            if (waveSurfer) {
-                waveSurfer.destroy();
-            }
         };
-    }, [mediaRecorder, audioUrl, waveSurfer]);
+    }, [mediaRecorder]);
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
@@ -1528,19 +1317,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </Badge>
                             )}
                         </TabsTrigger>
-                        <TabsTrigger value="audio">
-                            <Mic className="mr-2 h-4 w-4" />
-                            Audio
-                            {audioUrl &&
-                                (audioUrl.startsWith("blob:") ||
-                                    audioUrl.startsWith("data:") ||
-                                    audioUrl.startsWith("http")) && (
-                                    <span
-                                        className="ml-2 h-2 w-2 rounded-full bg-green-400"
-                                        title="Audio attached"
-                                    />
-                                )}
-                        </TabsTrigger>
+                        {USE_AUDIO_TAB && (
+                            <TabsTrigger value="audio">
+                                <Mic className="mr-2 h-4 w-4" />
+                                Audio
+                                {audioUrl &&
+                                    (audioUrl.startsWith("blob:") ||
+                                        audioUrl.startsWith("data:") ||
+                                        audioUrl.startsWith("http")) && (
+                                        <span
+                                            className="ml-2 h-2 w-2 rounded-full bg-green-400"
+                                            title="Audio attached"
+                                        />
+                                    )}
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     <TabsContent value="source">
@@ -1828,145 +1619,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {/* Beautiful Waveform Audio Player */}
-                                    <div
-                                        style={{
-                                            background:
-                                                "linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%)",
-                                            borderRadius: "12px",
-                                            padding: "20px",
-                                            border: "1px solid rgba(59, 130, 246, 0.2)",
-                                        }}
-                                    >
-                                        {/* Audio filename and controls header */}
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "space-between",
-                                                marginBottom: "16px",
-                                            }}
-                                        >
-                                            <div
-                                                style={{
-                                                    fontSize: "14px",
-                                                    fontWeight: "500",
-                                                    color: "var(--vscode-editor-foreground)",
-                                                    opacity: 0.8,
-                                                }}
-                                            >
-                                                {audioUrl && audioUrl.includes("/")
-                                                    ? audioUrl.split("/").pop()?.split("?")[0] ||
-                                                      "Audio File"
-                                                    : "Audio File"}
-                                            </div>
-                                            <Button
-                                                onClick={togglePlayback}
-                                                variant="outline"
-                                                size="icon"
-                                                style={{
-                                                    borderRadius: "50%",
-                                                    width: "44px",
-                                                    height: "44px",
-                                                    background: isPlaying
-                                                        ? "linear-gradient(135deg, rgba(239, 68, 68, 0.9) 0%, rgba(220, 38, 38, 0.9) 100%)"
-                                                        : "linear-gradient(135deg, rgba(34, 197, 94, 0.9) 0%, rgba(22, 163, 74, 0.9) 100%)",
-                                                    border: "none",
-                                                    color: "white",
-                                                    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                                                }}
-                                            >
-                                                {isPlaying ? (
-                                                    <div
-                                                        style={{
-                                                            width: "12px",
-                                                            height: "12px",
-                                                            display: "flex",
-                                                            gap: "2px",
-                                                        }}
-                                                    >
-                                                        <div
-                                                            style={{
-                                                                width: "4px",
-                                                                height: "12px",
-                                                                background: "white",
-                                                                borderRadius: "1px",
-                                                            }}
-                                                        ></div>
-                                                        <div
-                                                            style={{
-                                                                width: "4px",
-                                                                height: "12px",
-                                                                background: "white",
-                                                                borderRadius: "1px",
-                                                            }}
-                                                        ></div>
-                                                    </div>
-                                                ) : (
-                                                    <div
-                                                        style={{
-                                                            width: "0",
-                                                            height: "0",
-                                                            borderLeft: "8px solid white",
-                                                            borderTop: "6px solid transparent",
-                                                            borderBottom: "6px solid transparent",
-                                                            marginLeft: "2px",
-                                                        }}
-                                                    ></div>
-                                                )}
-                                            </Button>
-                                        </div>
+                                    {/* New Waveform Component with integrated transcription */}
+                                    <AudioWaveformWithTranscription
+                                        audioUrl={audioUrl}
+                                        audioBlob={audioBlob}
+                                        transcription={savedTranscription}
+                                        isTranscribing={isTranscribing}
+                                        transcriptionProgress={transcriptionProgress}
+                                        onTranscribe={handleTranscribeAudio}
+                                        onInsertTranscription={handleInsertTranscription}
+                                        disabled={!audioBlob}
+                                    />
 
-                                        {/* Waveform container */}
-                                        <div
-                                            style={{
-                                                background: "rgba(0, 0, 0, 0.05)",
-                                                borderRadius: "8px",
-                                                padding: "12px",
-                                                marginBottom: "12px",
-                                                position: "relative",
-                                                overflow: "hidden",
-                                            }}
-                                        >
-                                            <div
-                                                ref={waveformRef}
-                                                style={{
-                                                    width: "100%",
-                                                    cursor: "pointer",
-                                                }}
-                                            />
-                                            {/* Gradient overlay for visual enhancement */}
-                                            <div
-                                                style={{
-                                                    position: "absolute",
-                                                    top: 0,
-                                                    left: 0,
-                                                    right: 0,
-                                                    bottom: 0,
-                                                    background:
-                                                        "linear-gradient(to right, transparent 0%, rgba(59, 130, 246, 0.1) 50%, transparent 100%)",
-                                                    pointerEvents: "none",
-                                                    borderRadius: "8px",
-                                                }}
-                                            />
-                                        </div>
-
-                                        {/* Time display */}
-                                        <div
-                                            style={{
-                                                display: "flex",
-                                                justifyContent: "space-between",
-                                                alignItems: "center",
-                                                fontSize: "12px",
-                                                color: "var(--vscode-editor-foreground)",
-                                                opacity: 0.7,
-                                            }}
-                                        >
-                                            <span>{formatTime(currentTime)}</span>
-                                            <span>{formatTime(duration)}</span>
-                                        </div>
-                                    </div>
-
+                                    {/* Action buttons */}
                                     <div className="flex flex-wrap gap-2">
                                         {confirmingDiscard ? (
                                             <>
@@ -1991,7 +1656,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             </>
                                         ) : (
-                                            <div className="grid grid-cols-3 gap-2 w-full">
+                                            <div className="grid grid-cols-2 gap-2 w-full">
                                                 <Button
                                                     onClick={() => setConfirmingDiscard(true)}
                                                     variant="outline"
@@ -2030,88 +1695,42 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         </>
                                                     )}
                                                 </Button>
-                                                <Button
-                                                    onClick={handleTranscribeAudio}
-                                                    variant="outline"
-                                                    disabled={isTranscribing || !audioBlob}
-                                                    className="w-full"
-                                                >
-                                                    {isTranscribing ? (
-                                                        <>
-                                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                                            <span className="inline ml-2">
-                                                                Transcribing...
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <MessageCircle className="h-4 w-4" />
-                                                            <span className="inline ml-2">
-                                                                Transcribe
-                                                            </span>
-                                                        </>
-                                                    )}
-                                                </Button>
                                             </div>
                                         )}
                                     </div>
 
-                                    {/* Transcription section */}
-                                    <div className="space-y-3">
-                                        <h4 className="font-medium">Transcription</h4>
+                                    {/* Native audio player for verification (temporary) */}
+                                    <details className="mt-4">
+                                        <summary className="text-sm text-muted-foreground cursor-pointer">
+                                            Debug: Native Audio Player
+                                        </summary>
+                                        <div className="mt-2 p-3 bg-muted rounded-lg">
+                                            <audio
+                                                controls
+                                                src={audioUrl || undefined}
+                                                className="w-full"
+                                                style={{ height: "40px" }}
+                                            />
+                                            <p className="text-xs text-muted-foreground mt-2 break-all">
+                                                Source:{" "}
+                                                {audioUrl
+                                                    ? `URL: ${audioUrl}`
+                                                    : audioBlob
+                                                    ? `Blob: ${audioBlob.type} (${audioBlob.size} bytes)`
+                                                    : "No audio"}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Debug URL: {audioUrl || "None"}
+                                            </p>
+                                        </div>
+                                    </details>
 
-                                        {/* Transcription progress */}
-                                        {(isTranscribing || transcriptionStatus) && (
-                                            <div className="space-y-2">
-                                                {isTranscribing && transcriptionProgress > 0 && (
-                                                    <Progress
-                                                        value={transcriptionProgress}
-                                                        className="mb-2"
-                                                    />
-                                                )}
-                                                {transcriptionStatus && (
-                                                    <p className="text-sm text-center text-muted-foreground">
-                                                        {transcriptionStatus}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {!isTranscribing && !transcriptionStatus && (
-                                            <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground">
-                                                {savedTranscription ? (
-                                                    <div className="space-y-2 text-left">
-                                                        <div className="text-sm font-medium">
-                                                            Transcription:
-                                                        </div>
-                                                        <div className="text-sm">
-                                                            {savedTranscription.content}
-                                                        </div>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Language: {savedTranscription.language}{" "}
-                                                            •{" "}
-                                                            {new Date(
-                                                                savedTranscription.timestamp
-                                                            ).toLocaleString()}
-                                                        </div>
-                                                        <div className="mt-3">
-                                                            <Button
-                                                                onClick={handleInsertTranscription}
-                                                                variant="default"
-                                                                size="sm"
-                                                                className="w-full"
-                                                            >
-                                                                <Copy className="mr-2 h-4 w-4" />
-                                                                Insert Transcription into Cell
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    "Audio loaded (sample_audio.mp3). Click 'Transcribe' to generate text."
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
+                                    {/* Status messages */}
+                                    {transcriptionStatus && (
+                                        <p className="text-sm text-center text-muted-foreground">
+                                            {transcriptionStatus}
+                                        </p>
+                                    )}
 
                                     {recordingStatus && !isTranscribing && (
                                         <Badge

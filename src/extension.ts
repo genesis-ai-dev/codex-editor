@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
-import { initializeBibleData } from "./activationHelpers/contextAware/sourceData";
 import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
 import registerClientOnRequests from "./tsServer/registerClientOnRequests";
@@ -29,7 +28,6 @@ import { registerStartupFlowCommands } from "./providers/StartupFlow/registerCom
 import { registerPreflightCommand } from "./providers/StartupFlow/preflight";
 import { NotebookMetadataManager } from "./utils/notebookMetadataManager";
 import { waitForExtensionActivation } from "./utils/vscode";
-import { WordsViewProvider } from "./providers/WordsView/WordsViewProvider";
 import { FrontierAPI } from "../webviews/codex-webviews/src/StartupFlow/types";
 import { registerCommandsBefore } from "./activationHelpers/contextAware/commandsBefore";
 import {
@@ -41,10 +39,14 @@ import {
     registerSplashScreenProvider,
     showSplashScreen,
     updateSplashScreenTimings,
+    updateSplashScreenSync,
     closeSplashScreen,
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
+import { RepositoryMigrationManager } from "./projectManager/utils/repositoryMigration";
+import path from "path";
+import fs from "fs";
 
 export interface ActivationTiming {
     step: string;
@@ -403,26 +405,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
-        await executeCommandsAfter();
+        await executeCommandsAfter(context);
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
         trackTiming("Post-activation Tasks", postActivationStart);
 
-        // Close splash screen and then check if we need to show the welcome view
-        closeSplashScreen(async () => {
-            console.log(
-                "[Extension] Splash screen closed, checking if welcome view needs to be shown"
-            );
-            // Show tabs again after splash screen closes
-            await vscode.workspace
-                .getConfiguration()
-                .update("workbench.editor.showTabs", "multiple", true);
-            // Restore tab layout after splash screen closes
-            await restoreTabLayout(context);
-            // Check if we need to show the welcome view after initialization
-            await showWelcomeViewIfNeeded();
-        });
+        // Don't close splash screen yet - we still have sync operations to show
+        // The splash screen will be closed after all operations complete
+        console.log("[Extension] Keeping splash screen open for post-activation operations");
 
         // Instead of calling showWelcomeViewIfNeeded directly, it will be called by the splash screen callback
         // showWelcomeViewIfNeeded();
@@ -439,6 +430,47 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand("codex-editor.openCellLabelImporter", () =>
             openCellLabelImporter(context)
         )
+    );
+
+    // Migration is now handled at project opening level via StartupFlowProvider
+    // No need for automatic checking on extension activation
+
+    // Migration command for testing/debugging
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-project-manager.triggerMigration", async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                vscode.window.showErrorMessage("No workspace folder found");
+                return;
+            }
+
+            const migrationManager = RepositoryMigrationManager.getInstance();
+            const projectPath = workspaceFolder.uri.fsPath;
+            const projectName = workspaceFolder.name;
+
+            try {
+                // Check migration state
+                const migrationState = await migrationManager.checkMigrationRequired(projectPath);
+
+                if (migrationState.error) {
+                    vscode.window.showErrorMessage(`Migration check failed: ${migrationState.error}`);
+                    return;
+                }
+
+                // Confirm migration
+                const confirmChoice = await vscode.window.showWarningMessage(
+                    `This will migrate project "${projectName}" by deleting and recloning it. Continue?`,
+                    { modal: true },
+                    "Migrate"
+                );
+
+                if (confirmChoice === "Migrate") {
+                    await performWorkspaceMigration(projectPath, projectName, migrationManager);
+                }
+            } catch (error) {
+                vscode.window.showErrorMessage(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        })
     );
 }
 
@@ -485,14 +517,103 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         console.log(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
 
         // Use real-time progress for context index setup since it can take a while
-        startRealtimeStep(" Setup Context Index");
+        // Note: SQLiteIndexManager handles its own detailed progress tracking
         await createIndexWithContext(context);
-        finishRealtimeStep();
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
         console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
+
+        // Perform initial sync during splash screen phase if auth API is available and user is authenticated
+        updateSplashScreenSync(60, "Checking authentication...");
+        console.log("🔄 [SPLASH SCREEN PHASE] Starting sync during splash screen...");
+
+        if (authApi) {
+            try {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated) {
+                    console.log("🔄 [SPLASH SCREEN PHASE] User is authenticated, performing initial sync during splash screen");
+                    updateSplashScreenSync(70, "Synchronizing project...");
+                    const syncStart = globalThis.performance.now();
+
+                    const syncManager = SyncManager.getInstance();
+                    // During startup, don't show info messages for connection issues
+                    try {
+                        await syncManager.executeSync("Initial workspace sync", false);
+                        trackTiming("Project Synchronization Complete", syncStart);
+                        updateSplashScreenSync(85, "Synchronization complete");
+                        console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");
+                    } catch (error) {
+                        console.error("❌ [SPLASH SCREEN PHASE] Error during initial sync:", error);
+                        trackTiming("Project Synchronization Failed", syncStart);
+                        updateSplashScreenSync(85, "Synchronization failed");
+                    }
+                } else {
+                    console.log("⏭️ [SPLASH SCREEN PHASE] User is not authenticated, skipping initial sync");
+                    updateSplashScreenSync(85, "Skipping sync (not authenticated)");
+                    const skipStart = globalThis.performance.now();
+                    // Just log this, no need to track timing for a skip
+                    console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
+                }
+            } catch (error) {
+                console.error("❌ [SPLASH SCREEN PHASE] Error checking auth status or during initial sync:", error);
+                updateSplashScreenSync(85, "Authentication error");
+                const errorStart = globalThis.performance.now();
+                // Just log this, no need to track timing for an error
+                console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
+            }
+        } else {
+            console.log("⏭️ [SPLASH SCREEN PHASE] Auth API not available, skipping initial sync");
+            updateSplashScreenSync(85, "Skipping sync (offline mode)");
+            // Just log this, no need to track timing for a skip
+            console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
+        }
+
+        // Generate progress report in background (don't block startup)
+        if (metadataExists) {
+            console.log("[Activation] Generating progress report...");
+            console.log("📊 Forcing progress report generation...");
+
+            const progressStart = globalThis.performance.now();
+
+            // Update splash screen to show we're processing statistics
+            updateSplashScreenTimings([
+                { step: "Processing translation statistics", duration: 0, startTime: progressStart }
+            ]);
+
+            try {
+                const { ProgressReportingService } = await import("./progressReporting/progressReportingService");
+                const progressService = ProgressReportingService.getInstance();
+
+                // Schedule progress report for background processing instead of blocking startup
+                setImmediate(async () => {
+                    try {
+                        await progressService.forceProgressReport();
+                        console.log("📊 Background progress report completed");
+                    } catch (error) {
+                        console.warn("📊 Background progress report failed:", error);
+                    }
+                });
+
+                const progressDuration = globalThis.performance.now() - progressStart;
+                console.log(`[Activation] Progress Report Scheduled: ${progressDuration.toFixed(2)}ms`);
+
+                // Update splash screen with completion
+                updateSplashScreenTimings([
+                    { step: "Processing translation statistics", duration: progressDuration, startTime: progressStart }
+                ]);
+            } catch (error) {
+                console.warn("[Activation] Failed to schedule progress report during startup:", error);
+                const progressDuration = globalThis.performance.now() - progressStart;
+                console.log(`[Activation] Progress Report Failed: ${progressDuration.toFixed(2)}ms`);
+
+                // Update splash screen with failure
+                updateSplashScreenTimings([
+                    { step: "Processing translation statistics (failed)", duration: progressDuration, startTime: progressStart }
+                ]);
+            }
+        }
     }
 
     // Calculate and log total initialize extension time but don't add to main timing array
@@ -541,7 +662,10 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     await config.update("workbench.editor.showTabs", "none", true); // Hide tabs during splash screen
     await config.update("window.autoDetectColorScheme", true, true);
     await config.update("workbench.editor.revealIfOpen", true, true);
-    await config.update("workbench.layoutControl.enabled", true, true);
+    await config.update("workbench.layoutControl.enabled", false, true);
+    // await config.update("workbench.copilotControls.enabled", false, true); // FIXME: need to update "@types/vscode": "^1.78.0", and vscode package
+    // await config.update("workbench.commandCenter.enabled", false, true);
+    // await config.update("workbench.editor.editorActions.enabled", false, true);
     await config.update("workbench.tips.enabled", false, true);
     await config.update("workbench.editor.limit.perEditorGroup", false, true);
     await config.update("workbench.editor.limit.value", 4, true);
@@ -549,14 +673,18 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     registerCommandsBefore(context);
 }
 
-async function executeCommandsAfter() {
+async function executeCommandsAfter(context: vscode.ExtensionContext) {
     try {
+        // Update splash screen for post-activation tasks
+        updateSplashScreenSync(90, "Configuring editor settings...");
+
         await vscode.commands.executeCommand(
             "codex-editor-extension.setEditorFontToTargetLanguage"
         );
     } catch (error) {
         console.warn("Failed to set editor font, possibly due to network issues:", error);
     }
+
     // Configure auto-save in settings
     await vscode.workspace
         .getConfiguration()
@@ -565,43 +693,24 @@ async function executeCommandsAfter() {
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
 
-    // Perform initial sync if auth API is available and user is authenticated
-    if (authApi) {
-        try {
-            const authStatus = authApi.getAuthStatus();
-            if (authStatus.isAuthenticated) {
-                console.log("User is authenticated, performing initial sync");
-                const syncStart = globalThis.performance.now();
+    // Final splash screen update and close
+    updateSplashScreenSync(100, "Finalizing setup...");
 
-                const syncManager = SyncManager.getInstance();
-                // During startup, don't show info messages for connection issues
-                try {
-                    await syncManager.executeSync("Initial workspace sync", false);
-                    trackTiming("Project Synchronization Complete", syncStart);
-                } catch (error) {
-                    console.error("Error during initial sync:", error);
-                    trackTiming("Project Synchronization Failed", syncStart);
-                }
-            } else {
-                console.log("User is not authenticated, skipping initial sync");
-                const skipStart = globalThis.performance.now();
-                // Just log this, no need to track timing for a skip
-                console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
-            }
-        } catch (error) {
-            console.error("Error checking auth status or during initial sync:", error);
-            const errorStart = globalThis.performance.now();
-            // Just log this, no need to track timing for an error
-            console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
-        }
-    } else {
-        console.log("Auth API not available, skipping initial sync");
-        // Just log this, no need to track timing for a skip
-        console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
-    }
+    // Close splash screen and then check if we need to show the welcome view
+    closeSplashScreen(async () => {
+        console.log(
+            "[Extension] Splash screen closed, checking if welcome view needs to be shown"
+        );
+        // Show tabs again after splash screen closes
+        await vscode.workspace
+            .getConfiguration()
+            .update("workbench.editor.showTabs", "multiple", true);
+        // Restore tab layout after splash screen closes
+        await restoreTabLayout(context);
+        // Check if we need to show the welcome view after initialization
+        await showWelcomeViewIfNeeded();
+    });
 
-    // Check if we need to show the welcome view after initialization
-    // showWelcomeViewIfNeeded();
     await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
 }
 
@@ -621,6 +730,13 @@ export function deactivate() {
     if (global.db) {
         global.db.close();
     }
+
+    // Clean up the global index manager
+    import("./activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager").then(
+        ({ clearSQLiteIndexManager }) => {
+            clearSQLiteIndexManager();
+        }
+    ).catch(console.error);
 }
 
 export function getAutoCompleteStatusBarItem(): StatusBarItem {
@@ -633,4 +749,158 @@ export function getNotebookMetadataManager(): NotebookMetadataManager {
 
 export function getAuthApi(): FrontierAPI | undefined {
     return authApi;
+}
+
+/**
+ * Check if the current workspace needs migration and prompt user if necessary
+ */
+async function checkAndPromptForMigration(context: vscode.ExtensionContext): Promise<void> {
+    try {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) return;
+
+        const projectPath = workspaceFolder.uri.fsPath;
+        const projectName = workspaceFolder.name;
+
+        // Use static method for fast check
+        const migrationCheck = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(projectPath);
+
+        if (migrationCheck.error) {
+            console.warn("Migration check failed:", migrationCheck.error);
+            return;
+        }
+
+        // Skip if already migrated
+        if (!migrationCheck.needsMigration) {
+            return;
+        }
+
+        // Get detailed migration state for user messaging
+        const migrationManager = RepositoryMigrationManager.getInstance();
+        const migrationState = await migrationManager.checkMigrationRequired(projectPath);
+
+        if (migrationState.error) {
+            console.warn("Detailed migration check failed:", migrationState.error);
+            return;
+        }
+
+        // Show migration prompt
+        let message: string;
+        if (migrationState.hasUncommittedNonSQLiteChanges) {
+            message = `Project "${projectName}" needs migration to clean up database files.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n\nWould you like to migrate now?`;
+        } else {
+            message = `Project "${projectName}" needs migration to clean up database files.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n\nWould you like to migrate now?`;
+        }
+
+        const choice = await vscode.window.showInformationMessage(
+            message,
+            { modal: false },
+            "Migrate Now",
+            "Remind Me Later",
+            "Don't Ask Again"
+        );
+
+        switch (choice) {
+            case "Migrate Now":
+                await performWorkspaceMigration(projectPath, projectName, migrationManager);
+                break;
+
+            case "Don't Ask Again":
+                // Create suppression flag
+                await createMigrationSuppressionFlag(projectPath);
+                break;
+
+            case "Remind Me Later":
+            default:
+                // Do nothing, will prompt again next time
+                break;
+        }
+    } catch (error) {
+        console.error("Error checking for migration needs:", error);
+    }
+}
+
+/**
+ * Perform migration for the current workspace
+ */
+async function performWorkspaceMigration(
+    projectPath: string,
+    projectName: string,
+    migrationManager: RepositoryMigrationManager
+): Promise<void> {
+    try {
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Migrating project "${projectName}"...`,
+                cancellable: true,
+            },
+            async (progress, token) => {
+                try {
+                    // Get project details
+                    const { findAllCodexProjects } = await import("./projectManager/utils/projectUtils");
+                    const localProjects = await findAllCodexProjects();
+                    const project = localProjects.find((p) => p.path === projectPath);
+
+                    if (!project || !project.gitOriginUrl) {
+                        throw new Error("Project not found or missing git origin URL");
+                    }
+
+                    const projectWithSyncStatus = {
+                        ...project,
+                        syncStatus: "downloadedAndSynced" as const
+                    };
+
+                    // Perform the migration
+                    await migrationManager.performMigration(
+                        projectWithSyncStatus,
+                        progress,
+                        token
+                    );
+
+                    vscode.window.showInformationMessage(
+                        `Project "${projectName}" has been successfully migrated. Please reopen the project.`
+                    );
+
+                    // Close the current workspace since the project was deleted and recloned
+                    setTimeout(() => {
+                        vscode.commands.executeCommand("workbench.action.closeFolder");
+                    }, 2000);
+
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    console.error("Workspace migration failed:", errorMessage);
+
+                    vscode.window.showErrorMessage(
+                        `Failed to migrate project: ${errorMessage}`
+                    );
+                }
+            }
+        );
+    } catch (error) {
+        console.error("Error setting up workspace migration:", error);
+        vscode.window.showErrorMessage("Failed to start migration process");
+    }
+}
+
+/**
+ * Create a flag to suppress migration prompts for this project
+ */
+async function createMigrationSuppressionFlag(projectPath: string): Promise<void> {
+    try {
+        const flagPath = path.join(projectPath, ".codex", "migration_suppressed");
+        const flagDir = path.dirname(flagPath);
+
+        // Ensure .codex directory exists
+        await fs.promises.mkdir(flagDir, { recursive: true });
+
+        const flagContent = {
+            suppressionDate: new Date().toISOString(),
+            reason: "User chose not to migrate"
+        };
+
+        await fs.promises.writeFile(flagPath, JSON.stringify(flagContent, null, 2));
+    } catch (error) {
+        console.error("Failed to create migration suppression flag:", error);
+    }
 }

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { fetchCompletionConfig } from "../translationSuggestions/inlineCompletionsProvider";
+import { fetchCompletionConfig } from "@/utils/llmUtils";
 import { CodexNotebookReader } from "../../serializer";
 import { workspaceStoreListener } from "../../utils/workspaceEventListener";
 import { llmCompletion } from "../translationSuggestions/llmCompletion";
@@ -25,6 +25,7 @@ import { initializeStateStore } from "../../stateStore";
 import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
+import { getNonce } from "../dictionaryTable/utilities/getNonce";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -40,28 +41,23 @@ interface StateStore {
         keyForListener: K,
         callback: (value: CellIdGlobalState | undefined) => void
     ) => () => void;
-    updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState }) => void;
-}
-
-function getNonce(): string {
-    debug("Generating nonce");
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    debug("Generated nonce:", text);
-    return text;
+    updateStoreState: (update: { key: "cellId"; value: CellIdGlobalState; }) => void;
 }
 
 export class CodexCellEditorProvider implements vscode.CustomEditorProvider<CodexCellDocument> {
     public currentDocument: CodexCellDocument | undefined;
     private webviewPanels: Map<string, vscode.WebviewPanel> = new Map();
-    private userInfo: { username: string; email: string } | undefined;
+    private userInfo: { username: string; email: string; } | undefined;
     private stateStore: StateStore | undefined;
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
+
+    // Add cells per page configuration
+    private get CELLS_PER_PAGE(): number {
+        const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        return config.get("cellsPerPage", 50); // Default to 50 cells per page
+    }
 
     // Translation queue system
     private translationQueue: {
@@ -103,20 +99,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             progress: 0,
         };
 
-    // private readonly COMMIT_DELAY_MS = 5 * 60 * 1000; // 5 minutes in milliseconds
-    private readonly COMMIT_DELAY_MS = 5 * 1000; // 5 seconds in milliseconds
+
 
     // Add a property to track pending validations
     private pendingValidations: Map<
         string,
-        { cellId: string; document: CodexCellDocument; shouldValidate: boolean }
+        { cellId: string; document: CodexCellDocument; shouldValidate: boolean; }
     > = new Map();
 
     // Class property to track if we've registered the command already
     public syncChapterCommandRegistered = false;
 
     // Add bibleBookMap state to the provider
-    private bibleBookMap: Map<string, { name: string;[key: string]: any }> | undefined;
+    private bibleBookMap: Map<string, { name: string;[key: string]: any; }> | undefined;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -161,6 +156,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Force a refresh of validation state for all open documents
                 this.refreshValidationStateForAllDocuments();
+            }
+
+            if (e.affectsConfiguration("codex-editor-extension.cellsPerPage")) {
+                // Update cells per page in all webviews
+                const newCellsPerPage = this.CELLS_PER_PAGE;
+                this.webviewPanels.forEach((panel) => {
+                    // Use custom message type for cells per page update
+                    panel.webview.postMessage({
+                        type: "updateCellsPerPage",
+                        cellsPerPage: newCellsPerPage,
+                    });
+                });
             }
         });
 
@@ -220,7 +227,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public async openCustomDocument(
         uri: vscode.Uri,
-        openContext: { backupId?: string },
+        openContext: { backupId?: string; },
         _token: vscode.CancellationToken
     ): Promise<CodexCellDocument> {
         debug("Opening custom document:", uri.toString());
@@ -447,36 +454,38 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Performing initial webview update");
         updateWebview();
 
-        // After initial content is sent, scan for audio attachments
-        setTimeout(async () => {
-            try {
-                debug("Scanning for audio attachments after webview is ready");
-                const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+        // Wait for webview ready event before scanning for audio attachments
+        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+            if ('type' in e && e.type === 'webviewReady') {
+                try {
+                    debug("Webview ready, scanning for audio attachments");
+                    const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
 
-                if (Object.keys(audioAttachments).length > 0) {
-                    debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
-                    // Send only the cell IDs that have audio, not the file paths
-                    const audioCells: { [cellId: string]: boolean } = {};
-                    for (const cellId of Object.keys(audioAttachments)) {
-                        audioCells[cellId] = true;
+                    if (Object.keys(audioAttachments).length > 0) {
+                        debug("Found audio attachments, sending to webview:", Object.keys(audioAttachments));
+                        // Send only the cell IDs that have audio, not the file paths
+                        const audioCells: { [cellId: string]: boolean; } = {};
+                        for (const cellId of Object.keys(audioAttachments)) {
+                            audioCells[cellId] = true;
+                        }
+
+                        this.postMessageToWebview(webviewPanel, {
+                            type: "providerSendsAudioAttachments",
+                            attachments: audioCells as any, // Send boolean flags instead of paths
+                        });
+                    } else {
+                        debug("No audio attachments found");
                     }
-
-                    this.postMessageToWebview(webviewPanel, {
-                        type: "providerSendsAudioAttachments",
-                        attachments: audioCells as any, // Send boolean flags instead of paths
-                    });
-                } else {
-                    debug("No audio attachments found");
+                } catch (error) {
+                    console.error("Error scanning for audio attachments:", error);
                 }
-            } catch (error) {
-                console.error("Error scanning for audio attachments:", error);
             }
-        }, 1000); // Wait 1 second for webview to be fully ready
+        });
 
         // Watch for configuration changes
         const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             debug("Configuration changed");
-            if (e.affectsConfiguration("translators-copilot.textDirection")) {
+            if (e.affectsConfiguration("codex-editor-extension.textDirection")) {
                 debug("Text direction configuration changed");
                 this.updateTextDirection(webviewPanel, document);
             }
@@ -612,9 +621,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const styleResetUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
         );
-        const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
+        // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
         const codiconsUri = webview.asWebviewUri(
             vscode.Uri.joinPath(
                 this.context.extensionUri,
@@ -676,7 +683,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource
             } https: blob: data:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>
                 
@@ -687,7 +693,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         sourceCellMap: ${JSON.stringify(document._sourceCellMap)},
                         metadata: ${JSON.stringify(notebookData.metadata)},
                         userInfo: ${JSON.stringify(this.userInfo)},
-                        cachedChapter: ${cachedChapter}
+                        cachedChapter: ${cachedChapter},
+                        cellsPerPage: ${this.CELLS_PER_PAGE}
                     };
                 </script>
             </head>
@@ -1021,40 +1028,20 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.broadcastSingleCellTranslationState();
     }
 
-    // New method to update single cell translation progress
-    public updateSingleCellTranslationProgress(progress: number): void {
-        if (
-            this.singleCellTranslationState.isProcessing &&
-            this.singleCellTranslationState.cellId
-        ) {
-            this.singleCellTranslationState.progress = progress;
-            this.broadcastSingleCellTranslationState();
+    // Unified method to handle all single cell translation state changes
+    public updateSingleCellTranslation(progress: number, errorMessage?: string): void {
+        if (!this.singleCellTranslationState.isProcessing || !this.singleCellTranslationState.cellId) {
+            return;
         }
-    }
 
-    // New method to complete single cell translation
-    public completeSingleCellTranslation(): void {
-        if (this.singleCellTranslationState.isProcessing) {
+        if (errorMessage) {
+            // Handle error case
+            const cellId = this.singleCellTranslationState.cellId;
             this.singleCellTranslationState = {
                 isProcessing: false,
                 cellId: undefined,
                 progress: 0,
             };
-            this.broadcastSingleCellTranslationState();
-        }
-    }
-
-    // New method to handle single cell translation error
-    public failSingleCellTranslation(errorMessage: string): void {
-        const cellId = this.singleCellTranslationState.cellId;
-        this.singleCellTranslationState = {
-            isProcessing: false,
-            cellId: undefined,
-            progress: 0,
-        };
-
-        if (cellId) {
-            // Notify webviews that the translation failed
             this.webviewPanels.forEach((panel) => {
                 panel.webview.postMessage({
                     type: "singleCellTranslationFailed",
@@ -1062,6 +1049,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     error: errorMessage,
                 });
             });
+        } else if (progress >= 1.0) {
+            // Handle completion
+            this.singleCellTranslationState = {
+                isProcessing: false,
+                cellId: undefined,
+                progress: 0,
+            };
+            this.broadcastSingleCellTranslationState();
+        } else {
+            // Handle progress update
+            this.singleCellTranslationState.progress = progress;
+            this.broadcastSingleCellTranslationState();
         }
     }
 
@@ -1360,10 +1359,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.singleCellTranslationState.isProcessing &&
             this.singleCellTranslationState.cellId === cellId
         ) {
-            this.updateSingleCellTranslationProgress(1.0);
+            this.updateSingleCellTranslation(1.0);
 
             // Use a short timeout to reset the state after completion
-            setTimeout(() => this.completeSingleCellTranslation(), 1500);
+            setTimeout(() => this.updateSingleCellTranslation(1.0), 1500);
         }
     }
 
@@ -1523,8 +1522,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update state and reject the promise
                     this.markCellComplete(request.cellId);
                     if (!this.autocompletionState.isProcessing) {
-                        this.failSingleCellTranslation(
-                            error instanceof Error ? error.message : String(error)
+                        this.updateSingleCellTranslation(
+                            0, error instanceof Error ? error.message : String(error)
                         );
                     }
 
@@ -1540,7 +1539,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             //     debug("Translation queue empty, triggering reindexing");
             //     try {
             //         // We don't await this to avoid blocking the queue processing completion
-            //         vscode.commands.executeCommand("translators-copilot.forceReindex");
+            //         vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             //     } catch (error) {
             //         console.error("Error triggering reindex after translations:", error);
             //     }
@@ -1587,7 +1586,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     });
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(0.2);
+                    this.updateSingleCellTranslation(0.2);
 
                     // Check for cancellation before fetching config
                     if (this.autocompleteCancellation?.token.isCancellationRequested) {
@@ -1604,7 +1603,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     });
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(0.5);
+                    this.updateSingleCellTranslation(0.5);
 
                     // Check for cancellation before starting LLM completion
                     if (this.autocompleteCancellation?.token.isCancellationRequested) {
@@ -1631,7 +1630,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     progress.report({ message: "Updating document...", increment: 40 });
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(0.9);
+                    this.updateSingleCellTranslation(0.9);
 
                     // Update content and metadata atomically
                     currentDocument.updateCellContent(
@@ -1642,7 +1641,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     );
 
                     // Update progress in state
-                    this.updateSingleCellTranslationProgress(1.0);
+                    this.updateSingleCellTranslation(1.0);
 
                     debug("LLM completion result", { result });
                     return result;
@@ -1761,7 +1760,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         string,
                         {
                             document: CodexCellDocument;
-                            validations: { cellId: string; shouldValidate: boolean }[];
+                            validations: { cellId: string; shouldValidate: boolean; }[];
                         }
                     >();
 
@@ -2036,7 +2035,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
 
         // Create the map
-        this.bibleBookMap = new Map<string, { name: string;[key: string]: any }>();
+        this.bibleBookMap = new Map<string, { name: string;[key: string]: any; }>();
         bookData.forEach((book) => {
             if (book.abbr) {
                 // Ensure abbreviation exists

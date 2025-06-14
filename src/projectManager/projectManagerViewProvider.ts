@@ -3,14 +3,11 @@ import {
     ProjectManagerMessageFromWebview,
     ProjectManagerMessageToWebview,
     ProjectManagerState,
-    ProjectOverview,
 } from "../../types";
 import {
     getProjectOverview,
-    initializeProjectMetadataAndGit,
     findAllCodexProjects,
     checkIfMetadataAndGitIsInitialized,
-    stageAndCommitAllAndSync,
 } from "./utils/projectUtils";
 
 import {
@@ -19,12 +16,12 @@ import {
     createNewProject,
 } from "../utils/projectCreationUtils/projectCreationUtils";
 import { FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
-import { waitForExtensionActivation } from "../utils/vscode";
 import git from "isomorphic-git";
 import * as fs from "fs";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
 import { SyncManager } from "./syncManager";
+import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -56,6 +53,38 @@ class ProjectManagerStore {
     private _view?: vscode.WebviewView;
 
     private listeners: ((state: ProjectManagerState) => void)[] = [];
+
+    // Helper methods to reduce duplication
+    private getConfig<T>(key: string, defaultValue?: T): T {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        return config.get<T>(key, defaultValue as T);
+    }
+
+    private async updateConfig<T>(key: string, value: T, target = vscode.ConfigurationTarget.Global) {
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        await config.update(key, value, target);
+    }
+
+    private handleError(error: Error, operation: string) {
+        console.error(`Error during ${operation}:`, error);
+        this.setState({ isScanning: false });
+        if (this._view) {
+            this._view.webview.postMessage({
+                command: "error",
+                message: `Failed to ${operation}: ${error.message}`
+            });
+        }
+    }
+
+    private async refreshProjects() {
+        this.setState({ isScanning: true });
+        try {
+            const projects = await findAllCodexProjects();
+            this.setState({ projects, isScanning: false });
+        } catch (error) {
+            this.handleError(error as Error, "refresh projects");
+        }
+    }
 
     getState() {
         return this.preflightState;
@@ -111,30 +140,15 @@ class ProjectManagerStore {
                         });
 
                         if (folderUri && folderUri[0]) {
-                            const config =
-                                vscode.workspace.getConfiguration("codex-project-manager");
-                            const watchedFolders = config.get<string[]>("watchedFolders") || [];
                             const newPath = folderUri[0].fsPath;
+                            const watchedFolders = this.getConfig<string[]>("watchedFolders", []);
 
                             if (!watchedFolders.includes(newPath)) {
                                 const updatedFolders = [...watchedFolders, newPath];
-                                await config.update(
-                                    "watchedFolders",
-                                    updatedFolders,
-                                    vscode.ConfigurationTarget.Global
-                                );
+                                await this.updateConfig("watchedFolders", updatedFolders);
 
                                 // Update state and scan for new projects
-                                this.setState({
-                                    watchedFolders: updatedFolders,
-                                    isScanning: true,
-                                });
-
-                                const projects = await findAllCodexProjects();
-                                this.setState({
-                                    projects,
-                                    isScanning: false,
-                                });
+                                await this.refreshProjects();
                             }
                         }
                     }
@@ -143,27 +157,12 @@ class ProjectManagerStore {
                     "codex-project-manager.removeWatchFolder",
                     async (args) => {
                         if (args?.path) {
-                            const config =
-                                vscode.workspace.getConfiguration("codex-project-manager");
-                            const watchedFolders = config.get<string[]>("watchedFolders") || [];
+                            const watchedFolders = this.getConfig<string[]>("watchedFolders", []);
                             const updatedFolders = watchedFolders.filter((f) => f !== args.path);
-                            await config.update(
-                                "watchedFolders",
-                                updatedFolders,
-                                vscode.ConfigurationTarget.Global
-                            );
+                            await this.updateConfig("watchedFolders", updatedFolders);
 
                             // Update state and rescan projects
-                            this.setState({
-                                watchedFolders: updatedFolders,
-                                isScanning: true,
-                            });
-
-                            const projects = await findAllCodexProjects();
-                            this.setState({
-                                projects,
-                                isScanning: false,
-                            });
+                            await this.refreshProjects();
                         }
                     }
                 )
@@ -264,18 +263,17 @@ class ProjectManagerStore {
                 this.checkRepoHasRemote(),
             ]);
 
-            const config = vscode.workspace.getConfiguration("codex-project-manager");
-            const primarySourceText = config.get("primarySourceText");
-            const watchedFolders = config.get<string[]>("watchedFolders") || [];
+            const primarySourceText = this.getConfig("primarySourceText");
+            const watchedFolders = this.getConfig<string[]>("watchedFolders", []);
 
             this.setState({
                 projects,
                 watchedFolders,
                 projectOverview: overview
                     ? {
-                          ...overview,
-                          primarySourceText: primarySourceText as vscode.Uri,
-                      }
+                        ...overview,
+                        primarySourceText: primarySourceText as vscode.Uri,
+                    }
                     : null,
                 isScanning: false,
                 canInitializeProject,
@@ -284,8 +282,7 @@ class ProjectManagerStore {
                 isInitializing: false,
             });
         } catch (error) {
-            console.error("Error refreshing state:", error);
-            this.setState({ isScanning: false });
+            this.handleError(error as Error, "refresh state");
         } finally {
             this.isRefreshing = false;
         }
@@ -293,13 +290,11 @@ class ProjectManagerStore {
 
     async checkRepoHasRemote(): Promise<boolean> {
         try {
-            // Get current workspace path
             const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
             if (!workspacePath) {
                 return false;
             }
 
-            // List all remotes
             const remotes = await git.listRemotes({
                 fs,
                 dir: workspacePath,
@@ -350,9 +345,7 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
     const styleResetUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, "src", "assets", "reset.css")
     );
-    const styleVSCodeUri = webviewView.webview.asWebviewUri(
-        vscode.Uri.joinPath(extensionUri, "src", "assets", "vscode.css")
-    );
+    // Note: vscode.css was removed in favor of Tailwind CSS in individual webviews
 
     const scriptUri = webviewView.webview.asWebviewUri(
         vscode.Uri.joinPath(
@@ -368,14 +361,6 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
         vscode.Uri.joinPath(extensionUri, "node_modules", "@vscode/codicons", "dist", "codicon.css")
     );
 
-    function getNonce() {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
-    }
     const nonce = getNonce();
 
     const html = /*html*/ `<!DOCTYPE html>
@@ -390,13 +375,12 @@ const loadWebviewHtml = (webviewView: vscode.WebviewView, extensionUri: vscode.U
             font-src ${webviewView.webview.cspSource};
             connect-src ${webviewView.webview.cspSource} https:;">
         <link href="${styleResetUri}" rel="stylesheet">
-        <link href="${styleVSCodeUri}" rel="stylesheet">
         <link href="${codiconsUri}" rel="stylesheet" />
         <script nonce="${nonce}">
             const vscode = acquireVsCodeApi();
             const apiBaseUrl = ${JSON.stringify(
-                process.env.API_BASE_URL || "http://localhost:3002"
-            )}
+        process.env.API_BASE_URL || "http://localhost:3002"
+    )}
         </script>
     </head>
     <body>
@@ -492,7 +476,12 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         // No commands to register here - all commands are now registered in the store
     }
 
-    // Update the message handler to use the store's methods
+    private async executeCommandAndNotify(commandName: string) {
+        await vscode.commands.executeCommand(`codex-project-manager.${commandName}`);
+        await this.store.refreshState();
+        this._view?.webview.postMessage({ command: "actionCompleted" });
+    }
+
     private async handleMessage(message: ProjectManagerMessageFromWebview) {
         switch (message.command) {
             case "refreshState":
@@ -523,17 +512,11 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "toggleSpellcheck":
             case "openExportView":
             case "openLicenseSettings":
-                await vscode.commands.executeCommand(`codex-project-manager.${message.command}`);
-                await this.store.refreshState();
-                // Send a response back to the webview
-                this._view?.webview.postMessage({ command: "actionCompleted" });
+                await this.executeCommandAndNotify(message.command);
                 break;
             case "selectCategory":
                 // For backward compatibility, redirect to setValidationCount
-                await vscode.commands.executeCommand("codex-project-manager.setValidationCount");
-                await this.store.refreshState();
-                // Send a response back to the webview
-                this._view?.webview.postMessage({ command: "actionCompleted" });
+                await this.executeCommandAndNotify("setValidationCount");
                 break;
             case "openEditAnalysis":
                 await vscode.commands.executeCommand("codex-editor-extension.analyzeEdits");
@@ -742,9 +725,9 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             this.store.setState({
                 projectOverview: newProjectOverview
                     ? {
-                          ...newProjectOverview,
-                          primarySourceText: primarySourceText as vscode.Uri,
-                      }
+                        ...newProjectOverview,
+                        primarySourceText: primarySourceText as vscode.Uri,
+                    }
                     : null,
                 isInitializing: false, // Make sure to reset initialization state
                 isScanning: false,
@@ -784,15 +767,6 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 message: "Failed to set primary source Bible. Please try again.",
             });
         }
-    }
-
-    private async refreshProjects() {
-        this.store.setState({ isScanning: true });
-        const projects = await findAllCodexProjects();
-        this.store.setState({
-            projects,
-            isScanning: false,
-        });
     }
 
     private async updateWebviewState() {

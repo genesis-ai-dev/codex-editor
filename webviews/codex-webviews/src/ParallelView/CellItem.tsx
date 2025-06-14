@@ -14,12 +14,9 @@ const stripHtmlTags = (html: string) => {
 };
 
 const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinToggle }) => {
-    const handleCopy = () => {
-        const cleanText = `${stripHtmlTags(item.sourceCell.content || "")}\n${stripHtmlTags(
-            item.targetCell.content || ""
-        )}`;
-        navigator.clipboard.writeText(cleanText);
-    };
+    const handleSourceCopy = () => navigator.clipboard.writeText(stripHtmlTags(item.sourceCell.content || ""));
+    
+    const handleTargetCopy = () => navigator.clipboard.writeText(stripHtmlTags(item.targetCell.content || ""));
 
     const getTargetUri = (uri: string): string => {
         if (!uri) return "";
@@ -72,7 +69,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinTo
             <div className="space-y-4">
                 <div>
                     <div className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">
-                        Source Text
+                        Bource Text
                     </div>
                     <p className="text-sm leading-relaxed text-gray-900 dark:text-white mb-3">
                         {item.sourceCell.content}
@@ -80,7 +77,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinTo
                     <div className="flex gap-2">
                         <button 
                             className="btn"
-                            onClick={handleCopy}
+                            onClick={handleSourceCopy}
                             aria-label="Copy text"
                         >
                             <span className="codicon codicon-copy"></span>
@@ -120,7 +117,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinTo
                     <div className="flex gap-2">
                         <button 
                             className="btn"
-                            onClick={handleCopy}
+                            onClick={handleTargetCopy}
                             aria-label="Copy text"
                         >
                             <span className="codicon codicon-copy"></span>

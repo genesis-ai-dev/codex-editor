@@ -9,15 +9,9 @@ import {
 } from "../../utils/codexNotebookUtils";
 import { jumpToCellInNotebook } from "../../utils";
 import { setTargetFont } from "../../projectManager/projectInitializers";
-import {
-    generateVerseContext,
-    getBibleDataRecordById as getBibleDataRecordById,
-    TheographicBibleDataRecord,
-} from "./sourceData";
 import { CodexExportFormat, exportCodexContent } from "../../exportHandler/exportHandler";
 import { DownloadBibleTransaction } from "../../transactions/DownloadBibleTransaction";
 import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebible/ebibleCorpusUtils";
-import { analyzeEditHistory } from "./contentIndexes/indexes/editHistory";
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
 import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
@@ -120,11 +114,6 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    // const initializeNewProjectCommand = vscode.commands.registerCommand(
-    //     "codex-editor-extension.initializeNewProject",
-    //     await initializeProject
-    // );
-
     const updateProjectNotebooksToUseCellsForVerseContentCommand = vscode.commands.registerCommand(
         "codex-editor-extension.updateProjectNotebooksToUseCellsForVerseContent",
         updateProjectNotebooksToUseCellsForVerseContent
@@ -152,35 +141,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const getBibleDataRecordByIdCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.getBibleDataRecordById",
-        async (passedId: string) => {
-            let result = null;
-            let id = passedId;
-            if (!id) {
-                id =
-                    (await vscode.window.showInputBox({
-                        prompt: "Enter the ID of the Bible data record to get",
-                        placeHolder: "Record ID",
-                    })) || "";
-            }
-            result = await getBibleDataRecordById(id);
-            if (result) {
-                const { record } = result;
-                vscode.window.showInformationMessage(`Found record in category: ${record}`);
-            } else {
-                vscode.window.showWarningMessage(`No record found for ID: ${id}`);
-            }
-            return result;
-        }
-    );
 
-    const getContextDataFromVrefCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.getContextDataFromVref",
-        async (vref: string): Promise<TheographicBibleDataRecord> => {
-            return await generateVerseContext(vref);
-        }
-    );
 
     const openSourceUploadCommand = vscode.commands.registerCommand(
         "codexNotebookTreeView.openSourceFile",
@@ -300,9 +261,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         openDictionaryCommand,
         createCodexNotebookCommand,
         setEditorFontCommand,
-        getBibleDataRecordByIdCommand,
         exportCodexContentCommand,
-        getContextDataFromVrefCommand,
         updateProjectNotebooksToUseCellsForVerseContentCommand,
         openSourceUploadCommand,
         uploadSourceFolderCommand,

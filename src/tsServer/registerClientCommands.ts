@@ -10,7 +10,7 @@ export function registerClientCommands(
 
     disposables.push(
         vscode.commands.registerCommand(
-            "translators-copilot.spellCheckText",
+            "codex-editor-extension.spellCheckText",
             async (text: string, cellId: string) => {
                 if (client) {
                     return client.sendRequest("spellcheck/check", { text, cellId });
@@ -20,7 +20,7 @@ export function registerClientCommands(
     );
     disposables.push(
         vscode.commands.registerCommand(
-            "translators-copilot.alertCodes",
+            "codex-editor-extension.alertCodes",
             async (args: GetAlertCodes) => {
                 if (client) {
                     const ret = client.sendRequest<AlertCodesServerResponse>(
@@ -36,7 +36,7 @@ export function registerClientCommands(
 
     disposables.push(
         vscode.commands.registerCommand(
-            "translators-copilot.getSimilarWords",
+            "codex-editor-extension.getSimilarWords",
             async (word: string) => {
                 if (client) {
                     return client.sendRequest("server.getSimilarWords", [word]);

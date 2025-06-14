@@ -189,7 +189,7 @@ export const SplashScreen: React.FC = () => {
                                 {isSyncStep ? (
                                     <strong>{latestTiming.step}</strong>
                                 ) : (
-                                    `Loading: ${latestTiming.step}`
+                                    latestTiming.step
                                 )}
                             </span>
                             <span className="stage-time">{latestTiming.duration.toFixed(0)}ms</span>
@@ -233,13 +233,7 @@ export const SplashScreen: React.FC = () => {
                     >
                         <LoadingStages stages={timings} /> {/* Show ALL stages */}
                     </div>
-                    <div className="loading-stages-scroll-indicator">
-                        {timings.length > 8 && (
-                            <div className="scroll-progress">
-                                Showing {Math.min(8, timings.length)} of {timings.length} stages
-                            </div>
-                        )}
-                    </div>
+
                 </div>
             </div>
 

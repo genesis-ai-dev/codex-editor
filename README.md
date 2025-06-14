@@ -11,7 +11,7 @@ Read more about Codex Translation Editor Extension in the [documentation](https:
 -   **Notebook Support**: Utilize `.codex` notebooks for organizing and managing your scripture translation projects.
 -   **Language Support**: Syntax highlighting and language support for `.scripture` and `.codex` files to improve readability and editing.
 -   **Translator's Copilot Integration**: Access to Translator's Copilot Language Server for advanced drafting and diagnostics.
--   **Custom Views and Panels**: Dedicated views for resources, comments, parallel passages, and more, tailored for scripture translation workflows.
+-   **Custom Views and Panels**: Dedicated views for resources, comments, search passages, and more, tailored for scripture translation workflows.
 -   **Commands and Shortcuts**: A set of commands for common tasks such as creating new projects, opening files, indexing references, and more, accessible directly from the command palette.
 -   **Customizable Settings**: Configure the extension to suit your workflow with settings for the language server, document selectors, and more.
 
@@ -19,7 +19,7 @@ Read more about Codex Translation Editor Extension in the [documentation](https:
 
 1. **Installation**: Install the extension from the Visual Studio Code Marketplace.
 2. **Setup a Project**: Use the "Start a new Project" command to initialize your translation project. If you open the Scripture Explorer panel, you will see a button to create a new project as well.
-3. **Explore the Features**: Navigate through the custom views like the Genesis Translator, Parallel Passages, and Resource Explorer to access the tools and resources you need.
+3. **Explore the Features**: Navigate through the custom views like the Genesis Translator, Search Passages, and Resource Explorer to access the tools and resources you need.
 4. **Edit and Translate**: Open `.codex` or `.scripture` files, or navigate to a chapter of a biblical book in the Scripture Explorer and start translating with the help of syntax highlighting and language support. You can also use the Translator's Copilot Language Server to get advanced drafting and diagnostics.
 
 You can also use the "Create Codex Notebook" command to generate a new Codex Notebook for your project.
@@ -37,7 +37,7 @@ You can also use the "Create Codex Notebook" command to generate a new Codex Not
 ### Custom Views
 
 -   **Genesis Translator**: A webview panel for accessing translation tools and resources.
--   **Parallel Passages**: View parallel passages to compare translations.
+-   **Search Passages**: View search passages to compare translations.
 -   **Comments**: Manage and view comments on your translations.
 -   **Scripture Explorer**: Navigate through your scripture files easily.
 -   **Dictionary Table**: Access a comprehensive dictionary for translation help.

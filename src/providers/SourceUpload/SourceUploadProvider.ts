@@ -25,6 +25,7 @@ import { ProgressManager } from "../../utils/progressManager";
 import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
+import { getWebviewHtml } from "../../utils/webviewTemplate";
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -115,15 +116,6 @@ interface CodexFile {
     id: string;
     name: string;
     path: string;
-}
-
-function getNonce(): string {
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
 }
 
 const DEBUG_MODE = true; // Set to true to enable debug logging
@@ -220,49 +212,7 @@ export class SourceUploadProvider
                             message.files,
                             _token
                         );
-                        // try {
-                        //     const tempUri = await this.saveUploadedFile(
-                        //         message.fileContent,
-                        //         message.fileName
-                        //     );
-
-                        //     const transaction = new TranslationImportTransaction(
-                        //         tempUri,
-                        //         message.sourceId,
-                        //         this.context
-                        //     );
-                        //     this.currentTranslationTransaction = transaction; // Ensure this is set
-
-                        //     // Generate preview
-                        //     const rawPreview = await transaction.prepare();
-
-                        //     // Transform to PreviewState format
-                        //     const preview: PreviewState = {
-                        //         type: "translation",
-                        //         preview: {
-                        //             original: {
-                        //                 preview: rawPreview.original.preview,
-                        //                 validationResults: rawPreview.original.validationResults,
-                        //             },
-                        //             transformed: rawPreview.transformed,
-                        //         },
-                        //     };
-
-                        //     // Store the preview
-                        //     this.currentPreview = preview;
-
-                        //     // Send preview to webview
-                        //     webviewPanel.webview.postMessage({
-                        //         command: "translationPreview",
-                        //         preview,
-                        //     } as SourceUploadResponseMessages);
-                        // } catch (error: any) {
-                        //     console.error("Error preparing translation import:", error);
-                        //     webviewPanel.webview.postMessage({
-                        //         command: "error",
-                        //         message: error instanceof Error ? error.message : "Unknown error",
-                        //     } as SourceUploadResponseMessages);
-                        // }
+                        
                         break;
                     case "downloadBible":
                         try {
@@ -636,7 +586,7 @@ export class SourceUploadProvider
                                     });
 
                                     await vscode.commands.executeCommand(
-                                        "translators-copilot.forceReindex"
+                                        "codex-editor-extension.forceReindex"
                                     );
                                 } catch (error) {
                                     // Error handling
@@ -860,49 +810,11 @@ export class SourceUploadProvider
         if (!this.context) {
             throw new Error("Context is not set in SourceUploadProvider.getHtmlForWebview");
         }
-        const styleResetUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "reset.css")
-        );
-        const styleVSCodeUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.context.extensionUri, "src", "assets", "vscode.css")
-        );
-        const codiconsUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "node_modules",
-                "@vscode/codicons",
-                "dist",
-                "codicon.css"
-            )
-        );
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(
-                this.context.extensionUri,
-                "webviews",
-                "codex-webviews",
-                "dist",
-                "SourceUpload",
-                "index.js"
-            )
-        );
-
-        const nonce = getNonce();
-        return /*html*/ `<!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; worker-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
-                <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${styleVSCodeUri}" rel="stylesheet" nonce="${nonce}">
-                <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
-                <title>Codex Uploader</title>
-            </head>
-            <body>
-                <div id="root"></div>
-                <script nonce="${nonce}" src="${scriptUri}"></script>
-            </body>
-            </html>`;
+        return getWebviewHtml(webview, this.context, {
+            title: "Codex Uploader",
+            scriptPath: ["SourceUpload", "index.js"],
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; worker-src ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`
+        });
     }
 
     // New method to generate preview
@@ -934,66 +846,6 @@ export class SourceUploadProvider
         return this.currentPreview;
     }
 
-    // private async handleSourceImport(
-    //     webviewPanel: vscode.WebviewPanel,
-    //     fileUri: vscode.Uri,
-    //     token: vscode.CancellationToken
-    // ): Promise<void> {
-    //     const transaction = new SourceImportTransaction(fileUri, this.context);
-
-    //     try {
-    //         // Prepare and show preview
-    //         const preview = await transaction.prepare();
-    //         webviewPanel.webview.postMessage({
-    //             command: "preview",
-    //             preview,
-    //         });
-
-    //         // Wait for user confirmation
-    //         const confirmed = await this.awaitConfirmation(webviewPanel);
-    //         if (!confirmed) {
-    //             await transaction.rollback();
-    //             return;
-    //         }
-
-    //         // Execute with progress
-    //         await vscode.window.withProgress(
-    //             {
-    //                 location: { viewId: "sourceUpload" },
-    //                 cancellable: true,
-    //             },
-    //             async (progress, token) => {
-    //                 // Forward progress to webview
-    //                 const progressCallback = (p: { message?: string; increment?: number }) => {
-    //                     webviewPanel.webview.postMessage({
-    //                         command: "progress",
-    //                         progress: p,
-    //                     });
-    //                     progress.report(p);
-    //                 };
-
-    //                 token.onCancellationRequested(() => {
-    //                     transaction.rollback();
-    //                     webviewPanel.webview.postMessage({
-    //                         command: "error",
-    //                         error: "Operation cancelled",
-    //                     });
-    //                 });
-
-    //                 await transaction.execute({ report: progressCallback }, token);
-    //             }
-    //         );
-
-    //         webviewPanel.webview.postMessage({ command: "complete" });
-    //     } catch (error) {
-    //         await transaction.rollback();
-    //         webviewPanel.webview.postMessage({
-    //             command: "error",
-    //             error: error instanceof Error ? error.message : "Unknown error occurred",
-    //         });
-    //         throw error;
-    //     }
-    // }
 
     private async awaitConfirmation(webviewPanel: vscode.WebviewPanel): Promise<boolean> {
         return new Promise((resolve) => {
@@ -1123,7 +975,7 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful download
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
         } catch (error) {
             await this.currentDownloadBibleTransaction?.rollback();
             throw error;
@@ -1321,7 +1173,7 @@ export class SourceUploadProvider
 
             // Trigger reindex after successful import
             if (transactions.length > errors.length) {
-                await vscode.commands.executeCommand("translators-copilot.forceReindex");
+                await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             }
         } catch (error) {
             // Handle any unexpected errors at the top level
@@ -1411,7 +1263,7 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful import
-            await vscode.commands.executeCommand("translators-copilot.forceReindex");
+            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
         } catch (error) {
             // Rollback all transactions on error
             await Promise.all(transactions.map((t) => t.rollback()));

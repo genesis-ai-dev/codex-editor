@@ -18,7 +18,7 @@ export class IndexingStatusBarHandler {
         this.progressBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
 
         // Add command to status bar item
-        this.statusBarItem.command = 'translators-copilot.forceReindex';
+        this.statusBarItem.command = 'codex-editor-extension.forceReindex';
         
         this.statusBarItem.show();
         this.indexCountsItem.show();
@@ -34,12 +34,12 @@ export class IndexingStatusBarHandler {
 
     public setIndexingActive(): void {
         this.statusBarItem.text = "$(sync~spin) Indexing...";
-        this.statusBarItem.tooltip = "Translators Copilot is currently indexing. Click to force reindex.";
+        this.statusBarItem.tooltip = "Codex Extension is currently indexing. Click to force reindex.";
     }
 
     public setIndexingComplete(): void {
         this.statusBarItem.text = "$(check) Indexed";
-        this.statusBarItem.tooltip = "Translators Copilot indexing complete. Click to force reindex.";
+        this.statusBarItem.tooltip = "Codex Extension indexing complete. Click to force reindex.";
     }
 
     public updateTranslationProgress(percentage: number): void {

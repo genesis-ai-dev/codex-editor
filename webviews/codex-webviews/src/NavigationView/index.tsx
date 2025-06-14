@@ -1,19 +1,16 @@
 import React, { useState, useEffect, useMemo, FormEventHandler } from "react";
 import { createRoot } from "react-dom/client";
-import {
-    VSCodeButton,
-    VSCodeDivider,
-    VSCodeBadge,
-    VSCodeTextField,
-    VSCodeProgressRing,
-} from "@vscode/webview-ui-toolkit/react";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Badge } from "../components/ui/badge";
 import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
 
-// Declare the VS Code API globally like in ProjectManagerView
-declare const vscode: {
-    postMessage: (message: any) => void;
-};
+// Declare the acquireVsCodeApi function
+declare function acquireVsCodeApi(): any;
+
+// Acquire the VS Code API
+const vscode = acquireVsCodeApi();
 
 interface BibleBookInfo {
     name: string;
@@ -40,6 +37,7 @@ interface State {
     expandedGroups: Set<string>;
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
+    openMenu: string | null;
 }
 
 // Styles object to keep things organized
@@ -119,6 +117,7 @@ const styles = {
         gap: "6px",
         width: "100%",
         minHeight: "22px",
+        position: "relative" as const,
     },
     label: {
         overflow: "hidden",
@@ -181,6 +180,47 @@ const styles = {
         textAlign: "center" as const,
         color: "var(--vscode-descriptionForeground)",
     },
+    menuButton: {
+        padding: "2px",
+        background: "transparent",
+        border: "none",
+        borderRadius: "3px",
+        cursor: "pointer",
+        transition: "opacity 0.2s ease, background-color 0.1s ease",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "12px",
+        color: "var(--vscode-foreground)",
+        minWidth: "16px",
+        height: "16px",
+        maxWidth: "fit-content",
+    },
+    popover: {
+        position: "absolute" as const,
+        top: "100%",
+        right: "0px",
+        backgroundColor: "var(--vscode-menu-background)",
+        border: "1px solid var(--vscode-menu-border)",
+        borderRadius: "3px",
+        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.32)",
+        zIndex: 1000,
+        minWidth: "120px",
+        padding: "4px 0",
+    },
+    popoverItem: {
+        padding: "6px 12px",
+        cursor: "pointer",
+        fontSize: "13px",
+        color: "var(--vscode-menu-foreground)",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        "&:hover": {
+            backgroundColor: "var(--vscode-menu-selectionBackground)",
+            color: "var(--vscode-menu-selectionForeground)",
+        },
+    },
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -215,8 +255,13 @@ const sortItems = (a: CodexItem, b: CodexItem) => {
 
 // Helper function to get proper Bible book name or format label nicely
 const formatLabel = (label: string, bibleBookMap: Map<string, BibleBookInfo>): string => {
+    // If label is empty or undefined, return a fallback
+    if (!label || label.trim() === "") {
+        return "Unknown File";
+    }
+
     // Check if it's a Bible book abbreviation
-    if (bibleBookMap.has(label)) {
+    if (bibleBookMap && bibleBookMap.has(label)) {
         return bibleBookMap.get(label)!.name;
     }
 
@@ -230,6 +275,11 @@ const formatLabel = (label: string, bibleBookMap: Map<string, BibleBookInfo>): s
     cleanName = cleanName.replace(/([A-Z])/g, " $1").trim();
     cleanName = cleanName.replace(/\s+/g, " ");
 
+    // If the cleaned name is empty, return the original label
+    if (!cleanName || cleanName.trim() === "") {
+        return label;
+    }
+
     return cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
 };
 
@@ -240,6 +290,7 @@ function NavigationView() {
         expandedGroups: new Set(),
         searchQuery: "",
         bibleBookMap: undefined,
+        openMenu: null,
     });
 
     // Initialize Bible book map on component mount
@@ -358,14 +409,47 @@ function NavigationView() {
         });
     };
 
-    const handleSearch: FormEventHandler<HTMLElement> & ((e: Event) => unknown) = (e) => {
-        const target = e.target as HTMLInputElement;
-        setState((prev) => ({ ...prev, searchQuery: target.value }));
+    const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setState((prev) => ({ ...prev, searchQuery: e.target.value }));
     };
 
     const handleRefresh = () => {
         vscode.postMessage({ command: "refresh" });
     };
+
+    const toggleMenu = (itemId: string, event: React.MouseEvent) => {
+        event.stopPropagation();
+        setState((prev) => ({
+            ...prev,
+            openMenu: prev.openMenu === itemId ? null : itemId,
+        }));
+    };
+
+    const closeMenu = () => {
+        setState((prev) => ({ ...prev, openMenu: null }));
+    };
+
+    const handleDelete = (item: CodexItem) => {
+        closeMenu();
+        vscode.postMessage({
+            command: "deleteFile",
+            uri: item.uri,
+            label: item.label,
+            type: item.type,
+        });
+    };
+
+    // Close menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => {
+            if (state.openMenu) {
+                closeMenu();
+            }
+        };
+
+        document.addEventListener("click", handleClickOutside);
+        return () => document.removeEventListener("click", handleClickOutside);
+    }, [state.openMenu]);
 
     const openFile = (item: CodexItem) => {
         // Get the file system path from the URI
@@ -390,7 +474,10 @@ function NavigationView() {
                 if (item.type === "corpus" && item.children) {
                     const filteredChildren = item.children
                         .filter((child) => {
-                            const displayName = formatLabel(child.label, state.bibleBookMap || new Map());
+                            const displayName = formatLabel(
+                                child.label,
+                                state.bibleBookMap || new Map()
+                            );
                             return displayName.toLowerCase().includes(searchLower);
                         })
                         .sort(sortItems);
@@ -439,15 +526,47 @@ function NavigationView() {
         const isGroup = item.type === "corpus";
         const isExpanded = state.expandedGroups.has(item.label);
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
-        const displayLabel = formatLabel(item.label, state.bibleBookMap || new Map());
+        const displayLabel = formatLabel(item.label || "", state.bibleBookMap || new Map());
+        const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
+        const isMenuOpen = state.openMenu === itemId;
+
+        // Debug logging (can be removed later)
+        if (!displayLabel || displayLabel.trim() === "") {
+            console.warn("Empty display label for item:", item);
+        }
 
         return (
             <div key={item.label + item.uri}>
                 <div
-                    style={isGroup ? styles.groupItem : styles.item}
-                    onClick={() => (isGroup ? toggleGroup(item.label) : openFile(item))}
+                    style={{
+                        ...(isGroup ? styles.groupItem : styles.item),
+                        position: "relative",
+                    }}
+                    // onMouseEnter={(e) => {
+                    //     if (!isGroup) {
+                    //         const menuButton = e.currentTarget.querySelector(
+                    //             ".menu-button"
+                    //         ) as HTMLElement;
+                    //         if (menuButton) {
+                    //             menuButton.style.opacity = "1";
+                    //         }
+                    //     }
+                    // }}
+                    // onMouseLeave={(e) => {
+                    //     if (!isGroup && !isMenuOpen) {
+                    //         const menuButton = e.currentTarget.querySelector(
+                    //             ".menu-button"
+                    //         ) as HTMLElement;
+                    //         if (menuButton) {
+                    //             menuButton.style.opacity = "0";
+                    //         }
+                    //     }
+                    // }}
                 >
-                    <div style={styles.itemHeader}>
+                    <div
+                        style={styles.itemHeader}
+                        onClick={() => (isGroup ? toggleGroup(item.label) : openFile(item))}
+                    >
                         {isGroup && (
                             <i
                                 className={`codicon codicon-${
@@ -460,6 +579,32 @@ function NavigationView() {
                         <span style={styles.label}>{displayLabel}</span>
                         {item.progress === 100 && (
                             <i className="codicon codicon-check" style={styles.checkIcon} />
+                        )}
+                        {!isGroup && (
+                            <button
+                                className="menu-button"
+                                style={{
+                                    ...styles.menuButton,
+                                }}
+                                onClick={(e) => toggleMenu(itemId, e)}
+                                title="More options"
+                            >
+                                <i className="codicon codicon-kebab-vertical" />
+                            </button>
+                        )}
+                        {!isGroup && isMenuOpen && (
+                            <div style={styles.popover}>
+                                <div
+                                    style={styles.popoverItem}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDelete(item);
+                                    }}
+                                >
+                                    <i className="codicon codicon-trash" />
+                                    Delete
+                                </div>
+                            </div>
                         )}
                     </div>
                     {renderProgressSection(item.progress)}
@@ -483,20 +628,16 @@ function NavigationView() {
             <div style={styles.searchContainer}>
                 <div style={styles.searchWrapper}>
                     <i className="codicon codicon-search" style={styles.searchIcon} />
-                    <VSCodeTextField
+                    <Input
                         placeholder="Search files..."
                         value={state.searchQuery}
-                        onInput={handleSearch}
-                        style={{ width: "100%" }}
+                        onChange={handleSearch}
+                        style={{ width: "100%", paddingLeft: "28px" }}
                     />
                 </div>
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={handleRefresh}
-                    style={styles.refreshButton}
-                >
+                <Button variant="outline" onClick={handleRefresh} style={styles.refreshButton}>
                     <i className="codicon codicon-refresh" />
-                </VSCodeButton>
+                </Button>
             </div>
             <div style={styles.itemsContainer}>
                 {hasResults ? (
@@ -504,6 +645,8 @@ function NavigationView() {
                         {filteredCodexItems.map(renderItem)}
                         {filteredDictionaryItems.map(renderItem)}
                     </>
+                ) : state.codexItems.length === 0 && state.dictionaryItems.length === 0 ? (
+                    <div style={styles.noResults}>Loading files...</div>
                 ) : (
                     <div style={styles.noResults}>No matching files found</div>
                 )}

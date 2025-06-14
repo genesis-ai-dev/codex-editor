@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { SplashScreen } from "./SplashScreen";
+import "../tailwind.css";
 import "./SplashScreen.css";
 
 // Initialize the app when the DOM is loaded
