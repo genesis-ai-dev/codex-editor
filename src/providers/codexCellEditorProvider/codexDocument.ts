@@ -293,6 +293,20 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
     }
 
+    // Helper function to sanitize HTML content
+    private sanitizeContent(htmlContent: string): string {
+        // Remove HTML tags but preserve the text content
+        return htmlContent
+            .replace(/<[^>]*>/g, '') // Remove HTML tags
+            .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
+            .replace(/&amp;/g, '&')  // Replace HTML entities
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .trim(); // Remove leading/trailing whitespace
+    }
+
     // Optimized immediate indexing - fire and forget, no bottlenecks
     private addCellToIndexImmediately(
         cellId: string,
@@ -319,15 +333,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     this._cachedFileId = fileId;
                 }
 
+                // Sanitize content for search while preserving raw content with HTML
+                const sanitizedContent = this.sanitizeContent(content);
+
                 // Add cell to index immediately - triggers will handle FTS sync
                 await this._indexManager.upsertCell(
                     cellId,
                     fileId,
                     "target",
-                    content,
+                    sanitizedContent,  // Sanitized content for search
                     undefined,
                     { editType, lastUpdated: Date.now() },
-                    content
+                    content           // Raw content with HTML tags
                 );
             } catch (error) {
                 // Silent failure - don't log, don't throw
