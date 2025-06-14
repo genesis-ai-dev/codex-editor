@@ -109,8 +109,6 @@ export class RepositoryMigrationManager {
         }
     }
 
-
-
     /**
      * Check if a project requires migration and assess its current state
      */
@@ -186,8 +184,8 @@ export class RepositoryMigrationManager {
             // A project needs migration if:
             // 1. No migration file exists (migrationVersion === 0)
             // 2. Has a remote repository (can be recloned)
-            // 3. Has SQLite files that need cleanup (anywhere in the project)
-            const hasSQLiteFiles = await this.checkForSQLiteFiles(projectPath);
+            // 3. Has SQLite files that are tracked in git history (not just present on disk)
+            const hasSQLiteFiles = await this.checkForTrackedSQLiteFiles(projectPath);
 
             state.needsMigration = state.migrationVersion === 0 &&
                 state.remoteVerified &&
@@ -800,8 +798,8 @@ export class RepositoryMigrationManager {
             // If migration file doesn't exist, check if project needs migration
             if (!migrationFileExists) {
                 try {
-                    // Check if project has SQLite files that need cleanup
-                    const hasSQLiteFiles = await RepositoryMigrationManager.checkForSQLiteFilesStatic(projectPath);
+                    // Check if project has SQLite files tracked in git that need cleanup
+                    const hasSQLiteFiles = await RepositoryMigrationManager.checkForTrackedSQLiteFilesStatic(projectPath);
 
                     if (hasSQLiteFiles && result.hasRemote) {
                         // Project has SQLite files and remote - needs migration
@@ -1123,53 +1121,87 @@ export class RepositoryMigrationManager {
     }
 
     /**
-     * Check if a project has SQLite files that need migration
+     * Check if SQLite files are tracked in git (the real indicator of migration need)
      */
-    private async checkForSQLiteFiles(projectPath: string): Promise<boolean> {
+    private async checkForTrackedSQLiteFiles(projectPath: string): Promise<boolean> {
         try {
-            // Check for SQLite files in .project directory
-            const projectDir = path.join(projectPath, '.project');
+            // Check if SQLite files are currently tracked by git
+            const trackedFiles = await git.listFiles({ fs, dir: projectPath });
 
+            for (const file of trackedFiles) {
+                if (SQLITE_FILES_PATTERN.test(file)) {
+                    return true;
+                }
+            }
+
+            // Also check git history for SQLite files that might have been committed
             try {
-                const files = await fs.promises.readdir(projectDir);
-                for (const file of files) {
-                    if (file.endsWith('.sqlite')) {
-                        return true;
+                const commits = await git.log({ fs, dir: projectPath, depth: 50 }); // Check last 50 commits
+
+                for (const commit of commits) {
+                    try {
+                        const treeEntries = await git.listFiles({ fs, dir: projectPath, ref: commit.oid });
+
+                        for (const file of treeEntries) {
+                            if (SQLITE_FILES_PATTERN.test(file)) {
+                                return true;
+                            }
+                        }
+                    } catch (error) {
+                        // Skip commits that can't be read
+                        continue;
                     }
                 }
             } catch (error) {
-                // .project directory might not exist
+                console.warn('Could not check git history for SQLite files:', error);
             }
 
             return false;
         } catch (error) {
-            console.warn('Error checking for SQLite files:', error);
+            console.warn('Error checking for tracked SQLite files:', error);
             return false;
         }
     }
 
     /**
-     * Static method to check if a project has SQLite files that need migration
+     * Static method to check if SQLite files are tracked in git
      */
-    static async checkForSQLiteFilesStatic(projectPath: string): Promise<boolean> {
+    static async checkForTrackedSQLiteFilesStatic(projectPath: string): Promise<boolean> {
         try {
-            // Check for SQLite files in .project directory
-            const projectDir = path.join(projectPath, '.project');
+            // Check if SQLite files are currently tracked by git
+            const trackedFiles = await git.listFiles({ fs, dir: projectPath });
 
+            for (const file of trackedFiles) {
+                if (SQLITE_FILES_PATTERN.test(file)) {
+                    return true;
+                }
+            }
+
+            // Also check git history for SQLite files that might have been committed
             try {
-                const files = await fs.promises.readdir(projectDir);
-                for (const file of files) {
-                    if (file.endsWith('.sqlite')) {
-                        return true;
+                const commits = await git.log({ fs, dir: projectPath, depth: 50 }); // Check last 50 commits
+
+                for (const commit of commits) {
+                    try {
+                        const treeEntries = await git.listFiles({ fs, dir: projectPath, ref: commit.oid });
+
+                        for (const file of treeEntries) {
+                            if (SQLITE_FILES_PATTERN.test(file)) {
+                                return true;
+                            }
+                        }
+                    } catch (error) {
+                        // Skip commits that can't be read
+                        continue;
                     }
                 }
             } catch (error) {
-                // .project directory might not exist
+                console.warn('Could not check git history for SQLite files:', error);
             }
 
             return false;
         } catch (error) {
-            console.warn('Error checking for SQLite files:', error);
+            console.warn('Error checking for tracked SQLite files:', error);
             return false;
         }
     }
@@ -1258,5 +1290,21 @@ export class RepositoryMigrationManager {
         } catch (error) {
             throw new Error(`Failed to push changes: ${error instanceof Error ? error.message : String(error)}`);
         }
+    }
+
+    /**
+     * Check if a project has SQLite files that need migration
+     * @deprecated Use checkForTrackedSQLiteFiles instead - this method incorrectly checks disk presence
+     */
+    private async checkForSQLiteFiles(projectPath: string): Promise<boolean> {
+        return this.checkForTrackedSQLiteFiles(projectPath);
+    }
+
+    /**
+     * Static method to check if a project has SQLite files that need migration
+     * @deprecated Use checkForTrackedSQLiteFilesStatic instead - this method incorrectly checks disk presence
+     */
+    static async checkForSQLiteFilesStatic(projectPath: string): Promise<boolean> {
+        return RepositoryMigrationManager.checkForTrackedSQLiteFilesStatic(projectPath);
     }
 } 

@@ -19,7 +19,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     protected abstract getWebviewId(): string;
     protected abstract getScriptPath(): string[];
     protected abstract handleMessage(message: any): Promise<void>;
-
+    
     // Optional method for additional HTML content
     protected getAdditionalHtml(): string {
         return '';
@@ -28,7 +28,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     // Common webview resolution
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
-
+        
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],

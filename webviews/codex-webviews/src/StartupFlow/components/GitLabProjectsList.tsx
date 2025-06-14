@@ -178,13 +178,13 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             const pathParts = urlObj.pathname.split("/").filter(Boolean);
 
             if (pathParts.length >= 2) {
-                const groups = pathParts.slice(0, -1);
+            const groups = pathParts.slice(0, -1);
                 const projectNameWithExt = pathParts[pathParts.length - 1];
                 const cleanName = projectNameWithExt.replace(/\.git$/, "");
                 const displayUrl = `${urlObj.hostname}${urlObj.pathname}`;
                 const uniqueId = cleanName;
 
-                return { groups, cleanName, displayUrl, uniqueId };
+            return { groups, cleanName, displayUrl, uniqueId };
             }
         } catch (error) {
             console.warn("Failed to parse project URL:", url, error);
@@ -349,10 +349,10 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <i
+                        <i
                                 className={cn("codicon", status.icon, status.className)}
-                                title={status.title}
-                            />
+                            title={status.title}
+                        />
                             <div className="flex items-center gap-2 flex-1 min-w-0">
                                 <span className="font-medium truncate">{cleanName || project.name}</span>
                                 {project.needsMigration && (
@@ -365,28 +365,28 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                         Unpublished
                                     </Badge>
                                 )}
-                            </div>
-                            {uniqueId && (
-                                <span
-                                    className="text-sm text-muted-foreground opacity-40 hover:opacity-100 transition-opacity cursor-help"
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.textContent = `#${uniqueId}`;
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.textContent = `#${uniqueId.slice(0, 3)}...`;
-                                    }}
-                                    title={`Full ID: ${uniqueId}`}
-                                >
-                                    #{uniqueId.slice(0, 3)}...
-                                </span>
-                            )}
                         </div>
+                        {uniqueId && (
+                            <span
+                                    className="text-sm text-muted-foreground opacity-40 hover:opacity-100 transition-opacity cursor-help"
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.textContent = `#${uniqueId}`;
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.textContent = `#${uniqueId.slice(0, 3)}...`;
+                                }}
+                                title={`Full ID: ${uniqueId}`}
+                            >
+                                #{uniqueId.slice(0, 3)}...
+                            </span>
+                        )}
+                    </div>
                         <div className="flex items-center gap-2">
-                            {project.completionPercentage !== undefined && (
+                        {project.completionPercentage !== undefined && (
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-medium">
-                                        {project.completionPercentage.toFixed(1)}%
-                                    </span>
+                                    {project.completionPercentage.toFixed(1)}%
+                                </span>
                                     <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
                                         <div
                                             className="h-full bg-green-500 transition-all duration-300"
@@ -395,29 +395,29 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             }}
                                         />
                                     </div>
-                                </div>
-                            )}
+                            </div>
+                        )}
                             {renderProjectActions(project)}
                             {displayUrl && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() =>
-                                        setExpandedProjects((prev) => ({
-                                            ...prev,
-                                            [project.name]: !prev[project.name],
-                                        }))
-                                    }
+                                onClick={() =>
+                                    setExpandedProjects((prev) => ({
+                                        ...prev,
+                                        [project.name]: !prev[project.name],
+                                    }))
+                                }
                                     className="h-8 w-8 p-0"
-                                >
+                            >
                                     <i className={cn(
                                         "codicon codicon-chevron-down transition-transform",
                                         isExpanded && "rotate-180"
                                     )} />
                                 </Button>
-                            )}
-                        </div>
+                        )}
                     </div>
+                </div>
                 </CardHeader>
 
                 {isExpanded && displayUrl && (
@@ -594,22 +594,22 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     <div className="relative flex-1">
                         <i className="codicon codicon-search absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
                         <Input
-                            placeholder="Search projects..."
-                            value={searchQuery}
+                        placeholder="Search projects..."
+                        value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="pl-10"
                         />
-                        {searchQuery && (
+                    {searchQuery && (
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => setSearchQuery("")}
+                            onClick={() => setSearchQuery("")}
                                 className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7 p-0"
-                            >
+                        >
                                 <i className="codicon codicon-close" />
                             </Button>
-                        )}
-                    </div>
+                    )}
+                </div>
 
                     <Select value={filter} onValueChange={(value) => setFilter(value as ProjectFilter)}>
                         <SelectTrigger className="w-48">
@@ -617,19 +617,19 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">
-                                All Projects ({getFilterCount("all")})
+                            All Projects ({getFilterCount("all")})
                             </SelectItem>
                             <SelectItem value="local">
-                                Available Locally ({getFilterCount("local")})
+                            Available Locally ({getFilterCount("local")})
                             </SelectItem>
                             <SelectItem value="remote">
-                                Remote Only ({getFilterCount("remote")})
+                            Remote Only ({getFilterCount("remote")})
                             </SelectItem>
                             <SelectItem value="synced">
-                                Synced Projects ({getFilterCount("synced")})
+                            Synced Projects ({getFilterCount("synced")})
                             </SelectItem>
                             <SelectItem value="non-synced">
-                                Non-Synced Projects ({getFilterCount("non-synced")})
+                            Non-Synced Projects ({getFilterCount("non-synced")})
                             </SelectItem>
                         </SelectContent>
                     </Select>
