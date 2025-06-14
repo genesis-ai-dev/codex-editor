@@ -308,39 +308,36 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }
 
-    // Check for HTML content and delete database if found BEFORE any rebuilding
-    let databaseWasDeleted = false;
+    // Check if database was recreated during initialization (schema migration)
+    // The SQLiteIndexManager handles schema migrations automatically during initialize()
+    let databaseWasRecreated = false;
     if (translationPairsIndex instanceof SQLiteIndexManager) {
-        try {
-            console.log("[Index] Checking for HTML content in database...");
-            databaseWasDeleted = await translationPairsIndex.checkAndDeleteDatabaseIfHtmlContentExists();
-
-            if (databaseWasDeleted) {
-                console.log("[Index] Database was deleted due to HTML content, will trigger full reindex...");
-            }
-        } catch (error) {
-            console.warn("[Index] Error during HTML content check:", error);
+        // Check if the database is empty (indicating it was just recreated)
+        const currentDocCount = translationPairsIndex.documentCount;
+        if (currentDocCount === 0 && isIndexContextInitialized) {
+            // Database was likely recreated due to schema migration
+            databaseWasRecreated = true;
+            console.log("[Index] Database appears to have been recreated during schema migration");
         }
     }
 
-    // Check if we need to rebuild - either first time, database deleted, or empty database
+    // Check if we need to rebuild - only rebuild if database is empty or was recreated
+    // Don't rebuild just because this is the first initialization - if database has documents, use them
     const currentDocCount = translationPairsIndex.documentCount;
-    const needsRebuild = !isIndexContextInitialized || databaseWasDeleted || currentDocCount === 0;
+    const needsRebuild = databaseWasRecreated || currentDocCount === 0;
 
     console.log(`[Index] Current document count: ${currentDocCount}, needs rebuild: ${needsRebuild}`);
 
     if (needsRebuild) {
-        let rebuildReason = "first initialization";
-        if (databaseWasDeleted) {
-            rebuildReason = "database deletion due to HTML content";
-        } else if (currentDocCount === 0) {
-            rebuildReason = "empty database detected";
+        let rebuildReason = "empty database detected";
+        if (databaseWasRecreated) {
+            rebuildReason = "schema migration to clean format";
         }
 
         console.log(`[Index] Triggering rebuild due to: ${rebuildReason}`);
 
-        if (databaseWasDeleted) {
-            vscode.window.showInformationMessage("Codex: Rebuilding search index with clean content...");
+        if (databaseWasRecreated) {
+            vscode.window.showInformationMessage("Codex: Rebuilding search index with new clean format...");
         } else if (currentDocCount === 0) {
             vscode.window.showInformationMessage("Codex: Building search index...");
         }
@@ -353,8 +350,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 const finalCount = translationPairsIndex.documentCount;
                 console.log(`[Index] Rebuild completed with ${finalCount} documents`);
 
-                if (databaseWasDeleted) {
-                    vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully with clean content! Indexed ${finalCount} documents.`);
+                if (databaseWasRecreated) {
+                    vscode.window.showInformationMessage(`Codex: Search index upgraded successfully to new clean format! Indexed ${finalCount} documents.`);
                 } else if (finalCount > 0) {
                     vscode.window.showInformationMessage(`Codex: Search index built successfully! Indexed ${finalCount} documents.`);
                 } else {

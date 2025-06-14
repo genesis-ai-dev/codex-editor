@@ -404,6 +404,11 @@ export class SQLiteIndexManager {
                     // Migration for improved content sanitization (version 3 -> 4)
                     // This version ensures HTML tags are properly sanitized from content column
                     console.log("[SQLiteIndex] Schema version 4 requires clean reindex for content sanitization - database will be recreated");
+
+                    // Show user notification about the one-time migration
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage("Codex: Upgrading search index to new clean format. This is a one-time operation...");
+
                     await this.recreateDatabase();
                 }
 
@@ -1605,102 +1610,7 @@ export class SQLiteIndexManager {
             .trim(); // Remove leading/trailing whitespace
     }
 
-    // Check if HTML content exists and delete database to trigger reindex
-    // This is optimized to only run when necessary to avoid startup delays
-    async checkAndDeleteDatabaseIfHtmlContentExists(): Promise<boolean> {
-        if (!this.db) {
-            console.log("[SQLiteIndex] No database connection, skipping HTML content check");
-            return false;
-        }
 
-        try {
-            // Check schema version - if it's 4 or higher, the database was already cleaned
-            const currentVersion = this.getSchemaVersion();
-            if (currentVersion >= 4) {
-                console.log(`[SQLiteIndex] Database schema version ${currentVersion} indicates clean database, skipping HTML content check`);
-                return false;
-            }
-
-            // First check if we have any cells at all
-            const cellCountStmt = this.db.prepare("SELECT COUNT(*) as count FROM cells");
-            let totalCells = 0;
-            try {
-                cellCountStmt.step();
-                const result = cellCountStmt.getAsObject();
-                totalCells = result.count as number;
-            } finally {
-                cellCountStmt.free();
-            }
-
-            if (totalCells === 0) {
-                console.log("[SQLiteIndex] Database has no cells, no HTML content check needed");
-                return false;
-            }
-
-            console.log(`[SQLiteIndex] Schema version ${currentVersion} < 4, checking ${totalCells} cells for HTML content...`);
-
-            // Quick sample check first - only check first 10 cells to see if there's HTML content
-            const quickCheckStmt = this.db.prepare(`
-                SELECT COUNT(*) as count 
-                FROM cells 
-                WHERE content LIKE '%<%' 
-                   OR content LIKE '%&lt;%' 
-                   OR content LIKE '%&gt;%' 
-                   OR content LIKE '%&amp;%' 
-                   OR content LIKE '%&nbsp;%'
-                   OR content LIKE '%<span>%'
-                   OR content LIKE '%</span>%'
-                LIMIT 10
-            `);
-
-            let hasHtmlContent = false;
-            try {
-                quickCheckStmt.step();
-                const result = quickCheckStmt.getAsObject();
-                hasHtmlContent = (result.count as number) > 0;
-            } finally {
-                quickCheckStmt.free();
-            }
-
-            if (hasHtmlContent) {
-                console.log("[SQLiteIndex] Detected HTML content in database content field, deleting database to trigger clean reindex...");
-
-                // Show user notification
-                const vscode = await import('vscode');
-                vscode.window.showInformationMessage("Codex: Detected HTML content in search index. Deleting database for clean rebuild...");
-
-                // Close current database connection
-                await this.close();
-
-                // Delete the database file
-                await this.deleteDatabaseFile();
-
-                console.log("[SQLiteIndex] Database deletion completed, reindex will be triggered");
-                return true; // Indicates database was deleted
-            } else {
-                console.log("[SQLiteIndex] No HTML content detected in sample, database appears clean");
-                // Update schema version to 4 to indicate the database is clean
-                this.setSchemaVersion(4);
-                return false;
-            }
-        } catch (error) {
-            console.error("[SQLiteIndex] Error checking for HTML content:", error);
-
-            // If there's an error checking (possibly corruption), delete the database anyway
-            const vscode = await import('vscode');
-            vscode.window.showWarningMessage("Codex: Database error detected. Rebuilding search index...");
-
-            try {
-                await this.close();
-                await this.deleteDatabaseFile();
-                console.log("[SQLiteIndex] Database deleted due to error, reindex will be triggered");
-                return true;
-            } catch (deleteError) {
-                console.error("[SQLiteIndex] Failed to delete database after error:", deleteError);
-                return false;
-            }
-        }
-    }
 
     // Delete the database file from disk
     private async deleteDatabaseFile(): Promise<void> {

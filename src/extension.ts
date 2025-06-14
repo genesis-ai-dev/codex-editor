@@ -481,37 +481,49 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
         console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
 
-        // Trigger progress reporting during initial load (while splash screen is still showing)
-        const progressStart = globalThis.performance.now();
-        console.log("[Activation] Generating progress report...");
+        // Generate progress report in background (don't block startup)
+        if (metadataExists) {
+            console.log("[Activation] Generating progress report...");
+            console.log("📊 Forcing progress report generation...");
 
-        // Update splash screen to show progress reporting
-        const { updateSplashScreenTimings } = await import("./providers/SplashScreen/register");
-        updateSplashScreenTimings([
-            { step: "Processing translation statistics", duration: 0, startTime: progressStart }
-        ]);
+            const progressStart = globalThis.performance.now();
 
-        try {
-            const { ProgressReportingService } = await import("./progressReporting/progressReportingService");
-            const progressService = ProgressReportingService.getInstance();
-            await progressService.forceProgressReport();
-
-            const progressDuration = globalThis.performance.now() - progressStart;
-            console.log(`[Activation] Progress Report Generated: ${progressDuration.toFixed(2)}ms`);
-
-            // Update splash screen with completion
+            // Update splash screen to show we're processing statistics
             updateSplashScreenTimings([
-                { step: "Processing translation statistics", duration: progressDuration, startTime: progressStart }
+                { step: "Processing translation statistics", duration: 0, startTime: progressStart }
             ]);
-        } catch (error) {
-            console.warn("[Activation] Failed to generate progress report during startup:", error);
-            const progressDuration = globalThis.performance.now() - progressStart;
-            console.log(`[Activation] Progress Report Failed: ${progressDuration.toFixed(2)}ms`);
 
-            // Update splash screen with failure
-            updateSplashScreenTimings([
-                { step: "Processing translation statistics (failed)", duration: progressDuration, startTime: progressStart }
-            ]);
+            try {
+                const { ProgressReportingService } = await import("./progressReporting/progressReportingService");
+                const progressService = ProgressReportingService.getInstance();
+
+                // Schedule progress report for background processing instead of blocking startup
+                setImmediate(async () => {
+                    try {
+                        await progressService.forceProgressReport();
+                        console.log("📊 Background progress report completed");
+                    } catch (error) {
+                        console.warn("📊 Background progress report failed:", error);
+                    }
+                });
+
+                const progressDuration = globalThis.performance.now() - progressStart;
+                console.log(`[Activation] Progress Report Scheduled: ${progressDuration.toFixed(2)}ms`);
+
+                // Update splash screen with completion
+                updateSplashScreenTimings([
+                    { step: "Processing translation statistics", duration: progressDuration, startTime: progressStart }
+                ]);
+            } catch (error) {
+                console.warn("[Activation] Failed to schedule progress report during startup:", error);
+                const progressDuration = globalThis.performance.now() - progressStart;
+                console.log(`[Activation] Progress Report Failed: ${progressDuration.toFixed(2)}ms`);
+
+                // Update splash screen with failure
+                updateSplashScreenTimings([
+                    { step: "Processing translation statistics (failed)", duration: progressDuration, startTime: progressStart }
+                ]);
+            }
         }
     }
 
