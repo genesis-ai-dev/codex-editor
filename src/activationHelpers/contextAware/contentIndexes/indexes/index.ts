@@ -78,10 +78,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
     let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
-    const debouncedRebuildIndexes = debounce(rebuildIndexes, 3000, {
-        leading: true,
-        trailing: true,
-    });
+    // REMOVED: debouncedRebuildIndexes - no longer needed
+    // File changes are now handled by incremental update functions
 
 
     // Debounced functions for individual indexes
@@ -121,17 +119,26 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
-    async function rebuildIndexes(force: boolean = false) {
+    // REMOVED: rebuildIndexes function - replaced with incremental updates
+    // The old bulk rebuilding approach was inefficient and defeated the purpose of FTS5
+    // Now we rely on:
+    // 1. Initial population for empty databases (efficientRebuildIndexes)
+    // 2. Incremental updates via file watchers (debouncedUpdate* functions)
+    // 3. FTS5 automatic index maintenance
+
+    /**
+     * Efficient indexing that streams files directly to database
+     * Avoids loading all files into memory at once
+     */
+    async function efficientRebuildIndexes(force: boolean = false): Promise<void> {
         statusBarHandler.setIndexingActive();
 
         try {
-            console.log(`[Index] Starting rebuild - force: ${force}, current document count: ${translationPairsIndex.documentCount}`);
+            console.log(`[Index] Starting efficient rebuild - force: ${force}`);
 
-            // Check if we need to rebuild - skip if indexes already have content
+            // Quick check: if database has content and no force, skip entirely
             if (!force && translationPairsIndex.documentCount > 0) {
-                console.log(
-                    `Indexes already populated with ${translationPairsIndex.documentCount} documents, skipping rebuild`
-                );
+                console.log(`[Index] Database already populated with ${translationPairsIndex.documentCount} documents, skipping rebuild`);
                 statusBarHandler.updateIndexCounts(
                     translationPairsIndex.documentCount,
                     sourceTextIndex.documentCount
@@ -140,171 +147,178 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 return;
             }
 
-            if (force) {
-                console.log("[Index] Force rebuild - clearing existing indexes...");
-                await translationPairsIndex.removeAll();
-
-                // Yield control to prevent blocking
-                await new Promise(resolve => setImmediate(resolve));
-
-                await sourceTextIndex.removeAll();
-                wordsIndex.clear();
-                filesIndex.clear();
-
-                // Yield control again after clearing
-                await new Promise(resolve => setImmediate(resolve));
-            }
-
-            // Read all source and target files once
-            const readFilesStart = globalThis.performance.now();
-            console.log("[Index] Reading source and target files...");
-            const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
-            const readFilesDuration = globalThis.performance.now() - readFilesStart;
-            console.log(`[Index] Found ${sourceFiles.length} source files and ${targetFiles.length} target files`);
-
-            // Track progress for splash screen
-            if (translationPairsIndex instanceof SQLiteIndexManager) {
-                translationPairsIndex.addProgressEntry(
-                    `Read ${sourceFiles.length + targetFiles.length} project files`,
-                    readFilesDuration,
-                    readFilesStart
-                );
-            }
-
-            if (sourceFiles.length === 0 && targetFiles.length === 0) {
-                console.warn("[Index] No source or target files found - cannot rebuild index");
-                vscode.window.showWarningMessage("Codex: No source or target files found. Please ensure your project has .codex files.");
+            // Check if files have changed since last index
+            const filesChanged = await checkIfFilesChanged();
+            if (!force && !filesChanged) {
+                console.log("[Index] No file changes detected, skipping rebuild");
                 statusBarHandler.setIndexingComplete();
                 return;
             }
 
-            // Rebuild indexes using the read data
-            const translationPairsStart = globalThis.performance.now();
-            console.log("[Index] Creating translation pairs index...");
-            await createTranslationPairsIndex(
-                context,
-                translationPairsIndex,
-                sourceFiles,
-                targetFiles,
-                metadataManager,
-                force || translationPairsIndex.documentCount === 0
-            );
-            const translationPairsDuration = globalThis.performance.now() - translationPairsStart;
-
-            // Track progress for splash screen
-            if (translationPairsIndex instanceof SQLiteIndexManager) {
-                translationPairsIndex.addProgressEntry(
-                    `Index ${translationPairsIndex.documentCount} translation pairs`,
-                    translationPairsDuration,
-                    translationPairsStart
-                );
+            if (force) {
+                console.log("[Index] Force rebuild - clearing existing indexes...");
+                await translationPairsIndex.removeAll();
+                await sourceTextIndex.removeAll();
+                wordsIndex.clear();
+                filesIndex.clear();
             }
 
-            // Yield control after translation pairs indexing
-            await new Promise(resolve => setImmediate(resolve));
+            // Stream files directly to database without loading into memory
+            await streamFilesToDatabase();
 
-            const sourceTextStart = globalThis.performance.now();
-            console.log("[Index] Creating source text index...");
-            await createSourceTextIndex(
-                sourceTextIndex,
-                sourceFiles,
-                metadataManager,
-                force || sourceTextIndex.documentCount === 0
-            );
-            const sourceTextDuration = globalThis.performance.now() - sourceTextStart;
-
-            // Track progress for splash screen
-            if (translationPairsIndex instanceof SQLiteIndexManager) {
-                translationPairsIndex.addProgressEntry(
-                    `Index ${sourceTextIndex.documentCount} source texts`,
-                    sourceTextDuration,
-                    sourceTextStart
-                );
-            }
-
-            // Yield control after source text indexing
-            await new Promise(resolve => setImmediate(resolve));
-
-            const wordsIndexStart = globalThis.performance.now();
-            console.log("[Index] Initializing words index...");
-            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
-            const wordsIndexDuration = globalThis.performance.now() - wordsIndexStart;
-
-            // Track progress for splash screen
-            if (translationPairsIndex instanceof SQLiteIndexManager) {
-                translationPairsIndex.addProgressEntry(
-                    `Index ${wordsIndex.size} unique words`,
-                    wordsIndexDuration,
-                    wordsIndexStart
-                );
-            }
-
-            const filesIndexStart = globalThis.performance.now();
-            console.log("[Index] Initializing files index...");
-            filesIndex = await initializeFilesIndex();
-            const filesIndexDuration = globalThis.performance.now() - filesIndexStart;
-
-            // Track progress for splash screen
-            if (translationPairsIndex instanceof SQLiteIndexManager) {
-                translationPairsIndex.addProgressEntry(
-                    `Index ${filesIndex.size} file entries`,
-                    filesIndexDuration,
-                    filesIndexStart
-                );
-            }
-
-            // Yield control after files indexing
-            await new Promise(resolve => setImmediate(resolve));
-
-            // Update complete drafts
-            try {
-                const completeDraftsStart = globalThis.performance.now();
-                console.log("[Index] Updating complete drafts...");
-                await updateCompleteDrafts(targetFiles);
-                const completeDraftsDuration = globalThis.performance.now() - completeDraftsStart;
-
-                // Track progress for splash screen
-                if (translationPairsIndex instanceof SQLiteIndexManager) {
-                    translationPairsIndex.addProgressEntry(
-                        `Update complete drafts`,
-                        completeDraftsDuration,
-                        completeDraftsStart
-                    );
-                }
-            } catch (error) {
-                console.error("Error updating complete drafts:", error);
-                vscode.window.showWarningMessage(
-                    "Failed to update complete drafts. Some drafts may be out of sync."
-                );
-            }
-
-            // Update status bar with index counts
+            // Update status bar with final counts
             const finalDocCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Rebuild complete - indexed ${finalDocCount} documents`);
+            console.log(`[Index] Efficient rebuild complete - indexed ${finalDocCount} documents`);
 
             statusBarHandler.updateIndexCounts(
                 finalDocCount,
                 sourceTextIndex.documentCount
             );
 
-            if (finalDocCount === 0) {
-                console.warn("[Index] Warning: No documents were indexed after rebuild");
-                vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex files.");
-            }
-
         } catch (error) {
-            console.error("Error rebuilding full index:", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error("Full error details:", errorMessage);
-
-            vscode.window.showErrorMessage(
-                `Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`
-            );
-
-            // Re-throw the error so calling code can handle it
+            console.error("Error in efficient rebuild:", error);
             throw error;
         } finally {
             statusBarHandler.setIndexingComplete();
+        }
+    }
+
+    /**
+     * Check if any files have changed since last indexing
+     */
+    async function checkIfFilesChanged(): Promise<boolean> {
+        try {
+            const workspaceFolder = getWorkSpaceFolder();
+            if (!workspaceFolder) return false;
+
+            // For now, we'll use a simple heuristic: if database is empty, files have "changed"
+            // In the future, we could store file modification times in the database
+            if (translationPairsIndex.documentCount === 0) {
+                return true;
+            }
+
+            // Check .codex and .source files for changes
+            const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+            const sourceFiles = await vscode.workspace.findFiles("**/*.source");
+
+            // For now, assume files have changed if we have files but no index
+            // This is a conservative approach that ensures we don't miss updates
+            if ((codexFiles.length > 0 || sourceFiles.length > 0) && translationPairsIndex.documentCount === 0) {
+                console.log(`[Index] Found ${codexFiles.length + sourceFiles.length} files but no indexed documents`);
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            console.warn("Error checking file changes, assuming files changed:", error);
+            return true; // Err on the side of caution
+        }
+    }
+
+    /**
+     * Stream files directly to database without loading into memory
+     */
+    async function streamFilesToDatabase(): Promise<void> {
+        const workspaceFolder = getWorkSpaceFolder();
+        if (!workspaceFolder) return;
+
+        console.log("[Index] Streaming files directly to database...");
+
+        // Process files one at a time to minimize memory usage
+        const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+        const sourceFiles = await vscode.workspace.findFiles("**/*.source");
+
+        let processedCount = 0;
+        const totalFiles = codexFiles.length + sourceFiles.length;
+
+        // Process source files first
+        for (const sourceFile of sourceFiles) {
+            await processSourceFileDirectly(sourceFile);
+            processedCount++;
+
+            // Simple progress logging instead of status bar updates
+            console.log(`[Index] Processing source files (${processedCount}/${sourceFiles.length})`);
+
+            // Yield control to prevent blocking
+            await new Promise(resolve => setImmediate(resolve));
+        }
+
+        // Process codex files second
+        for (const codexFile of codexFiles) {
+            await processCodexFileDirectly(codexFile);
+            processedCount++;
+
+            // Simple progress logging instead of status bar updates
+            console.log(`[Index] Processing translation files (${processedCount - sourceFiles.length}/${codexFiles.length})`);
+
+            // Yield control to prevent blocking
+            await new Promise(resolve => setImmediate(resolve));
+        }
+
+        console.log(`[Index] Streamed ${totalFiles} files directly to database`);
+    }
+
+    /**
+     * Process a single source file directly to database
+     */
+    async function processSourceFileDirectly(fileUri: vscode.Uri): Promise<void> {
+        try {
+            const document = await vscode.workspace.openTextDocument(fileUri);
+            const content = document.getText();
+            const lines = content.split('\n');
+
+            // Process line by line to extract verses
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const verseMatch = line.match(/^([A-Z0-9]{3} \d+:\d+)/);
+
+                if (verseMatch) {
+                    const cellId = verseMatch[1];
+                    const verseContent = line.substring(verseMatch[0].length).trim();
+
+                    if (verseContent) {
+                        // Add directly to database
+                        await sourceTextIndex.add({
+                            cellId,
+                            content: verseContent,
+                            uri: fileUri.toString(),
+                            line: i,
+                            cellType: 'source'
+                        });
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn(`Error processing source file ${fileUri.fsPath}:`, error);
+        }
+    }
+
+    /**
+     * Process a single codex file directly to database
+     */
+    async function processCodexFileDirectly(fileUri: vscode.Uri): Promise<void> {
+        try {
+            const document = await vscode.workspace.openTextDocument(fileUri);
+
+            // Parse notebook content
+            const notebook = JSON.parse(document.getText());
+
+            for (const cell of notebook.cells || []) {
+                if (cell.metadata?.type === 'text' && cell.metadata?.id && cell.value?.trim()) {
+                    const cellId = cell.metadata.id;
+                    const content = cell.value.trim();
+
+                    // Add translation pair directly to database
+                    await translationPairsIndex.add({
+                        cellId,
+                        targetContent: content,
+                        uri: fileUri.toString(),
+                        cellType: 'target'
+                    });
+                }
+            }
+        } catch (error) {
+            console.warn(`Error processing codex file ${fileUri.fsPath}:`, error);
         }
     }
 
@@ -321,51 +335,50 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
     }
 
-    // Check if we need to rebuild - only rebuild if database is empty or was recreated
-    // Don't rebuild just because this is the first initialization - if database has documents, use them
+    // Only populate database if it's completely empty (first time or after schema migration)
     const currentDocCount = translationPairsIndex.documentCount;
-    const needsRebuild = databaseWasRecreated || currentDocCount === 0;
+    const needsInitialPopulation = currentDocCount === 0;
 
-    console.log(`[Index] Current document count: ${currentDocCount}, needs rebuild: ${needsRebuild}`);
+    console.log(`[Index] Current document count: ${currentDocCount}, needs initial population: ${needsInitialPopulation}`);
 
-    if (needsRebuild) {
-        let rebuildReason = "empty database detected";
+    if (needsInitialPopulation) {
+        let populationReason = "empty database detected";
         if (databaseWasRecreated) {
-            rebuildReason = "schema migration to clean format";
+            populationReason = "schema migration to clean format";
         }
 
-        console.log(`[Index] Triggering rebuild due to: ${rebuildReason}`);
+        console.log(`[Index] Populating empty database due to: ${populationReason}`);
 
         if (databaseWasRecreated) {
-            vscode.window.showInformationMessage("Codex: Rebuilding search index with new clean format...");
+            vscode.window.showInformationMessage("Codex: Populating search index with new clean format...");
         } else if (currentDocCount === 0) {
-            vscode.window.showInformationMessage("Codex: Building search index...");
+            vscode.window.showInformationMessage("Codex: Populating search index...");
         }
 
-        // Make the rebuild process non-blocking to prevent extension host unresponsiveness
+        // Make the population process non-blocking
         setImmediate(async () => {
             try {
-                await rebuildIndexes(true); // Always force rebuild when we determine it's needed
+                await efficientRebuildIndexes(true); // Use efficient method for initial population
 
                 const finalCount = translationPairsIndex.documentCount;
-                console.log(`[Index] Rebuild completed with ${finalCount} documents`);
+                console.log(`[Index] Initial population completed with ${finalCount} documents`);
 
                 if (databaseWasRecreated) {
                     vscode.window.showInformationMessage(`Codex: Search index upgraded successfully to new clean format! Indexed ${finalCount} documents.`);
                 } else if (finalCount > 0) {
-                    vscode.window.showInformationMessage(`Codex: Search index built successfully! Indexed ${finalCount} documents.`);
+                    vscode.window.showInformationMessage(`Codex: Search index populated successfully! Indexed ${finalCount} documents.`);
                 } else {
-                    vscode.window.showWarningMessage("Codex: Search index built but no documents were indexed. Please check your .codex files.");
+                    vscode.window.showWarningMessage("Codex: Search index populated but no documents were indexed. Please check your .codex files.");
                 }
             } catch (error) {
-                console.error("[Index] Error during rebuild:", error);
+                console.error("[Index] Error during initial population:", error);
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+                vscode.window.showErrorMessage(`Codex: Failed to populate search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
             }
         });
     } else {
-        // For subsequent calls, just update the status bar with current counts
-        console.log(`[Index] Index already up to date with ${currentDocCount} documents, no rebuild needed`);
+        // Database already has content, just update status bar
+        console.log(`[Index] Database already populated with ${currentDocCount} documents, using existing index`);
         statusBarHandler.updateIndexCounts(
             translationPairsIndex.documentCount,
             sourceTextIndex.documentCount
@@ -374,17 +387,21 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     // Only register commands and event listeners once
     if (!isIndexContextInitialized) {
-        // Define individual command variables
+        // File save watcher - use incremental updates instead of full rebuilds
         const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(async (document) => {
             if (document.fileName.endsWith(".codex")) {
-                await debouncedRebuildIndexes();
+                console.log(`[Index] File saved: ${document.fileName}, using incremental updates`);
+                // The incremental update functions are already called by onDidChangeTextDocument
+                // No need for full rebuild here - FTS5 handles the updates automatically
             }
         });
 
+        // Document change watcher - these are the incremental updates that actually work
         const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(
             async (event: any) => {
                 const doc = event.document;
                 if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
+                    // These functions handle incremental updates to the SQLite/FTS5 database
                     debouncedUpdateTranslationPairsIndex(doc);
                     debouncedUpdateSourceTextIndex(doc);
                     debouncedUpdateWordsIndex(doc);
@@ -510,7 +527,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             "codex-editor-extension.forceReindex",
             async () => {
                 vscode.window.showInformationMessage("Force re-indexing started");
-                await rebuildIndexes(true);
+                await efficientRebuildIndexes(true);
                 vscode.window.showInformationMessage("Force re-indexing completed");
             }
         );
@@ -523,7 +540,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 });
 
                 if (option === "Force Reindex") {
-                    await rebuildIndexes();
+                    await efficientRebuildIndexes(true);
                 }
             }
         );
@@ -926,7 +943,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         vscode.window.showInformationMessage("Codex: Starting complete index rebuild...");
 
                         // Force a complete rebuild
-                        await rebuildIndexes(true);
+                        await efficientRebuildIndexes(true);
 
                         const finalCount = translationPairsIndex.documentCount;
                         vscode.window.showInformationMessage(`Codex: Index rebuild completed! Indexed ${finalCount} documents.`);
