@@ -59,6 +59,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     // Initialize SQLite index manager
     const indexManager = new SQLiteIndexManager();
+
+    // Disable real-time progress updates for better performance during large indexing operations
+    indexManager.disableRealtimeProgress();
+
     await indexManager.initialize(context);
 
     // Register the index manager globally for immediate access
@@ -118,7 +122,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     async function rebuildIndexes(force: boolean = false) {
         statusBarHandler.setIndexingActive();
+
         try {
+            console.log(`[Index] Starting rebuild - force: ${force}, current document count: ${translationPairsIndex.documentCount}`);
+
             // Check if we need to rebuild - skip if indexes already have content
             if (!force && translationPairsIndex.documentCount > 0) {
                 console.log(
@@ -133,6 +140,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             if (force) {
+                console.log("[Index] Force rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
@@ -140,9 +148,19 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Read all source and target files once
+            console.log("[Index] Reading source and target files...");
             const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+            console.log(`[Index] Found ${sourceFiles.length} source files and ${targetFiles.length} target files`);
+
+            if (sourceFiles.length === 0 && targetFiles.length === 0) {
+                console.warn("[Index] No source or target files found - cannot rebuild index");
+                vscode.window.showWarningMessage("Codex: No source or target files found. Please ensure your project has .codex files.");
+                statusBarHandler.setIndexingComplete();
+                return;
+            }
 
             // Rebuild indexes using the read data
+            console.log("[Index] Creating translation pairs index...");
             await createTranslationPairsIndex(
                 context,
                 translationPairsIndex,
@@ -151,18 +169,24 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 metadataManager,
                 force || translationPairsIndex.documentCount === 0
             );
+
+            console.log("[Index] Creating source text index...");
             await createSourceTextIndex(
                 sourceTextIndex,
                 sourceFiles,
                 metadataManager,
                 force || sourceTextIndex.documentCount === 0
             );
-            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
-            filesIndex = await initializeFilesIndex();
 
+            console.log("[Index] Initializing words index...");
+            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+
+            console.log("[Index] Initializing files index...");
+            filesIndex = await initializeFilesIndex();
 
             // Update complete drafts
             try {
+                console.log("[Index] Updating complete drafts...");
                 await updateCompleteDrafts(targetFiles);
             } catch (error) {
                 console.error("Error updating complete drafts:", error);
@@ -172,25 +196,93 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Update status bar with index counts
+            const finalDocCount = translationPairsIndex.documentCount;
+            console.log(`[Index] Rebuild complete - indexed ${finalDocCount} documents`);
+
             statusBarHandler.updateIndexCounts(
-                translationPairsIndex.documentCount,
+                finalDocCount,
                 sourceTextIndex.documentCount
             );
+
+            if (finalDocCount === 0) {
+                console.warn("[Index] Warning: No documents were indexed after rebuild");
+                vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex files.");
+            }
+
         } catch (error) {
             console.error("Error rebuilding full index:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error("Full error details:", errorMessage);
+
             vscode.window.showErrorMessage(
-                "Failed to rebuild full index. Check the logs for details."
+                `Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`
             );
+
+            // Re-throw the error so calling code can handle it
+            throw error;
+        } finally {
+            statusBarHandler.setIndexingComplete();
         }
-        statusBarHandler.setIndexingComplete();
     }
 
-    // Only rebuild indexes on first initialization
-    if (!isIndexContextInitialized) {
-        await rebuildIndexes();
+    // Check for HTML content and delete database if found BEFORE any rebuilding
+    let databaseWasDeleted = false;
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        try {
+            console.log("[Index] Checking for HTML content in database...");
+            databaseWasDeleted = await translationPairsIndex.checkAndDeleteDatabaseIfHtmlContentExists();
+
+            if (databaseWasDeleted) {
+                console.log("[Index] Database was deleted due to HTML content, will trigger full reindex...");
+            }
+        } catch (error) {
+            console.warn("[Index] Error during HTML content check:", error);
+        }
+    }
+
+    // Check if we need to rebuild - either first time, database deleted, or empty database
+    const currentDocCount = translationPairsIndex.documentCount;
+    const needsRebuild = !isIndexContextInitialized || databaseWasDeleted || currentDocCount === 0;
+
+    console.log(`[Index] Current document count: ${currentDocCount}, needs rebuild: ${needsRebuild}`);
+
+    if (needsRebuild) {
+        let rebuildReason = "first initialization";
+        if (databaseWasDeleted) {
+            rebuildReason = "database deletion due to HTML content";
+        } else if (currentDocCount === 0) {
+            rebuildReason = "empty database detected";
+        }
+
+        console.log(`[Index] Triggering rebuild due to: ${rebuildReason}`);
+
+        if (databaseWasDeleted) {
+            vscode.window.showInformationMessage("Codex: Rebuilding search index with clean content...");
+        } else if (currentDocCount === 0) {
+            vscode.window.showInformationMessage("Codex: Building search index...");
+        }
+
+        try {
+            await rebuildIndexes(true); // Always force rebuild when we determine it's needed
+
+            const finalCount = translationPairsIndex.documentCount;
+            console.log(`[Index] Rebuild completed with ${finalCount} documents`);
+
+            if (databaseWasDeleted) {
+                vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully with clean content! Indexed ${finalCount} documents.`);
+            } else if (finalCount > 0) {
+                vscode.window.showInformationMessage(`Codex: Search index built successfully! Indexed ${finalCount} documents.`);
+            } else {
+                vscode.window.showWarningMessage("Codex: Search index built but no documents were indexed. Please check your .codex files.");
+            }
+        } catch (error) {
+            console.error("[Index] Error during rebuild:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+        }
     } else {
         // For subsequent calls, just update the status bar with current counts
-        console.log("Index context already initialized, skipping full rebuild");
+        console.log(`[Index] Index already initialized with ${currentDocCount} documents, skipping rebuild`);
         statusBarHandler.updateIndexCounts(
             translationPairsIndex.documentCount,
             sourceTextIndex.documentCount
@@ -721,6 +813,116 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        const deleteDatabaseAndReindexCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.deleteDatabaseAndReindex",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        await translationPairsIndex.deleteDatabaseAndTriggerReindex();
+                    } else {
+                        vscode.window.showErrorMessage("Database deletion only available for SQLite index");
+                    }
+                } catch (error) {
+                    console.error("Error during database deletion:", error);
+                    vscode.window.showErrorMessage("Failed to delete database. Check the logs for details.");
+                }
+            }
+        );
+
+        const forceCompleteRebuildCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.forceCompleteRebuild",
+            async () => {
+                try {
+                    const choice = await vscode.window.showWarningMessage(
+                        "This will completely rebuild the search index from scratch. This may take several minutes. Continue?",
+                        { modal: true },
+                        "Yes, Rebuild Index"
+                    );
+
+                    if (choice === "Yes, Rebuild Index") {
+                        vscode.window.showInformationMessage("Codex: Starting complete index rebuild...");
+
+                        // Force a complete rebuild
+                        await rebuildIndexes(true);
+
+                        const finalCount = translationPairsIndex.documentCount;
+                        vscode.window.showInformationMessage(`Codex: Index rebuild completed! Indexed ${finalCount} documents.`);
+                    }
+                } catch (error) {
+                    console.error("Error during complete rebuild:", error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Codex: Failed to rebuild index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+                }
+            }
+        );
+
+        const checkIndexStatusCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkIndexStatus",
+            async () => {
+                try {
+                    const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+                    const currentDocCount = translationPairsIndex.documentCount;
+
+                    let statusMessage = `Index Status:\n`;
+                    statusMessage += `• Documents in index: ${currentDocCount}\n`;
+                    statusMessage += `• Source files found: ${sourceFiles.length}\n`;
+                    statusMessage += `• Target files found: ${targetFiles.length}\n`;
+
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const stats = await translationPairsIndex.getContentStats();
+                        statusMessage += `• Total cells in database: ${stats.totalCells}\n`;
+                        statusMessage += `• Cells with content: ${stats.totalCells - stats.cellsWithMissingContent}\n`;
+                    }
+
+                    const action = currentDocCount === 0 ? "Rebuild Index" : "View Details";
+                    const choice = await vscode.window.showInformationMessage(statusMessage, action, "OK");
+
+                    if (choice === "Rebuild Index") {
+                        vscode.commands.executeCommand("codex-editor-extension.forceCompleteRebuild");
+                    } else if (choice === "View Details") {
+                        console.log("=== Index Status Details ===");
+                        console.log(`Documents in index: ${currentDocCount}`);
+                        console.log(`Source files: ${sourceFiles.length}`);
+                        console.log(`Target files: ${targetFiles.length}`);
+                        if (translationPairsIndex instanceof SQLiteIndexManager) {
+                            const stats = await translationPairsIndex.getContentStats();
+                            console.log("Database stats:", stats);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error checking index status:", error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Codex: Failed to check index status. Error: ${errorMessage}`);
+                }
+            }
+        );
+
+        const forceSchemaResetCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.forceSchemaReset",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const choice = await vscode.window.showWarningMessage(
+                            "This will reset the schema version to force migration on next restart. Continue?",
+                            "Yes, Reset",
+                            "Cancel"
+                        );
+
+                        if (choice === "Yes, Reset") {
+                            // Reset schema version to force migration
+                            await (translationPairsIndex as any).setSchemaVersion(2);
+                            vscode.window.showInformationMessage("Schema version reset. Please reload the extension to trigger migration.");
+                        }
+                    } else {
+                        vscode.window.showErrorMessage("Schema reset only available for SQLite index");
+                    }
+                } catch (error) {
+                    console.error("Error resetting schema:", error);
+                    vscode.window.showErrorMessage("Failed to reset schema. Check the logs for details.");
+                }
+            }
+        );
+
         // Make sure to close the database when extension deactivates
         context.subscriptions.push({
             dispose: async () => {
@@ -750,6 +952,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 getFileStatsCommand,
                 getFileInfoCommand,
                 verifyDataIntegrityCommand,
+                deleteDatabaseAndReindexCommand,
+                forceCompleteRebuildCommand,
+                checkIndexStatusCommand,
+                forceSchemaResetCommand,
             ]
         );
 
