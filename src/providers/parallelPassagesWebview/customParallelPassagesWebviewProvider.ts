@@ -56,7 +56,8 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             // Get the translation pair for this cell
             let translationPair = await vscode.commands.executeCommand<TranslationPair>(
                 "codex-editor-extension.getTranslationPairFromProject",
-                cellId
+                cellId,
+                { isParallelPassagesWebview: true }
             );
 
             if (!translationPair) {

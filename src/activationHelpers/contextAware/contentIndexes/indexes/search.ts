@@ -50,30 +50,91 @@ export async function getTargetCellByCellId(translationPairsIndex: IndexType, ce
 export async function getTranslationPairFromProject(
     translationPairsIndex: IndexType,
     sourceTextIndex: IndexType,
-    cellId: string
+    cellId: string,
+    options?: { isParallelPassagesWebview?: boolean; }
 ): Promise<TranslationPair | null> {
-    // First, try to find a complete pair in the translationPairsIndex
-    const searchResults = await translationPairsIndex.search(cellId, {
-        fields: ["cellId"],
-        combineWith: "AND",
-        filter: (result: any) => result.cellId === cellId,
-    });
-    const translationPairResult = searchResults[0];
+    const isParallelPassagesWebview = options?.isParallelPassagesWebview || false;
 
-    if (translationPairResult) {
+    // Use the SQLite-specific method to get translation pair if available
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        const translationPair = await translationPairsIndex.getTranslationPair(cellId);
+        if (translationPair) {
+            // For search passages webview, use raw content if available for proper HTML display
+            const sourceContent = isParallelPassagesWebview && translationPair.rawSourceContent
+                ? translationPair.rawSourceContent
+                : translationPair.sourceContent;
+            const targetContent = isParallelPassagesWebview && translationPair.rawTargetContent
+                ? translationPair.rawTargetContent
+                : translationPair.targetContent;
+
+            return {
+                cellId,
+                sourceCell: {
+                    cellId: translationPair.cellId,
+                    content: sourceContent,
+                    uri: translationPair.uri,
+                    line: translationPair.line,
+                },
+                targetCell: {
+                    cellId: translationPair.cellId,
+                    content: targetContent,
+                    uri: translationPair.uri,
+                    line: translationPair.line,
+                },
+            };
+        }
+    }
+
+    // Fallback: search for the cellId in all fields to find any matching content
+    const searchResults = await translationPairsIndex.search(cellId, {
+        fields: ["cellId", "sourceContent", "targetContent"],
+        combineWith: "OR",
+        filter: (result: any) => result.cellId === cellId,
+        isParallelPassagesWebview, // Pass through for raw content handling
+    });
+
+    // Look for both source and target content in the results
+    let sourceContent = "";
+    let targetContent = "";
+    let uri = "";
+    let line = 0;
+
+    for (const result of searchResults) {
+        if (result.cellId === cellId) {
+            if (result.sourceContent) {
+                // For search passages webview, prefer raw content if available
+                sourceContent = isParallelPassagesWebview && result.rawContent
+                    ? result.rawContent
+                    : result.sourceContent;
+                uri = result.uri || uri;
+                line = result.line || line;
+            }
+            if (result.targetContent) {
+                // For search passages webview, prefer raw content if available
+                targetContent = isParallelPassagesWebview && result.rawTargetContent
+                    ? result.rawTargetContent
+                    : result.targetContent;
+                uri = result.uri || uri;
+                line = result.line || line;
+            }
+        }
+    }
+
+    // If we found either source or target content, return the pair
+    if (sourceContent || targetContent) {
         return {
             cellId,
             sourceCell: {
-                cellId: translationPairResult.cellId,
-                content: translationPairResult.sourceContent,
-                uri: translationPairResult.uri,
-                line: translationPairResult.line,
+                cellId,
+                content: sourceContent,
+                uri,
+                line,
             },
             targetCell: {
-                cellId: translationPairResult.cellId,
-                content: translationPairResult.targetContent,
-                uri: translationPairResult.uri,
-                line: translationPairResult.line,
+                cellId,
+                content: targetContent,
+                uri,
+                line,
             },
         };
     }

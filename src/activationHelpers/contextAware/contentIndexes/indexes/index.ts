@@ -644,7 +644,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         );
         const getTranslationPairFromProjectCommand = vscode.commands.registerCommand(
             "codex-editor-extension.getTranslationPairFromProject",
-            async (cellId?: string, showInfo: boolean = false) => {
+            async (cellId?: string, options?: { isParallelPassagesWebview?: boolean; }, showInfo: boolean = false) => {
                 if (!cellId) {
                     cellId = await vscode.window.showInputBox({
                         prompt: "Enter a cell ID",
@@ -656,7 +656,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 const result = await getTranslationPairFromProject(
                     translationPairsIndex,
                     sourceTextIndex,
-                    cellId
+                    cellId,
+                    options
                 );
                 if (showInfo) {
                     if (result) {
