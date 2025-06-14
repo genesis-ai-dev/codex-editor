@@ -294,7 +294,7 @@ export class RepositoryMigrationManager {
             const remotes = await git.listRemotes({ fs, dir: projectPath });
             if (remotes.length === 0) {
                 return {
-                    isVerified: true,
+                    isVerified: false, // Changed to false since we can't verify sync without remote
                     hasUnpushedCommits: false,
                     hasRemote: false,
                     warning: "No remotes found - local-only project"
@@ -334,13 +334,24 @@ export class RepositoryMigrationManager {
                         depth: 10
                     });
                 } catch (error) {
-                    // Remote branch might not exist, which is okay for new branches
-                    return {
-                        isVerified: true,
-                        hasUnpushedCommits: false,
-                        hasRemote: true,
-                        warning: `Remote branch ${remoteBranch} not found - might be a new branch`
-                    };
+                    // Remote branch might not exist
+                    // Check if we have any local commits - if so, they're unpushed
+                    if (localCommits.length > 0) {
+                        return {
+                            isVerified: false,
+                            hasUnpushedCommits: true,
+                            hasRemote: true,
+                            warning: `Remote branch ${remoteBranch} not found - local commits haven't been pushed yet`
+                        };
+                    } else {
+                        // No local commits and no remote branch - this is likely a fresh project
+                        return {
+                            isVerified: true,
+                            hasUnpushedCommits: false,
+                            hasRemote: true,
+                            warning: `Remote branch ${remoteBranch} not found - appears to be a fresh project`
+                        };
+                    }
                 }
 
                 // Check if local HEAD is ahead of remote HEAD
@@ -355,12 +366,13 @@ export class RepositoryMigrationManager {
                             // Check if remote head is in local commits (we might be ahead)
                             const remoteHeadInLocal = localCommits.some(commit => commit.oid === remoteHead);
                             if (remoteHeadInLocal) {
-                                // We're ahead of remote
+                                // We're ahead of remote - count how many commits ahead
+                                const aheadCount = localCommits.findIndex(commit => commit.oid === remoteHead);
                                 return {
                                     isVerified: false,
                                     hasUnpushedCommits: true,
                                     hasRemote: true,
-                                    warning: "Local commits detected that haven't been pushed to remote"
+                                    warning: `Local branch is ${aheadCount} commit(s) ahead of remote - unpushed changes detected`
                                 };
                             } else {
                                 // Branches have diverged
@@ -368,13 +380,22 @@ export class RepositoryMigrationManager {
                                     isVerified: false,
                                     hasUnpushedCommits: true,
                                     hasRemote: true,
-                                    warning: "Local and remote branches have diverged"
+                                    warning: "Local and remote branches have diverged - both have unique commits"
                                 };
                             }
+                        } else {
+                            // We're behind remote, which is fine for migration
+                            return {
+                                isVerified: true,
+                                hasUnpushedCommits: false,
+                                hasRemote: true,
+                                warning: "Local branch is behind remote - will get latest changes during migration"
+                            };
                         }
                     }
                 }
 
+                // Heads match or no commits to compare
                 return {
                     isVerified: true,
                     hasUnpushedCommits: false,
@@ -386,7 +407,7 @@ export class RepositoryMigrationManager {
                     isVerified: false,
                     hasUnpushedCommits: false,
                     hasRemote: true,
-                    warning: `Could not verify commit sync status: ${error}`
+                    warning: `Could not verify commit sync status: ${error instanceof Error ? error.message : String(error)}`
                 };
             }
 
@@ -395,7 +416,7 @@ export class RepositoryMigrationManager {
                 isVerified: false,
                 hasUnpushedCommits: false,
                 hasRemote: false,
-                warning: `Remote sync verification failed: ${error}`
+                warning: `Remote sync verification failed: ${error instanceof Error ? error.message : String(error)}`
             };
         }
     }
@@ -472,34 +493,93 @@ export class RepositoryMigrationManager {
                 progress.report({ message: "Verifying remote synchronization...", increment: 15 });
                 const syncVerified = await this.verifyRemoteSync(projectPath);
                 if (!syncVerified.isVerified) {
-                    // Instead of failing completely, warn the user and ask for confirmation
-                    let warningMessage = "Could not verify that all changes are synced to remote. This might mean some local changes could be lost during migration.";
+                    // Determine the appropriate message based on the specific issue
+                    let warningMessage: string;
+                    let isDataLossRisk = false;
 
-                    if (syncVerified.warning) {
-                        warningMessage += `\n\nDetails: ${syncVerified.warning}`;
-                    }
-
-                    if (syncVerified.hasUnpushedCommits) {
-                        warningMessage += "\n\nYou have unpushed commits that will be lost if you continue.";
+                    if (!syncVerified.hasRemote) {
+                        // Local-only project - no risk of data loss since there's no remote
+                        warningMessage = "This appears to be a local-only project with no remote repository. Migration will delete and recreate the project locally.";
+                    } else if (syncVerified.warning?.includes("Remote branch") && syncVerified.warning?.includes("not found")) {
+                        // New branch that hasn't been pushed yet - common scenario
+                        warningMessage = "This project hasn't been synced to the remote repository yet. Migration will delete the local copy and download the latest version from the remote.\n\nNote: Any local changes that haven't been committed and pushed will be lost.";
+                    } else if (syncVerified.hasUnpushedCommits) {
+                        // Actual unpushed commits - higher risk
+                        isDataLossRisk = true;
+                        warningMessage = "You have local commits that haven't been pushed to the remote repository. These commits will be lost if you continue with migration.\n\nIt's recommended to push your changes before migrating.";
+                    } else {
+                        // General sync verification failure
+                        warningMessage = "Could not verify that all changes are synced to remote. This might mean some local changes could be lost during migration.";
+                        if (syncVerified.warning) {
+                            warningMessage += `\n\nDetails: ${syncVerified.warning}`;
+                        }
                     }
 
                     warningMessage += "\n\nDo you want to continue with migration anyway?";
 
+                    // Provide different button options based on risk level
+                    let buttons: string[];
+                    if (isDataLossRisk) {
+                        buttons = ["Push Changes First", "Continue Anyway", "Cancel Migration"];
+                    } else {
+                        buttons = ["Continue Migration", "Cancel Migration", "Skip Sync Check"];
+                    }
+
                     const choice = await vscode.window.showWarningMessage(
                         warningMessage,
                         { modal: true },
-                        "Continue Migration",
-                        "Cancel Migration",
-                        "Skip Sync Check"
+                        ...buttons
                     );
 
                     if (choice === "Cancel Migration") {
                         throw new Error("Migration cancelled by user due to sync verification failure");
+                    } else if (choice === "Push Changes First") {
+                        // Actually push the changes and then continue with migration
+                        try {
+                            progress.report({ message: "Pushing local changes to remote...", increment: 5 });
+                            await this.pushChangesToRemote(projectPath, progress);
+
+                            // Verify sync again after pushing
+                            const syncVerifiedAfterPush = await this.verifyRemoteSync(projectPath);
+                            if (!syncVerifiedAfterPush.isVerified) {
+                                // If still not verified, ask user what to do
+                                const retryChoice = await vscode.window.showWarningMessage(
+                                    `Changes were pushed, but sync verification still failed: ${syncVerifiedAfterPush.warning}\n\nDo you want to continue with migration anyway?`,
+                                    { modal: true },
+                                    "Continue Migration",
+                                    "Cancel Migration"
+                                );
+
+                                if (retryChoice !== "Continue Migration") {
+                                    throw new Error("Migration cancelled after push - sync verification still failed");
+                                }
+                            }
+
+                            vscode.window.showInformationMessage("Changes pushed successfully! Continuing with migration...");
+                        } catch (pushError) {
+                            // If push fails, give user options
+                            const pushFailChoice = await vscode.window.showErrorMessage(
+                                `Failed to push changes: ${pushError instanceof Error ? pushError.message : String(pushError)}\n\nWhat would you like to do?`,
+                                { modal: true },
+                                "Continue Migration Anyway",
+                                "Cancel Migration",
+                                "Open Source Control"
+                            );
+
+                            if (pushFailChoice === "Cancel Migration") {
+                                throw new Error("Migration cancelled due to push failure");
+                            } else if (pushFailChoice === "Open Source Control") {
+                                vscode.commands.executeCommand("workbench.view.scm");
+                                throw new Error("Migration cancelled - user chose to handle push manually");
+                            }
+                            // If "Continue Migration Anyway" was chosen, proceed with migration
+                        }
                     } else if (choice === "Skip Sync Check") {
                         // Update configuration to skip sync verification in the future
                         await vscode.workspace.getConfiguration("codex-project-manager").update("migration.skipSyncVerification", true, vscode.ConfigurationTarget.Global);
                         vscode.window.showInformationMessage("Sync verification will be skipped for future migrations. You can re-enable it in settings.");
                     }
+                    // If "Continue Migration" or "Continue Anyway" was chosen, proceed with migration
                 }
             } else {
                 progress.report({ message: "Skipping sync verification (disabled in settings)...", increment: 15 });
@@ -620,13 +700,41 @@ export class RepositoryMigrationManager {
     ): Promise<void> {
         try {
             const authApi = getAuthApi();
-            const userInfo = await authApi?.getUserInfo();
 
-            // Get authentication token if available
+            // Get GitLab token from the auth provider with retry logic
             let auth: any = undefined;
-            if (userInfo && 'token' in userInfo) {
+            let gitlabToken: string | undefined;
+
+            if (authApi) {
+                let retries = 0;
+                const maxRetries = 5;
+                const retryDelay = 1000; // 1 second
+
+                while (retries < maxRetries) {
+                    try {
+                        // Ensure auth provider is initialized
+                        if (authApi.authProvider && typeof authApi.authProvider.initialize === 'function') {
+                            await authApi.authProvider.initialize();
+                        }
+
+                        gitlabToken = await authApi.authProvider?.getGitLabToken();
+                        if (gitlabToken) {
+                            break;
+                        }
+                    } catch (error) {
+                        console.warn(`Attempt ${retries + 1} to get GitLab token for clone failed:`, error);
+                    }
+
+                    retries++;
+                    if (retries < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    }
+                }
+            }
+
+            if (gitlabToken) {
                 auth = {
-                    username: userInfo.token,
+                    username: gitlabToken,
                     password: 'x-oauth-basic'
                 };
             }
@@ -983,6 +1091,92 @@ export class RepositoryMigrationManager {
         } catch (error) {
             console.warn('Error checking for SQLite files:', error);
             return false;
+        }
+    }
+
+    /**
+     * Push local changes to remote repository
+     */
+    private async pushChangesToRemote(projectPath: string, progress?: vscode.Progress<{ message?: string; increment?: number; }>): Promise<void> {
+        try {
+            progress?.report({ message: "Pushing changes to remote...", increment: 0 });
+
+            // Get current branch
+            const currentBranch = await git.currentBranch({ fs, dir: projectPath });
+            if (!currentBranch) {
+                throw new Error("Could not determine current branch");
+            }
+
+            // Get authentication with retry logic
+            const authApi = getAuthApi();
+            if (!authApi) {
+                throw new Error("Authentication API not available for pushing changes");
+            }
+
+            // Wait for auth provider to be ready and get GitLab token
+            let gitlabToken: string | undefined;
+            let retries = 0;
+            const maxRetries = 10;
+            const retryDelay = 1000; // 1 second
+
+            while (retries < maxRetries) {
+                try {
+                    // Ensure auth provider is initialized
+                    if (authApi.authProvider && typeof authApi.authProvider.initialize === 'function') {
+                        await authApi.authProvider.initialize();
+                    }
+
+                    gitlabToken = await authApi.authProvider?.getGitLabToken();
+                    if (gitlabToken) {
+                        break;
+                    }
+                } catch (error) {
+                    console.warn(`Attempt ${retries + 1} to get GitLab token failed:`, error);
+                }
+
+                retries++;
+                if (retries < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                }
+            }
+
+            let auth: any = undefined;
+            if (gitlabToken) {
+                auth = {
+                    username: gitlabToken,
+                    password: 'x-oauth-basic'
+                };
+            } else {
+                throw new Error("No authentication token available for pushing changes");
+            }
+
+            // Push to remote
+            await git.push({
+                fs,
+                http: require('isomorphic-git/http/web'),
+                dir: projectPath,
+                remote: 'origin',
+                ref: currentBranch,
+                onAuth: () => auth,
+                onProgress: (progressEvent) => {
+                    if (progressEvent.phase === 'Counting objects' || progressEvent.phase === 'Compressing objects') {
+                        progress?.report({
+                            message: `Pushing: ${progressEvent.phase}...`,
+                            increment: 0
+                        });
+                    } else if (progressEvent.phase === 'Receiving objects') {
+                        const percent = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+                        progress?.report({
+                            message: `Pushing: ${progressEvent.phase} (${percent}%)`,
+                            increment: 0
+                        });
+                    }
+                }
+            });
+
+            progress?.report({ message: "Changes pushed successfully!", increment: 0 });
+        } catch (error) {
+            throw new Error(`Failed to push changes: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 } 
