@@ -356,7 +356,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             // Process local projects and check for migration needs
             for (const project of localProject) {
-                let projectWithMigration = { ...project };
+                const projectWithMigration = { ...project };
 
                 // Check if project needs migration using static method (faster)
                 try {
@@ -1478,8 +1478,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     try {
                         migrationState = await this.migrationManager.checkMigrationRequired(projectPath);
-                        needsMigration = !migrationState.hasLegacyFlags &&
-                            !migrationState.isFreshClone &&
+                        needsMigration = !migrationState.isFreshClone &&
                             migrationState.remoteVerified;
                     } catch (error) {
                         console.warn("Could not check migration status:", error);

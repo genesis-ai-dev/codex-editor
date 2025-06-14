@@ -9,22 +9,20 @@
  */
 
 import * as vscode from "vscode";
-import git from "isomorphic-git";
-import fs from "fs";
+import * as fs from "fs";
 import * as path from "path";
+import * as git from "isomorphic-git";
 import { getAuthApi } from "../../extension";
 import { ProjectWithSyncStatus } from "../../../types";
 
-// Legacy migration flags (for backward compatibility)
-const LEGACY_MIGRATION_FLAG_FILE = ".codex/migration_complete";
-const LEGACY_MIGRATION_SUPPRESSION_FLAG = ".codex/migration_suppressed";
-const LEGACY_USER_MIGRATION_FLAG_PREFIX = ".codex/user_migration_";
-
-// New migration system
+// Migration system constants
 const MIGRATION_FILE = ".project/migration.json";
 const CURRENT_MIGRATION_VERSION = 1;
 const SQLITE_FILES_PATTERN = /\.project\/(complete_drafts|dictionary|indexes)\.sqlite$/;
 
+/**
+ * Represents a single migration record
+ */
 export interface MigrationRecord {
     version: number;
     completed: boolean;
@@ -34,6 +32,9 @@ export interface MigrationRecord {
     user?: string;
 }
 
+/**
+ * Structure of the migration.json file
+ */
 export interface MigrationFile {
     version: number;
     migrations: {
@@ -47,10 +48,12 @@ export interface MigrationFile {
     };
 }
 
+/**
+ * State information about a project's migration status
+ */
 export interface MigrationState {
     needsMigration: boolean;
     migrationVersion: number;
-    hasLegacyFlags: boolean;
     hasUncommittedChanges: boolean;
     hasUncommittedNonSQLiteChanges: boolean;
     canSafelyDelete: boolean;
@@ -62,6 +65,9 @@ export interface MigrationState {
     error?: string;
 }
 
+/**
+ * Progress information for migration operations
+ */
 export interface MigrationProgress {
     stage: 'checking' | 'staging' | 'committing' | 'verifying' | 'deleting' | 'cloning' | 'complete';
     message: string;
@@ -128,7 +134,6 @@ export class RepositoryMigrationManager {
         const state: MigrationState = {
             needsMigration: false,
             migrationVersion: 0,
-            hasLegacyFlags: false,
             hasUncommittedChanges: false,
             hasUncommittedNonSQLiteChanges: false,
             canSafelyDelete: false,
@@ -147,15 +152,6 @@ export class RepositoryMigrationManager {
             if (state.isFreshClone) {
                 // Fresh clones don't need migration
                 return state;
-            }
-
-            // Check for legacy migration flags
-            const legacyFlagPath = path.join(projectPath, LEGACY_MIGRATION_FLAG_FILE);
-            try {
-                await fs.promises.access(legacyFlagPath);
-                state.hasLegacyFlags = true;
-            } catch {
-                // Legacy flags don't exist
             }
 
             // Check git status
@@ -212,14 +208,12 @@ export class RepositoryMigrationManager {
 
             // Determine if project needs migration
             // A project needs migration if:
-            // 1. No legacy flags exist (not already migrated)
-            // 2. No migration file exists (migrationVersion === 0)
-            // 3. Has a remote repository (can be recloned)
-            // 4. Has SQLite files that need cleanup (anywhere in the project)
+            // 1. No migration file exists (migrationVersion === 0)
+            // 2. Has a remote repository (can be recloned)
+            // 3. Has SQLite files that need cleanup (anywhere in the project)
             const hasSQLiteFiles = await this.checkForSQLiteFiles(projectPath);
 
-            state.needsMigration = !state.hasLegacyFlags &&
-                state.migrationVersion === 0 &&
+            state.needsMigration = state.migrationVersion === 0 &&
                 state.remoteVerified &&
                 hasSQLiteFiles;
 
@@ -422,54 +416,6 @@ export class RepositoryMigrationManager {
     }
 
     /**
-     * Create user-specific migration flag to prevent repeated migrations for this user
-     */
-    async createUserMigrationFlag(projectPath: string): Promise<void> {
-        const currentUser = await this.getCurrentUser();
-        const flagPath = path.join(projectPath, `${LEGACY_USER_MIGRATION_FLAG_PREFIX}${currentUser}`);
-        const flagDir = path.dirname(flagPath);
-
-        // Ensure .codex directory exists
-        try {
-            await fs.promises.mkdir(flagDir, { recursive: true });
-        } catch (error) {
-            // Directory might already exist
-        }
-
-        const flagContent = {
-            migrationDate: new Date().toISOString(),
-            version: "1.0.0",
-            reason: "SQLite files cleanup migration",
-            user: currentUser
-        };
-
-        await fs.promises.writeFile(flagPath, JSON.stringify(flagContent, null, 2));
-    }
-
-    /**
-     * Create global migration flag (legacy method for backward compatibility)
-     */
-    async createMigrationFlag(projectPath: string): Promise<void> {
-        const flagPath = path.join(projectPath, LEGACY_MIGRATION_FLAG_FILE);
-        const flagDir = path.dirname(flagPath);
-
-        // Ensure .codex directory exists
-        try {
-            await fs.promises.mkdir(flagDir, { recursive: true });
-        } catch (error) {
-            // Directory might already exist
-        }
-
-        const flagContent = {
-            migrationDate: new Date().toISOString(),
-            version: "1.0.0",
-            reason: "SQLite files cleanup migration"
-        };
-
-        await fs.promises.writeFile(flagPath, JSON.stringify(flagContent, null, 2));
-    }
-
-    /**
      * Perform the complete migration process
      */
     async performMigration(
@@ -492,9 +438,6 @@ export class RepositoryMigrationManager {
             if (isCompleted) {
                 throw new Error("Project has already been migrated");
             }
-
-            // Migrate legacy flags if they exist
-            await this.migrateLegacyFlags(projectPath);
 
             if (migrationState.error) {
                 throw new Error(`Migration check failed: ${migrationState.error}`);
@@ -718,7 +661,6 @@ export class RepositoryMigrationManager {
      */
     static async checkProjectNeedsMigrationStatic(projectPath: string): Promise<{
         needsMigration: boolean;
-        hasLegacyFlags: boolean;
         hasUncommittedChanges: boolean;
         hasUncommittedNonSQLiteChanges: boolean;
         hasRemote: boolean;
@@ -728,7 +670,6 @@ export class RepositoryMigrationManager {
     }> {
         const result = {
             needsMigration: false,
-            hasLegacyFlags: false,
             hasUncommittedChanges: false,
             hasUncommittedNonSQLiteChanges: false,
             hasRemote: false,
@@ -759,15 +700,6 @@ export class RepositoryMigrationManager {
                 }
             } catch {
                 // If we can't check, assume not fresh
-            }
-
-            // Check for legacy migration flags
-            const legacyFlagPath = path.join(projectPath, LEGACY_MIGRATION_FLAG_FILE);
-            try {
-                await fs.promises.access(legacyFlagPath);
-                result.hasLegacyFlags = true;
-            } catch {
-                // Legacy flags don't exist
             }
 
             // Check git status
@@ -812,11 +744,9 @@ export class RepositoryMigrationManager {
 
                     // Only mark as needing migration if:
                     // 1. Has remote repository
-                    // 2. No legacy flags
-                    // 3. No migration file exists (version 0)
-                    // 4. Has SQLite files that need cleanup
-                    result.needsMigration = !result.hasLegacyFlags &&
-                        migrationVersion === 0 &&
+                    // 2. No migration file exists (version 0)
+                    // 3. Has SQLite files that need cleanup
+                    result.needsMigration = migrationVersion === 0 &&
                         hasSQLiteFiles;
                 }
             } catch (error) {
@@ -1001,61 +931,6 @@ export class RepositoryMigrationManager {
         } catch (error) {
             // Migration file doesn't exist or is invalid
             return false;
-        }
-    }
-
-    /**
-     * Migrate legacy flags to new migration file system
-     */
-    async migrateLegacyFlags(projectPath: string): Promise<void> {
-        const currentUser = await this.getCurrentUser();
-
-        // Check for legacy flags
-        const legacyFlagPath = path.join(projectPath, LEGACY_MIGRATION_FLAG_FILE);
-        const legacyUserFlagPath = path.join(projectPath, `${LEGACY_USER_MIGRATION_FLAG_PREFIX}${currentUser}`);
-        const legacySuppressionPath = path.join(projectPath, LEGACY_MIGRATION_SUPPRESSION_FLAG);
-
-        let shouldCreateMigrationFile = false;
-
-        try {
-            await fs.promises.access(legacyFlagPath);
-            shouldCreateMigrationFile = true;
-        } catch {
-            // No legacy global flag
-        }
-
-        try {
-            await fs.promises.access(legacyUserFlagPath);
-            shouldCreateMigrationFile = true;
-        } catch {
-            // No legacy user flag
-        }
-
-        if (shouldCreateMigrationFile) {
-            // Create new migration file
-            await this.createMigrationFile(projectPath);
-
-            // Clean up legacy flags
-            try {
-                await fs.promises.unlink(legacyFlagPath);
-            } catch {
-                // Flag might not exist
-            }
-
-            try {
-                await fs.promises.unlink(legacyUserFlagPath);
-            } catch {
-                // Flag might not exist
-            }
-        }
-
-        // Handle suppression flag differently - we might want to preserve this behavior
-        try {
-            await fs.promises.access(legacySuppressionPath);
-            // For now, we'll leave suppression flags as-is since they represent user choice
-            // In the future, we could migrate this to the migration file as well
-        } catch {
-            // No suppression flag
         }
     }
 
