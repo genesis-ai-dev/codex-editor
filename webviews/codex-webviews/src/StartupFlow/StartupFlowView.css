@@ -103,13 +103,20 @@
     gap: 2rem;
 }
 
-.workspace-step,
-.project-setup-step {
+.workspace-step {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
     align-items: center;
     text-align: center;
+    margin-top: 2rem;
+}
+
+/* Keep project-setup-step but remove conflicting styles */
+.project-setup-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
     margin-top: 2rem;
 }
 
@@ -138,55 +145,6 @@
 .option p {
     margin: 0;
     color: var(--vscode-descriptionForeground);
-}
-
-.project-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--vscode-widget-border);
-}
-
-.project-row:last-child {
-    border-bottom: none;
-}
-
-.project-info {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.project-name {
-    font-weight: 500;
-}
-
-.project-description {
-    font-size: 0.9em;
-    color: var(--vscode-descriptionForeground);
-}
-
-.project-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.status-icon {
-    font-size: 14px;
-}
-
-.status-icon.synced {
-    color: var(--vscode-testing-iconPassed);
-}
-
-.status-icon.error {
-    color: var(--vscode-testing-iconFailed);
-}
-
-.status-icon.cloud {
-    color: var(--vscode-foreground);
 }
 
 .loading-container {
