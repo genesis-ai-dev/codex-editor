@@ -130,19 +130,20 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                                         sourceFileName
                                     );
 
-                                    // Open the source file first
+                                    // Open the source file in the left-most group (ViewColumn.One)
                                     await vscode.commands.executeCommand(
                                         "vscode.openWith",
                                         sourceUri,
-                                        "codex.cellEditor"
+                                        "codex.cellEditor",
+                                        { viewColumn: vscode.ViewColumn.One }
                                     );
 
-                                    // Then open the codex file beside it
+                                    // Open the codex file in the right-most group (ViewColumn.Two)
                                     await vscode.commands.executeCommand(
                                         "vscode.openWith",
                                         uri,
                                         "codex.cellEditor",
-                                        { viewColumn: vscode.ViewColumn.Beside }
+                                        { viewColumn: vscode.ViewColumn.Two }
                                     );
                                 } else {
                                     // Fallback if no workspace folder is found
@@ -154,11 +155,12 @@ export class NavigationWebviewProvider implements vscode.WebviewViewProvider {
                                 }
                             } catch (sourceError) {
                                 console.warn("Could not open source file:", sourceError);
-                                // If source file opening fails, just open the codex file
+                                // If source file opening fails, just open the codex file in the right-most group
                                 await vscode.commands.executeCommand(
                                     "vscode.openWith",
                                     uri,
-                                    "codex.cellEditor"
+                                    "codex.cellEditor",
+                                    { viewColumn: vscode.ViewColumn.Two }
                                 );
                             }
                         } else if (message.type === "dictionary") {
