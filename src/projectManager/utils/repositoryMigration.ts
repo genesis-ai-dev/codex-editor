@@ -18,13 +18,11 @@ import { ProjectWithSyncStatus } from "../../../types";
 // Migration system constants
 const MIGRATION_FILE = ".project/migration.json";
 const CURRENT_MIGRATION_VERSION = 1;
-const SQLITE_FILES_PATTERN = /\.project\/(complete_drafts|dictionary|indexes)\.sqlite$/;
 
 /**
  * Represents a single migration record
  */
 export interface MigrationRecord {
-    version: number;
     completed: boolean;
     timestamp: string;
     description: string;
@@ -138,7 +136,7 @@ export class RepositoryMigrationManager {
                     uncommittedFiles.push(filepath);
 
                     // Check if it's not a SQLite file we want to exclude
-                    if (!SQLITE_FILES_PATTERN.test(filepath)) {
+                    if (!filepath.includes('.sqlite')) {
                         uncommittedNonSQLiteFiles.push(filepath);
                     }
                 }
@@ -175,21 +173,18 @@ export class RepositoryMigrationManager {
                 state.migrationFile = migrationFile;
                 state.migrationVersion = migrationFile.version;
             } catch (error) {
-                // Migration file doesn't exist yet - this is normal for projects that haven't been migrated
+                // Migration file doesn't exist yet - create it with version 0
                 state.migrationVersion = 0;
-                // Don't set error for missing migration file as this is expected
+                try {
+                    await RepositoryMigrationManager.createMigrationFileStatic(projectPath, currentUser, "repository_structure", false);
+                    console.log("Created migration file with version 0");
+                } catch (createError) {
+                    console.warn("Failed to create migration file:", createError);
+                }
             }
 
-            // Determine if project needs migration
-            // A project needs migration if:
-            // 1. No migration file exists (migrationVersion === 0)
-            // 2. Has a remote repository (can be recloned)
-            // 3. Has SQLite files that are tracked in git history (not just present on disk)
-            const hasSQLiteFiles = await this.checkForTrackedSQLiteFiles(projectPath);
-
-            state.needsMigration = state.migrationVersion === 0 &&
-                state.remoteVerified &&
-                hasSQLiteFiles;
+            // Determine if project needs migration based on version
+            state.needsMigration = state.migrationVersion < CURRENT_MIGRATION_VERSION;
 
         } catch (error) {
             state.error = `Migration check failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -212,7 +207,7 @@ export class RepositoryMigrationManager {
 
         // Identify files to stage (excluding SQLite files)
         for (const [filepath, head, workdir, stage] of status) {
-            if ((workdir !== head || stage !== head) && !SQLITE_FILES_PATTERN.test(filepath)) {
+            if ((workdir !== head || stage !== head) && !filepath.includes('.sqlite')) {
                 filesToStage.push(filepath);
             }
         }
@@ -776,58 +771,27 @@ export class RepositoryMigrationManager {
                 return result;
             }
 
-            // Check if migration file exists and is up-to-date
+            // Check if migration file exists and get its version
             const migrationFilePath = path.join(projectPath, MIGRATION_FILE);
-            let migrationFileExists = false;
             let migrationVersion = 0;
 
             try {
                 const migrationFileContent = await fs.promises.readFile(migrationFilePath, 'utf-8');
                 const migrationFile = JSON.parse(migrationFileContent) as MigrationFile;
-                const migration = migrationFile.migrations.repository_structure;
-
-                if (migration && migration.completed) {
-                    migrationFileExists = true;
-                    migrationVersion = migration.version || 0;
-                }
+                migrationVersion = migrationFile.version || 0;
             } catch {
-                // Migration file doesn't exist or is invalid
-                migrationFileExists = false;
-            }
-
-            // If migration file doesn't exist, check if project needs migration
-            if (!migrationFileExists) {
+                // Migration file doesn't exist - create it with version 0
                 try {
-                    // Check if project has SQLite files tracked in git that need cleanup
-                    const hasSQLiteFiles = await RepositoryMigrationManager.checkForTrackedSQLiteFilesStatic(projectPath);
-
-                    if (hasSQLiteFiles && result.hasRemote) {
-                        // Project has SQLite files and remote - needs migration
-                        await RepositoryMigrationManager.createMigrationFileStatic(projectPath, currentUser, "repository_structure", false); // false = incomplete
-                        result.needsMigration = true;
-                        console.log("Created incomplete migration file - project needs migration");
-                        return result;
-                    } else {
-                        // Project doesn't need migration - create completed migration file
-                        await RepositoryMigrationManager.createMigrationFileStatic(projectPath, currentUser, "repository_structure", true); // true = complete
-                        console.log("Created complete migration file - no migration needed");
-                        return result;
-                    }
+                    await RepositoryMigrationManager.createMigrationFileStatic(projectPath, currentUser, "repository_structure", false); // false = version 0
+                    migrationVersion = 0;
+                    console.log("Created migration file with version 0");
                 } catch (error) {
                     console.warn("Failed to create migration file:", error);
                 }
             }
 
-            // If migration file exists but version is outdated, migration is needed
-            if (migrationFileExists && migrationVersion < CURRENT_MIGRATION_VERSION) {
-                result.needsMigration = true;
-                return result;
-            }
-
-            // Migration file exists and is current, no migration needed
-            if (migrationFileExists && migrationVersion >= CURRENT_MIGRATION_VERSION) {
-                return result;
-            }
+            // Determine if migration is needed based on version
+            result.needsMigration = migrationVersion < CURRENT_MIGRATION_VERSION;
 
             // Check git status
             const status = await git.statusMatrix({ fs, dir: projectPath });
@@ -839,7 +803,7 @@ export class RepositoryMigrationManager {
                     uncommittedFiles.push(filepath);
 
                     // Check if it's not a SQLite file we want to exclude
-                    if (!SQLITE_FILES_PATTERN.test(filepath)) {
+                    if (!filepath.includes('.sqlite')) {
                         uncommittedNonSQLiteFiles.push(filepath);
                     }
                 }
@@ -930,13 +894,13 @@ export class RepositoryMigrationManager {
 
             // Update existing migration
             migrationFile.migrations[migrationName] = {
-                version: CURRENT_MIGRATION_VERSION,
                 completed: true,
                 timestamp,
                 description: this.getMigrationDescription(migrationName),
                 migratedBy: `codex-editor-v${vscode.extensions.getExtension('codex-editor')?.packageJSON.version || 'unknown'}`,
                 user: currentUser
             };
+            migrationFile.version = CURRENT_MIGRATION_VERSION;
             migrationFile.metadata.lastUpdated = timestamp;
         } catch (error) {
             // Create new migration file
@@ -944,7 +908,6 @@ export class RepositoryMigrationManager {
                 version: CURRENT_MIGRATION_VERSION,
                 migrations: {
                     [migrationName]: {
-                        version: CURRENT_MIGRATION_VERSION,
                         completed: true,
                         timestamp,
                         description: this.getMigrationDescription(migrationName),
@@ -971,7 +934,7 @@ export class RepositoryMigrationManager {
      */
     private getMigrationDescription(migrationName: string): string {
         const descriptions: Record<string, string> = {
-            repository_structure: "SQLite files cleanup and repository structure migration",
+            repository_structure: "Repository structure migration",
             // Future migrations can be added here
         };
         return descriptions[migrationName] || `Migration: ${migrationName}`;
@@ -1022,7 +985,7 @@ export class RepositoryMigrationManager {
             const migrationFile = JSON.parse(migrationFileContent) as MigrationFile;
 
             const migration = migrationFile.migrations[migrationName];
-            return Boolean(migration && migration.completed && migration.version >= CURRENT_MIGRATION_VERSION);
+            return Boolean(migration && migration.completed && migrationFile.version >= CURRENT_MIGRATION_VERSION);
         } catch (error) {
             // Migration file doesn't exist or is invalid
             return false;
@@ -1057,14 +1020,13 @@ export class RepositoryMigrationManager {
         const migrationVersion = completed ? CURRENT_MIGRATION_VERSION : 0;
         const description = completed ?
             "Project up-to-date - no migration needed" :
-            "Project needs migration - SQLite files detected";
+            "Project needs migration";
 
         // Create new migration file
         const migrationFile: MigrationFile = {
             version: migrationVersion,
             migrations: {
                 [migrationName]: {
-                    version: migrationVersion,
                     completed: completed,
                     timestamp,
                     description: description,
@@ -1120,91 +1082,7 @@ export class RepositoryMigrationManager {
         }
     }
 
-    /**
-     * Check if SQLite files are tracked in git (the real indicator of migration need)
-     */
-    private async checkForTrackedSQLiteFiles(projectPath: string): Promise<boolean> {
-        try {
-            // Check if SQLite files are currently tracked by git
-            const trackedFiles = await git.listFiles({ fs, dir: projectPath });
 
-            for (const file of trackedFiles) {
-                if (SQLITE_FILES_PATTERN.test(file)) {
-                    return true;
-                }
-            }
-
-            // Also check git history for SQLite files that might have been committed
-            try {
-                const commits = await git.log({ fs, dir: projectPath, depth: 50 }); // Check last 50 commits
-
-                for (const commit of commits) {
-                    try {
-                        const treeEntries = await git.listFiles({ fs, dir: projectPath, ref: commit.oid });
-
-                        for (const file of treeEntries) {
-                            if (SQLITE_FILES_PATTERN.test(file)) {
-                                return true;
-                            }
-                        }
-                    } catch (error) {
-                        // Skip commits that can't be read
-                        continue;
-                    }
-                }
-            } catch (error) {
-                console.warn('Could not check git history for SQLite files:', error);
-            }
-
-            return false;
-        } catch (error) {
-            console.warn('Error checking for tracked SQLite files:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Static method to check if SQLite files are tracked in git
-     */
-    static async checkForTrackedSQLiteFilesStatic(projectPath: string): Promise<boolean> {
-        try {
-            // Check if SQLite files are currently tracked by git
-            const trackedFiles = await git.listFiles({ fs, dir: projectPath });
-
-            for (const file of trackedFiles) {
-                if (SQLITE_FILES_PATTERN.test(file)) {
-                    return true;
-                }
-            }
-
-            // Also check git history for SQLite files that might have been committed
-            try {
-                const commits = await git.log({ fs, dir: projectPath, depth: 50 }); // Check last 50 commits
-
-                for (const commit of commits) {
-                    try {
-                        const treeEntries = await git.listFiles({ fs, dir: projectPath, ref: commit.oid });
-
-                        for (const file of treeEntries) {
-                            if (SQLITE_FILES_PATTERN.test(file)) {
-                                return true;
-                            }
-                        }
-                    } catch (error) {
-                        // Skip commits that can't be read
-                        continue;
-                    }
-                }
-            } catch (error) {
-                console.warn('Could not check git history for SQLite files:', error);
-            }
-
-            return false;
-        } catch (error) {
-            console.warn('Error checking for tracked SQLite files:', error);
-            return false;
-        }
-    }
 
     /**
      * Push local changes to remote repository
@@ -1292,19 +1170,5 @@ export class RepositoryMigrationManager {
         }
     }
 
-    /**
-     * Check if a project has SQLite files that need migration
-     * @deprecated Use checkForTrackedSQLiteFiles instead - this method incorrectly checks disk presence
-     */
-    private async checkForSQLiteFiles(projectPath: string): Promise<boolean> {
-        return this.checkForTrackedSQLiteFiles(projectPath);
-    }
 
-    /**
-     * Static method to check if a project has SQLite files that need migration
-     * @deprecated Use checkForTrackedSQLiteFilesStatic instead - this method incorrectly checks disk presence
-     */
-    static async checkForSQLiteFilesStatic(projectPath: string): Promise<boolean> {
-        return RepositoryMigrationManager.checkForTrackedSQLiteFilesStatic(projectPath);
-    }
 } 
