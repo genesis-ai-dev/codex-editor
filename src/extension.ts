@@ -452,12 +452,12 @@ export async function activate(context: vscode.ExtensionContext) {
                 // Check migration state
                 const migrationState = await migrationManager.checkMigrationRequired(projectPath);
 
-                if (migrationState.hasMigrationFlag) {
+                if (migrationState.hasLegacyFlags) {
                     vscode.window.showInformationMessage("Project has already been migrated");
                     return;
                 }
 
-                if (migrationState.hasSuppression) {
+                if (migrationState.hasLegacyFlags) {
                     const choice = await vscode.window.showWarningMessage(
                         "Migration was previously suppressed. Do you want to proceed anyway?",
                         "Yes", "No"
@@ -785,8 +785,7 @@ async function checkAndPromptForMigration(context: vscode.ExtensionContext): Pro
 
         // Skip if fresh clone, already migrated, or suppressed
         if (migrationCheck.isFreshClone ||
-            migrationCheck.hasUserMigrationFlag ||
-            migrationCheck.hasSuppression ||
+            migrationCheck.hasLegacyFlags ||
             !migrationCheck.needsMigration) {
             return;
         }

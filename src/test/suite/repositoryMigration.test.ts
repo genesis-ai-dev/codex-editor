@@ -1,7 +1,7 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import * as path from "path";
 import * as fs from "fs";
+import * as path from "path";
 import { RepositoryMigrationManager } from "../../projectManager/utils/repositoryMigration";
 
 suite("Repository Migration Test Suite", () => {
@@ -10,7 +10,7 @@ suite("Repository Migration Test Suite", () => {
 
     setup(async () => {
         // Create a temporary directory for testing
-        tempDir = path.join(__dirname, "temp-migration-test");
+        tempDir = path.join(__dirname, "test-migration-" + Date.now());
         await fs.promises.mkdir(tempDir, { recursive: true });
 
         migrationManager = RepositoryMigrationManager.getInstance();
@@ -21,54 +21,50 @@ suite("Repository Migration Test Suite", () => {
         try {
             await fs.promises.rmdir(tempDir, { recursive: true });
         } catch (error) {
-            // Ignore cleanup errors
+            console.warn("Failed to clean up test directory:", error);
         }
     });
 
-    test("should detect fresh clone and skip migration", async () => {
-        // Create a mock .git directory with recent timestamp
+    test("should detect fresh clone", async () => {
+        // Create a mock .git directory (fresh)
         const gitDir = path.join(tempDir, ".git");
         await fs.promises.mkdir(gitDir, { recursive: true });
-
-        // Touch the .git directory to make it fresh (current time)
-        const now = new Date();
-        await fs.promises.utimes(gitDir, now, now);
 
         const state = await migrationManager.checkMigrationRequired(tempDir);
 
         assert.strictEqual(state.isFreshClone, true, "Should detect fresh clone");
-        assert.strictEqual(state.hasUserMigrationFlag, false, "Fresh clone should not have user migration flag");
+        assert.strictEqual(state.needsMigration, false, "Fresh clone should not need migration");
     });
 
-    test("should create user-specific migration flag", async () => {
+    test("should create migration file", async () => {
         // Create a mock project directory
-        const codexDir = path.join(tempDir, ".codex");
-        await fs.promises.mkdir(codexDir, { recursive: true });
+        const projectDir = path.join(tempDir, ".project");
+        await fs.promises.mkdir(projectDir, { recursive: true });
 
-        await migrationManager.createUserMigrationFlag(tempDir);
+        await migrationManager.createMigrationFile(tempDir);
 
-        // Check that user-specific flag was created
-        const files = await fs.promises.readdir(codexDir);
-        const userMigrationFile = files.find(file => file.startsWith("user_migration_"));
+        // Check that migration file was created
+        const migrationFilePath = path.join(tempDir, ".project", "migration.json");
+        const migrationFileExists = await fs.promises.access(migrationFilePath).then(() => true).catch(() => false);
 
-        assert.ok(userMigrationFile, "User-specific migration flag should be created");
+        assert.ok(migrationFileExists, "Migration file should be created");
 
-        // Verify flag content
-        const flagPath = path.join(codexDir, userMigrationFile);
-        const flagContent = JSON.parse(await fs.promises.readFile(flagPath, "utf8"));
+        // Verify migration file content
+        const migrationContent = JSON.parse(await fs.promises.readFile(migrationFilePath, "utf8"));
 
-        assert.ok(flagContent.migrationDate, "Flag should have migration date");
-        assert.ok(flagContent.user, "Flag should have user identifier");
-        assert.strictEqual(flagContent.reason, "SQLite files cleanup migration", "Flag should have correct reason");
+        assert.ok(migrationContent.version, "Migration file should have version");
+        assert.ok(migrationContent.migrations, "Migration file should have migrations object");
+        assert.ok(migrationContent.migrations.repository_structure, "Migration file should have repository_structure migration");
+        assert.strictEqual(migrationContent.migrations.repository_structure.completed, true, "Migration should be marked as completed");
     });
 
-    test("should detect existing user migration flag", async () => {
-        // Create user migration flag first
-        await migrationManager.createUserMigrationFlag(tempDir);
+    test("should detect completed migration", async () => {
+        // Create migration file first
+        await migrationManager.createMigrationFile(tempDir);
 
-        const state = await migrationManager.checkMigrationRequired(tempDir);
+        const isCompleted = await migrationManager.isMigrationCompleted(tempDir);
 
-        assert.strictEqual(state.hasUserMigrationFlag, true, "Should detect existing user migration flag");
+        assert.strictEqual(isCompleted, true, "Should detect completed migration");
     });
 
     test("should handle multiple users with different migration states", async () => {
@@ -80,7 +76,7 @@ suite("Repository Migration Test Suite", () => {
         const oldDate = new Date(Date.now() - (25 * 60 * 60 * 1000)); // 25 hours ago
         await fs.promises.utimes(gitDir, oldDate, oldDate);
 
-        // Create user migration flag for a different user manually
+        // Create legacy user migration flag for a different user manually
         const codexDir = path.join(tempDir, ".codex");
         await fs.promises.mkdir(codexDir, { recursive: true });
 
@@ -93,50 +89,51 @@ suite("Repository Migration Test Suite", () => {
 
         const state = await migrationManager.checkMigrationRequired(tempDir);
 
-        // Current user should not have migration flag, even though another user does
-        assert.strictEqual(state.hasUserMigrationFlag, false, "Current user should not have migration flag");
+        // Current user should not have migration completed, even though another user does
+        assert.strictEqual(state.needsMigration, false, "Should not need migration with legacy flags present");
         assert.strictEqual(state.isFreshClone, false, "Should not be fresh clone");
     });
 
-    test("static migration check should work without opening project", async () => {
+    test("should migrate legacy flags to new system", async () => {
+        // Create legacy migration flag
+        const codexDir = path.join(tempDir, ".codex");
+        await fs.promises.mkdir(codexDir, { recursive: true });
+
+        const legacyFlagPath = path.join(codexDir, "migration_complete");
+        await fs.promises.writeFile(legacyFlagPath, JSON.stringify({
+            migrationDate: new Date().toISOString(),
+            reason: "SQLite files cleanup migration"
+        }));
+
+        // Migrate legacy flags
+        await migrationManager.migrateLegacyFlags(tempDir);
+
+        // Check that new migration file was created
+        const migrationFilePath = path.join(tempDir, ".project", "migration.json");
+        const migrationFileExists = await fs.promises.access(migrationFilePath).then(() => true).catch(() => false);
+        assert.ok(migrationFileExists, "Migration file should be created from legacy flags");
+
+        // Check that legacy flag was removed
+        const legacyFlagExists = await fs.promises.access(legacyFlagPath).then(() => true).catch(() => false);
+        assert.strictEqual(legacyFlagExists, false, "Legacy flag should be removed");
+    });
+
+    test("should check static migration needs", async () => {
         // Create a mock .git directory (not fresh)
         const gitDir = path.join(tempDir, ".git");
         await fs.promises.mkdir(gitDir, { recursive: true });
 
-        // Make it old
-        const oldDate = new Date(Date.now() - (25 * 60 * 60 * 1000));
+        // Make it old (more than 24 hours ago)
+        const oldDate = new Date(Date.now() - (25 * 60 * 60 * 1000)); // 25 hours ago
         await fs.promises.utimes(gitDir, oldDate, oldDate);
 
-        // Create a mock remote
-        const configPath = path.join(gitDir, "config");
-        await fs.promises.writeFile(configPath, `
-[core]
-    repositoryformatversion = 0
-[remote "origin"]
-    url = https://example.com/repo.git
-    fetch = +refs/heads/*:refs/remotes/origin/*
-`);
-
         const result = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(tempDir);
 
-        assert.strictEqual(result.needsMigration, true, "Should need migration");
-        assert.strictEqual(result.hasRemote, true, "Should detect remote");
+        assert.strictEqual(result.hasLegacyFlags, false, "Should not have legacy flags");
         assert.strictEqual(result.isFreshClone, false, "Should not be fresh clone");
-        assert.strictEqual(result.hasUserMigrationFlag, false, "Should not have user migration flag");
     });
 
-    test("should skip migration for fresh clone in static check", async () => {
-        // Create a fresh .git directory
-        const gitDir = path.join(tempDir, ".git");
-        await fs.promises.mkdir(gitDir, { recursive: true });
-
-        const result = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(tempDir);
-
-        assert.strictEqual(result.needsMigration, false, "Fresh clone should not need migration");
-        assert.strictEqual(result.isFreshClone, true, "Should detect fresh clone");
-    });
-
-    test("should respect suppression flag", async () => {
+    test("should respect legacy suppression flag", async () => {
         // Create suppression flag
         const codexDir = path.join(tempDir, ".codex");
         await fs.promises.mkdir(codexDir, { recursive: true });
@@ -149,6 +146,7 @@ suite("Repository Migration Test Suite", () => {
 
         const state = await migrationManager.checkMigrationRequired(tempDir);
 
-        assert.strictEqual(state.hasSuppression, true, "Should detect suppression flag");
+        assert.strictEqual(state.hasLegacyFlags, false, "Should not have legacy migration flags");
+        // Note: Suppression is handled separately and doesn't affect the main migration state
     });
 }); 

@@ -1478,8 +1478,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     try {
                         migrationState = await this.migrationManager.checkMigrationRequired(projectPath);
-                        needsMigration = !migrationState.hasUserMigrationFlag &&
-                            !migrationState.hasSuppression &&
+                        needsMigration = !migrationState.hasLegacyFlags &&
                             !migrationState.isFreshClone &&
                             migrationState.remoteVerified;
                     } catch (error) {
