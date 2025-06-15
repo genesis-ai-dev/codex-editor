@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { ActivationTiming } from "../../extension";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
 export interface SyncDetails {
     progress: number;
@@ -129,15 +130,10 @@ export class SplashScreenProvider {
             return;
         }
         if (this._panel) {
-            try {
-                // Send message to the webview to update timings
-                this._panel.webview.postMessage({
-                    command: "update",
-                    timings,
-                });
-            } catch (error) {
-                console.log("[SplashScreen] Error updating timings:", error);
-            }
+            safePostMessageToPanel(this._panel, {
+                command: "update",
+                timings,
+            }, "SplashScreen");
         }
     }
 
@@ -150,15 +146,10 @@ export class SplashScreenProvider {
             return;
         }
         if (this._panel) {
-            try {
-                // Send message to the webview to update sync progress
-                this._panel.webview.postMessage({
-                    command: "syncUpdate",
-                    syncDetails: details,
-                });
-            } catch (error) {
-                console.log("[SplashScreen] Error updating sync details:", error);
-            }
+            safePostMessageToPanel(this._panel, {
+                command: "syncUpdate",
+                syncDetails: details,
+            }, "SplashScreen");
         }
     }
 
@@ -166,9 +157,9 @@ export class SplashScreenProvider {
         console.log("[SplashScreen] markComplete() called");
         if (this._panel) {
             // Send message to the webview that loading is complete
-            this._panel.webview.postMessage({
+            safePostMessageToPanel(this._panel, {
                 command: "complete",
-            });
+            }, "SplashScreen");
             console.log("[SplashScreen] Sent 'complete' message to webview");
         } else {
             console.log("[SplashScreen] No panel to mark complete");

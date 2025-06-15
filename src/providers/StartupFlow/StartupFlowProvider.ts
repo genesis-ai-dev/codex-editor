@@ -21,6 +21,7 @@ import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { RepositoryMigrationManager, MigrationState } from "../../projectManager/utils/repositoryMigration";
+import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -292,13 +293,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
         // First check if webview is still available
-        try {
-            if (!webviewPanel || !webviewPanel.visible) {
-                debugLog("WebviewPanel is no longer available, skipping sendList");
-                return;
-            }
-        } catch (error) {
-            debugLog("WebviewPanel is disposed, skipping sendList");
+        if (!safeIsVisible(webviewPanel, "StartupFlow")) {
+            debugLog("WebviewPanel is no longer available, skipping sendList");
             return;
         }
 
@@ -400,32 +396,20 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
 
             // Send the compiled list to the webview along with progress data
-            try {
-                if (webviewPanel.visible) {
-                    webviewPanel.webview.postMessage({
-                        command: "projectsListFromGitLab",
-                        projects: projectList,
-                        progressData: progressData, // Include progress data
-                    } as MessagesFromStartupFlowProvider);
-                }
-            } catch (error) {
-                debugLog("WebviewPanel disposed while sending project list, skipping");
-            }
+            safePostMessageToPanel(webviewPanel, {
+                command: "projectsListFromGitLab",
+                projects: projectList,
+                progressData: progressData, // Include progress data
+            } as MessagesFromStartupFlowProvider, "StartupFlow");
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
 
             // Send error response only if webview is still available
-            try {
-                if (webviewPanel.visible) {
-                    webviewPanel.webview.postMessage({
-                        command: "projectsListFromGitLab",
-                        projects: [],
-                        error: error instanceof Error ? error.message : "Failed to fetch projects",
-                    } as MessagesFromStartupFlowProvider);
-                }
-            } catch (disposedError) {
-                debugLog("WebviewPanel disposed while sending error response, skipping");
-            }
+            safePostMessageToPanel(webviewPanel, {
+                command: "projectsListFromGitLab",
+                projects: [],
+                error: error instanceof Error ? error.message : "Failed to fetch projects",
+            } as MessagesFromStartupFlowProvider, "StartupFlow");
         }
     }
 
@@ -545,6 +529,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private notifyWebviews(message: MessagesFromStartupFlowProvider) {
         // Implement if needed to broadcast to all webviews
+    }
+
+    /**
+     * Safely send a message to the current webview panel
+     */
+    private safeSendMessage(message: any): boolean {
+        return safePostMessageToPanel(this.webviewPanel, message, "StartupFlow");
     }
 
     dispose() {
@@ -1127,7 +1118,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 await this.handleProjectChange(message.command, message);
                 // FIXME: sometimes this refreshes before the command is finished. Need to return values on all of them
                 // Send a response back to the webview
-                this.webviewPanel?.webview.postMessage({ command: "actionCompleted" });
+                this.safeSendMessage({ command: "actionCompleted" });
                 break;
             case "getAggregatedProgress":
                 debugLog("Fetching aggregated progress data");
@@ -1144,15 +1135,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         "frontier.getAggregatedProgress"
                     );
 
-                    if (progressData && this.webviewPanel) {
-                        this.webviewPanel.webview.postMessage({
+                    if (progressData) {
+                        this.safeSendMessage({
                             command: "aggregatedProgressData",
                             data: progressData,
                         } as MessagesFromStartupFlowProvider);
                     }
                 } catch (error) {
                     console.error("Error fetching aggregated progress data:", error);
-                    this.webviewPanel?.webview.postMessage({
+                    this.safeSendMessage({
                         command: "error",
                         message: `Failed to fetch progress data: ${error instanceof Error ? error.message : String(error)}`,
                     } as MessagesFromStartupFlowProvider);
