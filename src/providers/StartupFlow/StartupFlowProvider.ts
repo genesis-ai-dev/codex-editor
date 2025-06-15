@@ -292,8 +292,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
         // First check if webview is still available
-        if (!webviewPanel || !webviewPanel.visible) {
-            debugLog("WebviewPanel is no longer available, skipping sendList");
+        try {
+            if (!webviewPanel || !webviewPanel.visible) {
+                debugLog("WebviewPanel is no longer available, skipping sendList");
+                return;
+            }
+        } catch (error) {
+            debugLog("WebviewPanel is disposed, skipping sendList");
             return;
         }
 
@@ -395,23 +400,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
 
             // Send the compiled list to the webview along with progress data
-            if (webviewPanel.visible) {
-                webviewPanel.webview.postMessage({
-                    command: "projectsListFromGitLab",
-                    projects: projectList,
-                    progressData: progressData, // Include progress data
-                } as MessagesFromStartupFlowProvider);
+            try {
+                if (webviewPanel.visible) {
+                    webviewPanel.webview.postMessage({
+                        command: "projectsListFromGitLab",
+                        projects: projectList,
+                        progressData: progressData, // Include progress data
+                    } as MessagesFromStartupFlowProvider);
+                }
+            } catch (error) {
+                debugLog("WebviewPanel disposed while sending project list, skipping");
             }
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
 
             // Send error response only if webview is still available
-            if (webviewPanel.visible) {
-                webviewPanel.webview.postMessage({
-                    command: "projectsListFromGitLab",
-                    projects: [],
-                    error: error instanceof Error ? error.message : "Failed to fetch projects",
-                } as MessagesFromStartupFlowProvider);
+            try {
+                if (webviewPanel.visible) {
+                    webviewPanel.webview.postMessage({
+                        command: "projectsListFromGitLab",
+                        projects: [],
+                        error: error instanceof Error ? error.message : "Failed to fetch projects",
+                    } as MessagesFromStartupFlowProvider);
+                }
+            } catch (disposedError) {
+                debugLog("WebviewPanel disposed while sending error response, skipping");
             }
         }
     }
@@ -446,7 +459,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 });
                 disposable && this.disposables.push(disposable);
                 if (this.webviewPanel) {
-                    await this.sendList(this.webviewPanel);
+                    try {
+                        await this.sendList(this.webviewPanel);
+                    } catch (error) {
+                        console.warn("Failed to send list during Frontier API initialization:", error);
+                    }
                 }
             } else {
                 this.updateAuthState({
