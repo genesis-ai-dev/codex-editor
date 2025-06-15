@@ -542,12 +542,12 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                     try {
                         await syncManager.executeSync("Initial workspace sync", false);
                         trackTiming("Project Synchronization Complete", syncStart);
-                        updateSplashScreenSync(85, "Synchronization complete");
+                        updateSplashScreenSync(100, "Synchronization complete");
                         console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");
                     } catch (error) {
                         console.error("❌ [SPLASH SCREEN PHASE] Error during initial sync:", error);
                         trackTiming("Project Synchronization Failed", syncStart);
-                        updateSplashScreenSync(85, "Synchronization failed");
+                        updateSplashScreenSync(100, "Synchronization failed");
                     }
                 } else {
                     console.log("⏭️ [SPLASH SCREEN PHASE] User is not authenticated, skipping initial sync");
@@ -568,51 +568,6 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
             updateSplashScreenSync(85, "Skipping sync (offline mode)");
             // Just log this, no need to track timing for a skip
             console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
-        }
-
-        // Generate progress report in background (don't block startup)
-        if (metadataExists) {
-            console.log("[Activation] Generating progress report...");
-            console.log("📊 Forcing progress report generation...");
-
-            const progressStart = globalThis.performance.now();
-
-            // Update splash screen to show we're processing statistics
-            updateSplashScreenTimings([
-                { step: "Processing translation statistics", duration: 0, startTime: progressStart }
-            ]);
-
-            try {
-                const { ProgressReportingService } = await import("./progressReporting/progressReportingService");
-                const progressService = ProgressReportingService.getInstance();
-
-                // Schedule progress report for background processing instead of blocking startup
-                setImmediate(async () => {
-                    try {
-                        await progressService.forceProgressReport();
-                        console.log("📊 Background progress report completed");
-                    } catch (error) {
-                        console.warn("📊 Background progress report failed:", error);
-                    }
-                });
-
-                const progressDuration = globalThis.performance.now() - progressStart;
-                console.log(`[Activation] Progress Report Scheduled: ${progressDuration.toFixed(2)}ms`);
-
-                // Update splash screen with completion
-                updateSplashScreenTimings([
-                    { step: "Processing translation statistics", duration: progressDuration, startTime: progressStart }
-                ]);
-            } catch (error) {
-                console.warn("[Activation] Failed to schedule progress report during startup:", error);
-                const progressDuration = globalThis.performance.now() - progressStart;
-                console.log(`[Activation] Progress Report Failed: ${progressDuration.toFixed(2)}ms`);
-
-                // Update splash screen with failure
-                updateSplashScreenTimings([
-                    { step: "Processing translation statistics (failed)", duration: progressDuration, startTime: progressStart }
-                ]);
-            }
         }
     }
 

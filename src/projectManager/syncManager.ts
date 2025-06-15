@@ -173,11 +173,6 @@ export class SyncManager {
         // Update splash screen with initial sync status
         updateSplashScreenSync(30, "Checking files are up to date...");
 
-        // Schedule progress report in background service (non-blocking)
-        const progressReportingService = ProgressReportingService.getInstance();
-        progressReportingService.scheduleProgressReport();
-        console.log("📊 Progress report scheduled for background processing");
-
         // Run the actual sync operation in the background (truly async)
         this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues);
 
@@ -210,6 +205,11 @@ export class SyncManager {
             // Update sync stage and splash screen
             this.currentSyncStage = "Synchronization complete!";
             updateSplashScreenSync(100, "Synchronization complete");
+
+            // Schedule progress report after successful sync (when there are actual changes)
+            const progressReportingService = ProgressReportingService.getInstance();
+            progressReportingService.scheduleProgressReport();
+            console.log("📊 Progress report scheduled after successful sync");
 
             // Rebuild indexes in the background after successful sync (truly async)
             this.rebuildIndexesInBackground();
