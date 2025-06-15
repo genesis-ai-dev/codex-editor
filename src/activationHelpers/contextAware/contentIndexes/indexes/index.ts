@@ -627,7 +627,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
-                const results = getTranslationPairsFromSourceCellQuery(
+                const results = await getTranslationPairsFromSourceCellQuery(
                     translationPairsIndex,
                     query,
                     k

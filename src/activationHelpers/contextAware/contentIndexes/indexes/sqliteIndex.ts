@@ -1298,7 +1298,8 @@ export class SQLiteIndexManager {
             SELECT 
                 c.id, c.cell_id, c.content, c.raw_content, c.cell_type, c.word_count,
                 f.file_path, f.file_type,
-                bm25(cells_fts) as rank
+                c.line_number as line,
+                bm25(cells_fts) as score
             FROM cells_fts
             JOIN cells c ON cells_fts.cell_id = c.cell_id
             JOIN files f ON c.file_id = f.id
@@ -1312,7 +1313,7 @@ export class SQLiteIndexManager {
             params.push(cellType);
         }
 
-        sql += ` ORDER BY rank LIMIT ?`;
+        sql += ` ORDER BY score DESC LIMIT ?`;
         params.push(limit);
 
         const stmt = this.db.prepare(sql);
@@ -1323,24 +1324,139 @@ export class SQLiteIndexManager {
             while (stmt.step()) {
                 const row = stmt.getAsObject();
 
-                // Verify both columns contain data - no fallbacks
+                // Verify both columns contain data
                 if (!row.content || !row.raw_content) {
-                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data in searchCells:`, {
-                        content: !!row.content,
-                        raw_content: !!row.raw_content
-                    });
-                    continue; // Skip this result
+                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
+                    continue;
                 }
 
-                // Choose which content to return based on parameter
-                const contentField = returnRawContent ? row.raw_content : row.content;
+                const metadata = row.metadata ? JSON.parse(row.metadata as string) : {};
 
                 results.push({
-                    ...row,
-                    content: contentField,
-                    // Always provide both versions for debugging/transparency
-                    sanitizedContent: row.content,
-                    rawContent: row.raw_content
+                    cellId: row.cell_id,
+                    cell_id: row.cell_id,
+                    content: row.content,
+                    rawContent: row.raw_content,
+                    sourceContent: row.cell_type === 'source' ? row.content : undefined,
+                    targetContent: row.cell_type === 'target' ? row.content : undefined,
+                    cell_type: row.cell_type,
+                    uri: row.file_path,
+                    line: row.line,
+                    score: row.score,
+                    ...metadata
+                });
+            }
+        } finally {
+            stmt.free();
+        }
+
+        return results;
+    }
+
+    // Special search method for Greek text that preserves diacritics and uses OR queries
+    async searchGreekText(
+        query: string,
+        cellType?: "source" | "target",
+        limit: number = 50
+    ): Promise<any[]> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        let sql: string;
+        let params: any[];
+
+        // Handle empty query by returning recent cells
+        if (!query || query.trim() === '') {
+            sql = `
+                SELECT 
+                    c.id, c.cell_id, c.content, c.raw_content, c.cell_type, c.word_count,
+                    f.file_path as uri, f.file_type,
+                    c.line_number as line,
+                    0 as score
+                FROM cells c
+                JOIN files f ON c.file_id = f.id
+                WHERE 1=1
+            `;
+            params = [];
+
+            if (cellType) {
+                sql += ` AND c.cell_type = ?`;
+                params.push(cellType);
+            }
+
+            sql += ` ORDER BY c.id DESC LIMIT ?`;
+            params.push(limit);
+        } else {
+            // For Greek text, split into words and clean punctuation
+            const words = query
+                .split(/\s+/)
+                .map(word => word.replace(/[.,;·!?()[\]{}""''‹›«»]/g, '').trim()) // Remove common punctuation
+                .filter((word) => word.length > 1); // Filter out single characters and empty strings
+
+            if (words.length === 0) {
+                return [];
+            }
+
+            // Create an OR query for all words - escape each word for FTS5
+            const escapedWords = words.map(word => {
+                // Escape quotes by doubling them for FTS5
+                return `"${word.replace(/"/g, '""')}"`;
+            });
+            const ftsQuery = escapedWords.join(" OR ");
+
+            console.log(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);
+            console.log(`[searchGreekText] FTS query: content: ${ftsQuery}`);
+
+            sql = `
+                SELECT 
+                    c.id, c.cell_id, c.content, c.raw_content, c.cell_type, c.word_count,
+                    f.file_path as uri, f.file_type,
+                    c.line_number as line,
+                    bm25(cells_fts) as score
+                FROM cells_fts
+                JOIN cells c ON cells_fts.cell_id = c.cell_id
+                JOIN files f ON c.file_id = f.id
+                WHERE cells_fts MATCH ?
+            `;
+
+            params = [`content: ${ftsQuery}`];
+
+            if (cellType) {
+                sql += ` AND c.cell_type = ?`;
+                params.push(cellType);
+            }
+
+            sql += ` ORDER BY score DESC LIMIT ?`;
+            params.push(limit);
+        }
+
+        const stmt = this.db.prepare(sql);
+        const results = [];
+
+        try {
+            stmt.bind(params);
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+
+                // Verify both columns contain data
+                if (!row.content || !row.raw_content) {
+                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
+                    continue;
+                }
+
+                const metadata = row.metadata ? JSON.parse(row.metadata as string) : {};
+
+                results.push({
+                    cellId: row.cell_id,
+                    cell_id: row.cell_id,
+                    content: row.content,
+                    rawContent: row.raw_content,
+                    sourceContent: row.cell_type === 'source' ? row.content : undefined,
+                    targetContent: row.cell_type === 'target' ? row.content : undefined,
+                    cell_type: row.cell_type,
+                    uri: row.uri,
+                    line: row.line,
+                    score: row.score,
+                    ...metadata
                 });
             }
         } finally {
