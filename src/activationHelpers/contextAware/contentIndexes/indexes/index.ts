@@ -327,12 +327,120 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     // Only populate database if it's completely empty (first time or after schema migration)
     const currentDocCount = translationPairsIndex.documentCount;
-    const needsInitialPopulation = currentDocCount === 0;
 
-    console.log(`[Index] Current document count: ${currentDocCount}, needs initial population: ${needsInitialPopulation}`);
+    // Add comprehensive validation check for index completeness
+    async function validateIndexCompleteness(docCount?: number): Promise<{ isComplete: boolean; reason?: string; }> {
+        // Use provided docCount or fall back to the one from initial check
+        const documentCount = docCount ?? currentDocCount;
+
+        if (documentCount === 0) {
+            return { isComplete: false, reason: "empty database" };
+        }
+
+        // Check if we have a reasonable number of documents
+        const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+        const totalExpectedFiles = sourceFiles.length + targetFiles.length;
+
+        console.log(`[Index] Validation: Found ${documentCount} documents in index, ${totalExpectedFiles} files on disk`);
+
+        // If we have files but very few indexed documents, something's wrong
+        if (totalExpectedFiles > 10 && documentCount < 5) {
+            return { isComplete: false, reason: `only ${documentCount} documents indexed but ${totalExpectedFiles} files found` };
+        }
+
+        // More aggressive validation - we expect many cells per file
+        const expectedMinCellsPerFile = 10; // Conservative estimate - Bible chapters typically have 20-50 verses
+        const expectedMinTotalCells = Math.floor(totalExpectedFiles * expectedMinCellsPerFile * 0.5); // Allow for some files being small
+
+        // If we have way fewer cells than expected based on file count, index is broken
+        if (totalExpectedFiles > 10 && documentCount < expectedMinTotalCells) {
+            return {
+                isComplete: false,
+                reason: `severe discrepancy: only ${documentCount} cells indexed but ~${expectedMinTotalCells}+ expected from ${totalExpectedFiles} files`
+            };
+        }
+
+        // For SQLite index, check data integrity
+        if (translationPairsIndex instanceof SQLiteIndexManager) {
+            try {
+                const stats = await translationPairsIndex.getContentStats();
+                const integrityCheck = await translationPairsIndex.verifyDataIntegrity();
+
+                console.log(`[Index] Validation: Total cells: ${stats.totalCells}, Missing content: ${stats.cellsWithMissingContent}, Missing raw content: ${stats.cellsWithMissingRawContent}`);
+
+                // If more than 50% of cells are missing content, index is broken
+                if (stats.totalCells > 0) {
+                    const missingContentRatio = (stats.cellsWithMissingContent + stats.cellsWithMissingRawContent) / (stats.totalCells * 2);
+                    if (missingContentRatio > 0.5) {
+                        return { isComplete: false, reason: `${Math.round(missingContentRatio * 100)}% of cell content is missing` };
+                    }
+                }
+
+                // Check if we have orphaned cells (source without target pairs)
+                const translationPairsQuery = `
+                    SELECT COUNT(*) as count FROM translation_pairs WHERE is_complete = 1
+                `;
+                // If we have way fewer complete pairs than cells, something's wrong
+                if (stats.totalCells > 100 && integrityCheck.totalCells < stats.totalCells * 0.3) {
+                    return { isComplete: false, reason: "too few complete translation pairs" };
+                }
+
+                // Check translation pair statistics
+                const pairStats = await translationPairsIndex.getTranslationPairStats();
+
+                console.log(`[Index] Validation: Translation pairs - Total: ${pairStats.totalPairs}, Complete: ${pairStats.completePairs}, Orphaned source: ${pairStats.orphanedSourceCells}, Orphaned target: ${pairStats.orphanedTargetCells}`);
+
+                // If we have many orphaned cells, the index is broken
+                if (pairStats.orphanedSourceCells > 10 || pairStats.orphanedTargetCells > 10) {
+                    return {
+                        isComplete: false,
+                        reason: `found ${pairStats.orphanedSourceCells} orphaned source cells and ${pairStats.orphanedTargetCells} orphaned target cells`
+                    };
+                }
+
+                // If we have very few complete pairs compared to total cells
+                if (stats.totalCells > 50 && pairStats.completePairs < 5) {
+                    return {
+                        isComplete: false,
+                        reason: `only ${pairStats.completePairs} complete translation pairs found`
+                    };
+                }
+
+                // Critical check: if we have files but NO source cells, index is completely broken
+                const sourceCellCount = stats.totalCells - pairStats.orphanedTargetCells;
+                if (totalExpectedFiles > 0 && sourceCellCount === 0) {
+                    return {
+                        isComplete: false,
+                        reason: `CRITICAL: No source cells found despite having ${totalExpectedFiles} files`
+                    };
+                }
+
+                // Check cell to file ratio - should have many cells per file
+                if (totalExpectedFiles > 0 && stats.totalCells > 0) {
+                    const cellsPerFile = stats.totalCells / totalExpectedFiles;
+                    if (cellsPerFile < 5) { // Way too few cells per file
+                        return {
+                            isComplete: false,
+                            reason: `abnormally low cell density: only ${cellsPerFile.toFixed(1)} cells per file (expected 20+)`
+                        };
+                    }
+                }
+            } catch (error) {
+                console.error("[Index] Error during validation:", error);
+                return { isComplete: false, reason: "validation error: " + error };
+            }
+        }
+
+        return { isComplete: true };
+    }
+
+    const validationResult = await validateIndexCompleteness();
+    const needsInitialPopulation = !validationResult.isComplete;
+
+    console.log(`[Index] Current document count: ${currentDocCount}, validation: ${validationResult.isComplete ? 'COMPLETE' : 'INCOMPLETE'} - ${validationResult.reason || 'OK'}`);
 
     if (needsInitialPopulation) {
-        let populationReason = "empty database detected";
+        let populationReason = validationResult.reason || "empty database detected";
         if (databaseWasRecreated) {
             populationReason = "schema migration to clean format";
         }
@@ -373,6 +481,78 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             translationPairsIndex.documentCount,
             sourceTextIndex.documentCount
         );
+
+        // Schedule background validation check after startup
+        setTimeout(async () => {
+            console.log("[Index] Running background index validation check...");
+
+            try {
+                const backgroundValidation = await validateIndexCompleteness(translationPairsIndex.documentCount);
+
+                if (!backgroundValidation.isComplete) {
+                    console.error(`[Index] Background validation failed: ${backgroundValidation.reason}`);
+
+                    // Log some sample data to help debug
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        try {
+                            const sampleCells = await translationPairsIndex.searchCells("", undefined, 10);
+                            console.error("[Index] Sample cells in broken index:");
+                            sampleCells.forEach((cell: any, i: number) => {
+                                console.error(`  ${i + 1}. ${cell.cell_id} (${cell.cell_type}): ${cell.content?.substring(0, 50) || "(no content)"}...`);
+                            });
+                        } catch (e) {
+                            console.error("[Index] Could not retrieve sample cells:", e);
+                        }
+                    }
+
+                    // Check if this is a critical failure that should trigger automatic rebuild
+                    const isCriticalFailure =
+                        backgroundValidation.reason?.includes("CRITICAL") ||
+                        backgroundValidation.reason?.includes("No source cells found") ||
+                        backgroundValidation.reason?.includes("severe discrepancy") ||
+                        false;
+
+                    if (isCriticalFailure) {
+                        // For critical failures, rebuild automatically
+                        console.error("[Index] Critical index failure detected - triggering automatic rebuild");
+                        vscode.window.showWarningMessage(
+                            `Codex: Critical search index issue detected. Rebuilding index automatically...`
+                        );
+
+                        await efficientRebuildIndexes(true);
+                        const finalCount = translationPairsIndex.documentCount;
+
+                        if (finalCount > 0) {
+                            vscode.window.showInformationMessage(
+                                `Codex: Index rebuilt successfully! Indexed ${finalCount} documents.`
+                            );
+                        } else {
+                            vscode.window.showErrorMessage(
+                                `Codex: Index rebuild completed but no documents were indexed. Please check your project files.`
+                            );
+                        }
+                    } else {
+                        // For non-critical issues, ask the user
+                        const choice = await vscode.window.showWarningMessage(
+                            `Search index appears to be incomplete: ${backgroundValidation.reason}. Would you like to rebuild it?`,
+                            "Rebuild Now",
+                            "Ignore"
+                        );
+
+                        if (choice === "Rebuild Now") {
+                            vscode.window.showInformationMessage("Codex: Starting index rebuild...");
+                            await efficientRebuildIndexes(true);
+                            const finalCount = translationPairsIndex.documentCount;
+                            vscode.window.showInformationMessage(`Codex: Index rebuild completed! Indexed ${finalCount} documents.`);
+                        }
+                    }
+                } else {
+                    console.log("[Index] Background validation passed - index appears healthy");
+                }
+            } catch (error) {
+                console.error("[Index] Error during background validation:", error);
+            }
+        }, 5000); // Run 5 seconds after startup to not interfere with initial load
     }
 
     // Only register commands and event listeners once
@@ -961,23 +1141,60 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                     if (translationPairsIndex instanceof SQLiteIndexManager) {
                         const stats = await translationPairsIndex.getContentStats();
-                        statusMessage += `• Total cells in database: ${stats.totalCells}\n`;
+                        const pairStats = await translationPairsIndex.getTranslationPairStats();
+
+                        statusMessage += `\nCell Statistics:\n`;
+                        statusMessage += `• Total cells: ${stats.totalCells}\n`;
                         statusMessage += `• Cells with content: ${stats.totalCells - stats.cellsWithMissingContent}\n`;
+                        statusMessage += `• Cells with raw content: ${stats.cellsWithRawContent}\n`;
+
+                        statusMessage += `\nTranslation Pairs:\n`;
+                        statusMessage += `• Total pairs: ${pairStats.totalPairs}\n`;
+                        statusMessage += `• Complete pairs: ${pairStats.completePairs}\n`;
+                        statusMessage += `• Incomplete pairs: ${pairStats.incompletePairs}\n`;
+                        statusMessage += `• Orphaned source cells: ${pairStats.orphanedSourceCells}\n`;
+                        statusMessage += `• Orphaned target cells: ${pairStats.orphanedTargetCells}\n`;
+
+                        // Run validation with fresh document count
+                        const freshDocCount = translationPairsIndex.documentCount;
+                        const validationResult = await validateIndexCompleteness(freshDocCount);
+                        statusMessage += `\nValidation: ${validationResult.isComplete ? '✅ COMPLETE' : '❌ INCOMPLETE'}`;
+                        if (!validationResult.isComplete) {
+                            statusMessage += `\nReason: ${validationResult.reason}`;
+                        }
                     }
 
-                    const action = currentDocCount === 0 ? "Rebuild Index" : "View Details";
-                    const choice = await vscode.window.showInformationMessage(statusMessage, action, "OK");
+                    const actions = ["View Full Diagnostics"];
+                    const freshValidation = await validateIndexCompleteness(currentDocCount);
+                    if (currentDocCount === 0 || !freshValidation.isComplete) {
+                        actions.unshift("Rebuild Index");
+                    }
+
+                    const choice = await vscode.window.showInformationMessage(statusMessage, ...actions, "OK");
 
                     if (choice === "Rebuild Index") {
                         vscode.commands.executeCommand("codex-editor-extension.forceCompleteRebuild");
-                    } else if (choice === "View Details") {
-                        console.log("=== Index Status Details ===");
+                    } else if (choice === "View Full Diagnostics") {
+                        console.log("=== Full Index Diagnostics ===");
                         console.log(`Documents in index: ${currentDocCount}`);
                         console.log(`Source files: ${sourceFiles.length}`);
                         console.log(`Target files: ${targetFiles.length}`);
+
                         if (translationPairsIndex instanceof SQLiteIndexManager) {
                             const stats = await translationPairsIndex.getContentStats();
-                            console.log("Database stats:", stats);
+                            const pairStats = await translationPairsIndex.getTranslationPairStats();
+                            const integrityCheck = await translationPairsIndex.verifyDataIntegrity();
+
+                            console.log("\nContent Statistics:", stats);
+                            console.log("\nTranslation Pair Statistics:", pairStats);
+                            console.log("\nData Integrity Check:", integrityCheck);
+
+                            // Sample some cells to see what's in the database
+                            console.log("\nSample cells from database:");
+                            const sampleCells = await translationPairsIndex.searchCells("", undefined, 5);
+                            sampleCells.forEach((cell: any, i: number) => {
+                                console.log(`Sample ${i + 1}: ${cell.cell_id} (${cell.cell_type}) - Content: ${cell.content?.substring(0, 50)}...`);
+                            });
                         }
                     }
                 } catch (error) {

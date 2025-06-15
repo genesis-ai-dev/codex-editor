@@ -27,17 +27,33 @@ export async function llmCompletion(
         // Get the source content for the current cell(s)
         const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
         const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
+
+        console.log(`[llmCompletion] Getting source content for cell IDs: ${currentCellIds.join(", ")}`);
+
         const sourceCells = await Promise.all(
-            currentCellIds.map(
-                (id) =>
-                    vscode.commands.executeCommand(
-                        "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                        id
-                    ) as Promise<MinimalCellResult | null>
-            )
+            currentCellIds.map(async (id) => {
+                const result = await vscode.commands.executeCommand(
+                    "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
+                    id
+                ) as MinimalCellResult | null;
+
+                if (!result) {
+                    console.warn(`[llmCompletion] No source content found for cell ID: ${id}`);
+                } else {
+                    console.log(`[llmCompletion] Found source content for ${id}: ${result.content?.substring(0, 50) || "(empty)"}...`);
+                }
+
+                return result;
+            })
         );
-        const sourceContent = sourceCells
-            .filter(Boolean)
+
+        const validSourceCells = sourceCells.filter(Boolean);
+        if (validSourceCells.length === 0) {
+            console.error(`[llmCompletion] No source content found for any of the cell IDs: ${currentCellIds.join(", ")}`);
+            throw new Error(`No source content found for cell ${currentCellId}. The search index may be incomplete. Try running "Force Complete Rebuild" from the command palette.`);
+        }
+
+        const sourceContent = validSourceCells
             .map((cell) => cell!.content)
             .join(" ");
 

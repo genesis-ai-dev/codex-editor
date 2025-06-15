@@ -1416,6 +1416,86 @@ export class SQLiteIndexManager {
         }
     }
 
+    // Get translation pair statistics for validation
+    async getTranslationPairStats(): Promise<{
+        totalPairs: number;
+        completePairs: number;
+        incompletePairs: number;
+        orphanedSourceCells: number;
+        orphanedTargetCells: number;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Count translation pairs
+        const pairsStmt = this.db.prepare(`
+            SELECT 
+                COUNT(*) as total_pairs,
+                SUM(CASE WHEN is_complete = 1 THEN 1 ELSE 0 END) as complete_pairs,
+                SUM(CASE WHEN is_complete = 0 THEN 1 ELSE 0 END) as incomplete_pairs
+            FROM translation_pairs
+        `);
+
+        let totalPairs = 0;
+        let completePairs = 0;
+        let incompletePairs = 0;
+
+        try {
+            pairsStmt.step();
+            const result = pairsStmt.getAsObject();
+            totalPairs = (result.total_pairs as number) || 0;
+            completePairs = (result.complete_pairs as number) || 0;
+            incompletePairs = (result.incomplete_pairs as number) || 0;
+        } finally {
+            pairsStmt.free();
+        }
+
+        // Count orphaned source cells (source cells not in any translation pair)
+        const orphanedSourceStmt = this.db.prepare(`
+            SELECT COUNT(*) as count
+            FROM cells c
+            WHERE c.cell_type = 'source'
+            AND NOT EXISTS (
+                SELECT 1 FROM translation_pairs tp 
+                WHERE tp.source_cell_id = c.id
+            )
+        `);
+
+        let orphanedSourceCells = 0;
+        try {
+            orphanedSourceStmt.step();
+            orphanedSourceCells = (orphanedSourceStmt.getAsObject().count as number) || 0;
+        } finally {
+            orphanedSourceStmt.free();
+        }
+
+        // Count orphaned target cells
+        const orphanedTargetStmt = this.db.prepare(`
+            SELECT COUNT(*) as count
+            FROM cells c
+            WHERE c.cell_type = 'target'
+            AND NOT EXISTS (
+                SELECT 1 FROM translation_pairs tp 
+                WHERE tp.target_cell_id = c.id
+            )
+        `);
+
+        let orphanedTargetCells = 0;
+        try {
+            orphanedTargetStmt.step();
+            orphanedTargetCells = (orphanedTargetStmt.getAsObject().count as number) || 0;
+        } finally {
+            orphanedTargetStmt.free();
+        }
+
+        return {
+            totalPairs,
+            completePairs,
+            incompletePairs,
+            orphanedSourceCells,
+            orphanedTargetCells
+        };
+    }
+
     // Verify data integrity - ensure both content columns are populated
     async verifyDataIntegrity(): Promise<{
         isValid: boolean;
