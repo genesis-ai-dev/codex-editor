@@ -956,21 +956,30 @@ export class SQLiteIndexManager {
         // Escape special characters for FTS5
         // FTS5 treats these as special: " ( ) * : .
         const escapeForFTS5 = (text: string): string => {
-            // First, handle quotes by doubling them
-            const escaped = text.replace(/"/g, '""');
+            // Clean and tokenize text robustly
+            const tokens = text
+                .split(/\s+/)
+                .map(token => {
+                    // Remove problematic leading/trailing punctuation
+                    return token
+                        .replace(/^[.,;:!?()[\]{}"""'''‹›«»\-_]+/, '')
+                        .replace(/[.,;:!?()[\]{}"""'''‹›«»\-_]+$/, '')
+                        .trim();
+                })
+                .filter(token => token.length > 1 && !/^\d+$/.test(token));
 
-            // For other special characters, we'll use phrase queries to treat them literally
-            // Split by whitespace but preserve the original tokens
-            const tokens = escaped.split(/\s+/).filter((token) => token.length > 0);
+            if (tokens.length === 0) return '';
 
-            // Wrap each token in quotes to make it a phrase query (treats special chars literally)
+            // Escape each token properly for FTS5
             const escapedTokens = tokens
                 .map((token) => {
-                    // If fuzzy search is enabled and token doesn't already have wildcards
+                    // Handle FTS5 special characters
+                    const escaped = token.replace(/"/g, '""'); // Double quotes for FTS5
+
+                    // For fuzzy matching, we can't use quotes with wildcards
                     if (fuzzy > 0 && !token.includes("*")) {
-                        // For fuzzy matching, we can't use quotes, so we need to escape differently
-                        // Remove problematic characters for fuzzy matching
-                        const cleanToken = token.replace(/[":().,;·]/g, " ").trim();
+                        // Clean token for fuzzy matching - remove remaining problematic chars
+                        const cleanToken = escaped.replace(/[":().,;·]/g, " ").trim();
                         if (cleanToken) {
                             return cleanToken
                                 .split(/\s+/)
@@ -980,7 +989,7 @@ export class SQLiteIndexManager {
                         return null;
                     } else {
                         // For exact matching, use phrase queries
-                        return `"${token}"`;
+                        return `"${escaped}"`;
                     }
                 })
                 .filter(Boolean);
@@ -1386,21 +1395,51 @@ export class SQLiteIndexManager {
             sql += ` ORDER BY c.id DESC LIMIT ?`;
             params.push(limit);
         } else {
-            // For Greek text, split into words and clean punctuation
-            const words = query
-                .split(/\s+/)
-                .map(word => word.replace(/[.,;·!?()[\]{}""''‹›«»]/g, '').trim()) // Remove common punctuation
-                .filter((word) => word.length > 1); // Filter out single characters and empty strings
+            // Clean and tokenize text robustly for all scripts and content types
+            const cleanAndTokenize = (text: string): string[] => {
+                return text
+                    .split(/\s+/) // Split on whitespace
+                    .map(token => {
+                        // Remove only the most problematic punctuation for FTS5 while preserving content integrity
+                        // Focus on trailing/leading punctuation that causes syntax errors
+                        return token
+                            .replace(/^[.,;:!?()[\]{}"""'''‹›«»\-_]+/, '') // Remove leading punctuation
+                            .replace(/[.,;:!?()[\]{}"""'''‹›«»\-_]+$/, '') // Remove trailing punctuation
+                            .trim();
+                    })
+                    .filter(token => {
+                        // Filter out tokens that are:
+                        // 1. Empty after cleaning
+                        // 2. Single characters (usually punctuation remnants)
+                        // 3. Only digits (usually page numbers, etc.)
+                        return token.length > 1 && !/^\d+$/.test(token);
+                    });
+            };
+
+            const words = cleanAndTokenize(query);
 
             if (words.length === 0) {
                 return [];
             }
 
-            // Create an OR query for all words - escape each word for FTS5
+            // Create an OR query for all words - properly escape each word for FTS5
             const escapedWords = words.map(word => {
-                // Escape quotes by doubling them for FTS5
-                return `"${word.replace(/"/g, '""')}"`;
+                // Handle FTS5 special characters more carefully
+                let escaped = word;
+
+                // Double internal quotes for FTS5
+                escaped = escaped.replace(/"/g, '""');
+
+                // If the word contains FTS5 operators or special chars, wrap in quotes
+                // FTS5 special characters: " * : ( ) 
+                if (/["*:()]/.test(escaped) || escaped.includes(' ')) {
+                    return `"${escaped}"`;
+                } else {
+                    // For simple words without special chars, use phrase query for exact matching
+                    return `"${escaped}"`;
+                }
             });
+
             const ftsQuery = escapedWords.join(" OR ");
 
             console.log(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);

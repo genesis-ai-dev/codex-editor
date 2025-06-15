@@ -43,6 +43,25 @@ async function isDocumentAlreadyOpen(uri: vscode.Uri): Promise<boolean> {
 // Track if the index context has been initialized to prevent duplicate command registrations
 let isIndexContextInitialized = false;
 
+// Add rebuild state tracking to prevent excessive rebuilds
+interface IndexRebuildState {
+    lastRebuildTime: number;
+    lastRebuildReason: string;
+    rebuildInProgress: boolean;
+    consecutiveRebuilds: number;
+}
+
+let rebuildState: IndexRebuildState = {
+    lastRebuildTime: 0,
+    lastRebuildReason: '',
+    rebuildInProgress: false,
+    consecutiveRebuilds: 0
+};
+
+// Cooldown periods (in milliseconds)
+const REBUILD_COOLDOWN_MS = 30000; // 30 seconds minimum between rebuilds
+const MAX_CONSECUTIVE_REBUILDS = 3; // Maximum rebuilds in a session
+
 export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const metadataManager = getNotebookMetadataManager();
     const workspaceUri = getWorkSpaceUri();
@@ -56,13 +75,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     // Only register status bar handler once
     if (!isIndexContextInitialized) {
         context.subscriptions.push(statusBarHandler);
+
+        // Load rebuild state from extension storage
+        const savedRebuildState = context.globalState.get<IndexRebuildState>('indexRebuildState');
+        if (savedRebuildState) {
+            rebuildState = { ...rebuildState, ...savedRebuildState };
+            // Reset rebuild progress flag on startup
+            rebuildState.rebuildInProgress = false;
+        }
     }
 
     // Initialize SQLite index manager
     const indexManager = new SQLiteIndexManager();
-
-    // Keep real-time progress enabled during startup for splash screen feedback
-    // indexManager.disableRealtimeProgress(); // Commented out to show progress during startup
 
     await indexManager.initialize(context);
 
@@ -71,112 +95,220 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     setSQLiteIndexManager(indexManager);
 
     // Create separate instances for translation pairs and source text
-    // These will use the same underlying database but provide different interfaces
     const translationPairsIndex = indexManager;
     const sourceTextIndex = indexManager;
 
     let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
     let filesIndex: Map<string, FileInfo> = new Map<string, FileInfo>();
 
-    // REMOVED: debouncedRebuildIndexes - no longer needed
-    // File changes are now handled by incremental update functions
-
-
-    // Debounced functions for individual indexes
-    const debouncedUpdateTranslationPairsIndex = debounce(async (doc: vscode.TextDocument) => {
-        if (!(await isDocumentAlreadyOpen(doc.uri))) {
-            const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
-            await createTranslationPairsIndex(
-                context,
-                translationPairsIndex,
-                sourceFiles,
-                targetFiles,
-                metadataManager
-            );
-        }
-    }, 3000);
-
-    const debouncedUpdateSourceTextIndex = debounce(async (doc: vscode.TextDocument) => {
-        if (!(await isDocumentAlreadyOpen(doc.uri))) {
-            const { sourceFiles } = await readSourceAndTargetFiles();
-            await createSourceTextIndex(sourceTextIndex, sourceFiles, metadataManager);
-        }
-    }, 3000);
-
-    const debouncedUpdateWordsIndex = debounce(async (doc: vscode.TextDocument) => {
-        if (!(await isDocumentAlreadyOpen(doc.uri))) {
-            const { targetFiles } = await readSourceAndTargetFiles();
-            wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
-        }
-    }, 3000);
-
-    const debouncedUpdateFilesIndex = debounce(async (doc: vscode.TextDocument) => {
-        if (!(await isDocumentAlreadyOpen(doc.uri))) {
-            filesIndex = await initializeFilesIndex();
-        }
-    }, 3000);
-
     await metadataManager.initialize();
     await metadataManager.loadMetadata();
 
-    // REMOVED: rebuildIndexes function - replaced with incremental updates
-    // The old bulk rebuilding approach was inefficient and defeated the purpose of FTS5
-    // Now we rely on:
-    // 1. Initial population for empty databases (efficientRebuildIndexes)
-    // 2. Incremental updates via file watchers (debouncedUpdate* functions)
-    // 3. FTS5 automatic index maintenance
+    /**
+     * Check if rebuild is allowed based on cooldown and consecutive rebuild limits
+     */
+    function isRebuildAllowed(reason: string, isForced: boolean = false): { allowed: boolean; reason?: string; } {
+        const now = Date.now();
+        const timeSinceLastRebuild = now - rebuildState.lastRebuildTime;
+
+        if (rebuildState.rebuildInProgress) {
+            return { allowed: false, reason: "rebuild already in progress" };
+        }
+
+        if (isForced) {
+            console.log(`[Index] Forced rebuild allowed: ${reason}`);
+            return { allowed: true };
+        }
+
+        if (timeSinceLastRebuild < REBUILD_COOLDOWN_MS) {
+            const remainingCooldown = Math.ceil((REBUILD_COOLDOWN_MS - timeSinceLastRebuild) / 1000);
+            return {
+                allowed: false,
+                reason: `rebuild cooldown active (${remainingCooldown}s remaining)`
+            };
+        }
+
+        if (rebuildState.consecutiveRebuilds >= MAX_CONSECUTIVE_REBUILDS) {
+            return {
+                allowed: false,
+                reason: `maximum consecutive rebuilds reached (${MAX_CONSECUTIVE_REBUILDS})`
+            };
+        }
+
+        return { allowed: true };
+    }
 
     /**
-     * Efficient indexing that streams files directly to database
-     * Avoids loading all files into memory at once
+     * Update rebuild state and persist to storage
      */
-    async function efficientRebuildIndexes(force: boolean = false): Promise<void> {
+    function updateRebuildState(updates: Partial<IndexRebuildState>) {
+        rebuildState = { ...rebuildState, ...updates };
+        context.globalState.update('indexRebuildState', rebuildState);
+    }
+
+    /**
+     * Reliable change detection using document count and sample existence checks
+     */
+    async function checkIfRebuildNeeded(): Promise<{ needsRebuild: boolean; reason: string; }> {
+        try {
+            const workspaceFolder = getWorkSpaceFolder();
+            if (!workspaceFolder) {
+                return { needsRebuild: false, reason: "no workspace folder" };
+            }
+
+            const documentCount = translationPairsIndex.documentCount;
+
+            // If database is empty, definitely need to rebuild
+            if (documentCount === 0) {
+                console.log("[Index] Database is empty, rebuild needed");
+                return { needsRebuild: true, reason: "empty database" };
+            }
+
+            // Get file counts for basic sanity check
+            const codexFiles = await vscode.workspace.findFiles("**/*.codex");
+            const sourceFiles = await vscode.workspace.findFiles("**/*.source");
+            const totalFiles = codexFiles.length + sourceFiles.length;
+
+            if (totalFiles === 0) {
+                console.log("[Index] No project files found");
+                return { needsRebuild: false, reason: "no project files" };
+            }
+
+            // Basic sanity check: if we have many files but very few documents, something's wrong
+            if (totalFiles > 20 && documentCount < 10) {
+                console.log(`[Index] Severe document/file mismatch: ${documentCount} docs vs ${totalFiles} files`);
+                return {
+                    needsRebuild: true,
+                    reason: `severe mismatch: ${documentCount} documents vs ${totalFiles} files`
+                };
+            }
+
+            // For smaller projects or reasonable ratios, assume it's fine
+            // This is much more conservative than the previous approach
+            const docsPerFile = documentCount / totalFiles;
+            if (docsPerFile >= 5) {
+                // Reasonable ratio - likely everything is indexed
+                console.log(`[Index] Good document ratio: ${docsPerFile.toFixed(1)} docs/file, assuming index is current`);
+                return { needsRebuild: false, reason: "good document ratio" };
+            } else if (totalFiles <= 10) {
+                // Small project - trust the existing index unless it's completely empty
+                console.log(`[Index] Small project (${totalFiles} files), trusting existing index`);
+                return { needsRebuild: false, reason: "small project with existing documents" };
+            } else {
+                // Larger project with low document ratio - might need rebuild
+                console.log(`[Index] Low document ratio: ${docsPerFile.toFixed(1)} docs/file for ${totalFiles} files`);
+                return {
+                    needsRebuild: true,
+                    reason: `low document density: ${docsPerFile.toFixed(1)} docs/file`
+                };
+            }
+
+        } catch (error) {
+            console.warn("Error during rebuild check, assuming no rebuild needed:", error);
+            return { needsRebuild: false, reason: "error during check - assuming current" };
+        }
+    }
+
+    /**
+     * Conservative validation that only rebuilds for critical issues
+     */
+    async function validateIndexHealthConservatively(): Promise<{ isHealthy: boolean; criticalIssue?: string; }> {
+        const documentCount = translationPairsIndex.documentCount;
+
+        // Only fail for truly critical issues that require immediate rebuild
+        if (documentCount === 0) {
+            return { isHealthy: false, criticalIssue: "completely empty database" };
+        }
+
+        // Check if we have some files but almost no cells (extremely broken)
+        const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+        const totalFiles = sourceFiles.length + targetFiles.length;
+
+        if (totalFiles > 50 && documentCount < 10) {
+            return { isHealthy: false, criticalIssue: `severely broken index: only ${documentCount} cells for ${totalFiles} files` };
+        }
+
+        // For SQLite, check for critical data corruption only
+        if (translationPairsIndex instanceof SQLiteIndexManager) {
+            try {
+                const stats = await translationPairsIndex.getContentStats();
+
+                // Only fail if almost all cells are completely broken
+                if (stats.totalCells > 0) {
+                    const missingContentRatio = stats.cellsWithMissingContent / stats.totalCells;
+                    if (missingContentRatio > 0.9) { // 90%+ missing content
+                        return { isHealthy: false, criticalIssue: `critical data corruption: ${Math.round(missingContentRatio * 100)}% of cells missing content` };
+                    }
+                }
+            } catch (error) {
+                // Database errors are critical
+                return { isHealthy: false, criticalIssue: `database error: ${error}` };
+            }
+        }
+
+        return { isHealthy: true };
+    }
+
+    /**
+     * Efficient indexing that respects cooldowns and rebuild limits
+     */
+    async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
+        const rebuildCheck = isRebuildAllowed(reason, isForced);
+
+        if (!rebuildCheck.allowed) {
+            console.log(`[Index] Rebuild not allowed: ${rebuildCheck.reason}`);
+            statusBarHandler.updateIndexCounts(
+                translationPairsIndex.documentCount,
+                sourceTextIndex.documentCount
+            );
+            statusBarHandler.setIndexingComplete();
+            return;
+        }
+
         statusBarHandler.setIndexingActive();
 
+        // Update rebuild state
+        updateRebuildState({
+            rebuildInProgress: true,
+            lastRebuildTime: Date.now(),
+            lastRebuildReason: reason,
+            consecutiveRebuilds: rebuildState.consecutiveRebuilds + 1
+        });
+
         try {
-            console.log(`[Index] Starting efficient rebuild - force: ${force}`);
+            console.log(`[Index] Starting smart rebuild - reason: ${reason}, forced: ${isForced}`);
 
-            // Quick check: if database has content and no force, skip entirely
-            if (!force && translationPairsIndex.documentCount > 0) {
-                console.log(`[Index] Database already populated with ${translationPairsIndex.documentCount} documents, skipping rebuild`);
-                statusBarHandler.updateIndexCounts(
-                    translationPairsIndex.documentCount,
-                    sourceTextIndex.documentCount
-                );
-                statusBarHandler.setIndexingComplete();
-                return;
-            }
-
-            // Check if files have changed since last index
-            const filesChanged = await checkIfFilesChanged();
-            if (!force && !filesChanged) {
-                console.log("[Index] No file changes detected, skipping rebuild");
-                statusBarHandler.setIndexingComplete();
-                return;
-            }
-
-            if (force) {
-                console.log("[Index] Force rebuild - clearing existing indexes...");
+            // For forced rebuilds, clear everything
+            if (isForced) {
+                console.log("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
                 filesIndex.clear();
             }
 
-            // Use the proper indexing functions instead of simple file streaming
+            // Rebuild using proper indexing logic
             await rebuildIndexesWithProperLogic();
 
-            // Update status bar with final counts
             const finalDocCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Efficient rebuild complete - indexed ${finalDocCount} documents`);
+            console.log(`[Index] Smart rebuild complete - indexed ${finalDocCount} documents`);
 
             statusBarHandler.updateIndexCounts(
                 finalDocCount,
                 sourceTextIndex.documentCount
             );
 
+            // Reset consecutive rebuilds on successful completion
+            updateRebuildState({
+                rebuildInProgress: false,
+                consecutiveRebuilds: 0
+            });
+
         } catch (error) {
-            console.error("Error in efficient rebuild:", error);
+            console.error("Error in smart rebuild:", error);
+            updateRebuildState({
+                rebuildInProgress: false
+            });
             throw error;
         } finally {
             statusBarHandler.setIndexingComplete();
@@ -184,78 +316,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     /**
-     * Check if any files have changed since last indexing using optimal change detection
-     */
-    async function checkIfFilesChanged(): Promise<boolean> {
-        try {
-            const workspaceFolder = getWorkSpaceFolder();
-            if (!workspaceFolder) return false;
-
-            // If database is empty, definitely need to index
-            if (translationPairsIndex.documentCount === 0) {
-                console.log("[Index] Database is empty, indexing needed");
-                return true;
-            }
-
-            // Get all project files
-            const codexFiles = await vscode.workspace.findFiles("**/*.codex");
-            const sourceFiles = await vscode.workspace.findFiles("**/*.source");
-            const allFiles = [...codexFiles, ...sourceFiles];
-
-            if (allFiles.length === 0) {
-                console.log("[Index] No project files found");
-                return false;
-            }
-
-            // Check for file-level changes using modification times and database tracking
-            let changedFilesCount = 0;
-
-            for (const fileUri of allFiles) {
-                try {
-                    // Get file modification time
-                    const fileStats = await vscode.workspace.fs.stat(fileUri);
-                    const lastModified = fileStats.mtime;
-
-                    // Check if file is tracked in database (using SQLite index manager)
-                    if (translationPairsIndex instanceof SQLiteIndexManager) {
-                        // Query database for this file's last known modification time
-                        const fileInfo = await translationPairsIndex.getFileStats();
-                        const dbFileInfo = fileInfo.get(fileUri.fsPath);
-
-                        if (!dbFileInfo || dbFileInfo.lastModified < lastModified) {
-                            console.log(`[Index] File changed: ${fileUri.fsPath}`);
-                            changedFilesCount++;
-
-                            // For performance, stop checking after finding a few changes
-                            if (changedFilesCount >= 5) {
-                                console.log(`[Index] Found ${changedFilesCount}+ changed files, indexing needed`);
-                                return true;
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.warn(`[Index] Error checking file ${fileUri.fsPath}:`, error);
-                    // If we can't check a file, assume it changed to be safe
-                    changedFilesCount++;
-                }
-            }
-
-            if (changedFilesCount > 0) {
-                console.log(`[Index] Found ${changedFilesCount} changed files, indexing needed`);
-                return true;
-            }
-
-            console.log(`[Index] All ${allFiles.length} files up to date, no indexing needed`);
-            return false;
-
-        } catch (error) {
-            console.warn("Error checking file changes, assuming files changed:", error);
-            return true; // Err on the side of caution
-        }
-    }
-
-    /**
-     * Rebuild indexes using the proper indexing functions (restored from working version)
+     * Rebuild indexes using the proper indexing functions
      */
     async function rebuildIndexesWithProperLogic(): Promise<void> {
         console.log("[Index] Reading source and target files...");
@@ -310,279 +371,78 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         console.log("[Index] Proper indexing logic complete");
     }
 
-
-
-    // Check if database was recreated during initialization (schema migration)
-    // The SQLiteIndexManager handles schema migrations automatically during initialize()
-    let databaseWasRecreated = false;
-    if (translationPairsIndex instanceof SQLiteIndexManager) {
-        // Check if the database is empty (indicating it was just recreated)
-        const currentDocCount = translationPairsIndex.documentCount;
-        if (currentDocCount === 0 && isIndexContextInitialized) {
-            // Database was likely recreated due to schema migration
-            databaseWasRecreated = true;
-            console.log("[Index] Database appears to have been recreated during schema migration");
-        }
-    }
-
-    // Only populate database if it's completely empty (first time or after schema migration)
+    // Check database health and determine if rebuild is needed
     const currentDocCount = translationPairsIndex.documentCount;
+    const healthCheck = await validateIndexHealthConservatively();
 
-    // Add comprehensive validation check for index completeness
-    async function validateIndexCompleteness(docCount?: number): Promise<{ isComplete: boolean; reason?: string; }> {
-        // Use provided docCount or fall back to the one from initial check
-        const documentCount = docCount ?? currentDocCount;
+    console.log(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
 
-        if (documentCount === 0) {
-            return { isComplete: false, reason: "empty database" };
+    let needsRebuild = false;
+    let rebuildReason = '';
+
+    if (!healthCheck.isHealthy) {
+        needsRebuild = true;
+        rebuildReason = healthCheck.criticalIssue || 'health check failed';
+    } else if (currentDocCount === 0) {
+        needsRebuild = true;
+        rebuildReason = 'empty database detected';
+    } else {
+        // Check for file changes only if health check passes
+        const changeCheck = await checkIfRebuildNeeded();
+        if (changeCheck.needsRebuild) {
+            needsRebuild = true;
+            rebuildReason = changeCheck.reason;
         }
-
-        // Check if we have a reasonable number of documents
-        const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
-        const totalExpectedFiles = sourceFiles.length + targetFiles.length;
-
-        console.log(`[Index] Validation: Found ${documentCount} documents in index, ${totalExpectedFiles} files on disk`);
-
-        // If we have files but very few indexed documents, something's wrong
-        if (totalExpectedFiles > 10 && documentCount < 5) {
-            return { isComplete: false, reason: `only ${documentCount} documents indexed but ${totalExpectedFiles} files found` };
-        }
-
-        // More aggressive validation - we expect many cells per file
-        const expectedMinCellsPerFile = 10; // Conservative estimate - Bible chapters typically have 20-50 verses
-        const expectedMinTotalCells = Math.floor(totalExpectedFiles * expectedMinCellsPerFile * 0.5); // Allow for some files being small
-
-        // If we have way fewer cells than expected based on file count, index is broken
-        if (totalExpectedFiles > 10 && documentCount < expectedMinTotalCells) {
-            return {
-                isComplete: false,
-                reason: `severe discrepancy: only ${documentCount} cells indexed but ~${expectedMinTotalCells}+ expected from ${totalExpectedFiles} files`
-            };
-        }
-
-        // For SQLite index, check data integrity
-        if (translationPairsIndex instanceof SQLiteIndexManager) {
-            try {
-                const stats = await translationPairsIndex.getContentStats();
-                const integrityCheck = await translationPairsIndex.verifyDataIntegrity();
-
-                console.log(`[Index] Validation: Total cells: ${stats.totalCells}, Missing content: ${stats.cellsWithMissingContent}, Missing raw content: ${stats.cellsWithMissingRawContent}`);
-
-                // If more than 50% of cells are missing content, index is broken
-                if (stats.totalCells > 0) {
-                    const missingContentRatio = (stats.cellsWithMissingContent + stats.cellsWithMissingRawContent) / (stats.totalCells * 2);
-                    if (missingContentRatio > 0.5) {
-                        return { isComplete: false, reason: `${Math.round(missingContentRatio * 100)}% of cell content is missing` };
-                    }
-                }
-
-                // Check if we have orphaned cells (source without target pairs)
-                const translationPairsQuery = `
-                    SELECT COUNT(*) as count FROM translation_pairs WHERE is_complete = 1
-                `;
-                // If we have way fewer complete pairs than cells, something's wrong
-                if (stats.totalCells > 100 && integrityCheck.totalCells < stats.totalCells * 0.3) {
-                    return { isComplete: false, reason: "too few complete translation pairs" };
-                }
-
-                // Check translation pair statistics
-                const pairStats = await translationPairsIndex.getTranslationPairStats();
-
-                console.log(`[Index] Validation: Translation pairs - Total: ${pairStats.totalPairs}, Complete: ${pairStats.completePairs}, Orphaned source: ${pairStats.orphanedSourceCells}, Orphaned target: ${pairStats.orphanedTargetCells}`);
-
-                // If we have many orphaned cells, the index is broken
-                if (pairStats.orphanedSourceCells > 10 || pairStats.orphanedTargetCells > 10) {
-                    return {
-                        isComplete: false,
-                        reason: `found ${pairStats.orphanedSourceCells} orphaned source cells and ${pairStats.orphanedTargetCells} orphaned target cells`
-                    };
-                }
-
-                // If we have very few complete pairs compared to total cells
-                if (stats.totalCells > 50 && pairStats.completePairs < 5) {
-                    return {
-                        isComplete: false,
-                        reason: `only ${pairStats.completePairs} complete translation pairs found`
-                    };
-                }
-
-                // Critical check: if we have files but NO source cells, index is completely broken
-                const sourceCellCount = stats.totalCells - pairStats.orphanedTargetCells;
-                if (totalExpectedFiles > 0 && sourceCellCount === 0) {
-                    return {
-                        isComplete: false,
-                        reason: `CRITICAL: No source cells found despite having ${totalExpectedFiles} files`
-                    };
-                }
-
-                // Check cell to file ratio - should have many cells per file
-                if (totalExpectedFiles > 0 && stats.totalCells > 0) {
-                    const cellsPerFile = stats.totalCells / totalExpectedFiles;
-                    if (cellsPerFile < 5) { // Way too few cells per file
-                        return {
-                            isComplete: false,
-                            reason: `abnormally low cell density: only ${cellsPerFile.toFixed(1)} cells per file (expected 20+)`
-                        };
-                    }
-                }
-            } catch (error) {
-                console.error("[Index] Error during validation:", error);
-                return { isComplete: false, reason: "validation error: " + error };
-            }
-        }
-
-        return { isComplete: true };
     }
 
-    const validationResult = await validateIndexCompleteness();
-    const needsInitialPopulation = !validationResult.isComplete;
+    if (needsRebuild) {
+        console.log(`[Index] Rebuild needed: ${rebuildReason}`);
 
-    console.log(`[Index] Current document count: ${currentDocCount}, validation: ${validationResult.isComplete ? 'COMPLETE' : 'INCOMPLETE'} - ${validationResult.reason || 'OK'}`);
+        // Check if this is a critical issue that should rebuild automatically
+        const isCritical = !healthCheck.isHealthy || currentDocCount === 0;
 
-    if (needsInitialPopulation) {
-        let populationReason = validationResult.reason || "empty database detected";
-        if (databaseWasRecreated) {
-            populationReason = "schema migration to clean format";
+        if (isCritical) {
+            vscode.window.showInformationMessage(`Codex: Search index needs rebuilding (${rebuildReason})...`);
         }
 
-        console.log(`[Index] Populating empty database due to: ${populationReason}`);
-
-        if (databaseWasRecreated) {
-            vscode.window.showInformationMessage("Codex: Populating search index with new clean format...");
-        } else if (currentDocCount === 0) {
-            vscode.window.showInformationMessage("Codex: Populating search index...");
-        }
-
-        // Make the population process non-blocking
+        // Make rebuild non-blocking
         setImmediate(async () => {
             try {
-                await efficientRebuildIndexes(true); // Use efficient method for initial population
+                await smartRebuildIndexes(rebuildReason, isCritical);
 
                 const finalCount = translationPairsIndex.documentCount;
-                console.log(`[Index] Initial population completed with ${finalCount} documents`);
+                console.log(`[Index] Rebuild completed with ${finalCount} documents`);
 
-                if (databaseWasRecreated) {
-                    vscode.window.showInformationMessage(`Codex: Search index upgraded successfully to new clean format! Indexed ${finalCount} documents.`);
-                } else if (finalCount > 0) {
-                    vscode.window.showInformationMessage(`Codex: Search index populated successfully! Indexed ${finalCount} documents.`);
+                if (finalCount > 0) {
+                    vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
                 } else {
-                    vscode.window.showWarningMessage("Codex: Search index populated but no documents were indexed. Please check your .codex files.");
+                    vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex files.");
                 }
             } catch (error) {
-                console.error("[Index] Error during initial population:", error);
+                console.error("[Index] Error during rebuild:", error);
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`Codex: Failed to populate search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+                vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
             }
         });
     } else {
-        // Database already has content, just update status bar
-        console.log(`[Index] Database already populated with ${currentDocCount} documents, using existing index`);
+        // Database is healthy and up to date
+        console.log(`[Index] Index is healthy and up to date with ${currentDocCount} documents`);
         statusBarHandler.updateIndexCounts(
             translationPairsIndex.documentCount,
             sourceTextIndex.documentCount
         );
 
-        // Schedule background validation check after startup
-        setTimeout(async () => {
-            console.log("[Index] Running background index validation check...");
-
-            try {
-                const backgroundValidation = await validateIndexCompleteness(translationPairsIndex.documentCount);
-
-                if (!backgroundValidation.isComplete) {
-                    console.error(`[Index] Background validation failed: ${backgroundValidation.reason}`);
-
-                    // Log some sample data to help debug
-                    if (translationPairsIndex instanceof SQLiteIndexManager) {
-                        try {
-                            const sampleCells = await translationPairsIndex.searchCells("", undefined, 10);
-                            console.error("[Index] Sample cells in broken index:");
-                            sampleCells.forEach((cell: any, i: number) => {
-                                console.error(`  ${i + 1}. ${cell.cell_id} (${cell.cell_type}): ${cell.content?.substring(0, 50) || "(no content)"}...`);
-                            });
-                        } catch (e) {
-                            console.error("[Index] Could not retrieve sample cells:", e);
-                        }
-                    }
-
-                    // Check if this is a critical failure that should trigger automatic rebuild
-                    const isCriticalFailure =
-                        backgroundValidation.reason?.includes("CRITICAL") ||
-                        backgroundValidation.reason?.includes("No source cells found") ||
-                        backgroundValidation.reason?.includes("severe discrepancy") ||
-                        false;
-
-                    if (isCriticalFailure) {
-                        // For critical failures, rebuild automatically
-                        console.error("[Index] Critical index failure detected - triggering automatic rebuild");
-                        vscode.window.showWarningMessage(
-                            `Codex: Critical search index issue detected. Rebuilding index automatically...`
-                        );
-
-                        await efficientRebuildIndexes(true);
-                        const finalCount = translationPairsIndex.documentCount;
-
-                        if (finalCount > 0) {
-                            vscode.window.showInformationMessage(
-                                `Codex: Index rebuilt successfully! Indexed ${finalCount} documents.`
-                            );
-                        } else {
-                            vscode.window.showErrorMessage(
-                                `Codex: Index rebuild completed but no documents were indexed. Please check your project files.`
-                            );
-                        }
-                    } else {
-                        // For non-critical issues, ask the user
-                        const choice = await vscode.window.showWarningMessage(
-                            `Search index appears to be incomplete: ${backgroundValidation.reason}. Would you like to rebuild it?`,
-                            "Rebuild Now",
-                            "Ignore"
-                        );
-
-                        if (choice === "Rebuild Now") {
-                            vscode.window.showInformationMessage("Codex: Starting index rebuild...");
-                            await efficientRebuildIndexes(true);
-                            const finalCount = translationPairsIndex.documentCount;
-                            vscode.window.showInformationMessage(`Codex: Index rebuild completed! Indexed ${finalCount} documents.`);
-                        }
-                    }
-                } else {
-                    console.log("[Index] Background validation passed - index appears healthy");
-                }
-            } catch (error) {
-                console.error("[Index] Error during background validation:", error);
-            }
-        }, 5000); // Run 5 seconds after startup to not interfere with initial load
+        // Reset consecutive rebuilds since we didn't need to rebuild
+        updateRebuildState({
+            consecutiveRebuilds: 0
+        });
     }
 
     // Only register commands and event listeners once
     if (!isIndexContextInitialized) {
-        // File save watcher - use incremental updates instead of full rebuilds
-        const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(async (document) => {
-            if (document.fileName.endsWith(".codex")) {
-                console.log(`[Index] File saved: ${document.fileName}, using incremental updates`);
-                // The incremental update functions are already called by onDidChangeTextDocument
-                // No need for full rebuild here - FTS5 handles the updates automatically
-            }
-        });
-
-        // Document change watcher - these are the incremental updates that actually work
-        const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(
-            async (event: any) => {
-                const doc = event.document;
-                if (doc.metadata?.type === "scripture" || doc.fileName.endsWith(".codex")) {
-                    // These functions handle incremental updates to the SQLite/FTS5 database
-                    debouncedUpdateTranslationPairsIndex(doc);
-                    debouncedUpdateSourceTextIndex(doc);
-                    debouncedUpdateWordsIndex(doc);
-                    debouncedUpdateFilesIndex(doc);
-                }
-            }
-        );
-
-        // CRITICAL: Handle custom document changes (the missing piece from the background issue)
-        // We'll register this listener with the CodexCellEditorProvider instead
-        // since onDidChangeCustomDocument is a provider-level event, not workspace-level
+        // NOTE: File change watchers removed in favor of startup-time content checking
+        // The new robust system checks for changes when the extension starts up,
+        // which is more reliable than real-time file watching and prevents excessive rebuilds
 
         const searchTargetCellsByQueryCommand = vscode.commands.registerCommand(
             "codex-editor-extension.searchTargetCellsByQuery",
@@ -697,7 +557,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             "codex-editor-extension.forceReindex",
             async () => {
                 vscode.window.showInformationMessage("Force re-indexing started");
-                await efficientRebuildIndexes(true);
+                await smartRebuildIndexes("manual force reindex command", true);
                 vscode.window.showInformationMessage("Force re-indexing completed");
             }
         );
@@ -710,7 +570,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 });
 
                 if (option === "Force Reindex") {
-                    await efficientRebuildIndexes(true);
+                    await smartRebuildIndexes("manual force reindex from options", true);
                 }
             }
         );
@@ -1114,7 +974,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         vscode.window.showInformationMessage("Codex: Starting complete index rebuild...");
 
                         // Force a complete rebuild
-                        await efficientRebuildIndexes(true);
+                        await smartRebuildIndexes("manual complete rebuild command", true);
 
                         const finalCount = translationPairsIndex.documentCount;
                         vscode.window.showInformationMessage(`Codex: Index rebuild completed! Indexed ${finalCount} documents.`);
@@ -1157,16 +1017,16 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                         // Run validation with fresh document count
                         const freshDocCount = translationPairsIndex.documentCount;
-                        const validationResult = await validateIndexCompleteness(freshDocCount);
-                        statusMessage += `\nValidation: ${validationResult.isComplete ? '✅ COMPLETE' : '❌ INCOMPLETE'}`;
-                        if (!validationResult.isComplete) {
-                            statusMessage += `\nReason: ${validationResult.reason}`;
+                        const validationResult = await validateIndexHealthConservatively();
+                        statusMessage += `\nValidation: ${validationResult.isHealthy ? '✅ COMPLETE' : '❌ INCOMPLETE'}`;
+                        if (!validationResult.isHealthy) {
+                            statusMessage += `\nReason: ${validationResult.criticalIssue}`;
                         }
                     }
 
                     const actions = ["View Full Diagnostics"];
-                    const freshValidation = await validateIndexCompleteness(currentDocCount);
-                    if (currentDocCount === 0 || !freshValidation.isComplete) {
+                    const freshValidation = await validateIndexHealthConservatively();
+                    if (currentDocCount === 0 || !freshValidation.isHealthy) {
                         actions.unshift("Rebuild Index");
                     }
 
@@ -1241,8 +1101,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         // Update the subscriptions
         context.subscriptions.push(
             ...[
-                onDidSaveTextDocument,
-                onDidChangeTextDocument,
                 searchTargetCellsByQueryCommand,
                 getTranslationPairsFromSourceCellQueryCommand,
                 getSourceCellByCellIdFromAllSourceCellsCommand,
