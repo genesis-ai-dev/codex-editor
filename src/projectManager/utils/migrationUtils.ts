@@ -14,8 +14,11 @@ export const migration_changeDraftFolderToFilesFolder = async () => {
             // Check if the 'metadata.json' file exists
             await vscode.workspace.fs.stat(metadataUri);
 
-            // Check if the 'drafts' folder exists
+            // Check if the 'drafts' folder exists before trying to read it
             try {
+                await vscode.workspace.fs.stat(draftsUri);
+
+                // If we get here, the drafts folder exists, so read it
                 const draftsFolder = await vscode.workspace.fs.readDirectory(draftsUri);
 
                 // If the read succeeds, the folder exists, and we can attempt to rename it

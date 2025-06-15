@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ActivationTiming } from "../types";
+import { getVSCodeAPI } from "../../shared/vscodeApi";
 
 // Define a simplified VSCodeAPI interface that matches what we actually use
 interface VSCodeAPISimple {
@@ -27,18 +28,16 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
     const [syncDetails, setSyncDetails] = useState<SyncDetails | undefined>(undefined);
     const vscodeRef = useRef<VSCodeAPISimple | null>(null);
 
-    // Initialize VS Code API only once
+    // Initialize VS Code API only once using the safe shared function
     useEffect(() => {
         // Only initialize once
         if (vscodeRef.current === null) {
             try {
-                // Access the VSCode API provided by the host
-                if (typeof acquireVsCodeApi === "function") {
-                    // We only need the postMessage method
-                    vscodeRef.current = acquireVsCodeApi() as VSCodeAPISimple;
-                }
+                // Use the shared safe VSCode API getter
+                vscodeRef.current = getVSCodeAPI() as VSCodeAPISimple;
             } catch (error) {
                 console.error("Failed to acquire VS Code API", error);
+                // getVSCodeAPI already provides a safe fallback, so this should rarely happen
             }
         }
 
@@ -110,11 +109,11 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
 
     const sendMessage = useCallback((message: any) => {
         try {
-        if (vscodeRef.current) {
-            vscodeRef.current.postMessage(message);
-        } else if (window.parent !== window) {
-            // Fallback: try to post message to parent window
-            window.parent.postMessage(message, "*");
+            if (vscodeRef.current && vscodeRef.current.postMessage) {
+                vscodeRef.current.postMessage(message);
+            } else if (window.parent !== window) {
+                // Fallback: try to post message to parent window
+                window.parent.postMessage(message, "*");
             } else {
                 console.warn("No VSCode API available and no parent window - message not sent:", message);
             }
@@ -126,12 +125,12 @@ export function useVSCodeMessaging(): VSCodeMessagingResult {
     // Method to notify extension that animation is complete
     const notifyAnimationComplete = useCallback(() => {
         try {
-        // Try to send via VSCode API first
-        if (vscodeRef.current) {
-            vscodeRef.current.postMessage({ command: "animationComplete" });
-        } else {
-            // Fallback: dispatch a custom event
-            window.dispatchEvent(new CustomEvent("animation-complete"));
+            // Try to send via VSCode API first
+            if (vscodeRef.current && vscodeRef.current.postMessage) {
+                vscodeRef.current.postMessage({ command: "animationComplete" });
+            } else {
+                // Fallback: dispatch a custom event
+                window.dispatchEvent(new CustomEvent("animation-complete"));
             }
         } catch (error) {
             console.error("Failed to notify animation complete:", error);
