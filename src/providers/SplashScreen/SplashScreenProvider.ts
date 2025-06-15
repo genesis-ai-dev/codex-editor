@@ -191,7 +191,6 @@ export class SplashScreenProvider {
                 #root { height: 100%; width: 100%; }
             `,
             customScript: `
-                const vscode = acquireVsCodeApi();
                 window.addEventListener('message', event => {
                     const message = event.data;
                     if (message) {
@@ -200,7 +199,8 @@ export class SplashScreenProvider {
                     }
                 });
                 window.addEventListener('animation-complete', () => {
-                    vscode.postMessage({ command: 'animationComplete' });
+                    // The React component will handle vscode.postMessage through the shared API
+                    console.log('Animation complete event received');
                 });
             `
         });
