@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 
 import { getAuthApi } from "../../extension";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
 export class WelcomeViewProvider {
     public static readonly viewType = "codex-welcome-view";
@@ -91,7 +92,7 @@ export class WelcomeViewProvider {
 
             // Notify the webview of the new state
             if (this._panel) {
-                this._panel.webview.postMessage({
+                safePostMessageToPanel(this._panel, {
                     command: "menuStateChanged",
                     isVisible: this._isMenuVisible,
                     actionPerformed: newAction,
@@ -120,7 +121,7 @@ export class WelcomeViewProvider {
 
             // Notify the webview of the state change
             if (this._panel) {
-                this._panel.webview.postMessage({
+                safePostMessageToPanel(this._panel, {
                     command: "menuStateChanged",
                     isVisible: true,
                     actionPerformed: "show-navigator",
@@ -651,7 +652,7 @@ export class WelcomeViewProvider {
         try {
             // Show loading indicator in the welcome view
             if (this._panel) {
-                this._panel.webview.postMessage({
+                safePostMessageToPanel(this._panel, {
                     command: "showLoginLoading",
                     loading: true,
                 });
@@ -674,7 +675,7 @@ export class WelcomeViewProvider {
             if (this._panel) {
                 // Short delay to ensure the flow has time to initialize
                 setTimeout(() => {
-                    this._panel?.webview.postMessage({
+                    safePostMessageToPanel(this._panel, {
                         command: "showLoginLoading",
                         loading: false,
                     });
@@ -683,7 +684,7 @@ export class WelcomeViewProvider {
         } catch (error) {
             // If opening fails, hide the loading indicator and show error
             if (this._panel) {
-                this._panel.webview.postMessage({
+                safePostMessageToPanel(this._panel, {
                     command: "showLoginLoading",
                     loading: false,
                 });

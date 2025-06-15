@@ -275,7 +275,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 this.webviewPanel?.dispose();
             }
             if (this.webviewPanel) {
-                this.webviewPanel.webview.postMessage({
+                this.safeSendMessage({
                     command: "state.update",
                     state: {
                         value: state.value,
@@ -973,7 +973,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         // part of the reason behind this is wanting to init git, create a project id, etc.
         // We *could* refactor the project creation logic to be more concise, but currently we can't say the project is initialized until the metadata.json is created AND populated (in the initialization function).
         // this.metadataWatcher.onDidCreate(() => {
-        //     webviewPanel.webview.postMessage({
+        //     safePostMessageToPanel(webviewPanel, {
         //         command: "project.initializationStatus",
         //         isInitialized: true,
         //     });
@@ -1002,7 +1002,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 );
 
                 if (progressData && this.webviewPanel) {
-                    this.webviewPanel.webview.postMessage({
+                    this.safeSendMessage({
                         command: "progressData",
                         data: progressData,
                     } as MessagesFromStartupFlowProvider);
@@ -1068,7 +1068,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 await this.handleMessage(message);
             } catch (error) {
                 console.error("Error handling message:", error);
-                webviewPanel.webview.postMessage({
+                safePostMessageToPanel(webviewPanel, {
                     command: "error",
                     message: `Failed to handle action: ${(error as Error).message}`,
                 });
@@ -1076,7 +1076,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
 
         // Fetch initial progress data after webview is ready
-        webviewPanel.webview.postMessage({ command: "webview.loading" });
+        safePostMessageToPanel(webviewPanel, { command: "webview.loading" });
 
         try {
             // Initialize standard panels and functionality
@@ -1087,7 +1087,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         } catch (error) {
             console.error("Error during startup flow initialization:", error);
         } finally {
-            webviewPanel.webview.postMessage({ command: "webview.ready" });
+            safePostMessageToPanel(webviewPanel, { command: "webview.ready" });
         }
     }
 
@@ -1178,7 +1178,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         );
 
                         // Send initialization status to webview
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "project.initializationStatus",
                             isInitialized: true,
                         });
@@ -1187,7 +1187,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     } catch (error) {
                         console.error("Error checking metadata.json:", error);
                         // If metadata.json doesn't exist yet, don't transition state
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "project.initializationStatus",
                             isInitialized: false,
                         });
@@ -1268,14 +1268,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
 
                     // Send response back to webview
-                    this.webviewPanel?.webview.postMessage({
+                    this.safeSendMessage({
                         command: "project.progressReportSubmitted",
                         success: true,
                     });
                 } catch (error) {
                     console.error("Error submitting progress report:", error);
                     // Send error response back to webview
-                    this.webviewPanel?.webview.postMessage({
+                    this.safeSendMessage({
                         command: "project.progressReportSubmitted",
                         success: false,
                         error: error instanceof Error ? error.message : String(error),
@@ -1326,7 +1326,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             ? Object.keys(metadata.ingredients)
                             : [];
 
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "metadata.checkResponse",
                             data: {
                                 sourceLanguage,
@@ -1336,7 +1336,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         });
                     } catch (error) {
                         console.error("Error checking metadata:", error);
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "metadata.checkResponse",
                             data: {
                                 sourceLanguage: null,
@@ -1548,7 +1548,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                     } else {
                         // User cancelled deletion
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "project.deleteResponse",
                             success: false,
                             error: "Operation cancelled by user",
@@ -1559,7 +1559,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     vscode.window.showErrorMessage("The specified project could not be found.");
 
                     // Send error response to webview
-                    this.webviewPanel?.webview.postMessage({
+                    this.safeSendMessage({
                         command: "project.deleteResponse",
                         success: false,
                         error: "The specified project could not be found.",
@@ -1696,7 +1696,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         );
 
                         // Send success response to webview
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "project.deleteResponse",
                             success: true,
                             projectPath: projectPath,
@@ -1712,7 +1712,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         console.error("Migration failed:", errorMessage);
 
                         // Send error response to webview
-                        this.webviewPanel?.webview.postMessage({
+                        this.safeSendMessage({
                             command: "project.deleteResponse",
                             success: false,
                             error: `Migration failed: ${errorMessage}`,
@@ -1728,7 +1728,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             console.error("Error setting up migration progress:", error);
 
             // Send error response to webview
-            this.webviewPanel?.webview.postMessage({
+            this.safeSendMessage({
                 command: "project.deleteResponse",
                 success: false,
                 error: "Failed to start migration process",
@@ -1753,7 +1753,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             );
 
             // Send success response to webview
-            this.webviewPanel?.webview.postMessage({
+            this.safeSendMessage({
                 command: "project.deleteResponse",
                 success: true,
                 projectPath: projectPath,
@@ -1766,7 +1766,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             );
 
             // Send error response to webview
-            this.webviewPanel?.webview.postMessage({
+            this.safeSendMessage({
                 command: "project.deleteResponse",
                 success: false,
                 error: error instanceof Error ? error.message : String(error),

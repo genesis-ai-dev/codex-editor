@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { NewSourceUploaderPostMessages } from "@newSourceUploaderTypes";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { NotebookPreview } from "@types";
@@ -58,7 +59,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 await this.handleMessage(message, webviewPanel, token);
             } catch (error) {
                 console.error("Error handling message:", error);
-                webviewPanel.webview.postMessage({
+                safePostMessageToPanel(webviewPanel, {
                     command: "error",
                     error: error instanceof Error ? error.message : "Unknown error occurred",
                 });
@@ -79,7 +80,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 break;
             case "reset":
                 // Handle reset command
-                webviewPanel.webview.postMessage({
+                safePostMessageToPanel(webviewPanel, {
                     command: "uploadResult",
                     result: null,
                 });
@@ -104,7 +105,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             }
 
             // Send initial progress update
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 command: "progressUpdate",
                 progress: [
                     {
@@ -208,7 +209,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             });
             await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             // Send processing progress update
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 command: "progressUpdate",
                 progress: [
                     {
@@ -231,7 +232,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             const fileSizeKB = Math.round(fileData.content.byteLength / 1024);
 
             // Send completion progress update
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 command: "progressUpdate",
                 progress: [
                     {
@@ -253,7 +254,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             });
 
             // Send success result
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 command: "uploadResult",
                 result: {
                     success: true,
@@ -268,7 +269,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             );
         } catch (error) {
             // Send error result
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 command: "uploadResult",
                 result: {
                     success: false,

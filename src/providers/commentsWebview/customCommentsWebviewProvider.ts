@@ -4,6 +4,7 @@ import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { Uri, window, workspace } from "vscode";
 import { BaseWebviewProvider } from "../../globalProvider";
+import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
 
 export class CustomWebviewProvider extends BaseWebviewProvider {
@@ -63,7 +64,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             try {
                 const user = await this.authApi.getUserInfo();
                 if (user) {
-                    webviewView.webview.postMessage({
+                    safePostMessageToView(webviewView, {
                         command: "updateUser",
                         user: {
                             id: user.username,
@@ -101,7 +102,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         try {
             // Ensure comments file exists before trying to read it
             await this.initializeCommentsFile();
-            
+
             // Now safely initialize other components
             await this.sendCurrentUserInfo(webviewView);
             await this.sendCommentsToWebview(webviewView);
@@ -257,7 +258,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     initializeStateStore().then(({ getStoreState }) => {
                         getStoreState("cellId").then((value: CellIdGlobalState | undefined) => {
                             if (value) {
-                                this._view!.webview.postMessage({
+                                safePostMessageToView(this._view, {
                                     command: "reload",
                                     data: {
                                         cellId: value.cellId, // Extract just the cellId string
@@ -287,7 +288,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
             const fileContent = new TextDecoder().decode(fileContentUint8Array);
 
-            webviewView.webview.postMessage({
+            safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
                 content: fileContent,
             } as CommentPostMessages);
@@ -296,7 +297,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         } catch (error) {
             // If file doesn't exist, send empty comments array instead of showing error
             console.log("Comments file not found, sending empty comments array");
-            webviewView.webview.postMessage({
+            safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
                 content: "[]",
             } as CommentPostMessages);
@@ -308,7 +309,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         const { getStoreState } = await initializeStateStore();
         const cellId = (await getStoreState("cellId")) as CellIdGlobalState | undefined;
         if (cellId) {
-            webviewView.webview.postMessage({
+            safePostMessageToView(webviewView, {
                 command: "reload",
                 data: { cellId: cellId.cellId },
             } as CommentPostMessages);

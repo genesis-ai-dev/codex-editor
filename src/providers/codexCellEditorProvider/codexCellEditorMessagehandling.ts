@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CodexCellDocument } from "./codexDocument";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
 import { GlobalMessage, EditorPostMessages } from "../../../types";
@@ -78,18 +79,18 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     addWord: async ({ event, webviewPanel }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
         await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);
-        webviewPanel.webview.postMessage({
+        safePostMessageToPanel(webviewPanel, {
             type: "wordAdded",
             content: typedEvent.words,
         });
     },
 
     searchSimilarCellIds: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "searchSimilarCellIds" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "searchSimilarCellIds"; }>;
         const response = await vscode.commands.executeCommand<
-            Array<{ cellId: string; score: number }>
+            Array<{ cellId: string; score: number; }>
         >(
             "codex-editor-extension.searchSimilarCellIds",
             typedEvent.content.cellId,
@@ -103,7 +104,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     "from-quill-spellcheck-getSpellCheckResponse": async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "from-quill-spellcheck-getSpellCheckResponse"; }>;
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
         if (!spellcheckEnabled) {
@@ -122,7 +123,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     getAlertCodes: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes"; }>;
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
         if (!spellcheckEnabled) {
@@ -134,7 +135,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             typedEvent.content
         );
 
-        const content: { [cellId: string]: number } = {};
+        const content: { [cellId: string]: number; } = {};
         result.forEach((item) => {
             content[item.cellId] = item.code;
         });
@@ -146,7 +147,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     saveHtml: async ({ event, document, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
         if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
             console.warn("Attempted to update content in a different file. This operation is not allowed.");
             return;
@@ -177,13 +178,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     setCurrentIdToGlobalState: ({ event, document, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setCurrentIdToGlobalState"; }>;
         const uri = document.uri.toString();
         provider.updateCellIdState(typedEvent.content.currentLineId, uri);
     },
 
     llmCompletion: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "llmCompletion" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "llmCompletion"; }>;
         debug("llmCompletion message received", { event, document, provider, webviewPanel });
 
         const cellId = typedEvent.content.currentLineId;
@@ -231,7 +232,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     requestAutocompleteChapter: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "requestAutocompleteChapter" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestAutocompleteChapter"; }>;
         console.log("requestAutocompleteChapter message received", { event });
         await provider.performAutocompleteChapter(
             document,
@@ -241,7 +242,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     updateTextDirection: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateTextDirection" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateTextDirection"; }>;
         const updatedMetadata = {
             textDirection: typedEvent.direction,
         };
@@ -255,11 +256,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     getSourceText: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getSourceText" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getSourceText"; }>;
         const sourceText = (await vscode.commands.executeCommand(
             "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
             typedEvent.content.cellId
-        )) as { cellId: string; content: string };
+        )) as { cellId: string; content: string; };
         console.log("providerSendsSourceText", { sourceText });
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsSourceText",
@@ -268,7 +269,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     openSourceText: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "openSourceText" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "openSourceText"; }>;
         const workspaceFolderUri = getWorkSpaceUri();
         if (!workspaceFolderUri) {
             throw new Error("No workspace folder found");
@@ -293,7 +294,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     makeChildOfCell: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "makeChildOfCell" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "makeChildOfCell"; }>;
         document.addCell(
             typedEvent.content.newCellId,
             typedEvent.content.referenceCellId,
@@ -304,25 +305,25 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     deleteCell: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "deleteCell" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "deleteCell"; }>;
         console.log("deleteCell message received", { event });
         document.deleteCell(typedEvent.content.cellId);
     },
 
     updateCellTimestamps: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellTimestamps" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellTimestamps"; }>;
         console.log("updateCellTimestamps message received", { event });
         document.updateCellTimestamps(typedEvent.content.cellId, typedEvent.content.timestamps);
     },
 
     updateCellLabel: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellLabel"; }>;
         console.log("updateCellLabel message received", { event });
         document.updateCellLabel(typedEvent.content.cellId, typedEvent.content.cellLabel);
     },
 
     updateNotebookMetadata: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateNotebookMetadata"; }>;
         console.log("updateNotebookMetadata message received", { event });
         const newMetadata = typedEvent.content;
         await document.updateNotebookMetadata(newMetadata);
@@ -350,13 +351,13 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     replaceDuplicateCells: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "replaceDuplicateCells" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "replaceDuplicateCells"; }>;
         console.log("replaceDuplicateCells message received", { event });
         document.replaceDuplicateCells(typedEvent.content);
     },
 
     saveTimeBlocks: ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "saveTimeBlocks" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "saveTimeBlocks"; }>;
         console.log("saveTimeBlocks message received", { event });
         typedEvent.content.forEach((cell) => {
             document.updateCellTimestamps(cell.id, {
@@ -367,7 +368,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     supplyRecentEditHistory: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "supplyRecentEditHistory"; }>;
         console.log("supplyRecentEditHistory message received", { event });
         await vscode.commands.executeCommand(
             "codex-smart-edits.supplyRecentEditHistory",
@@ -377,7 +378,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     exportFile: async ({ event, document }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "exportFile"; }>;
         const notebookName = path.parse(document.uri.fsPath).name;
         const fileExtension = typedEvent.content.format;
         const fileName = `${notebookName}.${fileExtension}`;
@@ -401,12 +402,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     executeCommand: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "executeCommand" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "executeCommand"; }>;
         await vscode.commands.executeCommand(typedEvent.content.command, ...typedEvent.content.args);
     },
 
     togglePinPrompt: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "togglePinPrompt"; }>;
         console.log("togglePinPrompt message received", { event });
         await vscode.commands.executeCommand(
             "codex-smart-edits.togglePinPrompt",
@@ -416,7 +417,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     generateBacktranslation: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "generateBacktranslation"; }>;
         const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.generateBacktranslation",
             typedEvent.content.text,
@@ -429,7 +430,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     editBacktranslation: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "editBacktranslation"; }>;
         const updatedBacktranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.editBacktranslation",
             typedEvent.content.cellId,
@@ -443,7 +444,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     getBacktranslation: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "getBacktranslation" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getBacktranslation"; }>;
         const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.getBacktranslation",
             typedEvent.content.cellId
@@ -455,7 +456,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     setBacktranslation: async ({ event, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setBacktranslation"; }>;
         const backtranslation = await vscode.commands.executeCommand<SavedBacktranslation | null>(
             "codex-smart-edits.setBacktranslation",
             typedEvent.content.cellId,
@@ -469,7 +470,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     rejectEditSuggestion: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "rejectEditSuggestion"; }>;
         await vscode.commands.executeCommand(
             "codex-smart-edits.rejectEditSuggestion",
             typedEvent.content
@@ -477,7 +478,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     webviewFocused: ({ event, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "webviewFocused" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "webviewFocused"; }>;
         if (provider.currentDocument && typedEvent.content?.uri) {
             const newUri = vscode.Uri.parse(typedEvent.content.uri);
             if (newUri.scheme === "file") {
@@ -487,12 +488,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     updateCachedChapter: async ({ event, document, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCachedChapter" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCachedChapter"; }>;
         await provider.updateCachedChapter(document.uri.toString(), typedEvent.content);
     },
 
     updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode"; }>;
         const updatedMetadata = {
             cellDisplayMode: typedEvent.mode,
         };
@@ -506,7 +507,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     validateCell: async ({ event, document, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "validateCell" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "validateCell"; }>;
         if (typedEvent.content?.cellId) {
             await provider.enqueueValidation(
                 typedEvent.content.cellId,
@@ -574,14 +575,14 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
         }
 
-        webviewPanel.webview.postMessage({
+        safePostMessageToPanel(webviewPanel, {
             type: "editorPosition",
             position,
         });
     },
 
     queueValidation: ({ event, document, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "queueValidation" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "queueValidation"; }>;
         if (typedEvent.content?.cellId) {
             provider.queueValidation(
                 typedEvent.content.cellId,
@@ -601,7 +602,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     jumpToChapter: ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "jumpToChapter" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "jumpToChapter"; }>;
         provider.updateCachedChapter(document.uri.toString(), typedEvent.chapterNumber);
         provider.postMessageToWebview(webviewPanel, {
             type: "setChapterNumber",
@@ -610,7 +611,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     closeCurrentDocument: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "closeCurrentDocument" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "closeCurrentDocument"; }>;
         console.log("Close document request received:", typedEvent.content);
         const fileUri = typedEvent.content?.uri;
         const isSourceDocument = typedEvent.content?.isSource === true;
@@ -662,7 +663,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     toggleSidebar: async ({ event }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "toggleSidebar" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "toggleSidebar"; }>;
         console.log("toggleSidebar message received");
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
         if (typedEvent.content?.isOpening) {
@@ -683,7 +684,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     requestAudioAttachments: async ({ document, webviewPanel, provider }) => {
         console.log("requestAudioAttachments message received");
         const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean } = {};
+        const audioCells: { [cellId: string]: boolean; } = {};
         for (const cellId of Object.keys(audioAttachments)) {
             audioCells[cellId] = true;
         }
@@ -694,7 +695,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     requestAudioForCell: async ({ event, document, webviewPanel }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell"; }>;
         console.log("requestAudioForCell message received for cell:", typedEvent.content.cellId);
         const cellId = typedEvent.content.cellId;
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -724,7 +725,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             const fileData = await fs.promises.readFile(fullPath);
                             const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
 
-                            webviewPanel.webview.postMessage({
+                            safePostMessageToPanel(webviewPanel, {
                                 type: "providerSendsAudioData",
                                 content: {
                                     cellId: cellId,
@@ -768,7 +769,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                         'audio/wav';
                         const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
 
-                        webviewPanel.webview.postMessage({
+                        safePostMessageToPanel(webviewPanel, {
                             type: "providerSendsAudioData",
                             content: {
                                 cellId: cellId,
@@ -788,7 +789,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     saveAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "saveAudioAttachment"; }>;
         console.log("saveAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId,
@@ -834,7 +835,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean } = {};
+        const audioCells: { [cellId: string]: boolean; } = {};
         for (const cellId of Object.keys(updatedAudioAttachments)) {
             audioCells[cellId] = true;
         }
@@ -848,7 +849,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     },
 
     deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
-        const typedEvent = event as Extract<EditorPostMessages, { command: "deleteAudioAttachment" }>;
+        const typedEvent = event as Extract<EditorPostMessages, { command: "deleteAudioAttachment"; }>;
         console.log("deleteAudioAttachment message received", {
             cellId: typedEvent.content.cellId,
             audioId: typedEvent.content.audioId
@@ -892,7 +893,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean } = {};
+        const audioCells: { [cellId: string]: boolean; } = {};
         for (const cellId of Object.keys(updatedAudioAttachments)) {
             audioCells[cellId] = true;
         }
@@ -998,10 +999,10 @@ export const handleMessages = async (
 export async function scanForAudioAttachments(
     document: CodexCellDocument,
     webviewPanel: vscode.WebviewPanel
-): Promise<{ [cellId: string]: string }> {
+): Promise<{ [cellId: string]: string; }> {
     debug("Scanning for audio attachments for document:", document.uri.toString());
 
-    const audioAttachments: { [cellId: string]: string } = {};
+    const audioAttachments: { [cellId: string]: string; } = {};
 
     try {
         // Get the workspace folder
@@ -1039,7 +1040,7 @@ export async function scanForAudioAttachments(
                                         const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
 
                                         // Send the audio data to the webview
-                                        webviewPanel.webview.postMessage({
+                                        safePostMessageToPanel(webviewPanel, {
                                             type: "providerSendsAudioData",
                                             content: {
                                                 cellId: cellId,
@@ -1100,7 +1101,7 @@ export async function scanForAudioAttachments(
                                             const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
 
                                             // Send the audio data to the webview
-                                            webviewPanel.webview.postMessage({
+                                            safePostMessageToPanel(webviewPanel, {
                                                 type: "providerSendsAudioData",
                                                 content: {
                                                     cellId: cellId,

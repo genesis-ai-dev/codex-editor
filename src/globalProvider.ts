@@ -3,6 +3,7 @@ import { CodexCellEditorProvider } from "./providers/codexCellEditorProvider/cod
 import { CustomWebviewProvider } from "./providers/parallelPassagesWebview/customParallelPassagesWebviewProvider";
 import { GlobalContentType, GlobalMessage } from "../types";
 import { getNonce } from "./providers/dictionaryTable/utilities/getNonce";
+import { safePostMessageToView } from "./utils/webviewUtils";
 
 
 
@@ -19,7 +20,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     protected abstract getWebviewId(): string;
     protected abstract getScriptPath(): string[];
     protected abstract handleMessage(message: any): Promise<void>;
-    
+
     // Optional method for additional HTML content
     protected getAdditionalHtml(): string {
         return '';
@@ -28,7 +29,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     // Common webview resolution
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
-        
+
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],
@@ -143,7 +144,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
     // Common post message method
     public postMessage(message: any): void {
         if (this._view) {
-            this._view.webview.postMessage(message);
+            safePostMessageToView(this._view, message, "Global");
         } else {
             console.error(`WebviewView ${this.getWebviewId()} is not initialized`);
         }

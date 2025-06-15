@@ -12,6 +12,7 @@ import { matchCellLabels } from "./matcher";
 import { copyToTempStorage, getColumnHeaders } from "./utils";
 import { updateCellLabels } from "./updater";
 import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
+import { safePostMessageToPanel } from "../utils/webviewUtils";
 
 // Interface for the cell label data
 interface CellLabelData {
@@ -178,7 +179,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     // Example: if you wanted to pre-populate the file exclusion list right away
     // (async () => {
     //     const { sourceFiles } = await loadSourceAndTargetFiles();
-    //     panel.webview.postMessage({
+    //     safePostMessageToPanel(panel, {
     //         command: 'initialData', // Or use a more specific command like 'setAvailableSourceFiles'
     //         availableSourceFiles: sourceFiles.map(f => ({ path: f.uri.fsPath, id: f.id, name: path.basename(f.uri.fsPath) }))
     //     });
@@ -196,7 +197,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
         switch (message.command) {
             case "importFile":
                 try {
-                    panel.webview.postMessage({ command: "setLoading", isLoading: true });
+                    safePostMessageToPanel(panel, { command: "setLoading", isLoading: true });
                     // Clear previous session's temp files and sources if any (idempotent)
                     currentSessionTempFileUris.forEach(async (tempUri) => {
                         try {
@@ -219,7 +220,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     });
 
                     if (!fileUris || fileUris.length === 0) {
-                        panel.webview.postMessage({ command: "setLoading", isLoading: false });
+                        safePostMessageToPanel(panel, { command: "setLoading", isLoading: false });
                         return;
                     }
 
@@ -264,7 +265,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
 
                     const { sourceFiles } = await loadSourceAndTargetFiles();
 
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         command: "updateHeaders",
                         headers: finalHeaders,
                         importSource: currentImportSourceNames.join(", "),
@@ -274,7 +275,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             name: path.basename(f.uri.fsPath),
                         })),
                     });
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         command: "storeImportData",
                         data: processedImportData,
                         // URI is no longer sent; extension handles cleanup via session
@@ -282,24 +283,24 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                 } catch (error: any) {
                     console.error("Error during importFile:", error);
                     vscode.window.showErrorMessage(`Error importing file: ${error.message}`);
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         command: "showError",
                         error: `Error importing file: ${error.message}`,
                     });
                 } finally {
-                    panel.webview.postMessage({ command: "setLoading", isLoading: false });
+                    safePostMessageToPanel(panel, { command: "setLoading", isLoading: false });
                 }
                 break;
 
             case "processLabels":
                 try {
-                    panel.webview.postMessage({ command: "setLoading", isLoading: true });
+                    safePostMessageToPanel(panel, { command: "setLoading", isLoading: true });
                     const { data, selectedColumn, excludedFilePaths } = message; // URI no longer expected from webview
                     if (!data || !selectedColumn) {
                         vscode.window.showErrorMessage(
                             "Missing data or selected column for processing."
                         );
-                        panel.webview.postMessage({
+                        safePostMessageToPanel(panel, {
                             command: "showError",
                             error: "Missing data or selected column.",
                         });
@@ -320,7 +321,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             selectedColumn // This selectedColumn is a normalized header from webview
                         );
 
-                        panel.webview.postMessage({
+                        safePostMessageToPanel(panel, {
                             command: "displayLabels",
                             labels: matchedLabels,
                             importSource: currentImportSourceNames.join(", "), // Use session import names
@@ -334,7 +335,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                 } catch (error: any) {
                     console.error("Error during processLabels:", error);
                     vscode.window.showErrorMessage(`Error processing labels: ${error.message}`);
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         command: "showError",
                         error: `Error processing labels: ${error.message}`,
                     });
@@ -357,7 +358,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     }
                     currentSessionTempFileUris = []; // Reset for next import
                     currentImportSourceNames = []; // Reset for next import
-                    panel.webview.postMessage({ command: "setLoading", isLoading: false });
+                    safePostMessageToPanel(panel, { command: "setLoading", isLoading: false });
                 }
                 break;
 
@@ -397,7 +398,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                     panel.dispose(); // Close panel on successful save
                 } catch (error: any) {
                     vscode.window.showErrorMessage(`Failed to save cell labels: ${error.message}`);
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         command: "showError",
                         error: `Failed to save: ${error.message}`,
                     });

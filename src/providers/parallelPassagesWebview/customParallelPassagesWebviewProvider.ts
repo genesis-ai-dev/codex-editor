@@ -4,6 +4,7 @@ import {
     TranslationPair,
 } from "../../../types";
 import { BaseWebviewProvider } from "../../globalProvider";
+import { safePostMessageToView } from "../../utils/webviewUtils";
 
 async function openFileAtLocation(uri: string, cellId: string) {
     try {
@@ -85,7 +86,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 }
             }
 
-            this._view.webview.postMessage({
+            safePostMessageToView(this._view, {
                 command: "pinCell",
                 data: translationPair,
             });
@@ -117,7 +118,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         { isParallelPassagesWebview: true } // options to get raw content for HTML display
                     );
                     if (results) {
-                        this._view!.webview.postMessage({
+                        safePostMessageToView(this._view, {
                             command: "searchResults",
                             data: results,
                         });

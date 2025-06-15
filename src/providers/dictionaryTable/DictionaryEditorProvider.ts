@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import {
     DictionaryPostMessages,
     DictionaryReceiveMessages,
@@ -68,7 +69,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         const updateWebview = () => {
             const dictionaryContent = this.document;
             console.log("sending dictionaryContent to webview", dictionaryContent);
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 command: "providerTellsWebviewToUpdateData",
                 data: dictionaryContent,
             } as DictionaryReceiveMessages);
@@ -116,7 +117,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                             e.pagination.searchQuery
                         );
 
-                        webviewPanel.webview.postMessage({
+                        safePostMessageToPanel(webviewPanel, {
                             command: "providerTellsWebviewToUpdateData",
                             data: {
                                 dictionaryData: {
@@ -181,7 +182,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                         this.searchQuery
                     );
                     this.document = pageData;
-                    webviewPanel.webview.postMessage({
+                    safePostMessageToPanel(webviewPanel, {
                         command: "providerTellsWebviewToUpdateData",
                         data: pageData,
                     } as DictionaryReceiveMessages);
@@ -197,7 +198,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                     );
                     if (confirmed === "Yes") {
                         await this.updateTextDocument(document, e.data, webviewPanel);
-                        webviewPanel.webview.postMessage({
+                        safePostMessageToPanel(webviewPanel, {
                             command: "providerTellsWebviewRemoveConfirmed",
                         } as DictionaryReceiveMessages);
                     }
@@ -244,7 +245,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
         });
 
         // Notify webview of updates
-        webviewPanel.webview.postMessage({
+        safePostMessageToPanel(webviewPanel, {
             command: "providerTellsWebviewToUpdateData",
             data: this.document,
         } as DictionaryReceiveMessages);
@@ -292,7 +293,7 @@ export class DictionaryEditorProvider implements vscode.CustomTextEditorProvider
                     this.document = updatedContent;
 
                     // Notify the webview of the updated content
-                    webviewPanel.webview.postMessage({
+                    safePostMessageToPanel(webviewPanel, {
                         command: "providerTellsWebviewToUpdateData",
                         data: updatedContent,
                     } as DictionaryReceiveMessages);

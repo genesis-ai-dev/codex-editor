@@ -1,5 +1,6 @@
 import { CodexExportFormat } from "../exportHandler/exportHandler";
 import * as vscode from "vscode";
+import { safePostMessageToPanel } from "../utils/webviewUtils";
 
 export async function openProjectExportView(context: vscode.ExtensionContext) {
     const panel = vscode.window.createWebviewPanel(
@@ -63,10 +64,10 @@ export async function openProjectExportView(context: vscode.ExtensionContext) {
                 });
 
                 if (result && result[0]) {
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         command: "updateExportPath",
                         path: result[0].fsPath,
-                    });
+                    }, "ProjectExport");
                 }
                 break;
             case "export":
@@ -98,7 +99,7 @@ function getWebviewContent(
     sourceLanguage?: any,
     targetLanguage?: any,
     codiconsUri?: vscode.Uri,
-    codexFiles: Array<{ path: string; name: string; selected: boolean }> = []
+    codexFiles: Array<{ path: string; name: string; selected: boolean; }> = []
 ) {
     const hasLanguages = sourceLanguage?.refName && targetLanguage?.refName;
 
@@ -274,9 +275,8 @@ function getWebviewContent(
         </head>
         <body>
             <div class="container">
-                ${
-                    hasLanguages
-                        ? `
+                ${hasLanguages
+            ? `
                     <h3>Select Export Format</h3>
                     <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
                         <!-- Standard Export Formats -->
@@ -359,8 +359,8 @@ function getWebviewContent(
                         </div>
                         <div class="files-list">
                             ${codexFiles
-                                .map(
-                                    (file, index) => `
+                .map(
+                    (file, index) => `
                                 <div class="file-item">
                                     <input type="checkbox" 
                                            id="file-${index}" 
@@ -373,8 +373,8 @@ function getWebviewContent(
                                     </label>
                                 </div>
                             `
-                                )
-                                .join("")}
+                )
+                .join("")}
                         </div>
                     </div>
 
@@ -401,7 +401,7 @@ function getWebviewContent(
                         <button id="exportButton" disabled onclick="exportProject()">Export</button>
                     </div>
                     `
-                        : `
+            : `
                     <div class="message">
                         Please set source and target languages first
                         <div class="button-container" style="justify-content: center">
@@ -409,7 +409,7 @@ function getWebviewContent(
                         </div>
                     </div>
                     `
-                }
+        }
             </div>
 
             <script>

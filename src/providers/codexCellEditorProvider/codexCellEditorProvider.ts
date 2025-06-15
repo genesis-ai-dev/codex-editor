@@ -26,6 +26,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -163,7 +164,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 const newCellsPerPage = this.CELLS_PER_PAGE;
                 this.webviewPanels.forEach((panel) => {
                     // Use custom message type for cells per page update
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         type: "updateCellsPerPage",
                         cellsPerPage: newCellsPerPage,
                     });
@@ -203,7 +204,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 const isSourceFile = this.isSourceText(panelUri);
                                 if (isSourceFile) {
                                     debug("Sending highlight message to source file:", panelUri);
-                                    panel.webview.postMessage({
+                                    safePostMessageToPanel(panel, {
                                         type: "highlightCell",
                                         cellId: value.cellId,
                                     });
@@ -360,14 +361,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Set up navigation functions
         const navigateToSection = (cellId: string) => {
             debug("Navigating to section:", cellId);
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 type: "jumpToSection",
                 content: cellId,
             });
         };
         const openCellByIdImpl = (cellId: string, text: string) => {
             debug("Opening cell by ID:", cellId, text);
-            webviewPanel.webview.postMessage({
+            safePostMessageToPanel(webviewPanel, {
                 type: "openCellById",
                 cellId: cellId,
                 text: text,
@@ -399,7 +400,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Send to all webviews that have this document open
                     this.webviewPanels.forEach((panel, docUri) => {
                         if (docUri === document.uri.toString()) {
-                            panel.webview.postMessage(validationUpdate);
+                            safePostMessageToPanel(panel, validationUpdate);
                         }
                     });
 
@@ -528,7 +529,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public postMessage(message: GlobalMessage) {
         debug("Posting message:", message);
         if (this.webviewPanels.size > 0) {
-            this.webviewPanels.forEach((panel) => panel.webview.postMessage(message));
+            this.webviewPanels.forEach((panel) => safePostMessageToPanel(panel, message));
         } else {
             console.error("No active webview panels");
         }
@@ -943,7 +944,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         } = this.autocompletionState;
 
         this.webviewPanels.forEach((panel) => {
-            panel.webview.postMessage({
+            safePostMessageToPanel(panel, {
                 type: "providerAutocompletionState",
                 state: {
                     isProcessing,
@@ -1043,7 +1044,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 progress: 0,
             };
             this.webviewPanels.forEach((panel) => {
-                panel.webview.postMessage({
+                safePostMessageToPanel(panel, {
                     type: "singleCellTranslationFailed",
                     cellId,
                     error: errorMessage,
@@ -1076,27 +1077,27 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (isProcessing) {
                 if (progress === 0) {
                     // Starting
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         type: "singleCellTranslationStarted",
                         cellId,
                     });
                 } else if (progress < 1) {
                     // In progress
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         type: "singleCellTranslationProgress",
                         cellId,
                         progress,
                     });
                 } else {
                     // Completed
-                    panel.webview.postMessage({
+                    safePostMessageToPanel(panel, {
                         type: "singleCellTranslationCompleted",
                         cellId,
                     });
                 }
             } else {
                 // Not processing (completed/stopped)
-                panel.webview.postMessage({
+                safePostMessageToPanel(panel, {
                     type: "singleCellTranslationCompleted",
                     cellId,
                 });
@@ -1159,7 +1160,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public postMessageToWebview(webviewPanel: vscode.WebviewPanel, message: EditorReceiveMessages) {
         debug("Posting message to webview:", message.type);
-        webviewPanel.webview.postMessage(message);
+        safePostMessageToPanel(webviewPanel, message);
     }
 
     public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
@@ -1234,7 +1235,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     const isSourceFile = this.isSourceText(panelUri);
                     debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
                     if (isSourceFile) {
-                        panel.webview.postMessage({
+                        safePostMessageToPanel(panel, {
                             type: "highlightCell",
                             cellId: cellId,
                         });

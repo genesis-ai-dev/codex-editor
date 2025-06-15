@@ -4,6 +4,7 @@ import { getAuthApi } from "../../extension";
 import { openSystemMessageEditor } from "../../copilotSettings/copilotSettings";
 import { openProjectExportView } from "../../projectManager/projectExportView";
 import { BaseWebviewProvider } from "../../globalProvider";
+import { safePostMessageToView } from "../../utils/webviewUtils";
 
 export interface MenuSection {
     title: string;
@@ -222,7 +223,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
     private sendMenuConfigToWebview(): void {
         if (this._view) {
-            this._view.webview.postMessage({
+            safePostMessageToView(this._view, {
                 command: "updateMenu",
                 menuConfig: this.menuConfig,
             });

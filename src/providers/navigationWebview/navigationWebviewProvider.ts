@@ -5,6 +5,7 @@ import { CodexContentSerializer } from "../../serializer";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { safePostMessageToView } from "../../utils/webviewUtils";
 
 interface CodexMetadata {
     id: string;
@@ -117,25 +118,120 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     }
 
     protected async handleMessage(message: any): Promise<void> {
-            switch (message.command) {
-                case "openFile":
-                    try {
-                        // Now message.uri is already a string path, no need to convert from Uri object
-                        // Handle both Windows and Unix paths
-                        const normalizedPath = message.uri.replace(/\\/g, "/");
-                        const uri = vscode.Uri.file(normalizedPath);
+        switch (message.command) {
+            case "openFile":
+                try {
+                    // Now message.uri is already a string path, no need to convert from Uri object
+                    // Handle both Windows and Unix paths
+                    const normalizedPath = message.uri.replace(/\\/g, "/");
+                    const uri = vscode.Uri.file(normalizedPath);
 
+                    if (message.type === "codexDocument") {
+                        // First, find and open the corresponding source file
+                        try {
+                            const workspaceFolderUri =
+                                vscode.workspace.workspaceFolders?.[0].uri;
+                            if (workspaceFolderUri) {
+                                const baseFileName = path.basename(normalizedPath);
+                                const sourceFileName = baseFileName.replace(
+                                    ".codex",
+                                    ".source"
+                                );
+                                const sourceUri = vscode.Uri.joinPath(
+                                    workspaceFolderUri,
+                                    ".project",
+                                    "sourceTexts",
+                                    sourceFileName
+                                );
+
+                                // Open the source file in the left-most group (ViewColumn.One)
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    sourceUri,
+                                    "codex.cellEditor",
+                                    { viewColumn: vscode.ViewColumn.One }
+                                );
+
+                                // Open the codex file in the right-most group (ViewColumn.Two)
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    uri,
+                                    "codex.cellEditor",
+                                    { viewColumn: vscode.ViewColumn.Two }
+                                );
+                            } else {
+                                // Fallback if no workspace folder is found
+                                await vscode.commands.executeCommand(
+                                    "vscode.openWith",
+                                    uri,
+                                    "codex.cellEditor"
+                                );
+                            }
+                        } catch (sourceError) {
+                            console.warn("Could not open source file:", sourceError);
+                            // If source file opening fails, just open the codex file in the right-most group
+                            await vscode.commands.executeCommand(
+                                "vscode.openWith",
+                                uri,
+                                "codex.cellEditor",
+                                { viewColumn: vscode.ViewColumn.Two }
+                            );
+                        }
+                    } else if (message.type === "dictionary") {
+                        await vscode.commands.executeCommand(
+                            "vscode.openWith",
+                            uri,
+                            "codex.dictionaryEditor"
+                        );
+                    } else {
+                        const doc = await vscode.workspace.openTextDocument(uri);
+                        await vscode.window.showTextDocument(doc);
+                    }
+                } catch (error) {
+                    console.error("Error opening file:", error, "Path:", message.uri);
+                    vscode.window.showErrorMessage(`Error opening file: ${error}`);
+                }
+                break;
+            case "refresh":
+                this.loadBibleBookMap();
+                await this.buildInitialData();
+                break;
+            case "webviewReady":
+                this.loadBibleBookMap();
+                await this.buildInitialData();
+                break;
+            case "deleteFile":
+                try {
+                    const confirmed = await vscode.window.showWarningMessage(
+                        `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
+                        { modal: true },
+                        "Delete"
+                    );
+
+                    if (confirmed === "Delete") {
+                        const deletedFiles: string[] = [];
+                        const errors: string[] = [];
+
+                        // Convert the path to a proper Uri for the codex file
+                        const normalizedPath = message.uri.replace(/\\/g, "/");
+                        const codexUri = vscode.Uri.file(normalizedPath);
+
+                        // Delete the codex file
+                        try {
+                            await vscode.workspace.fs.delete(codexUri);
+                            deletedFiles.push(`${message.label}.codex`);
+                        } catch (error) {
+                            console.error("Error deleting codex file:", error);
+                            errors.push(`Failed to delete codex file: ${error}`);
+                        }
+
+                        // For codex documents, also delete the corresponding source file
                         if (message.type === "codexDocument") {
-                            // First, find and open the corresponding source file
                             try {
-                                const workspaceFolderUri =
-                                    vscode.workspace.workspaceFolders?.[0].uri;
+                                const workspaceFolderUri = vscode.workspace.workspaceFolders?.[0].uri;
                                 if (workspaceFolderUri) {
                                     const baseFileName = path.basename(normalizedPath);
-                                    const sourceFileName = baseFileName.replace(
-                                        ".codex",
-                                        ".source"
-                                    );
+                                    const sourceFileName = baseFileName.replace(".codex", ".source");
                                     const sourceUri = vscode.Uri.joinPath(
                                         workspaceFolderUri,
                                         ".project",
@@ -143,143 +239,48 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                                         sourceFileName
                                     );
 
-                                    // Open the source file in the left-most group (ViewColumn.One)
-                                    await vscode.commands.executeCommand(
-                                        "vscode.openWith",
-                                        sourceUri,
-                                        "codex.cellEditor",
-                                        { viewColumn: vscode.ViewColumn.One }
-                                    );
-
-                                    // Open the codex file in the right-most group (ViewColumn.Two)
-                                    await vscode.commands.executeCommand(
-                                        "vscode.openWith",
-                                        uri,
-                                        "codex.cellEditor",
-                                        { viewColumn: vscode.ViewColumn.Two }
-                                    );
-                                } else {
-                                    // Fallback if no workspace folder is found
-                                    await vscode.commands.executeCommand(
-                                        "vscode.openWith",
-                                        uri,
-                                        "codex.cellEditor"
-                                    );
+                                    await vscode.workspace.fs.delete(sourceUri);
+                                    deletedFiles.push(`${message.label}.source`);
                                 }
-                            } catch (sourceError) {
-                                console.warn("Could not open source file:", sourceError);
-                                // If source file opening fails, just open the codex file in the right-most group
-                                await vscode.commands.executeCommand(
-                                    "vscode.openWith",
-                                    uri,
-                                    "codex.cellEditor",
-                                    { viewColumn: vscode.ViewColumn.Two }
-                                );
+                            } catch (error) {
+                                console.error("Error deleting source file:", error);
+                                errors.push(`Failed to delete source file: ${error}`);
                             }
-                        } else if (message.type === "dictionary") {
-                            await vscode.commands.executeCommand(
-                                "vscode.openWith",
-                                uri,
-                                "codex.dictionaryEditor"
+                        }
+
+                        // Show appropriate message based on results
+                        if (deletedFiles.length > 0 && errors.length === 0) {
+                            vscode.window.showInformationMessage(
+                                `Successfully deleted: ${deletedFiles.join(", ")}`
+                            );
+                        } else if (deletedFiles.length > 0 && errors.length > 0) {
+                            vscode.window.showWarningMessage(
+                                `Partially deleted: ${deletedFiles.join(", ")}. Errors: ${errors.join("; ")}`
                             );
                         } else {
-                            const doc = await vscode.workspace.openTextDocument(uri);
-                            await vscode.window.showTextDocument(doc);
+                            vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${errors.join("; ")}`);
                         }
-                    } catch (error) {
-                        console.error("Error opening file:", error, "Path:", message.uri);
-                        vscode.window.showErrorMessage(`Error opening file: ${error}`);
+
+                        // Refresh the data to update the view
+                        await this.buildInitialData();
                     }
-                    break;
-                case "refresh":
-                    this.loadBibleBookMap();
-                    await this.buildInitialData();
-                    break;
-                case "webviewReady":
-                    this.loadBibleBookMap();
-                    await this.buildInitialData();
-                    break;
-                case "deleteFile":
-                    try {
-                        const confirmed = await vscode.window.showWarningMessage(
-                            `Are you sure you want to delete "${message.label}"? This will delete both the codex file and its corresponding source file.`,
-                            { modal: true },
-                            "Delete"
-                        );
-
-                        if (confirmed === "Delete") {
-                            const deletedFiles: string[] = [];
-                            const errors: string[] = [];
-
-                            // Convert the path to a proper Uri for the codex file
-                            const normalizedPath = message.uri.replace(/\\/g, "/");
-                            const codexUri = vscode.Uri.file(normalizedPath);
-
-                            // Delete the codex file
-                            try {
-                                await vscode.workspace.fs.delete(codexUri);
-                                deletedFiles.push(`${message.label}.codex`);
-                            } catch (error) {
-                                console.error("Error deleting codex file:", error);
-                                errors.push(`Failed to delete codex file: ${error}`);
-                            }
-
-                            // For codex documents, also delete the corresponding source file
-                            if (message.type === "codexDocument") {
-                                try {
-                                    const workspaceFolderUri = vscode.workspace.workspaceFolders?.[0].uri;
-                                    if (workspaceFolderUri) {
-                                        const baseFileName = path.basename(normalizedPath);
-                                        const sourceFileName = baseFileName.replace(".codex", ".source");
-                                        const sourceUri = vscode.Uri.joinPath(
-                                            workspaceFolderUri,
-                                            ".project",
-                                            "sourceTexts",
-                                            sourceFileName
-                                        );
-
-                                        await vscode.workspace.fs.delete(sourceUri);
-                                        deletedFiles.push(`${message.label}.source`);
-                                    }
-                                } catch (error) {
-                                    console.error("Error deleting source file:", error);
-                                    errors.push(`Failed to delete source file: ${error}`);
-                                }
-                            }
-
-                            // Show appropriate message based on results
-                            if (deletedFiles.length > 0 && errors.length === 0) {
-                                vscode.window.showInformationMessage(
-                                    `Successfully deleted: ${deletedFiles.join(", ")}`
-                                );
-                            } else if (deletedFiles.length > 0 && errors.length > 0) {
-                                vscode.window.showWarningMessage(
-                                    `Partially deleted: ${deletedFiles.join(", ")}. Errors: ${errors.join("; ")}`
-                                );
-                            } else {
-                                vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${errors.join("; ")}`);
-                            }
-
-                            // Refresh the data to update the view
-                            await this.buildInitialData();
-                        }
-                    } catch (error) {
-                        console.error("Error deleting file:", error);
-                        vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${error}`);
-                    }
-                    break;
-                case "getBookNames": {
-                    this.loadBibleBookMap();
-                    if (this._view) {
-                        this._view.webview.postMessage({
-                            command: "setBibleBookMap",
-                            data: Array.from(this.bibleBookMap.entries()),
-                        });
-                    }
-                    break;
+                } catch (error) {
+                    console.error("Error deleting file:", error);
+                    vscode.window.showErrorMessage(`Failed to delete "${message.label}": ${error}`);
                 }
+                break;
+            case "getBookNames": {
+                this.loadBibleBookMap();
+                if (this._view) {
+                    safePostMessageToView(this._view, {
+                        command: "setBibleBookMap",
+                        data: Array.from(this.bibleBookMap.entries()),
+                    });
+                }
+                break;
             }
         }
+    }
 
     protected getHtmlForWebview(webviewView: vscode.WebviewView): string {
         return getWebviewHtml(webviewView.webview, this._context, {
@@ -512,14 +513,14 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 this.serializeItem(item)
             );
 
-            this._view.webview.postMessage({
+            safePostMessageToView(this._view, {
                 command: "updateItems",
                 codexItems: serializedCodexItems,
                 dictionaryItems: serializedDictItems,
             });
 
             if (this.bibleBookMap) {
-                this._view.webview.postMessage({
+                safePostMessageToView(this._view, {
                     command: "setBibleBookMap",
                     data: Array.from(this.bibleBookMap.entries()),
                 });

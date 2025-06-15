@@ -26,6 +26,7 @@ import { ExtendedMetadata } from "../../utils/ebible/ebibleCorpusUtils";
 import { UsfmSourceImportTransaction } from "../../transactions/UsfmSourceImportTransaction";
 import { UsfmTranslationImportTransaction } from "../../transactions/UsfmTranslationImportTransaction";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
 export const fileTypeMap: FileTypeMap = {
     vtt: "subtitles",
@@ -68,48 +69,48 @@ interface ImportProgress {
 // Add new type for combined preview states
 type PreviewState =
     | {
-          type: "source";
-          preview: {
-              original: {
-                  preview: string;
-                  validationResults: ValidationResult[];
-              };
-              transformed: {
-                  sourceNotebooks: Array<NotebookPreview>;
-                  codexNotebooks: Array<NotebookPreview>;
-                  validationResults: ValidationResult[];
-              };
-          };
-      }
+        type: "source";
+        preview: {
+            original: {
+                preview: string;
+                validationResults: ValidationResult[];
+            };
+            transformed: {
+                sourceNotebooks: Array<NotebookPreview>;
+                codexNotebooks: Array<NotebookPreview>;
+                validationResults: ValidationResult[];
+            };
+        };
+    }
     | {
-          type: "translation";
-          preview: {
-              original: {
-                  preview: string;
-                  validationResults: ValidationResult[];
-              };
-              transformed: {
-                  sourceNotebook: {
-                      name: string;
-                      cells: Array<{
-                          value: string;
-                          metadata: { id: string; type: string };
-                      }>;
-                  };
-                  targetNotebook: {
-                      name: string;
-                      cells: Array<{
-                          value: string;
-                          metadata: { id: string; type: string };
-                      }>;
-                  };
-                  matchedCells: number;
-                  unmatchedContent: number;
-                  paratextItems: number;
-                  validationResults: ValidationResult[];
-              };
-          };
-      };
+        type: "translation";
+        preview: {
+            original: {
+                preview: string;
+                validationResults: ValidationResult[];
+            };
+            transformed: {
+                sourceNotebook: {
+                    name: string;
+                    cells: Array<{
+                        value: string;
+                        metadata: { id: string; type: string; };
+                    }>;
+                };
+                targetNotebook: {
+                    name: string;
+                    cells: Array<{
+                        value: string;
+                        metadata: { id: string; type: string; };
+                    }>;
+                };
+                matchedCells: number;
+                unmatchedContent: number;
+                paratextItems: number;
+                validationResults: ValidationResult[];
+            };
+        };
+    };
 
 // Add at the top with other interfaces
 interface CodexFile {
@@ -127,8 +128,7 @@ function debug(...args: any[]): void {
 }
 
 export class SourceUploadProvider
-    implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider
-{
+    implements vscode.TextDocumentContentProvider, vscode.CustomTextEditorProvider {
     public static readonly viewType = "sourceUploadProvider";
     onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
     onDidChange = this.onDidChangeEmitter.event;
@@ -142,10 +142,17 @@ export class SourceUploadProvider
         this.context = context;
     }
 
+    /**
+     * Safely send a message to the webview panel
+     */
+    private safeSendMessage(webviewPanel: vscode.WebviewPanel, message: any): boolean {
+        return safePostMessageToPanel(webviewPanel, message, "SourceUpload");
+    }
+
     public async resolveCustomDocument(
         document: vscode.CustomDocument,
         cancellationToken: vscode.CancellationToken
-    ): Promise<void> {}
+    ): Promise<void> { }
 
     provideTextDocumentContent(uri: vscode.Uri): string {
         return "Source Upload Provider Content";
@@ -156,7 +163,7 @@ export class SourceUploadProvider
         openContext: vscode.CustomDocumentOpenContext,
         token: vscode.CancellationToken
     ): Promise<vscode.CustomDocument> {
-        return { uri, dispose: () => {} };
+        return { uri, dispose: () => { } };
     }
 
     public async resolveCustomTextEditor(
@@ -196,7 +203,7 @@ export class SourceUploadProvider
                             }
                         } catch (error) {
                             console.error("Error preparing source import:", error);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
                                 message:
                                     error instanceof Error
@@ -212,7 +219,7 @@ export class SourceUploadProvider
                             message.files,
                             _token
                         );
-                        
+
                         break;
                     case "downloadBible":
                         try {
@@ -236,7 +243,7 @@ export class SourceUploadProvider
                             );
                         } catch (error) {
                             console.error("Error downloading Bible:", error);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
                                 message: error instanceof Error ? error.message : "Unknown error",
                             } as SourceUploadResponseMessages);
@@ -254,7 +261,7 @@ export class SourceUploadProvider
                         } catch (error) {
                             this.currentDownloadBibleTransaction = null;
                             console.error("Bible download error:", error);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
                                 message: error instanceof Error ? error.message : "Unknown error",
                             } as SourceUploadResponseMessages);
@@ -266,12 +273,12 @@ export class SourceUploadProvider
                                 await this.currentDownloadBibleTransaction.rollback();
                                 this.currentDownloadBibleTransaction = null;
                             }
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "bibleDownloadCancelled",
                             } as SourceUploadResponseMessages);
                         } catch (error) {
                             console.error("Bible download cancellation error:", error);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
                                 message: error instanceof Error ? error.message : "Unknown error",
                             } as SourceUploadResponseMessages);
@@ -337,14 +344,14 @@ export class SourceUploadProvider
                             });
 
                             if (fileUri && fileUri[0]) {
-                                webviewPanel.webview.postMessage({
+                                this.safeSendMessage(webviewPanel, {
                                     command: "sourceFileSelected",
                                     data: { path: fileUri[0].fsPath },
                                 } as SourceUploadResponseMessages);
                             }
                         } catch (error) {
                             console.error("Error selecting source file:", error);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
                                 message: "Failed to select source file",
                             } as SourceUploadResponseMessages);
@@ -357,15 +364,14 @@ export class SourceUploadProvider
                             const isRemote = message.command === "importRemoteTranslation";
                             // Handle translation import based on format and location
                             // This will be implemented in the future
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
-                                message: `${
-                                    isRemote ? "Remote" : "Local"
-                                } translation import not yet implemented`,
+                                message: `${isRemote ? "Remote" : "Local"
+                                    } translation import not yet implemented`,
                             } as SourceUploadResponseMessages);
                         } catch (error: any) {
                             console.error("Error importing translation:", error);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "error",
                                 message: `Failed to import translation: ${error.message}`,
                             } as SourceUploadResponseMessages);
@@ -395,7 +401,7 @@ export class SourceUploadProvider
 
                         // Generate and send preview
                         const preview = await this.generateSourcePreview(tempUri);
-                        webviewPanel.webview.postMessage({
+                        this.safeSendMessage(webviewPanel, {
                             command: "sourcePreview",
                             preview,
                         });
@@ -420,7 +426,7 @@ export class SourceUploadProvider
                                     }) => {
                                         progress.report(update);
                                         // Send both the stage status and progress update
-                                        webviewPanel.webview.postMessage({
+                                        this.safeSendMessage(webviewPanel, {
                                             command: "updateProcessingStatus",
                                             status: {
                                                 [update.message || "processing"]: "active",
@@ -436,7 +442,7 @@ export class SourceUploadProvider
                                         if (this.currentSourceTransaction) {
                                             this.currentSourceTransaction.rollback();
                                         }
-                                        webviewPanel.webview.postMessage({
+                                        this.safeSendMessage(webviewPanel, {
                                             command: "error",
                                             message: "Operation cancelled",
                                         } as SourceUploadResponseMessages);
@@ -450,7 +456,7 @@ export class SourceUploadProvider
                                     }
 
                                     // Mark all stages as complete
-                                    webviewPanel.webview.postMessage({
+                                    this.safeSendMessage(webviewPanel, {
                                         command: "updateProcessingStatus",
                                         status: {
                                             fileValidation: "complete",
@@ -462,7 +468,7 @@ export class SourceUploadProvider
                                     } as SourceUploadResponseMessages);
 
                                     // Send completion message
-                                    webviewPanel.webview.postMessage({
+                                    this.safeSendMessage(webviewPanel, {
                                         command: "importComplete",
                                     } as SourceUploadResponseMessages);
 
@@ -581,7 +587,7 @@ export class SourceUploadProvider
                                         corpusMarker: "Translation Pairs",
                                     });
 
-                                    webviewPanel.webview.postMessage({
+                                    this.safeSendMessage(webviewPanel, {
                                         command: "importComplete",
                                     });
 
@@ -600,7 +606,7 @@ export class SourceUploadProvider
                         if (this.currentSourceTransaction) {
                             await this.currentSourceTransaction.rollback();
                             this.currentSourceTransaction = null;
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "importCancelled",
                             } as SourceUploadResponseMessages);
                         }
@@ -621,7 +627,7 @@ export class SourceUploadProvider
                             vscode.Uri.file(f.path)
                         );
 
-                        webviewPanel.webview.postMessage({
+                        this.safeSendMessage(webviewPanel, {
                             command: "availableCodexFiles",
                             files: codexFiles,
                         } as SourceUploadResponseMessages);
@@ -646,7 +652,7 @@ export class SourceUploadProvider
                                         increment?: number;
                                     }) => {
                                         progress.report(update);
-                                        webviewPanel.webview.postMessage({
+                                        this.safeSendMessage(webviewPanel, {
                                             command: "updateProcessingStatus",
                                             status: {
                                                 [update.message || "processing"]: "active",
@@ -663,7 +669,7 @@ export class SourceUploadProvider
                                         token
                                     );
 
-                                    webviewPanel.webview.postMessage({
+                                    this.safeSendMessage(webviewPanel, {
                                         command: "importComplete",
                                     } as SourceUploadResponseMessages);
 
@@ -695,7 +701,7 @@ export class SourceUploadProvider
                 const errorMessage =
                     error instanceof Error ? error.message : "Unknown error occurred";
                 console.error("Error handling message:", error);
-                webviewPanel.webview.postMessage({
+                this.safeSendMessage(webviewPanel, {
                     command: "error",
                     message: errorMessage,
                 } as SourceUploadResponseMessages);
@@ -756,7 +762,7 @@ export class SourceUploadProvider
             lastModified: metadata.codexLastModified,
         }));
 
-        webviewPanel.webview.postMessage({
+        this.safeSendMessage(webviewPanel, {
             command: "updateMetadata",
             metadata: aggregatedMetadata,
         });
@@ -769,7 +775,7 @@ export class SourceUploadProvider
         const existingSourceFiles = await this.filterExistingFiles(sourceFiles);
         const existingTargetFiles = await this.filterExistingFiles(targetFiles);
 
-        webviewPanel.webview.postMessage({
+        this.safeSendMessage(webviewPanel, {
             command: "updateCodexFiles",
             sourceFiles: existingSourceFiles.map((uri) => ({
                 name: path.basename(uri.fsPath),
@@ -859,7 +865,7 @@ export class SourceUploadProvider
             webviewPanel.webview.onDidReceiveMessage(messageHandler);
 
             // Send message to request confirmation
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "requestConfirmation",
                 preview: this.currentPreview,
             });
@@ -885,7 +891,7 @@ export class SourceUploadProvider
             await this.currentDownloadBibleTransaction.prepare();
             const preview = await this.currentDownloadBibleTransaction.getPreview();
 
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "biblePreview",
                 preview: {
                     type: "bible",
@@ -902,12 +908,12 @@ export class SourceUploadProvider
                     transformed: {
                         sourceNotebooks: preview
                             ? [
-                                  {
-                                      name: preview.metadata.id,
-                                      cells: preview.cells,
-                                      metadata: preview.metadata,
-                                  },
-                              ]
+                                {
+                                    name: preview.metadata.id,
+                                    cells: preview.cells,
+                                    metadata: preview.metadata,
+                                },
+                            ]
                             : [],
                         validationResults: [],
                     },
@@ -945,7 +951,7 @@ export class SourceUploadProvider
                         progress.report({ message, increment });
 
                         // Send progress update to webview
-                        webviewPanel.webview.postMessage({
+                        this.safeSendMessage(webviewPanel, {
                             command: "bibleDownloadProgress",
                             progress: {
                                 message: message || "",
@@ -957,7 +963,7 @@ export class SourceUploadProvider
 
                     token.onCancellationRequested(() => {
                         this.currentDownloadBibleTransaction?.rollback();
-                        webviewPanel.webview.postMessage({
+                        this.safeSendMessage(webviewPanel, {
                             command: "error",
                             message: "Operation cancelled",
                         } as SourceUploadResponseMessages);
@@ -970,7 +976,7 @@ export class SourceUploadProvider
                 }
             );
 
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "bibleDownloadComplete",
             } as SourceUploadResponseMessages);
 
@@ -986,12 +992,12 @@ export class SourceUploadProvider
 
     private async handleMultipleSourceImports(
         webviewPanel: vscode.WebviewPanel,
-        files: Array<{ content: string; name: string }>,
+        files: Array<{ content: string; name: string; }>,
         token: vscode.CancellationToken
     ): Promise<void> {
         const BATCH_SIZE = 5;
         const transactions: (SourceImportTransaction | UsfmSourceImportTransaction)[] = [];
-        const errors: { fileName: string; error: string }[] = [];
+        const errors: { fileName: string; error: string; }[] = [];
 
         try {
             // Create all transactions first
@@ -1086,7 +1092,7 @@ export class SourceUploadProvider
 
                 // Send previews to webview
                 if (batchPreviews.length > 0) {
-                    webviewPanel.webview.postMessage({
+                    this.safeSendMessage(webviewPanel, {
                         command: "sourcePreview",
                         previews: batchPreviews,
                         totalFiles: files.length,
@@ -1116,7 +1122,7 @@ export class SourceUploadProvider
                                 increment?: number;
                             }) => {
                                 progress.report(update);
-                                webviewPanel.webview.postMessage({
+                                this.safeSendMessage(webviewPanel, {
                                     command: "updateProcessingStatus",
                                     status: {
                                         [update.message || "processing"]: "active",
@@ -1156,13 +1162,13 @@ export class SourceUploadProvider
             // Send completion message with any errors
             if (errors.length > 0) {
                 const errorSummary = errors.map((e) => `${e.fileName}: ${e.error}`).join("\n");
-                webviewPanel.webview.postMessage({
+                this.safeSendMessage(webviewPanel, {
                     command: "error",
                     message: `Completed with errors:\n${errorSummary}`,
                 } as SourceUploadResponseMessages);
             }
 
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "importComplete",
                 summary: {
                     totalFiles: files.length,
@@ -1178,7 +1184,7 @@ export class SourceUploadProvider
         } catch (error) {
             // Handle any unexpected errors at the top level
             const errorMessage = error instanceof Error ? error.message : "Unknown error";
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "error",
                 message: `Unexpected error during import: ${errorMessage}`,
             } as SourceUploadResponseMessages);
@@ -1190,7 +1196,7 @@ export class SourceUploadProvider
 
     private async handleMultipleTranslationImports(
         webviewPanel: vscode.WebviewPanel,
-        files: Array<{ content: string; name: string; sourceId: string }>,
+        files: Array<{ content: string; name: string; sourceId: string; }>,
         token: vscode.CancellationToken
     ): Promise<void> {
         if (!this.context) {
@@ -1239,7 +1245,7 @@ export class SourceUploadProvider
                             increment?: number;
                         }) => {
                             progress.report(update);
-                            webviewPanel.webview.postMessage({
+                            this.safeSendMessage(webviewPanel, {
                                 command: "updateProcessingStatus",
                                 status: {
                                     [update.message || "processing"]: "active",
@@ -1258,7 +1264,7 @@ export class SourceUploadProvider
             }
 
             // Send completion message
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "importComplete",
             } as SourceUploadResponseMessages);
 
@@ -1269,7 +1275,7 @@ export class SourceUploadProvider
             await Promise.all(transactions.map((t) => t.rollback()));
 
             // Send error message to webview
-            webviewPanel.webview.postMessage({
+            this.safeSendMessage(webviewPanel, {
                 command: "error",
                 message: error instanceof Error ? error.message : "Failed to import translations",
             } as SourceUploadResponseMessages);

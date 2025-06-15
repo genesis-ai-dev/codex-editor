@@ -6,6 +6,7 @@ import {
     WordOccurrence,
 } from "../../activationHelpers/contextAware/contentIndexes/indexes/wordsIndex";
 import { readSourceAndTargetFiles } from "../../activationHelpers/contextAware/contentIndexes/indexes/fileReaders";
+import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
 export class WordsViewProvider implements vscode.Disposable {
     public static readonly viewType = "frontier.wordsView";
@@ -20,7 +21,7 @@ export class WordsViewProvider implements vscode.Disposable {
     private _expandedWords: Set<string> = new Set();
     private _totalPages = 1;
 
-    constructor(private readonly _extensionUri: vscode.Uri) {}
+    constructor(private readonly _extensionUri: vscode.Uri) { }
 
     dispose() {
         this._panel?.dispose();
@@ -105,7 +106,7 @@ export class WordsViewProvider implements vscode.Disposable {
         }
 
         // Update UI to reflect selection change
-        this._panel?.webview.postMessage({
+        safePostMessageToPanel(this._panel, {
             command: "updateSelection",
             id,
             selected: this._selectedOccurrences.has(id),
@@ -119,7 +120,7 @@ export class WordsViewProvider implements vscode.Disposable {
         }
 
         // Group the occurrences by file
-        const fileEdits = new Map<string, { occurrence: WordOccurrence; replacement: string }[]>();
+        const fileEdits = new Map<string, { occurrence: WordOccurrence; replacement: string; }[]>();
 
         for (const wordFreq of this._wordFrequencies) {
             if (!wordFreq.occurrences) continue;

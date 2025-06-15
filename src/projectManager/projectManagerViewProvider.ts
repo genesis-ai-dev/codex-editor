@@ -22,6 +22,7 @@ import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../../src/utils/notebookMetadataManager";
 import { SyncManager } from "./syncManager";
 import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
+import { safePostMessageToView } from "../utils/webviewUtils";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -69,10 +70,10 @@ class ProjectManagerStore {
         console.error(`Error during ${operation}:`, error);
         this.setState({ isScanning: false });
         if (this._view) {
-            this._view.webview.postMessage({
+            safePostMessageToView(this._view, {
                 command: "error",
                 message: `Failed to ${operation}: ${error.message}`
-            });
+            }, "ProjectManager");
         }
     }
 
@@ -302,12 +303,12 @@ class ProjectManagerStore {
 
             // Send publish status message
             if (this._view) {
-                this._view.webview.postMessage({
+                safePostMessageToView(this._view, {
                     command: "publishStatus",
                     data: {
                         repoHasRemote: remotes.length > 0,
                     },
-                } as ProjectManagerMessageToWebview);
+                } as ProjectManagerMessageToWebview, "ProjectManager");
             }
 
             return remotes.length > 0;
@@ -407,10 +408,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         // Subscribe to state changes to update webview
         this.store.subscribe((state) => {
             if (this._view) {
-                this._view.webview.postMessage({
+                safePostMessageToView(this._view, {
                     command: "stateUpdate",
                     data: state,
-                });
+                }, "ProjectManager");
             }
         });
 
@@ -479,7 +480,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
     private async executeCommandAndNotify(commandName: string) {
         await vscode.commands.executeCommand(`codex-project-manager.${commandName}`);
         await this.store.refreshState();
-        this._view?.webview.postMessage({ command: "actionCompleted" });
+        safePostMessageToView(this._view, { command: "actionCompleted" }, "ProjectManager");
     }
 
     private async handleMessage(message: ProjectManagerMessageFromWebview) {
@@ -621,13 +622,13 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 const syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
 
                 if (this._view) {
-                    this._view.webview.postMessage({
+                    safePostMessageToView(this._view, {
                         command: "syncSettingsUpdate",
                         data: {
                             autoSyncEnabled,
                             syncDelayMinutes,
                         },
-                    } as ProjectManagerMessageToWebview);
+                    } as ProjectManagerMessageToWebview, "ProjectManager");
                 }
                 break;
             }
@@ -662,7 +663,7 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             case "openBookNameEditor":
                 await vscode.commands.executeCommand("codex-project-manager.openBookNameEditor");
                 await this.store.refreshState();
-                this._view?.webview.postMessage({ command: "actionCompleted" });
+                safePostMessageToView(this._view, { command: "actionCompleted" }, "ProjectManager");
                 break;
             case "navigateToMainMenu": {
                 try {
@@ -688,10 +689,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
         // Set initial state and mark webview as ready
         this.store.setState({ webviewReady: true });
         const initialState = this.store.getState();
-        webviewView.webview.postMessage({
+        safePostMessageToView(webviewView, {
             command: "stateUpdate",
             data: initialState,
-        } as ProjectManagerMessageToWebview);
+        } as ProjectManagerMessageToWebview, "ProjectManager");
 
         // Set up message handling
         webviewView.webview.onDidReceiveMessage(
@@ -701,10 +702,10 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                     await this.handleMessage(message);
                 } catch (error) {
                     console.error("Error handling message:", error);
-                    webviewView.webview.postMessage({
+                    safePostMessageToView(webviewView, {
                         command: "error",
                         message: `Failed to handle action: ${(error as Error).message}`,
-                    });
+                    }, "ProjectManager");
                 }
             }
         );
@@ -736,19 +737,19 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             // Explicitly send state update to the webview
             if (this._view) {
                 const state = this.store.getState();
-                this._view.webview.postMessage({
+                safePostMessageToView(this._view, {
                     command: "stateUpdate",
                     data: state,
-                } as ProjectManagerMessageToWebview);
+                } as ProjectManagerMessageToWebview, "ProjectManager");
             }
         } catch (error) {
             console.error("Error updating project overview:", error);
             this.store.setState({ isInitializing: false, isScanning: false });
             if (this._view) {
-                this._view.webview.postMessage({
+                safePostMessageToView(this._view, {
                     command: "error",
                     message: "Failed to load project overview. Please try again.",
-                });
+                }, "ProjectManager");
             }
         }
     }
@@ -762,20 +763,20 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
             await this.updateProjectOverview();
         } catch (error) {
             console.error("Error setting primary source Bible:", error);
-            this._view?.webview.postMessage({
+            safePostMessageToView(this._view, {
                 command: "error",
                 message: "Failed to set primary source Bible. Please try again.",
-            });
+            }, "ProjectManager");
         }
     }
 
     private async updateWebviewState() {
         if (this._view) {
             const state = this.store.getState();
-            this._view.webview.postMessage({
+            safePostMessageToView(this._view, {
                 command: "stateUpdate",
                 data: state,
-            } as ProjectManagerMessageToWebview);
+            } as ProjectManagerMessageToWebview, "ProjectManager");
         }
     }
 
