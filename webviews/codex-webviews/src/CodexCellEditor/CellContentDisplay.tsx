@@ -442,9 +442,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             return { borderColor: "red" };
         }
 
-        // Return empty object if no translation state
+        // Explicitly reset border properties when no translation state
         if (!translationState) {
-            return {};
+            return {
+                border: "1px solid transparent",
+                borderColor: "transparent",
+            };
         }
 
         // Determine if we're in inline mode based on the cellDisplayMode prop
