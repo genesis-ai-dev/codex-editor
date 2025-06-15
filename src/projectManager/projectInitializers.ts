@@ -29,8 +29,8 @@ export async function setTargetFont() {
             defaultfamily: string[];
             families: {
                 [key: string]: {
-                    defaults: { ttf: string };
-                    files: { [key: string]: { url: string } };
+                    defaults: { ttf: string; };
+                    files: { [key: string]: { url: string; }; };
                 };
             };
         };
@@ -205,6 +205,17 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     books,
                     foldersWithUsfmToConvert,
                 });
+
+                // Ensure the files directory exists for dictionary and other project files
+                const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, "files");
+                try {
+                    await vscode.workspace.fs.createDirectory(filesDir);
+                    console.log("Created files directory for project");
+                } catch (error) {
+                    // Directory might already exist, which is fine
+                    console.log("Files directory already exists or could not be created:", error);
+                }
+
                 await createProjectCommentFiles({
                     shouldOverWrite,
                 });

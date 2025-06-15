@@ -478,7 +478,7 @@ export const getPagedWords = ({
     return { entries, total };
 };
 
-export const exportUserEntries = (db: Database) => {
+export const exportUserEntries = async (db: Database) => {
     const stmt = db.prepare(
         "SELECT id, head_word, definition, author_id, is_user_entry, createdAt, updatedAt FROM entries WHERE is_user_entry = 1"
     );
@@ -508,10 +508,20 @@ export const exportUserEntries = (db: Database) => {
     if (!workspaceFolder) {
         return;
     }
+
+    // Ensure the files directory exists
+    const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, "files");
+    try {
+        await vscode.workspace.fs.createDirectory(filesDir);
+    } catch (error) {
+        // Directory might already exist, which is fine
+        console.log("Files directory already exists or could not be created:", error);
+    }
+
     const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
     if (exportPath) {
         // Export user entries to a file for persistence
-        vscode.workspace.fs.writeFile(exportPath, Buffer.from(jsonlContent, "utf-8"));
+        await vscode.workspace.fs.writeFile(exportPath, Buffer.from(jsonlContent, "utf-8"));
     }
 };
 
@@ -526,16 +536,25 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
     }
 
     try {
+        // First check if the file exists
+        await vscode.workspace.fs.stat(exportPath);
+
+        // If we get here, the file exists, so read it
         const fileContent = await vscode.workspace.fs.readFile(exportPath);
         const jsonlContent = new TextDecoder().decode(fileContent);
         const entries = jsonlContent
             .split("\n")
             .filter((line: string) => line)
             .map((line: string) => JSON.parse(line));
-        console.log({ entries });
+        console.log("Loaded dictionary entries:", { entries });
 
         await bulkAddWords(db, entries);
     } catch (error) {
+        // Check if it's a file not found error
+        if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+            console.log("No dictionary file found - this is normal for new projects");
+            return;
+        }
         console.error("Error reading dictionary file:", error);
     }
 };
