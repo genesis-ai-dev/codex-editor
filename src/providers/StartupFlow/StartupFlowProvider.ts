@@ -65,31 +65,31 @@ type StartupFlowContext = {
 
 type StartupFlowEvent =
     | {
-          type:
-              | StartupFlowEvents.UPDATE_AUTH_STATE
-              | StartupFlowEvents.AUTH_LOGGED_IN
-              | StartupFlowEvents.NO_AUTH_EXTENSION;
-          data: StartupFlowContext["authState"];
-      }
+        type:
+        | StartupFlowEvents.UPDATE_AUTH_STATE
+        | StartupFlowEvents.AUTH_LOGGED_IN
+        | StartupFlowEvents.NO_AUTH_EXTENSION;
+        data: StartupFlowContext["authState"];
+    }
     | {
-          type:
-              | StartupFlowEvents.SKIP_AUTH
-              | StartupFlowEvents.PROJECT_CREATE_EMPTY
-              | StartupFlowEvents.PROJECT_CLONE_OR_OPEN
-              | StartupFlowEvents.BACK_TO_LOGIN;
-      }
+        type:
+        | StartupFlowEvents.SKIP_AUTH
+        | StartupFlowEvents.PROJECT_CREATE_EMPTY
+        | StartupFlowEvents.PROJECT_CLONE_OR_OPEN
+        | StartupFlowEvents.BACK_TO_LOGIN;
+    }
     | {
-          type: StartupFlowEvents.INITIALIZE_PROJECT;
-      }
+        type: StartupFlowEvents.INITIALIZE_PROJECT;
+    }
     | {
-          type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN;
-      }
+        type: StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN;
+    }
     | {
-          type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT;
-      }
+        type: StartupFlowEvents.EMPTY_WORKSPACE_THAT_NEEDS_PROJECT;
+    }
     | {
-                type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
-  };
+        type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
+    };
 
 const DEBUG_MODE = true; // Set to true to enable debug logging
 
@@ -1459,8 +1459,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             message.data &&
                             typeof message.data === "object" &&
                             "path" in message.data
-                          ? message.data.path
-                          : "";
+                            ? message.data.path
+                            : "";
 
                 debugLog("Deleting project", projectPath);
 
@@ -1510,7 +1510,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     let actionButtonText: string;
 
                     if (needsMigration && migrationState) {
-                        if (migrationState.hasUncommittedNonSQLiteChanges) {
+                        if (migrationState.hasUncommittedTrackedChanges) {
                             confirmMessage = `Project "${projectName}" needs migration to clean up database files.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n\nContinue with migration?`;
                         } else {
                             confirmMessage = `Project "${projectName}" needs migration to clean up database files.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n\nContinue with migration?`;
@@ -1786,7 +1786,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
             // Show migration prompt
             let message: string;
-            if (migrationState.hasUncommittedNonSQLiteChanges) {
+            if (migrationState.hasUncommittedTrackedChanges) {
                 message = `Project "${projectName}" needs migration to clean up database files before opening.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n4. Open the migrated project\n\nContinue with migration?`;
             } else {
                 message = `Project "${projectName}" needs migration to clean up database files before opening.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n3. Open the migrated project\n\nContinue with migration?`;

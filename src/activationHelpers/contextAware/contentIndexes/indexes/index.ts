@@ -163,8 +163,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 filesIndex.clear();
             }
 
-            // Stream files directly to database without loading into memory
-            await streamFilesToDatabase();
+            // Use the proper indexing functions instead of simple file streaming
+            await rebuildIndexesWithProperLogic();
 
             // Update status bar with final counts
             const finalDocCount = translationPairsIndex.documentCount;
@@ -184,31 +184,70 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     /**
-     * Check if any files have changed since last indexing
+     * Check if any files have changed since last indexing using optimal change detection
      */
     async function checkIfFilesChanged(): Promise<boolean> {
         try {
             const workspaceFolder = getWorkSpaceFolder();
             if (!workspaceFolder) return false;
 
-            // For now, we'll use a simple heuristic: if database is empty, files have "changed"
-            // In the future, we could store file modification times in the database
+            // If database is empty, definitely need to index
             if (translationPairsIndex.documentCount === 0) {
+                console.log("[Index] Database is empty, indexing needed");
                 return true;
             }
 
-            // Check .codex and .source files for changes
+            // Get all project files
             const codexFiles = await vscode.workspace.findFiles("**/*.codex");
             const sourceFiles = await vscode.workspace.findFiles("**/*.source");
+            const allFiles = [...codexFiles, ...sourceFiles];
 
-            // For now, assume files have changed if we have files but no index
-            // This is a conservative approach that ensures we don't miss updates
-            if ((codexFiles.length > 0 || sourceFiles.length > 0) && translationPairsIndex.documentCount === 0) {
-                console.log(`[Index] Found ${codexFiles.length + sourceFiles.length} files but no indexed documents`);
+            if (allFiles.length === 0) {
+                console.log("[Index] No project files found");
+                return false;
+            }
+
+            // Check for file-level changes using modification times and database tracking
+            let changedFilesCount = 0;
+
+            for (const fileUri of allFiles) {
+                try {
+                    // Get file modification time
+                    const fileStats = await vscode.workspace.fs.stat(fileUri);
+                    const lastModified = fileStats.mtime;
+
+                    // Check if file is tracked in database (using SQLite index manager)
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        // Query database for this file's last known modification time
+                        const fileInfo = await translationPairsIndex.getFileStats();
+                        const dbFileInfo = fileInfo.get(fileUri.fsPath);
+
+                        if (!dbFileInfo || dbFileInfo.lastModified < lastModified) {
+                            console.log(`[Index] File changed: ${fileUri.fsPath}`);
+                            changedFilesCount++;
+
+                            // For performance, stop checking after finding a few changes
+                            if (changedFilesCount >= 5) {
+                                console.log(`[Index] Found ${changedFilesCount}+ changed files, indexing needed`);
+                                return true;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`[Index] Error checking file ${fileUri.fsPath}:`, error);
+                    // If we can't check a file, assume it changed to be safe
+                    changedFilesCount++;
+                }
+            }
+
+            if (changedFilesCount > 0) {
+                console.log(`[Index] Found ${changedFilesCount} changed files, indexing needed`);
                 return true;
             }
 
+            console.log(`[Index] All ${allFiles.length} files up to date, no indexing needed`);
             return false;
+
         } catch (error) {
             console.warn("Error checking file changes, assuming files changed:", error);
             return true; // Err on the side of caution
@@ -216,111 +255,62 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     /**
-     * Stream files directly to database without loading into memory
+     * Rebuild indexes using the proper indexing functions (restored from working version)
      */
-    async function streamFilesToDatabase(): Promise<void> {
-        const workspaceFolder = getWorkSpaceFolder();
-        if (!workspaceFolder) return;
+    async function rebuildIndexesWithProperLogic(): Promise<void> {
+        console.log("[Index] Reading source and target files...");
+        const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+        console.log(`[Index] Found ${sourceFiles.length} source files and ${targetFiles.length} target files`);
 
-        console.log("[Index] Streaming files directly to database...");
-
-        // Process files one at a time to minimize memory usage
-        const codexFiles = await vscode.workspace.findFiles("**/*.codex");
-        const sourceFiles = await vscode.workspace.findFiles("**/*.source");
-
-        let processedCount = 0;
-        const totalFiles = codexFiles.length + sourceFiles.length;
-
-        // Process source files first
-        for (const sourceFile of sourceFiles) {
-            await processSourceFileDirectly(sourceFile);
-            processedCount++;
-
-            // Simple progress logging instead of status bar updates
-            console.log(`[Index] Processing source files (${processedCount}/${sourceFiles.length})`);
-
-            // Yield control to prevent blocking
-            await new Promise(resolve => setImmediate(resolve));
+        if (sourceFiles.length === 0 && targetFiles.length === 0) {
+            console.warn("[Index] No source or target files found - cannot rebuild index");
+            vscode.window.showWarningMessage("Codex: No source or target files found. Please ensure your project has .codex files.");
+            return;
         }
 
-        // Process codex files second
-        for (const codexFile of codexFiles) {
-            await processCodexFileDirectly(codexFile);
-            processedCount++;
+        // Create translation pairs index
+        console.log("[Index] Creating translation pairs index...");
+        await createTranslationPairsIndex(
+            context,
+            translationPairsIndex,
+            sourceFiles,
+            targetFiles,
+            metadataManager,
+            true // force rebuild
+        );
 
-            // Simple progress logging instead of status bar updates
-            console.log(`[Index] Processing translation files (${processedCount - sourceFiles.length}/${codexFiles.length})`);
+        // Create source text index
+        console.log("[Index] Creating source text index...");
+        await createSourceTextIndex(
+            sourceTextIndex,
+            sourceFiles,
+            metadataManager,
+            true // force rebuild
+        );
 
-            // Yield control to prevent blocking
-            await new Promise(resolve => setImmediate(resolve));
-        }
+        // Initialize words index
+        console.log("[Index] Initializing words index...");
+        wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
 
-        console.log(`[Index] Streamed ${totalFiles} files directly to database`);
-    }
+        // Initialize files index
+        console.log("[Index] Initializing files index...");
+        filesIndex = await initializeFilesIndex();
 
-    /**
-     * Process a single source file directly to database
-     */
-    async function processSourceFileDirectly(fileUri: vscode.Uri): Promise<void> {
+        // Update complete drafts
         try {
-            const document = await vscode.workspace.openTextDocument(fileUri);
-            const content = document.getText();
-            const lines = content.split('\n');
-
-            // Process line by line to extract verses
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const verseMatch = line.match(/^([A-Z0-9]{3} \d+:\d+)/);
-
-                if (verseMatch) {
-                    const cellId = verseMatch[1];
-                    const verseContent = line.substring(verseMatch[0].length).trim();
-
-                    if (verseContent) {
-                        // Add directly to database
-                        await sourceTextIndex.add({
-                            cellId,
-                            content: verseContent,
-                            uri: fileUri.toString(),
-                            line: i,
-                            cellType: 'source'
-                        });
-                    }
-                }
-            }
+            console.log("[Index] Updating complete drafts...");
+            await updateCompleteDrafts(targetFiles);
         } catch (error) {
-            console.warn(`Error processing source file ${fileUri.fsPath}:`, error);
+            console.error("Error updating complete drafts:", error);
+            vscode.window.showWarningMessage(
+                "Failed to update complete drafts. Some drafts may be out of sync."
+            );
         }
+
+        console.log("[Index] Proper indexing logic complete");
     }
 
-    /**
-     * Process a single codex file directly to database
-     */
-    async function processCodexFileDirectly(fileUri: vscode.Uri): Promise<void> {
-        try {
-            const document = await vscode.workspace.openTextDocument(fileUri);
 
-            // Parse notebook content
-            const notebook = JSON.parse(document.getText());
-
-            for (const cell of notebook.cells || []) {
-                if (cell.metadata?.type === 'text' && cell.metadata?.id && cell.value?.trim()) {
-                    const cellId = cell.metadata.id;
-                    const content = cell.value.trim();
-
-                    // Add translation pair directly to database
-                    await translationPairsIndex.add({
-                        cellId,
-                        targetContent: content,
-                        uri: fileUri.toString(),
-                        cellType: 'target'
-                    });
-                }
-            }
-        } catch (error) {
-            console.warn(`Error processing codex file ${fileUri.fsPath}:`, error);
-        }
-    }
 
     // Check if database was recreated during initialization (schema migration)
     // The SQLiteIndexManager handles schema migrations automatically during initialize()

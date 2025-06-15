@@ -786,7 +786,7 @@ async function checkAndPromptForMigration(context: vscode.ExtensionContext): Pro
 
         // Show migration prompt
         let message: string;
-        if (migrationState.hasUncommittedNonSQLiteChanges) {
+        if (migrationState.hasUncommittedTrackedChanges) {
             message = `Project "${projectName}" needs migration to clean up database files.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n\nWould you like to migrate now?`;
         } else {
             message = `Project "${projectName}" needs migration to clean up database files.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n\nWould you like to migrate now?`;

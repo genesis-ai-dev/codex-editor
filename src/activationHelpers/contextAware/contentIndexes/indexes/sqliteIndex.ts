@@ -594,6 +594,36 @@ export class SQLiteIndexManager {
         }
     }
 
+    // Synchronous version for use within transactions
+    upsertFileSync(
+        filePath: string,
+        fileType: "source" | "codex",
+        lastModifiedMs: number
+    ): number {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const contentHash = this.computeContentHash(filePath + lastModifiedMs);
+
+        const stmt = this.db.prepare(`
+            INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET
+                last_modified_ms = excluded.last_modified_ms,
+                content_hash = excluded.content_hash,
+                updated_at = strftime('%s', 'now') * 1000
+            RETURNING id
+        `);
+
+        try {
+            stmt.bind([filePath, fileType, lastModifiedMs, contentHash]);
+            stmt.step();
+            const result = stmt.getAsObject();
+            return result.id as number;
+        } finally {
+            stmt.free();
+        }
+    }
+
     async upsertCell(
         cellId: string,
         fileId: number,
@@ -674,21 +704,102 @@ export class SQLiteIndexManager {
         }
     }
 
+    // Synchronous version for use within transactions
+    upsertCellSync(
+        cellId: string,
+        fileId: number,
+        cellType: "source" | "target",
+        content: string,
+        lineNumber?: number,
+        metadata?: any,
+        rawContent?: string
+    ): { id: number; isNew: boolean; contentChanged: boolean; } {
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Use rawContent if provided, otherwise fall back to content
+        const actualRawContent = rawContent || content;
+
+        // Sanitize content for storage - remove HTML tags for clean searching/indexing
+        const sanitizedContent = this.sanitizeContent(content);
+
+        const contentHash = this.computeContentHash(sanitizedContent + (rawContent || ""));
+        const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
+
+        // Check if cell exists and if content changed
+        const checkStmt = this.db.prepare(`
+            SELECT id, content_hash FROM cells 
+            WHERE cell_id = ? AND file_id = ? AND cell_type = ?
+        `);
+
+        let existingCell: { id: number; content_hash: string; } | null = null;
+        try {
+            checkStmt.bind([cellId, fileId, cellType]);
+            if (checkStmt.step()) {
+                existingCell = checkStmt.getAsObject() as any;
+            }
+        } finally {
+            checkStmt.free();
+        }
+
+        const contentChanged = !existingCell || existingCell.content_hash !== contentHash;
+        const isNew = !existingCell;
+
+        if (!contentChanged && existingCell) {
+            return { id: existingCell.id, isNew: false, contentChanged: false };
+        }
+
+        // Upsert the cell - store sanitized content in content column, original in raw_content
+        const upsertStmt = this.db.prepare(`
+            INSERT INTO cells (cell_id, file_id, cell_type, content, content_hash, line_number, word_count, metadata, raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
+                content = excluded.content,
+                content_hash = excluded.content_hash,
+                line_number = excluded.line_number,
+                word_count = excluded.word_count,
+                metadata = excluded.metadata,
+                raw_content = excluded.raw_content,
+                updated_at = strftime('%s', 'now') * 1000
+            RETURNING id
+        `);
+
+        try {
+            upsertStmt.bind([
+                cellId,
+                fileId,
+                cellType,
+                sanitizedContent, // Store sanitized content in content column
+                contentHash,
+                lineNumber || null,
+                wordCount,
+                metadata ? JSON.stringify(metadata) : null,
+                actualRawContent, // Store original/raw content in raw_content column
+            ]);
+            upsertStmt.step();
+            const result = upsertStmt.getAsObject();
+
+            // Note: Don't call debouncedSave() in sync version as it's async
+            return { id: result.id as number, isNew, contentChanged };
+        } finally {
+            upsertStmt.free();
+        }
+    }
+
     // Add a single document
-    async add(doc: any): Promise<void> {
+    add(doc: any): void {
         if (!this.db) throw new Error("Database not initialized");
 
         // Determine file info from document
         const filePath = doc.uri || doc.document || "unknown";
         const fileType = doc.cellType || (doc.targetContent ? "codex" : "source");
 
-        // Upsert file
-        const fileId = await this.upsertFile(filePath, fileType as any, Date.now());
+        // Upsert file synchronously
+        const fileId = this.upsertFileSync(filePath, fileType as any, Date.now());
 
         // Add cell based on document type
         if (doc.cellId && doc.content) {
             // Source text document
-            await this.upsertCell(
+            this.upsertCellSync(
                 doc.cellId,
                 fileId,
                 "source",
@@ -702,7 +813,7 @@ export class SQLiteIndexManager {
         } else if (doc.cellId && (doc.sourceContent || doc.targetContent)) {
             // Translation pair document
             if (doc.sourceContent) {
-                await this.upsertCell(
+                this.upsertCellSync(
                     doc.cellId,
                     fileId,
                     "source",
@@ -716,7 +827,7 @@ export class SQLiteIndexManager {
                 );
             }
             if (doc.targetContent) {
-                await this.upsertCell(
+                this.upsertCellSync(
                     doc.cellId,
                     fileId,
                     "target",
@@ -980,6 +1091,7 @@ export class SQLiteIndexManager {
             SELECT 
                 c.cell_id,
                 c.content,
+                c.raw_content,
                 c.cell_type,
                 c.metadata,
                 f.file_path
@@ -1012,7 +1124,8 @@ export class SQLiteIndexManager {
             const metadata = row.metadata ? JSON.parse(row.metadata as string) : {};
 
             if (row.cell_type === "source") {
-                combined.content = row.content;
+                // Use raw_content if available, otherwise fall back to sanitized content
+                combined.content = row.raw_content || row.content;
                 if (metadata.versions) {
                     combined.versions = metadata.versions;
                 }
@@ -1609,8 +1722,6 @@ export class SQLiteIndexManager {
             .replace(/&#39;/g, "'")
             .trim(); // Remove leading/trailing whitespace
     }
-
-
 
     // Delete the database file from disk
     private async deleteDatabaseFile(): Promise<void> {
