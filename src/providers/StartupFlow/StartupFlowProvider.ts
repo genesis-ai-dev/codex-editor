@@ -1534,7 +1534,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     const confirmResult = await vscode.window.showWarningMessage(
                         confirmMessage,
-                        { modal: true },
+                        { modal: false },
                         actionButtonText
                     );
 
@@ -1671,7 +1671,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 {
                     location: vscode.ProgressLocation.Notification,
                     title: `Migrating project "${projectName}"...`,
-                    cancellable: true,
+                    cancellable: false,
                 },
                 async (progress, token) => {
                     try {
@@ -1804,7 +1804,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 message,
                 { modal: true },
                 "Migrate and Open",
-                "Cancel"
             );
 
             if (choice === "Migrate and Open") {
@@ -1812,7 +1811,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     {
                         location: vscode.ProgressLocation.Notification,
                         title: `Migrating project "${projectName}"...`,
-                        cancellable: true,
+                        cancellable: false,
                     },
                     async (progress, token) => {
                         try {

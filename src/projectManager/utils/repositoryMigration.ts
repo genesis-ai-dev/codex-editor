@@ -495,9 +495,9 @@ export class RepositoryMigrationManager {
                     // Provide different button options based on risk level
                     let buttons: string[];
                     if (isDataLossRisk) {
-                        buttons = ["Push Changes First", "Continue Anyway", "Cancel Migration"];
+                        buttons = ["Push Changes First", "Continue Anyway"];
                     } else {
-                        buttons = ["Continue Migration", "Cancel Migration", "Skip Sync Check"];
+                        buttons = ["Continue Migration", "Skip Sync Check"];
                     }
 
                     const choice = await vscode.window.showWarningMessage(
@@ -506,7 +506,7 @@ export class RepositoryMigrationManager {
                         ...buttons
                     );
 
-                    if (choice === "Cancel Migration") {
+                    if (!choice) {
                         throw new Error("Migration cancelled by user due to sync verification failure");
                     } else if (choice === "Push Changes First") {
                         // Actually push the changes and then continue with migration

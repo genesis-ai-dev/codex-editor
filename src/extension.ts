@@ -833,7 +833,7 @@ async function performWorkspaceMigration(
             {
                 location: vscode.ProgressLocation.Notification,
                 title: `Migrating project "${projectName}"...`,
-                cancellable: true,
+                cancellable: false,
             },
             async (progress, token) => {
                 try {
