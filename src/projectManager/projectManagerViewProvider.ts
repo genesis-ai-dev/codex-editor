@@ -673,6 +673,43 @@ export class CustomWebviewProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             }
+            case "getProjectProgress": {
+                // Fetch and send progress data to the webview
+                try {
+                    // Check if frontier API is available for progress data
+                    if (!this.frontierApi) {
+                        await this.initializeFrontierApi();
+                    }
+
+                    if (this.frontierApi) {
+                        const progressData = await vscode.commands.executeCommand(
+                            "frontier.getAggregatedProgress"
+                        );
+
+                        if (progressData && this._view) {
+                            safePostMessageToView(this._view, {
+                                command: "progressData",
+                                data: progressData,
+                            } as ProjectManagerMessageToWebview, "ProjectManager");
+                        }
+                    } else {
+                        console.log("Frontier API not available for progress data");
+                    }
+                } catch (error) {
+                    console.error("Error fetching project progress:", error);
+                }
+                break;
+            }
+            case "showProgressDashboard": {
+                // Open the progress dashboard
+                try {
+                    await vscode.commands.executeCommand("frontier.showProgressDashboard");
+                } catch (error) {
+                    console.error("Error opening progress dashboard:", error);
+                    vscode.window.showErrorMessage("Failed to open progress dashboard");
+                }
+                break;
+            }
             default:
                 console.error(`Unknown command: ${message.command}`, { message });
         }
