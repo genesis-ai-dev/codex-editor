@@ -2,8 +2,8 @@
 import * as vscode from "vscode";
 import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
 import { IndexingStatusBarHandler } from "../statusBarHandler";
-import { createTranslationPairsIndex } from "./translationPairsIndex";
-import { createSourceTextIndex } from "./sourceTextIndex";
+
+
 import {
     searchTargetCellsByQuery,
     getTranslationPairsFromSourceCellQuery,
@@ -98,6 +98,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
     // Create separate instances for translation pairs and source text
     const translationPairsIndex = indexManager;
+    // Use the same SQLite index for both translation pairs and source text
+    // since FileSyncManager indexes all content into the main database
     const sourceTextIndex = indexManager;
 
     let wordsIndex: WordFrequencyMap = new Map<string, WordOccurrence[]>();
@@ -245,15 +247,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             console.log("[Index] Updating complementary indexes...");
 
             try {
-                // Update source text index
-                const { sourceFiles } = await readSourceAndTargetFiles();
-                await createSourceTextIndex(
-                    sourceTextIndex,
-                    sourceFiles,
-                    metadataManager,
-                    isForced
-                );
-
                 // Update words and files indexes
                 const { targetFiles } = await readSourceAndTargetFiles();
                 wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
