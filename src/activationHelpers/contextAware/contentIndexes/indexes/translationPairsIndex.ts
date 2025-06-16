@@ -244,24 +244,29 @@ export async function createTranslationPairsIndex(
         await indexDocument(doc, targetVerseMap, translationPairsIndex);
     }, 3000);
 
-    context.subscriptions.push(
-        vscode.workspace.onDidOpenTextDocument(async (doc: vscode.TextDocument) => {
-            if (doc.uri.path.endsWith(".codex")) {
-                await debouncedIndexDocument(doc);
-            }
-        }),
-        vscode.workspace.onDidCloseTextDocument(async (doc: vscode.TextDocument) => {
-            if (doc.uri.path.endsWith(".codex")) {
-                await debouncedIndexDocument(doc);
-            }
-        }),
-        vscode.workspace.onDidChangeTextDocument(async (event: vscode.TextDocumentChangeEvent) => {
-            const doc = event.document;
-            if (doc.uri.path.endsWith(".codex")) {
-                await debouncedIndexDocument(doc);
-            }
-        })
-    );
+    // NOTE: Real-time document indexing disabled in favor of file-level synchronization system
+    // The new FileSyncManager handles all file changes efficiently at startup and ensures
+    // better consistency with git-versioned files. Real-time indexing caused duplicate
+    // processing and documents with missing file path information.
+
+    // context.subscriptions.push(
+    //     vscode.workspace.onDidOpenTextDocument(async (doc: vscode.TextDocument) => {
+    //         if (doc.uri.path.endsWith(".codex")) {
+    //             await debouncedIndexDocument(doc);
+    //         }
+    //     }),
+    //     vscode.workspace.onDidCloseTextDocument(async (doc: vscode.TextDocument) => {
+    //         if (doc.uri.path.endsWith(".codex")) {
+    //             await debouncedIndexDocument(doc);
+    //         }
+    //     }),
+    //     vscode.workspace.onDidChangeTextDocument(async (event: vscode.TextDocumentChangeEvent) => {
+    //         const doc = event.document;
+    //         if (doc.uri.path.endsWith(".codex")) {
+    //             await debouncedIndexDocument(doc);
+    //         }
+    //     })
+    // );
 }
 
 export function searchTranslationPairs(

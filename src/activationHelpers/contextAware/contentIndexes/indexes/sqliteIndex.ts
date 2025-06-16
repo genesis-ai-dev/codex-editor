@@ -895,126 +895,28 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Add a single document
+    // Add a single document (DEPRECATED - use FileSyncManager instead)
     add(doc: any): void {
-        if (!this.db) throw new Error("Database not initialized");
+        console.warn("[SQLiteIndex] DEPRECATED: add() method called - use FileSyncManager instead", {
+            cellId: doc.cellId,
+            caller: new Error().stack?.split('\n')[2]?.trim()
+        });
 
-        // Determine file info from document with better validation
-        let filePath = doc.uri || doc.document;
-
-        // Skip documents with no valid file path to prevent "unknown" entries
-        if (!filePath || filePath === "unknown") {
-            console.warn("[SQLiteIndex] Skipping document with missing or invalid file path:", {
-                cellId: doc.cellId,
-                hasUri: !!doc.uri,
-                hasDocument: !!doc.document,
-                rawUri: doc.uri,
-                rawDocument: doc.document
-            });
-            return;
-        }
-
-        const fileType = doc.cellType || (doc.targetContent ? "codex" : "source");
-
-        // Upsert file synchronously
-        const fileId = this.upsertFileSync(filePath, fileType as any, Date.now());
-
-        // Add cell based on document type
-        if (doc.cellId && doc.content) {
-            // Source text document
-            this.upsertCellSync(
-                doc.cellId,
-                fileId,
-                "source",
-                doc.content,
-                doc.line,
-                {
-                    versions: doc.versions,
-                },
-                doc.rawContent // Pass raw content if available
-            );
-        } else if (doc.cellId && (doc.sourceContent || doc.targetContent)) {
-            // Translation pair document
-            if (doc.sourceContent) {
-                this.upsertCellSync(
-                    doc.cellId,
-                    fileId,
-                    "source",
-                    doc.sourceContent,
-                    doc.line,
-                    {
-                        document: doc.document,
-                        section: doc.section,
-                    },
-                    doc.rawSourceContent // Pass raw source content if available
-                );
-            }
-            if (doc.targetContent) {
-                this.upsertCellSync(
-                    doc.cellId,
-                    fileId,
-                    "target",
-                    doc.targetContent,
-                    doc.line,
-                    {
-                        document: doc.document,
-                        section: doc.section,
-                    },
-                    doc.rawTargetContent // Pass raw target content if available
-                );
-            }
-        }
+        // Legacy add method disabled in favor of FileSyncManager
+        // All indexing should now go through the file synchronization system
+        return;
     }
 
-    // Add multiple documents
+    // Add multiple documents (DEPRECATED - use FileSyncManager instead)
     async addAll(documents: any[]): Promise<void> {
-        if (!this.db) throw new Error("Database not initialized");
+        console.warn("[SQLiteIndex] DEPRECATED: addAll() method called - use FileSyncManager instead", {
+            documentCount: documents.length,
+            caller: new Error().stack?.split('\n')[2]?.trim()
+        });
 
-        if (documents.length === 0) return;
-
-        // Start real-time progress for large operations
-        if (documents.length > 50) {
-            this.startRealtimeProgress(`Indexing ${documents.length} documents`);
-        } else {
-            const addAllStart = globalThis.performance.now();
-            this.trackProgress(`Processing ${documents.length} documents`, addAllStart);
-        }
-
-        try {
-            await this.runInTransaction(() => {
-                let processed = 0;
-                const batchSize = 100; // Process in smaller batches
-
-                for (let i = 0; i < documents.length; i += batchSize) {
-                    const batch = documents.slice(i, i + batchSize);
-                    for (const doc of batch) {
-                        this.add(doc);
-                        processed++;
-                    }
-
-                    // Update progress description for large operations
-                    if (documents.length > 50 && processed % (batchSize * 2) === 0) {
-                        // Update the current step name to show progress
-                        if (this.currentProgressName) {
-                            const progressPercent = Math.round((processed / documents.length) * 100);
-                            const newStepName = `Indexing ${documents.length} documents (${progressPercent}%)`;
-
-                            // Update the step name in the current timing entry
-                            const lastIndex = this.progressTimings.length - 1;
-                            if (lastIndex >= 0) {
-                                this.progressTimings[lastIndex].step = newStepName;
-                                this.currentProgressName = newStepName;
-                            }
-                        }
-                    }
-                }
-            });
-        } finally {
-            // Finish real-time progress for large operations
-            if (documents.length > 50) {
-                this.finishRealtimeProgress();
-            }
-        }
+        // Legacy addAll method disabled in favor of FileSyncManager
+        // All indexing should now go through the file synchronization system
+        return;
     }
 
     // Remove all documents
