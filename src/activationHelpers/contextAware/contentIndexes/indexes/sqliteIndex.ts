@@ -2312,4 +2312,302 @@ export class SQLiteIndexManager {
             unknownFileRemoved
         };
     }
+
+    // Search for complete translation pairs only (cells with both source AND target content)
+    async searchCompleteTranslationPairs(
+        query: string,
+        limit: number = 30,
+        returnRawContent: boolean = false
+    ): Promise<any[]> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Handle empty query by returning recent complete pairs
+        if (!query || query.trim() === '') {
+            const sql = `
+                SELECT DISTINCT
+                    source_cell.cell_id,
+                    source_cell.content as source_content,
+                    source_cell.raw_content as raw_source_content,
+                    target_cell.content as target_content,
+                    target_cell.raw_content as raw_target_content,
+                    source_file.file_path as uri,
+                    source_cell.line_number as line,
+                    0 as score
+                FROM cells source_cell
+                JOIN cells target_cell ON source_cell.cell_id = target_cell.cell_id 
+                JOIN files source_file ON source_cell.file_id = source_file.id
+                WHERE source_cell.cell_type = 'source' 
+                    AND target_cell.cell_type = 'target'
+                    AND source_cell.content IS NOT NULL 
+                    AND source_cell.content != ''
+                    AND target_cell.content IS NOT NULL 
+                    AND target_cell.content != ''
+                ORDER BY source_cell.id DESC
+                LIMIT ?
+            `;
+
+            const stmt = this.db.prepare(sql);
+            const results = [];
+
+            try {
+                stmt.bind([limit]);
+                while (stmt.step()) {
+                    const row = stmt.getAsObject();
+
+                    results.push({
+                        cellId: row.cell_id,
+                        cell_id: row.cell_id,
+                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        uri: row.uri,
+                        line: row.line,
+                        score: row.score,
+                        cell_type: 'source' // For compatibility
+                    });
+                }
+            } finally {
+                stmt.free();
+            }
+
+            return results;
+        }
+
+        // Debug: Check if we have any complete pairs in the database at all
+        const debugStmt = this.db.prepare(`
+            SELECT COUNT(DISTINCT source_cells.cell_id) as complete_pairs_count
+            FROM cells source_cells
+            JOIN cells target_cells ON source_cells.cell_id = target_cells.cell_id 
+            WHERE source_cells.cell_type = 'source' 
+                AND target_cells.cell_type = 'target'
+                AND source_cells.content IS NOT NULL 
+                AND source_cells.content != ''
+                AND target_cells.content IS NOT NULL 
+                AND target_cells.content != ''
+        `);
+
+        let totalCompletePairs = 0;
+        try {
+            debugStmt.step();
+            totalCompletePairs = (debugStmt.getAsObject().complete_pairs_count as number) || 0;
+        } finally {
+            debugStmt.free();
+        }
+
+        console.log(`[searchCompleteTranslationPairs] Database contains ${totalCompletePairs} complete translation pairs total`);
+
+        // Use FTS5's natural fuzzy search - keep it simple and let FTS5 do the work
+        // Clean the query but don't over-process it
+        const cleanQuery = query
+            .trim()
+            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
+
+        if (!cleanQuery) {
+            return this.searchCompleteTranslationPairs('', limit, returnRawContent);
+        }
+
+        console.log(`[searchCompleteTranslationPairs] Using natural FTS5 search with query: "${cleanQuery}"`);
+
+        // Simple FTS5 query - let FTS5 handle the fuzzy matching and ranking
+        const sql = `
+            SELECT 
+                c.cell_id,
+                c.content as source_content,
+                c.raw_content as raw_source_content,
+                c.line_number as line,
+                f.file_path as uri,
+                bm25(cells_fts) as score
+            FROM cells_fts
+            JOIN cells c ON cells_fts.cell_id = c.cell_id
+            JOIN files f ON c.file_id = f.id
+            WHERE cells_fts MATCH ?
+                AND c.cell_type = 'source'
+                AND c.content IS NOT NULL 
+                AND c.content != ''
+                AND EXISTS (
+                    SELECT 1 FROM cells target_cells 
+                    WHERE target_cells.cell_id = c.cell_id 
+                        AND target_cells.cell_type = 'target'
+                        AND target_cells.content IS NOT NULL 
+                        AND target_cells.content != ''
+                )
+            ORDER BY score DESC
+            LIMIT ?
+        `;
+
+        const stmt = this.db.prepare(sql);
+        const results = [];
+
+        try {
+            // Use the clean query directly - let FTS5 do its magic
+            stmt.bind([cleanQuery, limit]);
+
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+
+                // Get the target content for this cell
+                const targetStmt = this.db.prepare(`
+                    SELECT content, raw_content 
+                    FROM cells 
+                    WHERE cell_id = ? AND cell_type = 'target' AND content IS NOT NULL AND content != ''
+                    LIMIT 1
+                `);
+
+                let targetContent = '';
+                let rawTargetContent = '';
+                try {
+                    targetStmt.bind([row.cell_id]);
+                    if (targetStmt.step()) {
+                        const targetRow = targetStmt.getAsObject();
+                        targetContent = targetRow.content as string;
+                        rawTargetContent = targetRow.raw_content as string;
+                    }
+                } finally {
+                    targetStmt.free();
+                }
+
+                if (targetContent) { // Only include if we found target content
+                    results.push({
+                        cellId: row.cell_id,
+                        cell_id: row.cell_id,
+                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                        uri: row.uri,
+                        line: row.line,
+                        score: row.score,
+                        cell_type: 'source' // For compatibility
+                    });
+                }
+            }
+        } catch (error) {
+            console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
+
+            // If FTS5 query fails, try a simple LIKE fallback
+            console.log(`[searchCompleteTranslationPairs] Falling back to LIKE search`);
+            const fallbackStmt = this.db.prepare(`
+                SELECT 
+                    c.cell_id,
+                    c.content as source_content,
+                    c.raw_content as raw_source_content,
+                    c.line_number as line,
+                    f.file_path as uri,
+                    1.0 as score
+                FROM cells c
+                JOIN files f ON c.file_id = f.id
+                WHERE c.cell_type = 'source'
+                    AND c.content IS NOT NULL 
+                    AND c.content != ''
+                    AND c.content LIKE ?
+                    AND EXISTS (
+                        SELECT 1 FROM cells target_cells 
+                        WHERE target_cells.cell_id = c.cell_id 
+                            AND target_cells.cell_type = 'target'
+                            AND target_cells.content IS NOT NULL 
+                            AND target_cells.content != ''
+                    )
+                ORDER BY c.id DESC
+                LIMIT ?
+            `);
+
+            try {
+                // Use first word for LIKE search
+                const firstWord = cleanQuery.split(' ')[0];
+                fallbackStmt.bind([`%${firstWord}%`, limit]);
+
+                while (fallbackStmt.step()) {
+                    const row = fallbackStmt.getAsObject();
+
+                    // Get the target content for this cell
+                    const targetStmt = this.db.prepare(`
+                        SELECT content, raw_content 
+                        FROM cells 
+                        WHERE cell_id = ? AND cell_type = 'target' AND content IS NOT NULL AND content != ''
+                        LIMIT 1
+                    `);
+
+                    let targetContent = '';
+                    let rawTargetContent = '';
+                    try {
+                        targetStmt.bind([row.cell_id]);
+                        if (targetStmt.step()) {
+                            const targetRow = targetStmt.getAsObject();
+                            targetContent = targetRow.content as string;
+                            rawTargetContent = targetRow.raw_content as string;
+                        }
+                    } finally {
+                        targetStmt.free();
+                    }
+
+                    if (targetContent) {
+                        results.push({
+                            cellId: row.cell_id,
+                            cell_id: row.cell_id,
+                            sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                            targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                            content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                            uri: row.uri,
+                            line: row.line,
+                            score: row.score,
+                            cell_type: 'source'
+                        });
+                    }
+                }
+            } finally {
+                fallbackStmt.free();
+            }
+        } finally {
+            stmt.free();
+        }
+
+        console.log(`[searchCompleteTranslationPairs] Found ${results.length} complete translation pairs`);
+
+        // If we still have no results and there are complete pairs in the database, 
+        // let's debug by showing some sample data
+        if (results.length === 0 && totalCompletePairs > 0) {
+            console.log(`[searchCompleteTranslationPairs] No results found despite ${totalCompletePairs} complete pairs existing. Debugging...`);
+
+            // Show a few sample source cells to see what the content looks like
+            const sampleStmt = this.db.prepare(`
+                SELECT c.cell_id, c.content, c.cell_type 
+                FROM cells c 
+                WHERE c.cell_type = 'source' AND c.content IS NOT NULL AND c.content != '' 
+                LIMIT 3
+            `);
+
+            try {
+                console.log(`[searchCompleteTranslationPairs] Sample source cells in database:`);
+                while (sampleStmt.step()) {
+                    const sample = sampleStmt.getAsObject();
+                    console.log(`  ${sample.cell_id}: ${(sample.content as string).substring(0, 50)}...`);
+                }
+            } finally {
+                sampleStmt.free();
+            }
+
+            // Try a very simple FTS search to see if FTS is working at all
+            const simpleStmt = this.db.prepare(`
+                SELECT cell_id, content 
+                FROM cells_fts 
+                WHERE cells_fts MATCH ? 
+                LIMIT 3
+            `);
+
+            try {
+                console.log(`[searchCompleteTranslationPairs] Simple FTS test with first word of query:`);
+                const firstWord = cleanQuery.split(' ')[0];
+                simpleStmt.bind([firstWord]);
+                while (simpleStmt.step()) {
+                    const sample = simpleStmt.getAsObject();
+                    console.log(`  ${sample.cell_id}: ${(sample.content as string).substring(0, 50)}...`);
+                }
+            } finally {
+                simpleStmt.free();
+            }
+        }
+
+        return results;
+    }
 }

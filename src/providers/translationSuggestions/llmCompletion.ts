@@ -57,29 +57,31 @@ export async function llmCompletion(
             .map((cell) => cell!.content)
             .join(" ");
 
-        // Get similar source cells
+        // Get similar source cells with complete translations
+        // Request more than needed since we'll filter for word overlap later
+        const initialCandidateCount = Math.max(numberOfFewShotExamples * 6, 30);
         const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
             "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
             sourceContent || "empty",
-            numberOfFewShotExamples
+            initialCandidateCount // Request more candidates for filtering
         );
 
-        console.log(`[llmCompletion] Found ${similarSourceCells.length} similar source cells with complete translation pairs`);
+        console.log(`[llmCompletion] Found ${similarSourceCells.length} complete translation pairs as candidates`);
 
         if (!similarSourceCells || similarSourceCells.length === 0) {
             console.warn(`[llmCompletion] No complete translation pairs found for source content: "${sourceContent?.substring(0, 100)}..."`);
             showNoResultsWarning();
         } else {
             // Log the found translation pairs for debugging
-            similarSourceCells.forEach((pair, index) => {
-                console.log(`[llmCompletion] Similar cell ${index + 1}: ${pair.cellId}`);
+            similarSourceCells.slice(0, 5).forEach((pair, index) => {
+                console.log(`[llmCompletion] Candidate ${index + 1}: ${pair.cellId}`);
                 console.log(`  Source: ${pair.sourceCell.content?.substring(0, 100) || "(empty)"}...`);
                 console.log(`  Target: ${pair.targetCell.content?.substring(0, 100) || "(empty)"}...`);
             });
         }
 
-        // Let's correct the retrieval by filtering any results that have no overlapping
-        // source text content with the current cell's source
+        // Filter complete translation pairs by word overlap with the current cell
+        // Since we now have a larger pool of complete pairs, this filtering will be more effective
         const filteredSimilarSourceCells = similarSourceCells.filter((pair) => {
             // don't use the current cell id if it was pulled in from a previous edit
             // otherwise re-predicting will just result in generating the same content
@@ -107,8 +109,13 @@ export async function llmCompletion(
         const numberOfDroppedExamples =
             similarSourceCells.length - filteredSimilarSourceCells.length;
         if (numberOfDroppedExamples > 0) {
-            console.log(`Dropped ${numberOfDroppedExamples} examples due to no overlap.`);
+            console.log(`[llmCompletion] Filtered out ${numberOfDroppedExamples} complete pairs due to no word overlap with current cell.`);
         }
+
+        console.log(`[llmCompletion] After word overlap filtering: ${filteredSimilarSourceCells.length} translation pairs remaining for LLM context`);
+
+        // Take only the number we actually need for few-shot examples
+        const finalExamples = filteredSimilarSourceCells.slice(0, numberOfFewShotExamples);
 
         // Get preceding cells and their IDs, limited by context size
         const contextLimit = contextSize === "small" ? 5 : contextSize === "medium" ? 10 : 50;
@@ -175,8 +182,7 @@ export async function llmCompletion(
             const currentCellSourceContent = sourceContent;
 
             // Generate few-shot examples
-            const fewShotExamples = filteredSimilarSourceCells
-                .slice(0, numberOfFewShotExamples)
+            const fewShotExamples = finalExamples
                 .map(
                     (pair) =>
                         `${pair.sourceCell.content} -> ${pair.targetCell?.content?.replace(/<[^>]*?>/g, "").trim()}` // remove HTML tags // NOTE: do we want to strip the HTML from the examples?

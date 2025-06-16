@@ -172,33 +172,31 @@ export async function getTranslationPairsFromSourceCellQuery(
 ): Promise<TranslationPair[]> {
     console.log(`[getTranslationPairsFromSourceCellQuery] Searching for: "${query.substring(0, 100)}..." with k=${k}`);
 
-    // Use the special Greek text search method
-    let results = await translationPairsIndex.searchGreekText(query, 'source', k * 3);
+    // Use the new efficient method to search for complete translation pairs directly
+    // Request more results (k * 6) to have a good pool for filtering
+    const initialLimit = Math.max(k * 6, 30); // Ensure we get at least 30 candidates
 
-    console.log(`[getTranslationPairsFromSourceCellQuery] Greek text search returned ${results.length} results`);
+    let results: any[] = [];
 
-    // If we don't have enough results, try the regular search with fuzzy matching
-    if (results.length < k) {
-        console.log(`[getTranslationPairsFromSourceCellQuery] Trying fuzzy search...`);
-        results = translationPairsIndex.search(query, {
-            fields: ["sourceContent"],
-            combineWith: "OR",
-            prefix: false,
-            fuzzy: 0.4,
-            boost: { sourceContent: 2 }
-        });
-        console.log(`[getTranslationPairsFromSourceCellQuery] Fuzzy search returned ${results.length} results`);
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        results = await translationPairsIndex.searchCompleteTranslationPairs(query, initialLimit);
+        console.log(`[getTranslationPairsFromSourceCellQuery] Complete pairs search returned ${results.length} results`);
+    } else {
+        // This case shouldn't happen in current implementation since IndexType is SQLiteIndexManager
+        console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
+        return [];
     }
 
-    // If we still don't have results, get some recent source cells as fallback
+    // If we still don't have results, get some recent complete pairs as fallback
     if (results.length === 0) {
-        console.log(`[getTranslationPairsFromSourceCellQuery] No results found, getting recent source cells`);
-        // Get recent source cells
-        results = await translationPairsIndex.searchGreekText('', 'source', k * 2);
+        console.log(`[getTranslationPairsFromSourceCellQuery] No results found, getting recent complete pairs`);
+        if (translationPairsIndex instanceof SQLiteIndexManager) {
+            results = await translationPairsIndex.searchCompleteTranslationPairs('', Math.max(k * 2, 10));
+        }
         console.log(`[getTranslationPairsFromSourceCellQuery] Fallback query returned ${results.length} results`);
     }
 
-    // Now for each result, get the complete translation pair
+    // Convert results to TranslationPair format
     const translationPairs: TranslationPair[] = [];
     const seenCellIds = new Set<string>();
 
@@ -209,31 +207,30 @@ export async function getTranslationPairsFromSourceCellQuery(
         if (seenCellIds.has(cellId)) continue;
         seenCellIds.add(cellId);
 
-        // For SQLite results, we might already have the translation pair data
-        if (searchResult.sourceContent && searchResult.targetContent !== undefined) {
-            // Only include if we have both source AND target content
+        // For SQLite results from searchCompleteTranslationPairs, we already have both source and target
+        if (searchResult.sourceContent && searchResult.targetContent) {
+            // Verify we have actual content (not just empty strings)
             if (searchResult.sourceContent.trim() && searchResult.targetContent.trim()) {
                 translationPairs.push({
                     cellId: cellId,
                     sourceCell: {
                         cellId: cellId,
-                        content: searchResult.sourceContent || searchResult.content || "",
+                        content: searchResult.sourceContent,
                         uri: searchResult.uri || "",
                         line: searchResult.line || 0,
                     },
                     targetCell: {
                         cellId: cellId,
-                        content: searchResult.targetContent || "",
+                        content: searchResult.targetContent,
                         uri: searchResult.uri || "",
                         line: searchResult.line || 0,
                     }
                 });
             }
         } else {
-            // Otherwise, fetch the complete translation pair
+            // Fallback: fetch the complete translation pair (shouldn't be needed with new method)
             const translationPair = await translationPairsIndex.getTranslationPair(cellId);
 
-            // Only include if we have BOTH source and target content
             if (translationPair &&
                 translationPair.sourceContent.trim() &&
                 translationPair.targetContent.trim()) {
@@ -242,27 +239,25 @@ export async function getTranslationPairsFromSourceCellQuery(
                     cellId: cellId,
                     sourceCell: {
                         cellId: cellId,
-                        content: translationPair.sourceContent || searchResult.content || "",
-                        uri: translationPair.uri || searchResult.uri || "",
-                        line: translationPair.line || searchResult.line || 0,
+                        content: translationPair.sourceContent,
+                        uri: translationPair.uri || "",
+                        line: translationPair.line || 0,
                     },
                     targetCell: {
                         cellId: cellId,
-                        content: translationPair.targetContent || "",
-                        uri: translationPair.uri || searchResult.uri || "",
-                        line: translationPair.line || searchResult.line || 0,
+                        content: translationPair.targetContent,
+                        uri: translationPair.uri || "",
+                        line: translationPair.line || 0,
                     }
                 });
-            } else {
-                console.log(`[getTranslationPairsFromSourceCellQuery] Skipping ${cellId} - incomplete translation pair (source: ${!!translationPair?.sourceContent}, target: ${!!translationPair?.targetContent})`);
             }
         }
 
-        // Stop when we have enough results
-        if (translationPairs.length >= k) break;
+        // Stop when we have enough results for the initial pool
+        if (translationPairs.length >= initialLimit) break;
     }
 
-    console.log(`[getTranslationPairsFromSourceCellQuery] Returning ${translationPairs.length} complete translation pairs (filtered out incomplete pairs)`);
+    console.log(`[getTranslationPairsFromSourceCellQuery] Returning ${translationPairs.length} complete translation pairs (ready for word overlap filtering)`);
     return translationPairs;
 }
 
