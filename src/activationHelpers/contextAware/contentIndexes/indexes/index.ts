@@ -33,6 +33,7 @@ import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
 import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
+import { registerBackgroundValidation } from "../../../../validation/backgroundValidationService";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
@@ -1160,6 +1161,16 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         // Mark as initialized to prevent duplicate registrations
         isIndexContextInitialized = true;
+
+        // Initialize Background Validation Service for automatic integrity checking
+        // This will catch database corruption that file-level sync might miss
+        try {
+            const fileSyncManager = new FileSyncManager(translationPairsIndex);
+            registerBackgroundValidation(context, translationPairsIndex, fileSyncManager);
+            console.log("🔍 Background Validation Service registered successfully");
+        } catch (error) {
+            console.error("🔍 Failed to register Background Validation Service:", error);
+        }
     }
 
     const functionsToExpose = {

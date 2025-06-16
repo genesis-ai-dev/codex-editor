@@ -16,7 +16,7 @@ let vscodeApiInstance: any | undefined = undefined;
 export function getVSCodeAPI() {
     // Check if we're in a VSCode webview context
     const isInVSCodeContext = typeof acquireVsCodeApi === 'function';
-
+    
     if (!vscodeApiInstance) {
         try {
             if (isInVSCodeContext) {
@@ -26,7 +26,7 @@ export function getVSCodeAPI() {
             }
         } catch (error) {
             console.error("Failed to acquire VS Code API:", error);
-
+            
             // Create a safe fallback object that won't throw errors
             vscodeApiInstance = {
                 postMessage: (message: any) => {
@@ -38,7 +38,7 @@ export function getVSCodeAPI() {
             };
         }
     }
-
+    
     // Add a safety check in case the instance is still somehow undefined
     if (!vscodeApiInstance) {
         console.warn("Creating emergency fallback VS Code API instance");
@@ -51,6 +51,6 @@ export function getVSCodeAPI() {
             setState: () => { }
         };
     }
-
+    
     return vscodeApiInstance;
 }

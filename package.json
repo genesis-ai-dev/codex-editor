@@ -374,6 +374,16 @@
             {
                 "command": "codex-editor-extension.getFileInfo",
                 "title": "Codex Extension: Show Detailed File Information"
+            },
+            {
+                "command": "codex-editor-extension.forceIntegrityValidation",
+                "title": "Codex: Run Integrity Validation",
+                "category": "Codex Validation"
+            },
+            {
+                "command": "codex-editor-extension.checkValidationStatus",
+                "title": "Codex: Check Validation Service Status",
+                "category": "Codex Validation"
             }
         ],
         "configuration": [
