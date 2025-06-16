@@ -9,7 +9,7 @@ import { debounce } from "lodash";
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -213,6 +213,23 @@ export class SQLiteIndexManager {
         stepStart = this.trackProgress("Enable foreign key constraints", stepStart);
         this.db.run("PRAGMA foreign_keys = ON");
 
+        // Sync metadata table - tracks file synchronization state
+        stepStart = this.trackProgress("Create sync metadata table", stepStart);
+        this.db.run(`
+            CREATE TABLE IF NOT EXISTS sync_metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL UNIQUE,
+                file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
+                content_hash TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                last_modified_ms INTEGER NOT NULL,
+                last_synced_ms INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+                git_commit_hash TEXT, -- Future use for git integration
+                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+            )
+        `);
+
         // Files table - tracks file metadata
         stepStart = this.trackProgress("Create files table", stepStart);
         this.db.run(`
@@ -292,8 +309,11 @@ export class SQLiteIndexManager {
             )
         `); // NOTE: we might not be able to use the porter
 
-        // Create indexes for performance
+        // Create indexes for performance including sync metadata
         stepStart = this.trackProgress("Create database indexes", stepStart);
+        this.db.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path)");
+        this.db.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
+        this.db.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
         this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_cell_id ON cells(cell_id)");
         this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_content_hash ON cells(content_hash)");
         this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_file_id ON cells(file_id)");
@@ -309,6 +329,15 @@ export class SQLiteIndexManager {
 
         // Triggers to maintain updated_at timestamps
         stepStart = this.trackProgress("Create database triggers", stepStart);
+        this.db.run(`
+            CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
+            AFTER UPDATE ON sync_metadata
+            BEGIN
+                UPDATE sync_metadata SET updated_at = strftime('%s', 'now') * 1000 
+                WHERE id = NEW.id;
+            END
+        `);
+
         this.db.run(`
             CREATE TRIGGER IF NOT EXISTS update_files_timestamp 
             AFTER UPDATE ON files
@@ -410,6 +439,50 @@ export class SQLiteIndexManager {
                     vscode.window.showInformationMessage("Codex: Upgrading search index to new clean format. This is a one-time operation...");
 
                     await this.recreateDatabase();
+                } else if (currentVersion < 5) {
+                    // Migration for sync metadata table (version 4 -> 5)
+                    console.log("[SQLiteIndex] Schema version 5 adds sync metadata for file-level synchronization - adding new table");
+
+                    try {
+                        // Add sync metadata table to existing database
+                        await this.runInTransaction(() => {
+                            this.db!.run(`
+                                CREATE TABLE IF NOT EXISTS sync_metadata (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    file_path TEXT NOT NULL UNIQUE,
+                                    file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
+                                    content_hash TEXT NOT NULL,
+                                    file_size INTEGER NOT NULL,
+                                    last_modified_ms INTEGER NOT NULL,
+                                    last_synced_ms INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+                                    git_commit_hash TEXT, -- Future use for git integration
+                                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+                                )
+                            `);
+
+                            // Add indexes for the new table
+                            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path)");
+                            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
+                            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
+
+                            // Add trigger for updated_at timestamp
+                            this.db!.run(`
+                                CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
+                                AFTER UPDATE ON sync_metadata
+                                BEGIN
+                                    UPDATE sync_metadata SET updated_at = strftime('%s', 'now') * 1000 
+                                    WHERE id = NEW.id;
+                                END
+                            `);
+                        });
+
+                        console.log("[SQLiteIndex] Successfully added sync metadata table");
+                    } catch (error) {
+                        console.error("[SQLiteIndex] Error adding sync metadata table:", error);
+                        // If migration fails, recreate database
+                        await this.recreateDatabase();
+                    }
                 }
 
                 // Update schema version after successful migration
@@ -2005,6 +2078,196 @@ export class SQLiteIndexManager {
             await this.deleteDatabaseFile();
 
             vscode.window.showInformationMessage("Codex: Database deleted. Please reload the extension to trigger reindex.");
+        }
+    }
+
+    /**
+     * Check which files need synchronization based on content hash and modification time
+     */
+    async checkFilesForSync(filePaths: string[]): Promise<{
+        needsSync: string[];
+        unchanged: string[];
+        details: Map<string, { reason: string; oldHash?: string; newHash?: string; }>;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const needsSync: string[] = [];
+        const unchanged: string[] = [];
+        const details = new Map<string, { reason: string; oldHash?: string; newHash?: string; }>();
+
+        for (const filePath of filePaths) {
+            try {
+                // Get file stats
+                const fileUri = vscode.Uri.file(filePath);
+                const fileStat = await vscode.workspace.fs.stat(fileUri);
+                const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                const newContentHash = createHash("sha256").update(fileContent).digest("hex");
+
+                // Check sync metadata
+                const syncStmt = this.db.prepare(`
+                    SELECT content_hash, last_modified_ms, file_size 
+                    FROM sync_metadata 
+                    WHERE file_path = ?
+                `);
+
+                let existingRecord: { content_hash: string; last_modified_ms: number; file_size: number; } | null = null;
+                try {
+                    syncStmt.bind([filePath]);
+                    if (syncStmt.step()) {
+                        existingRecord = syncStmt.getAsObject() as any;
+                    }
+                } finally {
+                    syncStmt.free();
+                }
+
+                if (!existingRecord) {
+                    needsSync.push(filePath);
+                    details.set(filePath, {
+                        reason: "new file - not in sync metadata",
+                        newHash: newContentHash
+                    });
+                } else if (existingRecord.content_hash !== newContentHash) {
+                    needsSync.push(filePath);
+                    details.set(filePath, {
+                        reason: "content changed - hash mismatch",
+                        oldHash: existingRecord.content_hash,
+                        newHash: newContentHash
+                    });
+                } else if (existingRecord.last_modified_ms !== fileStat.mtime) {
+                    needsSync.push(filePath);
+                    details.set(filePath, {
+                        reason: "modification time changed - possible external edit",
+                        oldHash: existingRecord.content_hash,
+                        newHash: newContentHash
+                    });
+                } else if (existingRecord.file_size !== fileStat.size) {
+                    needsSync.push(filePath);
+                    details.set(filePath, {
+                        reason: "file size changed",
+                        oldHash: existingRecord.content_hash,
+                        newHash: newContentHash
+                    });
+                } else {
+                    unchanged.push(filePath);
+                    details.set(filePath, {
+                        reason: "no changes detected",
+                        oldHash: existingRecord.content_hash,
+                        newHash: newContentHash
+                    });
+                }
+            } catch (error) {
+                console.error(`[SQLiteIndex] Error checking file ${filePath}:`, error);
+                needsSync.push(filePath);
+                details.set(filePath, {
+                    reason: `error checking file: ${error instanceof Error ? error.message : 'unknown error'}`
+                });
+            }
+        }
+
+        return { needsSync, unchanged, details };
+    }
+
+    /**
+     * Update sync metadata for a file after successful indexing
+     */
+    async updateSyncMetadata(
+        filePath: string,
+        fileType: "source" | "codex",
+        contentHash: string,
+        fileSize: number,
+        lastModifiedMs: number
+    ): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const stmt = this.db.prepare(`
+            INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
+            VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
+            ON CONFLICT(file_path) DO UPDATE SET
+                content_hash = excluded.content_hash,
+                file_size = excluded.file_size,
+                last_modified_ms = excluded.last_modified_ms,
+                last_synced_ms = strftime('%s', 'now') * 1000,
+                updated_at = strftime('%s', 'now') * 1000
+        `);
+
+        try {
+            stmt.bind([filePath, fileType, contentHash, fileSize, lastModifiedMs]);
+            stmt.step();
+        } finally {
+            stmt.free();
+        }
+    }
+
+    /**
+     * Get sync statistics for debugging/monitoring
+     */
+    async getSyncStats(): Promise<{
+        totalFiles: number;
+        sourceFiles: number;
+        codexFiles: number;
+        avgFileSize: number;
+        oldestSync: Date | null;
+        newestSync: Date | null;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        const stmt = this.db.prepare(`
+            SELECT 
+                COUNT(*) as total_files,
+                COUNT(CASE WHEN file_type = 'source' THEN 1 END) as source_files,
+                COUNT(CASE WHEN file_type = 'codex' THEN 1 END) as codex_files,
+                AVG(file_size) as avg_file_size,
+                MIN(last_synced_ms) as oldest_sync_ms,
+                MAX(last_synced_ms) as newest_sync_ms
+            FROM sync_metadata
+        `);
+
+        try {
+            stmt.step();
+            const result = stmt.getAsObject();
+            return {
+                totalFiles: (result.total_files as number) || 0,
+                sourceFiles: (result.source_files as number) || 0,
+                codexFiles: (result.codex_files as number) || 0,
+                avgFileSize: (result.avg_file_size as number) || 0,
+                oldestSync: result.oldest_sync_ms ? new Date(result.oldest_sync_ms as number) : null,
+                newestSync: result.newest_sync_ms ? new Date(result.newest_sync_ms as number) : null,
+            };
+        } finally {
+            stmt.free();
+        }
+    }
+
+    /**
+     * Remove sync metadata for files that no longer exist
+     */
+    async cleanupSyncMetadata(existingFilePaths: string[]): Promise<number> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        if (existingFilePaths.length === 0) {
+            // If no files exist, clear all sync metadata
+            const stmt = this.db.prepare("DELETE FROM sync_metadata");
+            try {
+                stmt.step();
+                return this.db.getRowsModified();
+            } finally {
+                stmt.free();
+            }
+        }
+
+        // Create placeholders for IN clause
+        const placeholders = existingFilePaths.map(() => '?').join(',');
+        const stmt = this.db.prepare(`
+            DELETE FROM sync_metadata 
+            WHERE file_path NOT IN (${placeholders})
+        `);
+
+        try {
+            stmt.bind(existingFilePaths);
+            stmt.step();
+            return this.db.getRowsModified();
+        } finally {
+            stmt.free();
         }
     }
 }

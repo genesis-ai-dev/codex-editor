@@ -32,6 +32,7 @@ import { debounce } from "lodash";
 import { MinimalCellResult, TranslationPair } from "../../../../../types";
 import { getNotebookMetadataManager } from "../../../../utils/notebookMetadataManager";
 import { updateSplashScreenTimings } from "../../../../providers/SplashScreen/register";
+import { FileSyncManager, FileSyncResult } from "../fileSyncManager";
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
@@ -147,65 +148,157 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     /**
-     * Reliable change detection using document count and sample existence checks
+     * Check if rebuild is needed using intelligent file-level sync
      */
     async function checkIfRebuildNeeded(): Promise<{ needsRebuild: boolean; reason: string; }> {
         try {
-            const workspaceFolder = getWorkSpaceFolder();
-            if (!workspaceFolder) {
-                return { needsRebuild: false, reason: "no workspace folder" };
+            console.log("[Index] Checking if rebuild needed using file-level sync...");
+
+            // Create sync manager
+            const fileSyncManager = new FileSyncManager(translationPairsIndex);
+
+            // Check sync status
+            const syncStatus = await fileSyncManager.checkSyncStatus();
+
+            if (syncStatus.needsSync) {
+                const { summary } = syncStatus;
+                let reason = `${summary.changedFiles + summary.newFiles} files need synchronization`;
+
+                if (summary.newFiles > 0) {
+                    reason += ` (${summary.newFiles} new files)`;
+                }
+                if (summary.changedFiles > 0) {
+                    reason += ` (${summary.changedFiles} changed files)`;
+                }
+
+                console.log(`[Index] Rebuild needed: ${reason}`);
+                return { needsRebuild: true, reason };
             }
 
-            const documentCount = translationPairsIndex.documentCount;
+            console.log(`[Index] No rebuild needed - all ${syncStatus.summary.totalFiles} files are up to date`);
+            return { needsRebuild: false, reason: "all files synchronized" };
 
-            // If database is empty, definitely need to rebuild
-            if (documentCount === 0) {
-                console.log("[Index] Database is empty, rebuild needed");
-                return { needsRebuild: true, reason: "empty database" };
+        } catch (error) {
+            console.error("[Index] Error checking rebuild status:", error);
+            // Fallback to rebuild on error
+            return { needsRebuild: true, reason: `sync check failed: ${error instanceof Error ? error.message : 'unknown error'}` };
+        }
+    }
+
+    /**
+     * Smart rebuild using file-level synchronization
+     */
+    async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
+        console.log(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
+
+        // Check consecutive rebuilds protection
+        const rebuildCheck = isRebuildAllowed(reason, isForced);
+        if (!rebuildCheck.allowed) {
+            console.warn(`[Index] Skipping rebuild: ${rebuildCheck.reason}`);
+            return;
+        }
+
+        updateRebuildState({
+            lastRebuildTime: Date.now(),
+            lastRebuildReason: reason,
+            rebuildInProgress: true,
+            consecutiveRebuilds: rebuildState.consecutiveRebuilds + 1
+        });
+
+        try {
+            statusBarHandler.setIndexingActive();
+
+            // Create sync manager
+            const fileSyncManager = new FileSyncManager(translationPairsIndex);
+
+            // For forced rebuilds, clear everything first
+            if (isForced) {
+                console.log("[Index] Forced rebuild - clearing existing indexes...");
+                await translationPairsIndex.removeAll();
+                await sourceTextIndex.removeAll();
+                wordsIndex.clear();
+                filesIndex.clear();
             }
 
-            // Get file counts for basic sanity check
-            const codexFiles = await vscode.workspace.findFiles("**/*.codex");
-            const sourceFiles = await vscode.workspace.findFiles("**/*.source");
-            const totalFiles = codexFiles.length + sourceFiles.length;
+            // Perform intelligent file synchronization
+            console.log("[Index] Starting file-level synchronization...");
 
-            if (totalFiles === 0) {
-                console.log("[Index] No project files found");
-                return { needsRebuild: false, reason: "no project files" };
+            const syncResult: FileSyncResult = await fileSyncManager.syncFiles({
+                forceSync: isForced,
+                progressCallback: (message, progress) => {
+                    console.log(`[Index] Sync progress: ${message} (${progress}%)`);
+                    // Use existing status bar methods
+                }
+            });
+
+            console.log(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
+
+            if (syncResult.errors.length > 0) {
+                console.warn(`[Index] Sync completed with ${syncResult.errors.length} errors:`);
+                syncResult.errors.forEach(error => {
+                    console.warn(`[Index] - ${error.file}: ${error.error}`);
+                });
             }
 
-            // Basic sanity check: if we have many files but very few documents, something's wrong
-            if (totalFiles > 20 && documentCount < 10) {
-                console.log(`[Index] Severe document/file mismatch: ${documentCount} docs vs ${totalFiles} files`);
-                return {
-                    needsRebuild: true,
-                    reason: `severe mismatch: ${documentCount} documents vs ${totalFiles} files`
-                };
+            // Update other indexes that depend on the file data
+            console.log("[Index] Updating complementary indexes...");
+
+            try {
+                // Update source text index
+                const { sourceFiles } = await readSourceAndTargetFiles();
+                await createSourceTextIndex(
+                    sourceTextIndex,
+                    sourceFiles,
+                    metadataManager,
+                    isForced
+                );
+
+                // Update words and files indexes
+                const { targetFiles } = await readSourceAndTargetFiles();
+                wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
+                filesIndex = await initializeFilesIndex();
+
+                // Update complete drafts
+                await updateCompleteDrafts(targetFiles);
+
+                console.log("[Index] Complementary indexes updated successfully");
+            } catch (error) {
+                console.warn("[Index] Error updating complementary indexes:", error);
+                // Don't fail the entire rebuild for complementary index errors
             }
 
-            // For smaller projects or reasonable ratios, assume it's fine
-            // This is much more conservative than the previous approach
-            const docsPerFile = documentCount / totalFiles;
-            if (docsPerFile >= 5) {
-                // Reasonable ratio - likely everything is indexed
-                console.log(`[Index] Good document ratio: ${docsPerFile.toFixed(1)} docs/file, assuming index is current`);
-                return { needsRebuild: false, reason: "good document ratio" };
-            } else if (totalFiles <= 10) {
-                // Small project - trust the existing index unless it's completely empty
-                console.log(`[Index] Small project (${totalFiles} files), trusting existing index`);
-                return { needsRebuild: false, reason: "small project with existing documents" };
-            } else {
-                // Larger project with low document ratio - might need rebuild
-                console.log(`[Index] Low document ratio: ${docsPerFile.toFixed(1)} docs/file for ${totalFiles} files`);
-                return {
-                    needsRebuild: true,
-                    reason: `low document density: ${docsPerFile.toFixed(1)} docs/file`
-                };
+            const finalDocCount = translationPairsIndex.documentCount;
+            console.log(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
+
+            statusBarHandler.updateIndexCounts(
+                finalDocCount,
+                sourceTextIndex.documentCount
+            );
+
+            // Reset consecutive rebuilds on successful completion
+            updateRebuildState({
+                rebuildInProgress: false,
+                consecutiveRebuilds: 0
+            });
+
+            // Show sync statistics
+            try {
+                const stats = await fileSyncManager.getSyncStatistics();
+                console.log(`[Index] Sync Statistics:`);
+                console.log(`  - Total files: ${stats.syncStats.totalFiles} (${stats.syncStats.sourceFiles} source, ${stats.syncStats.codexFiles} codex)`);
+                console.log(`  - Index stats: ${stats.indexStats.totalCells} cells, ${stats.indexStats.totalWords} words`);
+            } catch (error) {
+                console.warn("[Index] Error getting sync statistics:", error);
             }
 
         } catch (error) {
-            console.warn("Error during rebuild check, assuming no rebuild needed:", error);
-            return { needsRebuild: false, reason: "error during check - assuming current" };
+            console.error("Error in smart sync rebuild:", error);
+            updateRebuildState({
+                rebuildInProgress: false
+            });
+            throw error;
+        } finally {
+            statusBarHandler.setIndexingComplete();
         }
     }
 
@@ -221,154 +314,37 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
 
         // Check if we have some files but almost no cells (extremely broken)
-        const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
-        const totalFiles = sourceFiles.length + targetFiles.length;
+        try {
+            const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+            const totalFiles = sourceFiles.length + targetFiles.length;
 
-        if (totalFiles > 50 && documentCount < 10) {
-            return { isHealthy: false, criticalIssue: `severely broken index: only ${documentCount} cells for ${totalFiles} files` };
-        }
-
-        // For SQLite, check for critical data corruption only
-        if (translationPairsIndex instanceof SQLiteIndexManager) {
-            try {
-                const stats = await translationPairsIndex.getContentStats();
-
-                // Only fail if almost all cells are completely broken
-                if (stats.totalCells > 0) {
-                    const missingContentRatio = stats.cellsWithMissingContent / stats.totalCells;
-                    if (missingContentRatio > 0.9) { // 90%+ missing content
-                        return { isHealthy: false, criticalIssue: `critical data corruption: ${Math.round(missingContentRatio * 100)}% of cells missing content` };
-                    }
-                }
-            } catch (error) {
-                // Database errors are critical
-                return { isHealthy: false, criticalIssue: `database error: ${error}` };
+            if (totalFiles > 50 && documentCount < 10) {
+                return { isHealthy: false, criticalIssue: `severely broken index: only ${documentCount} cells for ${totalFiles} files` };
             }
+
+            // For SQLite, check for critical data corruption only
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                try {
+                    const stats = await translationPairsIndex.getContentStats();
+
+                    // Only fail if almost all cells are completely broken
+                    if (stats.totalCells > 0) {
+                        const missingContentRatio = stats.cellsWithMissingContent / stats.totalCells;
+                        if (missingContentRatio > 0.9) { // 90%+ missing content
+                            return { isHealthy: false, criticalIssue: `critical data corruption: ${Math.round(missingContentRatio * 100)}% of cells missing content` };
+                        }
+                    }
+                } catch (error) {
+                    // Database errors are critical
+                    return { isHealthy: false, criticalIssue: `database error: ${error}` };
+                }
+            }
+        } catch (error) {
+            console.warn("[Index] Error during health check:", error);
+            // Don't fail health check on file reading errors
         }
 
         return { isHealthy: true };
-    }
-
-    /**
-     * Efficient indexing that respects cooldowns and rebuild limits
-     */
-    async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
-        const rebuildCheck = isRebuildAllowed(reason, isForced);
-
-        if (!rebuildCheck.allowed) {
-            console.log(`[Index] Rebuild not allowed: ${rebuildCheck.reason}`);
-            statusBarHandler.updateIndexCounts(
-                translationPairsIndex.documentCount,
-                sourceTextIndex.documentCount
-            );
-            statusBarHandler.setIndexingComplete();
-            return;
-        }
-
-        statusBarHandler.setIndexingActive();
-
-        // Update rebuild state
-        updateRebuildState({
-            rebuildInProgress: true,
-            lastRebuildTime: Date.now(),
-            lastRebuildReason: reason,
-            consecutiveRebuilds: rebuildState.consecutiveRebuilds + 1
-        });
-
-        try {
-            console.log(`[Index] Starting smart rebuild - reason: ${reason}, forced: ${isForced}`);
-
-            // For forced rebuilds, clear everything
-            if (isForced) {
-                console.log("[Index] Forced rebuild - clearing existing indexes...");
-                await translationPairsIndex.removeAll();
-                await sourceTextIndex.removeAll();
-                wordsIndex.clear();
-                filesIndex.clear();
-            }
-
-            // Rebuild using proper indexing logic
-            await rebuildIndexesWithProperLogic();
-
-            const finalDocCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Smart rebuild complete - indexed ${finalDocCount} documents`);
-
-            statusBarHandler.updateIndexCounts(
-                finalDocCount,
-                sourceTextIndex.documentCount
-            );
-
-            // Reset consecutive rebuilds on successful completion
-            updateRebuildState({
-                rebuildInProgress: false,
-                consecutiveRebuilds: 0
-            });
-
-        } catch (error) {
-            console.error("Error in smart rebuild:", error);
-            updateRebuildState({
-                rebuildInProgress: false
-            });
-            throw error;
-        } finally {
-            statusBarHandler.setIndexingComplete();
-        }
-    }
-
-    /**
-     * Rebuild indexes using the proper indexing functions
-     */
-    async function rebuildIndexesWithProperLogic(): Promise<void> {
-        console.log("[Index] Reading source and target files...");
-        const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
-        console.log(`[Index] Found ${sourceFiles.length} source files and ${targetFiles.length} target files`);
-
-        if (sourceFiles.length === 0 && targetFiles.length === 0) {
-            console.warn("[Index] No source or target files found - cannot rebuild index");
-            vscode.window.showWarningMessage("Codex: No source or target files found. Please ensure your project has .codex files.");
-            return;
-        }
-
-        // Create translation pairs index
-        console.log("[Index] Creating translation pairs index...");
-        await createTranslationPairsIndex(
-            context,
-            translationPairsIndex,
-            sourceFiles,
-            targetFiles,
-            metadataManager,
-            true // force rebuild
-        );
-
-        // Create source text index
-        console.log("[Index] Creating source text index...");
-        await createSourceTextIndex(
-            sourceTextIndex,
-            sourceFiles,
-            metadataManager,
-            true // force rebuild
-        );
-
-        // Initialize words index
-        console.log("[Index] Initializing words index...");
-        wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
-
-        // Initialize files index
-        console.log("[Index] Initializing files index...");
-        filesIndex = await initializeFilesIndex();
-
-        // Update complete drafts
-        try {
-            console.log("[Index] Updating complete drafts...");
-            await updateCompleteDrafts(targetFiles);
-        } catch (error) {
-            console.error("Error updating complete drafts:", error);
-            vscode.window.showWarningMessage(
-                "Failed to update complete drafts. Some drafts may be out of sync."
-            );
-        }
-
-        console.log("[Index] Proper indexing logic complete");
     }
 
     // Check database health and determine if rebuild is needed
@@ -1091,6 +1067,61 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        const refreshIndexCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.refreshIndex",
+            async () => {
+                try {
+                    console.log("[Index] Manual refresh requested");
+                    await smartRebuildIndexes("manual refresh", true);
+                    vscode.window.showInformationMessage(
+                        `Codex: Index refreshed successfully! Indexed ${translationPairsIndex.documentCount} documents.`
+                    );
+                } catch (error) {
+                    console.error("Error refreshing index:", error);
+                    vscode.window.showErrorMessage(
+                        `Codex: Failed to refresh index. Error: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            }
+        );
+
+        const syncStatusCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkSyncStatus",
+            async () => {
+                try {
+                    console.log("[Index] Checking sync status...");
+                    const fileSyncManager = new FileSyncManager(translationPairsIndex);
+
+                    const [syncStatus, stats] = await Promise.all([
+                        fileSyncManager.checkSyncStatus(),
+                        fileSyncManager.getSyncStatistics()
+                    ]);
+
+                    const { summary } = syncStatus;
+                    const statusMessage = syncStatus.needsSync
+                        ? `Files need sync: ${summary.newFiles} new, ${summary.changedFiles} changed, ${summary.unchangedFiles} unchanged`
+                        : `All ${summary.totalFiles} files are synchronized`;
+
+                    const statsMessage = `Index: ${stats.indexStats.totalCells} cells, ${stats.indexStats.totalWords} words in ${stats.syncStats.totalFiles} files`;
+
+                    vscode.window.showInformationMessage(
+                        `Codex Sync Status: ${statusMessage}. ${statsMessage}`
+                    );
+
+                    // Log detailed information
+                    console.log("[Index] Sync Status Details:");
+                    for (const [file, detail] of syncStatus.details) {
+                        console.log(`  - ${file}: ${detail.reason}`);
+                    }
+                } catch (error) {
+                    console.error("Error checking sync status:", error);
+                    vscode.window.showErrorMessage(
+                        `Codex: Failed to check sync status. Error: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+            }
+        );
+
         // Make sure to close the database when extension deactivates
         context.subscriptions.push({
             dispose: async () => {
@@ -1122,6 +1153,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 forceCompleteRebuildCommand,
                 checkIndexStatusCommand,
                 forceSchemaResetCommand,
+                refreshIndexCommand,
+                syncStatusCommand
             ]
         );
 
