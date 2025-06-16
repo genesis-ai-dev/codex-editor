@@ -334,4 +334,124 @@ export class FileSyncManager {
             throw error;
         }
     }
+
+    /**
+     * Sync only specific files (for targeted syncing after git operations)
+     */
+    async syncSpecificFiles(filePaths: string[], options: FileSyncOptions = {}): Promise<FileSyncResult> {
+        const syncStart = performance.now();
+        const { forceSync = false, progressCallback } = options;
+
+        console.log(`[FileSyncManager] Starting targeted sync of ${filePaths.length} specific files...`);
+        progressCallback?.("Initializing targeted sync...", 0);
+
+        const errors: Array<{ file: string; error: string; }> = [];
+        let syncedFiles = 0;
+        let unchangedFiles = 0;
+
+        try {
+            // Get file data for only the specified files
+            const { sourceFiles, targetFiles } = await readSourceAndTargetFiles();
+            const allFiles = [...sourceFiles, ...targetFiles];
+
+            // Filter to only the requested files
+            const requestedFiles = allFiles.filter(f => filePaths.includes(f.uri.fsPath));
+            const foundPaths = requestedFiles.map(f => f.uri.fsPath);
+            const missingPaths = filePaths.filter(path => !foundPaths.includes(path));
+
+            if (missingPaths.length > 0) {
+                console.warn(`[FileSyncManager] Some requested files not found: ${missingPaths.join(", ")}`);
+            }
+
+            console.log(`[FileSyncManager] Found ${requestedFiles.length} of ${filePaths.length} requested files`);
+            progressCallback?.("Analyzing targeted files...", 10);
+
+            if (requestedFiles.length === 0) {
+                console.log("[FileSyncManager] No files found to sync");
+                return {
+                    totalFiles: 0,
+                    syncedFiles: 0,
+                    unchangedFiles: 0,
+                    errors: missingPaths.map(path => ({ file: path, error: "File not found" })),
+                    duration: performance.now() - syncStart,
+                    details: new Map()
+                };
+            }
+
+            // Check which of these specific files need sync
+            let filesToSync: string[];
+            let syncDetails: Map<string, { reason: string; oldHash?: string; newHash?: string; }>;
+
+            if (forceSync) {
+                filesToSync = foundPaths;
+                syncDetails = new Map(foundPaths.map(path => [path, { reason: "forced targeted sync" }]));
+            } else {
+                const syncCheck = await this.sqliteIndex.checkFilesForSync(foundPaths);
+                filesToSync = syncCheck.needsSync;
+                unchangedFiles = syncCheck.unchanged.length;
+                syncDetails = syncCheck.details;
+            }
+
+            console.log(`[FileSyncManager] Targeted sync: ${filesToSync.length} need sync, ${unchangedFiles} unchanged`);
+
+            if (filesToSync.length === 0) {
+                console.log("[FileSyncManager] All targeted files are already synchronized");
+                progressCallback?.("All targeted files up to date", 100);
+
+                return {
+                    totalFiles: requestedFiles.length,
+                    syncedFiles: 0,
+                    unchangedFiles: requestedFiles.length,
+                    errors: missingPaths.map(path => ({ file: path, error: "File not found" })),
+                    duration: performance.now() - syncStart,
+                    details: syncDetails
+                };
+            }
+
+            // Process the targeted files
+            progressCallback?.("Processing targeted files...", 20);
+            const fileMap = new Map(requestedFiles.map(f => [f.uri.fsPath, f]));
+            const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
+
+            // Process files with progress tracking
+            for (let i = 0; i < filesToProcess.length; i++) {
+                const fileData = filesToProcess[i];
+                const progress = 30 + (i / filesToProcess.length) * 60; // Reserve 30% start, 10% cleanup
+                progressCallback?.(`Syncing ${i + 1}/${filesToProcess.length}: ${fileData.id}`, progress);
+
+                try {
+                    await this.syncSingleFileOptimized(fileData);
+                    syncedFiles++;
+                    console.log(`[FileSyncManager] Synced targeted file: ${fileData.id}`);
+                } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    errors.push({ file: fileData.id, error: errorMsg });
+                    console.error(`[FileSyncManager] Error syncing targeted file ${fileData.id}:`, error);
+                }
+            }
+
+            // Cleanup and finalize
+            progressCallback?.("Finalizing targeted sync...", 95);
+            await this.sqliteIndex.forceSave();
+
+            const duration = performance.now() - syncStart;
+            progressCallback?.("Targeted sync complete", 100);
+
+            console.log(`[FileSyncManager] Targeted sync completed in ${duration.toFixed(2)}ms`);
+            console.log(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
+
+            return {
+                totalFiles: requestedFiles.length,
+                syncedFiles,
+                unchangedFiles,
+                errors: [...errors, ...missingPaths.map(path => ({ file: path, error: "File not found" }))],
+                duration,
+                details: syncDetails
+            };
+
+        } catch (error) {
+            console.error("[FileSyncManager] Error during targeted file sync:", error);
+            throw error;
+        }
+    }
 } 

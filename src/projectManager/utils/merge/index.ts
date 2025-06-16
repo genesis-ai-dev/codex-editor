@@ -20,14 +20,30 @@ import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 
+export interface SyncResult {
+    success: boolean;
+    changedFiles: string[];
+    conflictFiles: string[];
+    newFiles: string[];
+    deletedFiles: string[];
+    totalChanges: number;
+}
+
 export async function stageAndCommitAllAndSync(
     commitMessage: string,
     showCompletionMessage: boolean = true
-): Promise<void> {
+): Promise<SyncResult> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
         console.error("No workspace folder found");
-        return;
+        return {
+            success: false,
+            changedFiles: [],
+            conflictFiles: [],
+            newFiles: [],
+            deletedFiles: [],
+            totalChanges: 0
+        };
     }
 
     // Save all files before syncing
@@ -36,8 +52,24 @@ export async function stageAndCommitAllAndSync(
     const authApi = getAuthApi();
     if (!authApi) {
         vscode.window.showErrorMessage("No auth API found");
-        return;
+        return {
+            success: false,
+            changedFiles: [],
+            conflictFiles: [],
+            newFiles: [],
+            deletedFiles: [],
+            totalChanges: 0
+        };
     }
+
+    const syncResult: SyncResult = {
+        success: false,
+        changedFiles: [],
+        conflictFiles: [],
+        newFiles: [],
+        deletedFiles: [],
+        totalChanges: 0
+    };
 
     try {
         // First check if we have a valid git repo
@@ -46,11 +78,11 @@ export async function stageAndCommitAllAndSync(
             remotes = await git.listRemotes({ fs, dir: workspaceFolder });
             if (remotes.length === 0) {
                 console.log("No remotes found");
-                return;
+                return syncResult;
             }
         } catch (error) {
             vscode.window.showErrorMessage("No git repository found in this project");
-            return;
+            return syncResult;
         }
 
         // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
@@ -58,19 +90,40 @@ export async function stageAndCommitAllAndSync(
         const conflictsResponse = await authApi.syncChanges();
 
         if (conflictsResponse?.hasConflicts) {
-            const resolvedFiles = await resolveConflictFiles(
-                conflictsResponse.conflicts || [],
-                workspaceFolder
-            );
+            const conflicts = conflictsResponse.conflicts || [];
+            console.log(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
+
+            // Track which files are being modified
+            for (const conflict of conflicts) {
+                syncResult.conflictFiles.push(conflict.filepath);
+
+                if (conflict.isNew) {
+                    syncResult.newFiles.push(conflict.filepath);
+                } else if (conflict.isDeleted) {
+                    syncResult.deletedFiles.push(conflict.filepath);
+                } else {
+                    syncResult.changedFiles.push(conflict.filepath);
+                }
+            }
+
+            const resolvedFiles = await resolveConflictFiles(conflicts, workspaceFolder);
             if (resolvedFiles.length > 0) {
                 await authApi.completeMerge(resolvedFiles);
+                console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
             }
         }
+
+        syncResult.totalChanges = syncResult.changedFiles.length + syncResult.newFiles.length + syncResult.deletedFiles.length;
+        syncResult.success = true;
+
+        console.log(`📊 Git sync completed: ${syncResult.totalChanges} total changes (${syncResult.changedFiles.length} modified, ${syncResult.newFiles.length} new, ${syncResult.deletedFiles.length} deleted)`);
 
         // Only show completion message if requested (not during startup with splash screen)
         if (showCompletionMessage) {
             vscode.window.showInformationMessage("Project is fully synced.");
         }
+
+        return syncResult;
     } catch (error) {
         console.error("Failed to commit and sync changes:", error);
         vscode.window.showErrorMessage(

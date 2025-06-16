@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { stageAndCommitAllAndSync } from "./utils/merge";
+import { stageAndCommitAllAndSync, SyncResult } from "./utils/merge";
 import { getAuthApi } from "../extension";
 import { createIndexWithContext } from "../activationHelpers/contextAware/contentIndexes/indexes";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
@@ -196,7 +196,7 @@ export class SyncManager {
 
             // Sync all changes in background
             this.currentSyncStage = "Synchronizing changes...";
-            await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
+            const syncResult = await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
 
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;
@@ -212,7 +212,8 @@ export class SyncManager {
             console.log("📊 Progress report scheduled after successful sync");
 
             // Rebuild indexes in the background after successful sync (truly async)
-            this.rebuildIndexesInBackground();
+            // Pass the sync result to optimize database synchronization
+            this.rebuildIndexesInBackground(syncResult);
 
         } catch (error) {
             console.error("Error during background sync operation:", error);
@@ -245,82 +246,159 @@ export class SyncManager {
     }
 
     // Check if indexes need rebuilding and rebuild only if necessary
-    private async rebuildIndexesInBackground(): Promise<void> {
+    private async rebuildIndexesInBackground(syncResult?: SyncResult): Promise<void> {
         try {
             const indexStartTime = performance.now();
-            console.log("🔧 Checking if index rebuild is needed...");
+            console.log("🔧 Starting optimized database synchronization after git sync...");
 
-            // Check if indexes are already up to date by getting the current document count
-            const { getSQLiteIndexManager } = await import("../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
-            const indexManager = getSQLiteIndexManager();
+            // Log git sync information if available
+            if (syncResult && syncResult.totalChanges > 0) {
+                console.log(`📥 Git sync brought ${syncResult.totalChanges} file changes:`);
+                console.log(`  📄 ${syncResult.changedFiles.length} modified files`);
+                console.log(`  ➕ ${syncResult.newFiles.length} new files`);
+                console.log(`  ➖ ${syncResult.deletedFiles.length} deleted files`);
 
-            if (indexManager) {
-                const currentDocCount = indexManager.documentCount;
-                console.log(`[Sync] Current index has ${currentDocCount} documents`);
-
-                if (currentDocCount > 0) {
-                    console.log("✅ Index is already up to date, skipping background rebuild");
-                    const indexEndTime = performance.now();
-                    const indexDuration = indexEndTime - indexStartTime;
-                    console.log(`✅ Index check completed in ${indexDuration.toFixed(2)}ms`);
-                    return;
+                // Log specific files for debugging (limit to first 10 for readability)
+                if (syncResult.changedFiles.length > 0) {
+                    const filesToShow = syncResult.changedFiles.slice(0, 10);
+                    console.log(`  🔧 Modified: ${filesToShow.join(", ")}${syncResult.changedFiles.length > 10 ? ` and ${syncResult.changedFiles.length - 10} more...` : ""}`);
                 }
+                if (syncResult.newFiles.length > 0) {
+                    const filesToShow = syncResult.newFiles.slice(0, 10);
+                    console.log(`  ✨ New: ${filesToShow.join(", ")}${syncResult.newFiles.length > 10 ? ` and ${syncResult.newFiles.length - 10} more...` : ""}`);
+                }
+            } else {
+                console.log("📭 No git changes detected, checking database sync status...");
             }
 
-            console.log("🔧 Index needs rebuilding, starting background rebuild...");
+            // Use the new FileSyncManager for efficient file-level synchronization
+            const { getSQLiteIndexManager } = await import("../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+            const { FileSyncManager } = await import("../activationHelpers/contextAware/contentIndexes/fileSyncManager");
 
-            // Create a more complete mock context with all required properties
-            const mockContext = {
-                subscriptions: [],
-                workspaceState: {
-                    get: () => undefined,
-                    update: async () => false,
-                    keys: () => [],
-                },
-                globalState: {
-                    get: () => undefined,
-                    update: async () => false,
-                    setKeysForSync: () => { },
-                    keys: () => [],
-                },
-                secrets: {
-                    get: async () => undefined,
-                    store: async () => { },
-                    delete: async () => { },
-                },
-                extensionUri: vscode.Uri.parse(""),
-                extensionPath: "",
-                globalStoragePath: "",
-                logPath: "",
-                storagePath: undefined,
-                extensionMode: vscode.ExtensionMode.Production,
-                environmentVariableCollection: {} as vscode.EnvironmentVariableCollection,
-                asAbsolutePath: (relativePath: string) => relativePath,
-                storageUri: null,
-                globalStorageUri: vscode.Uri.parse(""),
-                logUri: vscode.Uri.parse(""),
-                extension: {
-                    id: "codex-editor",
-                    extensionUri: vscode.Uri.parse(""),
-                    extensionPath: "",
-                    isActive: true,
-                    packageJSON: {},
-                    exports: undefined,
-                    activate: async () => mockContext,
-                    extensionKind: vscode.ExtensionKind.Workspace,
-                },
-                languageModelAccessInformation: undefined,
-            };
+            const sqliteIndex = getSQLiteIndexManager();
+            if (!sqliteIndex) {
+                console.error("❌ SQLite index manager not available");
+                return;
+            }
 
-            // Cast to unknown first then to ExtensionContext to avoid type checking
-            await createIndexWithContext(mockContext as unknown as vscode.ExtensionContext);
+            const fileSyncManager = new FileSyncManager(sqliteIndex);
+
+            // If we have specific files from git sync, we could potentially optimize further
+            // by checking only those files, but for now we'll check all files since
+            // git changes might affect relationships between files
+            console.log("🔍 Checking which files need database synchronization...");
+            const syncStatus = await fileSyncManager.checkSyncStatus();
+
+            if (!syncStatus.needsSync) {
+                console.log("✅ Database is already synchronized with file system");
+                const indexEndTime = performance.now();
+                const indexDuration = indexEndTime - indexStartTime;
+                console.log(`✅ Sync check completed in ${indexDuration.toFixed(2)}ms`);
+                return;
+            }
+
+            console.log(`🔧 Found ${syncStatus.summary.changedFiles + syncStatus.summary.newFiles} files needing database synchronization`);
+            console.log(`📊 Sync summary: ${syncStatus.summary.newFiles} new, ${syncStatus.summary.changedFiles} changed, ${syncStatus.summary.unchangedFiles} unchanged`);
+
+            // Cross-reference with git changes for optimization insights
+            if (syncResult && syncResult.totalChanges > 0) {
+                const gitChangedFiles = new Set([...syncResult.changedFiles, ...syncResult.newFiles]);
+                const dbChangedFiles = syncStatus.summary.changedFiles + syncStatus.summary.newFiles;
+                console.log(`🔍 Analysis: Git changed ${gitChangedFiles.size} files, database needs to sync ${dbChangedFiles} files`);
+            }
+
+            // Perform optimized synchronization of only changed files
+            const fileSyncResult = await fileSyncManager.syncFiles({
+                progressCallback: (message, progress) => {
+                    console.log(`[DatabaseSync] ${message} (${progress}%)`);
+                }
+            });
 
             const indexEndTime = performance.now();
             const indexDuration = indexEndTime - indexStartTime;
-            console.log(`✅ Background index rebuild completed in ${indexDuration.toFixed(2)}ms`);
+
+            console.log(`✅ Optimized database sync completed in ${indexDuration.toFixed(2)}ms`);
+            console.log(`📊 Sync results: ${fileSyncResult.syncedFiles} files synced, ${fileSyncResult.unchangedFiles} unchanged, ${fileSyncResult.errors.length} errors`);
+
+            if (fileSyncResult.errors.length > 0) {
+                console.warn("⚠️ Some files had sync errors:");
+                fileSyncResult.errors.forEach(error => {
+                    console.warn(`  - ${error.file}: ${error.error}`);
+                });
+            }
+
+            // Log detailed file changes for debugging
+            if (fileSyncResult.details.size > 0) {
+                console.log("📋 File sync details:");
+                for (const [file, detail] of fileSyncResult.details) {
+                    if (detail.reason !== "no changes detected") {
+                        console.log(`  - ${file}: ${detail.reason}`);
+                    }
+                }
+            }
+
         } catch (error) {
-            console.error("❌ Background index rebuild failed:", error);
+            console.error("❌ Optimized database sync failed:", error);
+
+            // Fallback to basic index rebuild if file sync fails
+            console.log("🔄 Falling back to basic index rebuild...");
+            try {
+                await this.fallbackIndexRebuild();
+            } catch (fallbackError) {
+                console.error("❌ Fallback index rebuild also failed:", fallbackError);
+            }
         }
+    }
+
+    // Fallback method for basic index rebuild (original logic as backup)
+    private async fallbackIndexRebuild(): Promise<void> {
+        const { getSQLiteIndexManager } = await import("../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager");
+        const indexManager = getSQLiteIndexManager();
+
+        if (indexManager) {
+            const currentDocCount = indexManager.documentCount;
+            console.log(`[FallbackSync] Current index has ${currentDocCount} documents`);
+
+            if (currentDocCount > 0) {
+                console.log("✅ Index is already up to date, skipping fallback rebuild");
+                return;
+            }
+        }
+
+        console.log("🔧 Running fallback index rebuild...");
+
+        // Create a minimal mock context for the fallback
+        const mockContext = {
+            subscriptions: [],
+            workspaceState: { get: () => undefined, update: async () => false, keys: () => [] },
+            globalState: { get: () => undefined, update: async () => false, setKeysForSync: () => { }, keys: () => [] },
+            secrets: { get: async () => undefined, store: async () => { }, delete: async () => { } },
+            extensionUri: vscode.Uri.parse(""),
+            extensionPath: "",
+            globalStoragePath: "",
+            logPath: "",
+            storagePath: undefined,
+            extensionMode: vscode.ExtensionMode.Production,
+            environmentVariableCollection: {} as vscode.EnvironmentVariableCollection,
+            asAbsolutePath: (relativePath: string) => relativePath,
+            storageUri: null,
+            globalStorageUri: vscode.Uri.parse(""),
+            logUri: vscode.Uri.parse(""),
+            extension: {
+                id: "codex-editor",
+                extensionUri: vscode.Uri.parse(""),
+                extensionPath: "",
+                isActive: true,
+                packageJSON: {},
+                exports: undefined,
+                activate: async () => mockContext,
+                extensionKind: vscode.ExtensionKind.Workspace,
+            },
+            languageModelAccessInformation: undefined,
+        };
+
+        await createIndexWithContext(mockContext as unknown as vscode.ExtensionContext);
+        console.log("✅ Fallback index rebuild completed");
     }
 
     // Show connection issue message with cooldown
