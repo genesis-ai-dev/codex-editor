@@ -126,6 +126,12 @@ export class BackgroundValidationService {
             return;
         }
 
+        // Smart scheduling: avoid redundant validations
+        if (this.shouldSkipValidation(type)) {
+            console.log(`🔍 Skipping ${type} validation (${this.getSkipReason(type)})`);
+            return;
+        }
+
         const requestId = this.generateUUID();
         const request: ValidationRequest = {
             type,
@@ -188,10 +194,12 @@ export class BackgroundValidationService {
             await this.handleValidationResult(result);
             this.lastValidationTimes.set(request.type, Date.now());
 
-            // Schedule next validation of this type
+            // Schedule next validation of this type with slight random delay to spread out timing
+            const baseInterval = this.getValidationInterval(request.type);
+            const randomDelay = Math.random() * 30000; // 0-30 seconds random delay
             setTimeout(() => {
                 this.scheduleValidation(request.type);
-            }, this.getValidationInterval(request.type));
+            }, baseInterval + randomDelay);
 
         } catch (error) {
             console.error(`🔍 Error processing validation ${requestId}:`, error);
@@ -588,6 +596,73 @@ ${result.issues.length > 20 ? `... and ${result.issues.length - 20} more issues`
         const lastRun = this.lastValidationTimes.get(type) || 0;
         const interval = this.getValidationInterval(type);
         return Date.now() - lastRun >= interval;
+    }
+
+    /**
+     * Smart scheduling logic to prevent redundant or conflicting validations
+     */
+    private shouldSkipValidation(type: "quick" | "integrity"): boolean {
+        const now = Date.now();
+
+        // Check if there's already a validation of the same type pending
+        for (const request of this.pendingValidations.values()) {
+            if (request.type === type) {
+                return true; // Skip duplicate
+            }
+        }
+
+        // Smart hierarchy: Skip quick validation if integrity validation ran recently or is pending
+        if (type === "quick") {
+            const integrityLastRun = this.lastValidationTimes.get("integrity") || 0;
+            const timeSinceIntegrity = now - integrityLastRun;
+
+            // Skip quick if integrity ran within the last 10 minutes (integrity is more comprehensive)
+            if (timeSinceIntegrity < 10 * 60 * 1000) {
+                return true;
+            }
+
+            // Skip quick if integrity validation is already pending
+            for (const request of this.pendingValidations.values()) {
+                if (request.type === "integrity") {
+                    return true;
+                }
+            }
+        }
+
+        // Prevent scheduling if any validation is currently running
+        // (We could add a "currently running" flag here if needed)
+
+        return false;
+    }
+
+    private getSkipReason(type: "quick" | "integrity"): string {
+        const now = Date.now();
+
+        // Check for duplicates
+        for (const request of this.pendingValidations.values()) {
+            if (request.type === type) {
+                return `${type} validation already pending`;
+            }
+        }
+
+        // Quick validation specific reasons
+        if (type === "quick") {
+            const integrityLastRun = this.lastValidationTimes.get("integrity") || 0;
+            const timeSinceIntegrity = now - integrityLastRun;
+
+            if (timeSinceIntegrity < 10 * 60 * 1000) {
+                const minutesAgo = Math.round(timeSinceIntegrity / (60 * 1000));
+                return `integrity validation ran ${minutesAgo} minutes ago`;
+            }
+
+            for (const request of this.pendingValidations.values()) {
+                if (request.type === "integrity") {
+                    return "integrity validation pending";
+                }
+            }
+        }
+
+        return "unknown";
     }
 
     private getValidationInterval(type: "quick" | "integrity"): number {
