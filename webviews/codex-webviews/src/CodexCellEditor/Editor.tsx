@@ -131,6 +131,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [footnoteContent, setFootnoteContent] = useState("");
     const [footnoteWord, setFootnoteWord] = useState("");
     const [footnoteCount, setFootnoteCount] = useState(1);
+    const [characterCount, setCharacterCount] = useState(0);
 
     console.log({ editHistory, editHistoryForCell });
 
@@ -255,6 +256,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 }
                 const initialQuillContent = "<p><br></p>";
                 const content = quill.root.innerHTML;
+
+                // Update character count
+                const textContent = quill.getText();
+                const charCount = textContent.trim().length;
+                setCharacterCount(charCount);
+
                 let isDirty = false;
                 if (quillInitialContent !== initialQuillContent) {
                     isDirty = content !== quillInitialContent;
@@ -386,6 +393,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             if (isQuillEmpty(quill) && revertedValue) {
                 quill.root.innerHTML = revertedValue;
                 quill.setSelection(quill.getLength(), 0);
+
+                // Update character count when content is set
+                const textContent = quill.getText();
+                const charCount = textContent.trim().length;
+                setCharacterCount(charCount);
             }
         }
     }, [revertedValue]);
@@ -572,6 +584,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 quillRef.current.root.innerHTML = content;
                 setUnsavedChanges(true);
 
+                // Update character count when content is updated externally
+                const textContent = quillRef.current.getText();
+                const charCount = textContent.trim().length;
+                setCharacterCount(charCount);
+
                 // Trigger the onChange callback to notify the parent
                 if (props.onChange) {
                     props.onChange({ html: content });
@@ -636,6 +653,21 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     ></i>
                 </VSCodeButton>
                 <div ref={editorRef} className="quill-editor-container"></div>
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        alignItems: "center",
+                        marginTop: "4px",
+                        padding: "2px 4px",
+                        fontSize: "0.8em",
+                        color: "var(--vscode-descriptionForeground)",
+                        borderTop: "1px solid var(--vscode-widget-border)",
+                        backgroundColor: "transparent",
+                    }}
+                >
+                    <span>{characterCount} characters</span>
+                </div>
             </div>
             {showHistoryModal && (
                 <div
