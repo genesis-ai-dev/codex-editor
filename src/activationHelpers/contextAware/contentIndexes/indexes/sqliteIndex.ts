@@ -679,8 +679,8 @@ export class SQLiteIndexManager {
     ): Promise<number> {
         if (!this.db) throw new Error("Database not initialized");
 
-        // Read file content to compute hash
-        const fileUri = vscode.Uri.file(filePath);
+        // Handle both URI strings and file paths
+        const fileUri = filePath.startsWith('file:') ? vscode.Uri.parse(filePath) : vscode.Uri.file(filePath);
         const fileContent = await vscode.workspace.fs.readFile(fileUri);
         const contentHash = this.computeContentHash(fileContent.toString());
 
@@ -899,8 +899,21 @@ export class SQLiteIndexManager {
     add(doc: any): void {
         if (!this.db) throw new Error("Database not initialized");
 
-        // Determine file info from document
-        const filePath = doc.uri || doc.document || "unknown";
+        // Determine file info from document with better validation
+        let filePath = doc.uri || doc.document;
+
+        // Skip documents with no valid file path to prevent "unknown" entries
+        if (!filePath || filePath === "unknown") {
+            console.warn("[SQLiteIndex] Skipping document with missing or invalid file path:", {
+                cellId: doc.cellId,
+                hasUri: !!doc.uri,
+                hasDocument: !!doc.document,
+                rawUri: doc.uri,
+                rawDocument: doc.document
+            });
+            return;
+        }
+
         const fileType = doc.cellType || (doc.targetContent ? "codex" : "source");
 
         // Upsert file synchronously
@@ -2310,5 +2323,138 @@ export class SQLiteIndexManager {
         } finally {
             stmt.free();
         }
+    }
+
+    /**
+     * Clean up duplicate source cells by removing entries from "unknown" file
+     * when the same cell exists in a proper source file
+     */
+    async deduplicateSourceCells(): Promise<{
+        duplicatesRemoved: number;
+        cellsAffected: number;
+        unknownFileRemoved: boolean;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        console.log("[SQLiteIndex] Starting source cell deduplication...");
+
+        // First, identify the "unknown" file ID
+        const unknownFileStmt = this.db.prepare(`
+            SELECT id FROM files WHERE file_path = 'unknown' AND file_type = 'source'
+        `);
+
+        let unknownFileId: number | null = null;
+        try {
+            unknownFileStmt.bind([]);
+            if (unknownFileStmt.step()) {
+                unknownFileId = (unknownFileStmt.getAsObject() as any).id;
+            }
+        } finally {
+            unknownFileStmt.free();
+        }
+
+        if (!unknownFileId) {
+            console.log("[SQLiteIndex] No 'unknown' source file found - no deduplication needed");
+            return { duplicatesRemoved: 0, cellsAffected: 0, unknownFileRemoved: false };
+        }
+
+        console.log(`[SQLiteIndex] Found 'unknown' file with ID: ${unknownFileId}`);
+
+        // Find all cell_ids that exist both in 'unknown' file and in proper source files
+        const duplicateQuery = `
+            SELECT DISTINCT u.cell_id, u.id as unknown_cell_id
+            FROM cells u
+            JOIN cells p ON u.cell_id = p.cell_id
+            JOIN files f ON p.file_id = f.id
+            WHERE u.file_id = ? 
+            AND u.cell_type = 'source'
+            AND p.file_id != ?
+            AND p.cell_type = 'source'
+            AND f.file_path != 'unknown'
+        `;
+
+        const duplicateStmt = this.db.prepare(duplicateQuery);
+        const duplicatesToRemove: Array<{ cellId: string; unknownCellId: number; }> = [];
+
+        try {
+            duplicateStmt.bind([unknownFileId, unknownFileId]);
+            while (duplicateStmt.step()) {
+                const row = duplicateStmt.getAsObject() as any;
+                duplicatesToRemove.push({
+                    cellId: row.cell_id,
+                    unknownCellId: row.unknown_cell_id
+                });
+            }
+        } finally {
+            duplicateStmt.free();
+        }
+
+        console.log(`[SQLiteIndex] Found ${duplicatesToRemove.length} duplicate cells to remove from 'unknown' file`);
+
+        if (duplicatesToRemove.length === 0) {
+            return { duplicatesRemoved: 0, cellsAffected: 0, unknownFileRemoved: false };
+        }
+
+        // Remove duplicates from 'unknown' file in batches
+        let duplicatesRemoved = 0;
+        await this.runInTransaction(() => {
+            // Remove cells from FTS first
+            for (const duplicate of duplicatesToRemove) {
+                try {
+                    this.db!.run("DELETE FROM cells_fts WHERE cell_id = ?", [duplicate.cellId]);
+                } catch (error) {
+                    // Continue even if FTS delete fails
+                }
+            }
+
+            // Remove cells from main table
+            const deleteStmt = this.db!.prepare("DELETE FROM cells WHERE id = ?");
+            try {
+                for (const duplicate of duplicatesToRemove) {
+                    deleteStmt.bind([duplicate.unknownCellId]);
+                    deleteStmt.step();
+                    duplicatesRemoved++;
+                    deleteStmt.reset();
+                }
+            } finally {
+                deleteStmt.free();
+            }
+        });
+
+        // Check if 'unknown' file now has any remaining cells
+        const remainingCellsStmt = this.db.prepare(`
+            SELECT COUNT(*) as count FROM cells WHERE file_id = ?
+        `);
+
+        let remainingCells = 0;
+        try {
+            remainingCellsStmt.bind([unknownFileId]);
+            if (remainingCellsStmt.step()) {
+                remainingCells = (remainingCellsStmt.getAsObject() as any).count;
+            }
+        } finally {
+            remainingCellsStmt.free();
+        }
+
+        // If no cells remain, remove the 'unknown' file entry
+        let unknownFileRemoved = false;
+        if (remainingCells === 0) {
+            this.db.run("DELETE FROM files WHERE id = ?", [unknownFileId]);
+            unknownFileRemoved = true;
+            console.log("[SQLiteIndex] Removed empty 'unknown' file entry");
+        }
+
+        // Refresh FTS index to ensure consistency
+        await this.refreshFTSIndex();
+
+        console.log(`[SQLiteIndex] Deduplication complete: removed ${duplicatesRemoved} duplicate cells`);
+        console.log(`[SQLiteIndex] Cells affected: ${duplicatesToRemove.length}`);
+        console.log(`[SQLiteIndex] Unknown file removed: ${unknownFileRemoved}`);
+
+        return {
+            duplicatesRemoved,
+            cellsAffected: duplicatesToRemove.length,
+            unknownFileRemoved
+        };
     }
 }

@@ -307,19 +307,23 @@ export class CodexCellDocument implements vscode.CustomDocument {
             .trim(); // Remove leading/trailing whitespace
     }
 
-    // Optimized immediate indexing - fire and forget, no bottlenecks
+    // TRUE IMMEDIATE INDEXING - No delays, immediate searchability
     private addCellToIndexImmediately(
         cellId: string,
         content: string,
         editType: EditType
     ): void {
-        // Fire and forget - don't await, don't block the translation flow
-        setImmediate(async () => {
+        // IMMEDIATE execution - no setImmediate() delay
+        // Use non-blocking pattern that still executes immediately
+        (async () => {
             try {
                 // Refresh index manager reference if it's not available
                 if (!this._indexManager) {
                     this._indexManager = getSQLiteIndexManager();
-                    if (!this._indexManager) return;
+                    if (!this._indexManager) {
+                        console.warn(`[CodexDocument] Index manager not available for immediate indexing of cell ${cellId}`);
+                        return;
+                    }
                 }
 
                 // Use cached file ID or get it once
@@ -336,8 +340,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 // Sanitize content for search while preserving raw content with HTML
                 const sanitizedContent = this.sanitizeContent(content);
 
-                // Add cell to index immediately - triggers will handle FTS sync
-                await this._indexManager.upsertCell(
+                // IMMEDIATE DATABASE UPDATE with FTS synchronization
+                const result = await this._indexManager.upsertCellWithFTSSync(
                     cellId,
                     fileId,
                     "target",
@@ -346,11 +350,24 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     { editType, lastUpdated: Date.now() },
                     content           // Raw content with HTML tags
                 );
+
+                console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable`);
+
             } catch (error) {
-                // Silent failure - don't log, don't throw
-                // The background reindexing will catch any missed cells
+                // VISIBLE error logging - we need to know when indexing fails!
+                console.error(`[CodexDocument] ❌ Failed to immediately index cell ${cellId}:`, error);
+
+                // Try to recover with a background operation
+                setImmediate(async () => {
+                    try {
+                        await this._indexManager?.refreshFTSIndex();
+                        console.log(`[CodexDocument] 🔄 FTS index refreshed for recovery`);
+                    } catch (recoveryError) {
+                        console.error(`[CodexDocument] ❌ FTS recovery also failed for cell ${cellId}:`, recoveryError);
+                    }
+                });
             }
-        });
+        })();
     }
 
     public replaceDuplicateCells(content: QuillCellContent) {

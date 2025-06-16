@@ -836,4 +836,61 @@ Last Integrity: ${status.lastValidationTimes.integrity || 'never'}`;
             }
         )
     );
+
+    // Command to manually refresh the search index for immediate searchability
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.refreshSearchIndex",
+            async () => {
+                try {
+                    vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: "Refreshing search index...",
+                        cancellable: false
+                    }, async (progress) => {
+                        progress.report({ message: "Rebuilding full-text search index..." });
+                        await sqliteIndex.refreshFTSIndex();
+
+                        const debugInfo = await sqliteIndex.getFTSDebugInfo();
+                        vscode.window.showInformationMessage(
+                            `Search index refreshed! Cells: ${debugInfo.cellsCount}, FTS: ${debugInfo.ftsCount}`
+                        );
+                    });
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to refresh search index: ${error}`);
+                }
+            }
+        )
+    );
+
+    // Command to debug search index synchronization status
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            "codex-editor-extension.debugSearchIndex",
+            async () => {
+                try {
+                    const debugInfo = await sqliteIndex.getFTSDebugInfo();
+                    const statusMessage = `Search Index Status:
+Cells in database: ${debugInfo.cellsCount}
+Cells in search index: ${debugInfo.ftsCount}
+Sync status: ${debugInfo.cellsCount === debugInfo.ftsCount ? '✅ Synchronized' : '⚠️ Out of sync'}`;
+
+                    const choice = await vscode.window.showInformationMessage(
+                        statusMessage,
+                        "Refresh Index",
+                        "View Details"
+                    );
+
+                    if (choice === "Refresh Index") {
+                        vscode.commands.executeCommand("codex-editor-extension.refreshSearchIndex");
+                    } else if (choice === "View Details") {
+                        console.log("Search index debug info:", debugInfo);
+                        console.log("Search index status details:", statusMessage);
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to get search index status: ${error}`);
+                }
+            }
+        )
+    );
 } 

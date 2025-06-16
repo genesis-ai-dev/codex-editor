@@ -15,6 +15,7 @@ import { getExtendedEbibleMetadataByLanguageNameOrCode } from "../../utils/ebibl
 import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/EditAnalysisViewProvider";
 import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
+import { getSQLiteIndexManager } from "./contentIndexes/indexes/sqliteIndexManager";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
     // Register the centralized sync commands
@@ -33,6 +34,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             }
         }
     );
+
+
 
     const analyzeEditsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.analyzeEdits",
@@ -135,7 +138,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
             format: CodexExportFormat;
             userSelectedPath: string;
             filesToExport: string[];
-            options?: { skipValidation?: boolean };
+            options?: { skipValidation?: boolean; };
         }) => {
             await exportCodexContent(format, userSelectedPath, filesToExport, options);
         }
@@ -145,7 +148,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
     const openSourceUploadCommand = vscode.commands.registerCommand(
         "codexNotebookTreeView.openSourceFile",
-        async (treeNode: Node & { sourceFileUri?: vscode.Uri }) => {
+        async (treeNode: Node & { sourceFileUri?: vscode.Uri; }) => {
             if ("sourceFileUri" in treeNode && treeNode.sourceFileUri) {
                 const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
                 if (workspaceFolder) {
@@ -253,6 +256,87 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const refreshSearchIndexCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.refreshSearchIndex",
+        async () => {
+            try {
+                const indexManager = getSQLiteIndexManager();
+                if (indexManager) {
+                    await indexManager.refreshFTSIndex();
+                    vscode.window.showInformationMessage("Search index refreshed successfully");
+                } else {
+                    vscode.window.showErrorMessage("Search index manager not available");
+                }
+            } catch (error) {
+                console.error("Error refreshing search index:", error);
+                vscode.window.showErrorMessage(`Failed to refresh search index: ${error}`);
+            }
+        }
+    );
+
+    const deduplicateSourceCellsCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.deduplicateSourceCells",
+        async () => {
+            try {
+                const response = await vscode.window.showWarningMessage(
+                    "This will remove duplicate source cells from the database. The operation is safe and will only remove duplicates from 'unknown' files when proper source files exist. Continue?",
+                    "Yes, Clean Up Duplicates",
+                    "Cancel"
+                );
+
+                if (response !== "Yes, Clean Up Duplicates") {
+                    return;
+                }
+
+                const indexManager = getSQLiteIndexManager();
+                if (!indexManager) {
+                    vscode.window.showErrorMessage("Search index manager not available");
+                    return;
+                }
+
+                vscode.window.showInformationMessage("Deduplicating source cells...");
+
+                const result = await indexManager.deduplicateSourceCells();
+
+                if (result.duplicatesRemoved > 0) {
+                    vscode.window.showInformationMessage(
+                        `✅ Cleaned up ${result.duplicatesRemoved} duplicate source cells affecting ${result.cellsAffected} unique cells. ${result.unknownFileRemoved ? 'Unknown file entry removed.' : ''}`
+                    );
+                } else {
+                    vscode.window.showInformationMessage("No duplicate source cells found");
+                }
+            } catch (error) {
+                console.error("Error deduplicating source cells:", error);
+                vscode.window.showErrorMessage(`Failed to deduplicate source cells: ${error}`);
+            }
+        }
+    );
+
+    const debugSearchIndexCommand = vscode.commands.registerCommand(
+        "codex-editor-extension.debugSearchIndex",
+        async () => {
+            try {
+                const indexManager = getSQLiteIndexManager();
+                if (!indexManager) {
+                    vscode.window.showErrorMessage("Search index manager not available");
+                    return;
+                }
+
+                const ftsInfo = await indexManager.getFTSDebugInfo();
+                const message = `Search Index Status:\n• Cells in database: ${ftsInfo.cellsCount}\n• Cells in FTS index: ${ftsInfo.ftsCount}\n• Sync status: ${ftsInfo.cellsCount === ftsInfo.ftsCount ? '✅ Synchronized' : '❌ Out of sync'}`;
+
+                vscode.window.showInformationMessage(message, "Refresh Index").then((choice) => {
+                    if (choice === "Refresh Index") {
+                        vscode.commands.executeCommand("codex-editor-extension.refreshSearchIndex");
+                    }
+                });
+            } catch (error) {
+                console.error("Error debugging search index:", error);
+                vscode.window.showErrorMessage(`Failed to debug search index: ${error}`);
+            }
+        }
+    );
+
     context.subscriptions.push(
         notebookSerializer,
         codexKernel,
@@ -268,6 +352,9 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         uploadTranslationFolderCommand,
         downloadSourceBibleCommand,
         analyzeEditsCommand,
-        navigateToMainMenuCommand
+        navigateToMainMenuCommand,
+        refreshSearchIndexCommand,
+        deduplicateSourceCellsCommand,
+        debugSearchIndexCommand
     );
 }
