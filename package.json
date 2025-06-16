@@ -396,11 +396,6 @@
                 "category": "Codex Search"
             },
             {
-                "command": "codex-editor-extension.refreshSearchIndex",
-                "title": "Codex: Refresh Search Index",
-                "category": "Codex Search"
-            },
-            {
                 "command": "codex-editor-extension.deduplicateSourceCells",
                 "title": "Codex: Clean Up Duplicate Source Cells",
                 "category": "Codex Maintenance"

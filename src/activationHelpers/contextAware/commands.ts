@@ -256,23 +256,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const refreshSearchIndexCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.refreshSearchIndex",
-        async () => {
-            try {
-                const indexManager = getSQLiteIndexManager();
-                if (indexManager) {
-                    await indexManager.refreshFTSIndex();
-                    vscode.window.showInformationMessage("Search index refreshed successfully");
-                } else {
-                    vscode.window.showErrorMessage("Search index manager not available");
-                }
-            } catch (error) {
-                console.error("Error refreshing search index:", error);
-                vscode.window.showErrorMessage(`Failed to refresh search index: ${error}`);
-            }
-        }
-    );
+
 
     const deduplicateSourceCellsCommand = vscode.commands.registerCommand(
         "codex-editor-extension.deduplicateSourceCells",
@@ -312,30 +296,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
-    const debugSearchIndexCommand = vscode.commands.registerCommand(
-        "codex-editor-extension.debugSearchIndex",
-        async () => {
-            try {
-                const indexManager = getSQLiteIndexManager();
-                if (!indexManager) {
-                    vscode.window.showErrorMessage("Search index manager not available");
-                    return;
-                }
 
-                const ftsInfo = await indexManager.getFTSDebugInfo();
-                const message = `Search Index Status:\n• Cells in database: ${ftsInfo.cellsCount}\n• Cells in FTS index: ${ftsInfo.ftsCount}\n• Sync status: ${ftsInfo.cellsCount === ftsInfo.ftsCount ? '✅ Synchronized' : '❌ Out of sync'}`;
-
-                vscode.window.showInformationMessage(message, "Refresh Index").then((choice) => {
-                    if (choice === "Refresh Index") {
-                        vscode.commands.executeCommand("codex-editor-extension.refreshSearchIndex");
-                    }
-                });
-            } catch (error) {
-                console.error("Error debugging search index:", error);
-                vscode.window.showErrorMessage(`Failed to debug search index: ${error}`);
-            }
-        }
-    );
 
     context.subscriptions.push(
         notebookSerializer,
@@ -353,8 +314,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         downloadSourceBibleCommand,
         analyzeEditsCommand,
         navigateToMainMenuCommand,
-        refreshSearchIndexCommand,
+
         deduplicateSourceCellsCommand,
-        debugSearchIndexCommand
+
     );
 }

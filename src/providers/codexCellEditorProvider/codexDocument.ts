@@ -364,8 +364,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         console.log(`[CodexDocument] 🔄 FTS index refreshed for recovery`);
                     } catch (recoveryError) {
                         console.error(`[CodexDocument] ❌ FTS recovery also failed for cell ${cellId}:`, recoveryError);
-                    }
-                });
+            }
+        });
             }
         })();
     }
