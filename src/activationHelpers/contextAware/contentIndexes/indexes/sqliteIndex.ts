@@ -9,7 +9,7 @@ import { debounce } from "lodash";
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 5;
+const CURRENT_SCHEMA_VERSION = 6;
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -260,7 +260,7 @@ export class SQLiteIndexManager {
                     file_id INTEGER NOT NULL,
                     cell_type TEXT NOT NULL CHECK(cell_type IN ('source', 'target')),
                     content TEXT NOT NULL,
-                    content_hash TEXT NOT NULL,
+                    raw_content_hash TEXT NOT NULL,
                     line_number INTEGER,
                     word_count INTEGER DEFAULT 0,
                     metadata TEXT,
@@ -411,7 +411,7 @@ export class SQLiteIndexManager {
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_cell_id ON cells(cell_id)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_content_hash ON cells(content_hash)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_raw_content_hash ON cells(raw_content_hash)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_translation_pairs_source ON translation_pairs(source_cell_id)");
@@ -458,66 +458,15 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("Migrate database schema", stepStart);
                 console.log(`[SQLiteIndex] Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
 
-                if (currentVersion < 3) {
-                    // Migration for content sanitization (version 2 -> 3)
-                    // Note: We now delete the database and reindex instead of migrating
-                    console.log("[SQLiteIndex] Schema version 3 requires clean reindex - database will be recreated");
-                    await this.recreateDatabase();
-                } else if (currentVersion < 4) {
-                    // Migration for improved content sanitization (version 3 -> 4)
-                    // This version ensures HTML tags are properly sanitized from content column
-                    console.log("[SQLiteIndex] Schema version 4 requires clean reindex for content sanitization - database will be recreated");
+                // Schema version 6: content_hash -> raw_content_hash and hash calculation change
+                // This is a breaking change that requires full database recreation
+                console.log("[SQLiteIndex] Schema version 6 requires full database recreation due to hash column changes");
 
-                    // Show user notification about the one-time migration
-                    const vscode = await import('vscode');
-                    vscode.window.showInformationMessage("Codex: Upgrading search index to new clean format. This is a one-time operation...");
+                // Show user notification about the one-time migration
+                const vscode = await import('vscode');
+                vscode.window.showInformationMessage("Codex: Upgrading database schema to version 6. This is a one-time operation that will improve sync performance...");
 
-                    await this.recreateDatabase();
-                } else if (currentVersion < 5) {
-                    // Migration for sync metadata table (version 4 -> 5)
-                    console.log("[SQLiteIndex] Schema version 5 adds sync metadata for file-level synchronization - adding new table");
-
-                    try {
-                        // Add sync metadata table to existing database
-                        await this.runInTransaction(() => {
-                            this.db!.run(`
-                                CREATE TABLE IF NOT EXISTS sync_metadata (
-                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                    file_path TEXT NOT NULL UNIQUE,
-                                    file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
-                                    content_hash TEXT NOT NULL,
-                                    file_size INTEGER NOT NULL,
-                                    last_modified_ms INTEGER NOT NULL,
-                                    last_synced_ms INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
-                                    git_commit_hash TEXT, -- Future use for git integration
-                                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-                                )
-                            `);
-
-                            // Add indexes for the new table
-                            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path)");
-                            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
-                            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
-
-                            // Add trigger for updated_at timestamp
-                            this.db!.run(`
-                                CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
-                                AFTER UPDATE ON sync_metadata
-                                BEGIN
-                                    UPDATE sync_metadata SET updated_at = strftime('%s', 'now') * 1000 
-                                    WHERE id = NEW.id;
-                                END
-                            `);
-                        });
-
-                        console.log("[SQLiteIndex] Successfully added sync metadata table");
-                    } catch (error) {
-                        console.error("[SQLiteIndex] Error adding sync metadata table:", error);
-                        // If migration fails, recreate database
-                        await this.recreateDatabase();
-                    }
-                }
+                await this.recreateDatabase();
 
                 // Update schema version after successful migration
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
@@ -672,6 +621,10 @@ export class SQLiteIndexManager {
         return createHash("sha256").update(content).digest("hex");
     }
 
+    private computeRawContentHash(rawContent: string): string {
+        return createHash("sha256").update(rawContent).digest("hex");
+    }
+
     async upsertFile(
         filePath: string,
         fileType: "source" | "codex",
@@ -751,16 +704,16 @@ export class SQLiteIndexManager {
         // Sanitize content for storage - remove HTML tags for clean searching/indexing
         const sanitizedContent = this.sanitizeContent(content);
 
-        const contentHash = this.computeContentHash(sanitizedContent + (rawContent || ""));
+        const rawContentHash = this.computeRawContentHash(actualRawContent);
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
         const checkStmt = this.db.prepare(`
-            SELECT id, content_hash FROM cells 
+            SELECT id, raw_content_hash FROM cells 
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; content_hash: string; } | null = null;
+        let existingCell: { id: number; raw_content_hash: string; } | null = null;
         try {
             checkStmt.bind([cellId, fileId, cellType]);
             if (checkStmt.step()) {
@@ -770,7 +723,7 @@ export class SQLiteIndexManager {
             checkStmt.free();
         }
 
-        const contentChanged = !existingCell || existingCell.content_hash !== contentHash;
+        const contentChanged = !existingCell || existingCell.raw_content_hash !== rawContentHash;
         const isNew = !existingCell;
 
         if (!contentChanged && existingCell) {
@@ -779,11 +732,11 @@ export class SQLiteIndexManager {
 
         // Upsert the cell - store sanitized content in content column, original in raw_content
         const upsertStmt = this.db.prepare(`
-            INSERT INTO cells (cell_id, file_id, cell_type, content, content_hash, line_number, word_count, metadata, raw_content)
+            INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
                 content = excluded.content,
-                content_hash = excluded.content_hash,
+                raw_content_hash = excluded.raw_content_hash,
                 line_number = excluded.line_number,
                 word_count = excluded.word_count,
                 metadata = excluded.metadata,
@@ -798,7 +751,7 @@ export class SQLiteIndexManager {
                 fileId,
                 cellType,
                 sanitizedContent, // Store sanitized content in content column
-                contentHash,
+                rawContentHash,
                 lineNumber || null,
                 wordCount,
                 metadata ? JSON.stringify(metadata) : null,
@@ -832,16 +785,16 @@ export class SQLiteIndexManager {
         // Sanitize content for storage - remove HTML tags for clean searching/indexing
         const sanitizedContent = this.sanitizeContent(content);
 
-        const contentHash = this.computeContentHash(sanitizedContent + (rawContent || ""));
+        const rawContentHash = this.computeRawContentHash(actualRawContent);
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
         const checkStmt = this.db.prepare(`
-            SELECT id, content_hash FROM cells 
+            SELECT id, raw_content_hash FROM cells 
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; content_hash: string; } | null = null;
+        let existingCell: { id: number; raw_content_hash: string; } | null = null;
         try {
             checkStmt.bind([cellId, fileId, cellType]);
             if (checkStmt.step()) {
@@ -851,7 +804,7 @@ export class SQLiteIndexManager {
             checkStmt.free();
         }
 
-        const contentChanged = !existingCell || existingCell.content_hash !== contentHash;
+        const contentChanged = !existingCell || existingCell.raw_content_hash !== rawContentHash;
         const isNew = !existingCell;
 
         if (!contentChanged && existingCell) {
@@ -860,11 +813,11 @@ export class SQLiteIndexManager {
 
         // Upsert the cell - store sanitized content in content column, original in raw_content
         const upsertStmt = this.db.prepare(`
-            INSERT INTO cells (cell_id, file_id, cell_type, content, content_hash, line_number, word_count, metadata, raw_content)
+            INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
                 content = excluded.content,
-                content_hash = excluded.content_hash,
+                raw_content_hash = excluded.raw_content_hash,
                 line_number = excluded.line_number,
                 word_count = excluded.word_count,
                 metadata = excluded.metadata,
@@ -879,7 +832,7 @@ export class SQLiteIndexManager {
                 fileId,
                 cellType,
                 sanitizedContent, // Store sanitized content in content column
-                contentHash,
+                rawContentHash,
                 lineNumber || null,
                 wordCount,
                 metadata ? JSON.stringify(metadata) : null,
