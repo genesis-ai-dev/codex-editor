@@ -32,6 +32,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
     const [isLoading, setIsLoading] = useState(true);
     const [progressData, setProgressData] = useState<any>(null);
+    const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     // const [state, send, service] = useMachine(startupFlowMachine);
 
     const fetchProjectList = () => {
@@ -39,12 +40,20 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
-        fetchProgressData();
+        // Note: Don't fetch progress data on refresh to keep it fast
+        // Progress will update automatically when projects change
     };
 
     const fetchProgressData = () => {
+        setIsLoadingProgress(true);
         vscode.postMessage({
             command: "getAggregatedProgress",
+        } as MessagesToStartupFlowProvider);
+    };
+
+    const fetchSyncStatus = () => {
+        vscode.postMessage({
+            command: "getProjectsSyncStatus",
         } as MessagesToStartupFlowProvider);
     };
 
@@ -67,9 +76,21 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
 
-        // Also fetch progress data when component mounts
-        fetchProgressData();
+        const progressTimer = setTimeout(() => {
+            fetchProgressData();
+        }, 500);
 
+        const syncTimer = setTimeout(() => {
+            fetchSyncStatus();
+        }, 1000);
+
+        return () => {
+            clearTimeout(progressTimer);
+            clearTimeout(syncTimer);
+        };
+    }, []);
+
+    useEffect(() => {
         const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
             const message = event.data;
             console.log({ message }, "message in ProjectSetupStep");
@@ -102,23 +123,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             } else if (message.command === "aggregatedProgressData") {
                 console.log("Received progress data:", message.data);
                 setProgressData(message.data);
-            }
-        };
-
-        window.addEventListener("message", messageHandler);
-        return () => {
-            window.removeEventListener("message", messageHandler);
-        };
-    }, []);
-
-    useEffect(() => {
-        vscode.postMessage({
-            command: "getProjectsSyncStatus",
-        } as MessagesToStartupFlowProvider);
-
-        const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
-            const message = event.data;
-            if (message.command === "projectsSyncStatus") {
+                setIsLoadingProgress(false);
+            } else if (message.command === "projectsSyncStatus") {
                 setSyncStatus(message.status);
             }
         };
@@ -128,6 +134,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             window.removeEventListener("message", messageHandler);
         };
     }, []);
+
     return (
         <div className="project-setup-step">
             {/* {state.context.authState.isAuthExtensionInstalled && (
@@ -171,10 +178,11 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     <VSCodeButton
                         appearance="secondary"
                         onClick={fetchProjectList}
-                        title="Refresh"
+                        title="Refresh Projects List"
                         className="refresh-button"
                     >
                         <i className="codicon codicon-refresh"></i>
+                        Refresh
                     </VSCodeButton>
 
                     <VSCodeButton

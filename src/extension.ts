@@ -248,7 +248,13 @@ export async function activate(context: vscode.ExtensionContext) {
         await executeCommandsBefore(context);
         stepStart = trackTiming("Setup Pre-activation Commands", preCommandsStart);
 
-        // Initialize Frontier API
+        // Initialize metadata manager
+        const metadataStart = globalThis.performance.now();
+        notebookMetadataManager = NotebookMetadataManager.getInstance(context);
+        await notebookMetadataManager.initialize();
+        stepStart = trackTiming("Load Project Metadata", metadataStart);
+
+        // Initialize Frontier API first - needed before startup flow
         const authStart = globalThis.performance.now();
         const extension = await waitForExtensionActivation("frontier-rnd.frontier-authentication");
         if (extension?.isActive) {
@@ -256,52 +262,61 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         stepStart = trackTiming("Connect Authentication Service", authStart);
 
-        // Initialize metadata manager
-        const metadataStart = globalThis.performance.now();
-        notebookMetadataManager = NotebookMetadataManager.getInstance(context);
-        await notebookMetadataManager.initialize();
-        stepStart = trackTiming("Load Project Metadata", metadataStart);
+        // Run independent initialization steps in parallel (excluding auth which is needed by startup flow)
+        const parallelInitStart = globalThis.performance.now();
+        await Promise.all([
+            // Register project manager first to ensure it's available
+            (async () => {
+                const start = globalThis.performance.now();
+                registerProjectManager(context);
+                console.log(`[Activation]  Setup Project Management: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
 
-        // Register project manager first to ensure it's available
-        const projectMgrStart = globalThis.performance.now();
-        registerProjectManager(context);
-        stepStart = trackTiming("Setup Project Management", projectMgrStart);
+            // Register welcome view provider
+            (async () => {
+                const start = globalThis.performance.now();
+                registerWelcomeViewProvider(context);
+                console.log(`[Activation]  Setup Welcome Interface: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
+        ]);
+        stepStart = trackTiming("Parallel Basic Setup", parallelInitStart);
 
-        // Register welcome view provider
-        const welcomeStart = globalThis.performance.now();
-        registerWelcomeViewProvider(context);
-        stepStart = trackTiming("Setup Welcome Interface", welcomeStart);
-
-        // Register startup flow commands
+        // Register startup flow commands after auth is available
         const startupStart = globalThis.performance.now();
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
         stepStart = trackTiming("Configure Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files
-        startRealtimeStep("Load Database Engine");
-        try {
-            global.db = await initializeSqlJs(context);
-            console.log("initializeSqlJs db", global.db);
-        } catch (error) {
-            console.error("Error initializing SqlJs:", error);
-        }
-        stepStart = finishRealtimeStep();
-        if (global.db) {
-            const importCommand = vscode.commands.registerCommand(
-                "extension.importWiktionaryJSONL",
-                () => global.db && importWiktionaryJSONL(global.db)
-            );
-            context.subscriptions.push(importCommand);
-            registerLookupWordCommand(global.db, context);
-            ingestJsonlDictionaryEntries(global.db);
+        // Only initialize database if we have a workspace (database is for project content)
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            startRealtimeStep("Load Database Engine");
+            try {
+                global.db = await initializeSqlJs(context);
+                console.log("initializeSqlJs db", global.db);
+            } catch (error) {
+                console.error("Error initializing SqlJs:", error);
+            }
+            stepStart = finishRealtimeStep();
+            if (global.db) {
+                const importCommand = vscode.commands.registerCommand(
+                    "extension.importWiktionaryJSONL",
+                    () => global.db && importWiktionaryJSONL(global.db)
+                );
+                context.subscriptions.push(importCommand);
+                registerLookupWordCommand(global.db, context);
+                ingestJsonlDictionaryEntries(global.db);
+            }
+        } else {
+            // No workspace, skip database initialization
+            stepStart = trackTiming("Load Database Engine (skipped - no workspace)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
 
         // Initialize extension based on workspace state
         const workspaceStart = globalThis.performance.now();
-        const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
             if (!vscode.workspace.isTrusted) {
                 console.log("Workspace not trusted. Waiting for trust...");
@@ -346,32 +361,46 @@ export async function activate(context: vscode.ExtensionContext) {
             trackTiming("Initialize Workspace", workspaceStart);
         }
 
-        // Register remaining components
+        // Register remaining components in parallel
         const coreComponentsStart = globalThis.performance.now();
 
-        const smartEditStart = globalThis.performance.now();
-        registerSmartEditCommands(context);
-        trackTiming(" Register Smart Edit Commands", smartEditStart);
+        await Promise.all([
+            (async () => {
+                const start = globalThis.performance.now();
+                registerSmartEditCommands(context);
+                console.log(`[Activation]  Register Smart Edit Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
 
-        const sourceUploadStart = globalThis.performance.now();
-        await registerSourceUploadCommands(context);
-        trackTiming(" Register Source Upload Commands", sourceUploadStart);
+            (async () => {
+                const start = globalThis.performance.now();
+                await registerSourceUploadCommands(context);
+                console.log(`[Activation]  Register Source Upload Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
 
-        const newSourceUploadStart = globalThis.performance.now();
-        await registerNewSourceUploadCommands(context);
-        trackTiming(" Register New Source Upload Commands", newSourceUploadStart);
+            (async () => {
+                const start = globalThis.performance.now();
+                await registerNewSourceUploadCommands(context);
+                console.log(`[Activation]  Register New Source Upload Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
 
-        const providersStart = globalThis.performance.now();
-        registerProviders(context);
-        trackTiming(" Register Providers", providersStart);
+            (async () => {
+                const start = globalThis.performance.now();
+                registerProviders(context);
+                console.log(`[Activation]  Register Providers: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
 
-        const commandsStart = globalThis.performance.now();
-        await registerCommands(context);
-        trackTiming(" Register Commands", commandsStart);
+            (async () => {
+                const start = globalThis.performance.now();
+                await registerCommands(context);
+                console.log(`[Activation]  Register Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
 
-        const webviewsStart = globalThis.performance.now();
-        await initializeWebviews(context);
-        trackTiming(" Initialize Webviews", webviewsStart);
+            (async () => {
+                const start = globalThis.performance.now();
+                await initializeWebviews(context);
+                console.log(`[Activation]  Initialize Webviews: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
+            })(),
+        ]);
 
         // Track total time for core components
         stepStart = trackTiming("Total Core Components", coreComponentsStart);
@@ -605,25 +634,24 @@ async function watchForInitialization(context: vscode.ExtensionContext, metadata
 }
 
 async function executeCommandsBefore(context: vscode.ExtensionContext) {
-    // Hide status bar
-    await vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
+    // Start status bar command non-blocking
+    void vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
 
-    // Update settings for minimal UI   
+    // Batch all config updates with Promise.all instead of sequential awaits
     const config = vscode.workspace.getConfiguration();
-    await config.update("workbench.statusBar.visible", false, true);
-    await config.update("breadcrumbs.filePath", "last", true);
-    await config.update("breadcrumbs.enabled", false, true); // hide breadcrumbs for now... it shows the file name which cannot be localized
-    await config.update("workbench.editor.editorActionsLocation", "hidden", true);
-    await config.update("workbench.editor.showTabs", "none", true); // Hide tabs during splash screen
-    await config.update("window.autoDetectColorScheme", true, true);
-    await config.update("workbench.editor.revealIfOpen", true, true);
-    await config.update("workbench.layoutControl.enabled", false, true);
-    // await config.update("workbench.copilotControls.enabled", false, true); // FIXME: need to update "@types/vscode": "^1.78.0", and vscode package
-    // await config.update("workbench.commandCenter.enabled", false, true);
-    // await config.update("workbench.editor.editorActions.enabled", false, true);
-    await config.update("workbench.tips.enabled", false, true);
-    await config.update("workbench.editor.limit.perEditorGroup", false, true);
-    await config.update("workbench.editor.limit.value", 4, true);
+    await Promise.all([
+        config.update("workbench.statusBar.visible", false, true),
+        config.update("breadcrumbs.filePath", "last", true),
+        config.update("breadcrumbs.enabled", false, true), // hide breadcrumbs for now... it shows the file name which cannot be localized
+        config.update("workbench.editor.editorActionsLocation", "hidden", true),
+        config.update("workbench.editor.showTabs", "none", true), // Hide tabs during splash screen
+        config.update("window.autoDetectColorScheme", true, true),
+        config.update("workbench.editor.revealIfOpen", true, true),
+        config.update("workbench.layoutControl.enabled", false, true),
+        config.update("workbench.tips.enabled", false, true),
+        config.update("workbench.editor.limit.perEditorGroup", false, true),
+        config.update("workbench.editor.limit.value", 4, true),
+    ]);
 
     registerCommandsBefore(context);
 }

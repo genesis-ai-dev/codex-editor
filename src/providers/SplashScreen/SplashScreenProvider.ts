@@ -46,7 +46,7 @@ export class SplashScreenProvider {
             "Codex Editor",
             {
                 viewColumn: vscode.ViewColumn.One,
-                preserveFocus: true,
+                preserveFocus: false, // Take focus immediately for loading screen experience
             },
             {
                 enableScripts: true,
@@ -64,33 +64,8 @@ export class SplashScreenProvider {
 
         // Immediately set the HTML content and reveal the panel
         this._updateWebview();
-        this._panel.reveal(vscode.ViewColumn.One, true);
-        console.log("[SplashScreen] Panel revealed with preserveFocus=true");
-
-        // Ensure the splash screen has focus and is the active view
-        setTimeout(() => {
-            if (this._panel) {
-                this._panel.reveal(vscode.ViewColumn.One, false); // false = take focus
-                console.log("[SplashScreen] Panel re-revealed with focus");
-            }
-        }, 50);
-
-        // Keep the splash screen in focus by periodically checking
-        const focusInterval = setInterval(() => {
-            if (this._panel && this._panel.visible) {
-                // Only re-focus if we're still supposed to be showing
-                this._panel.reveal(vscode.ViewColumn.One, true); // true = preserve focus
-
-                // Check if webview content is lost (white screen) and restore if needed
-                if (!this._panel.webview.html || this._panel.webview.html.length < 100) {
-                    console.log("[SplashScreen] Webview content lost, restoring...");
-                    this._updateWebview();
-                }
-            } else {
-                // Stop checking if panel is gone
-                clearInterval(focusInterval);
-            }
-        }, 1000); // Check every second
+        this._panel.reveal(vscode.ViewColumn.One, false); // Take focus for loading screen experience
+        console.log("[SplashScreen] Panel revealed and focused");
 
         // Execute UI commands in background after splash is visible
         setTimeout(async () => {
@@ -106,7 +81,6 @@ export class SplashScreenProvider {
         // Reset when the panel is disposed
         this._panel.onDidDispose(() => {
             console.log("[SplashScreen] Panel disposed");
-            clearInterval(focusInterval); // Clean up the interval
             this._panel = undefined;
         });
 
