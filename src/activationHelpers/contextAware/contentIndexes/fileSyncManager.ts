@@ -79,8 +79,8 @@ export class FileSyncManager {
         const syncStart = performance.now();
         const { forceSync = false, progressCallback } = options;
 
-        console.log(`[FileSyncManager] Starting file sync (force: ${forceSync})...`);
-        progressCallback?.("Checking files for changes...", 0);
+        console.log(`[FileSyncManager] Starting optimized file sync (force: ${forceSync})...`);
+        progressCallback?.("Initializing sync process...", 0);
 
         const errors: Array<{ file: string; error: string; }> = [];
         let syncedFiles = 0;
@@ -124,45 +124,86 @@ export class FileSyncManager {
                 };
             }
 
-            // Process files that need sync
+            // Optimize for batch processing
+            progressCallback?.("Preparing batch sync operations...", 15);
             const fileMap = new Map(allFiles.map(f => [f.uri.fsPath, f]));
+            const filesToProcess = filesToSync.map(path => fileMap.get(path)).filter(Boolean) as FileData[];
+
+            // Process files in optimized batches
+            const BATCH_SIZE = 10; // Process 10 files at a time
+            const batches = [];
+            for (let i = 0; i < filesToProcess.length; i += BATCH_SIZE) {
+                batches.push(filesToProcess.slice(i, i + BATCH_SIZE));
+            }
+
+            console.log(`[FileSyncManager] Processing ${filesToProcess.length} files in ${batches.length} batches of ${BATCH_SIZE}`);
+
             let processedCount = 0;
+            for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+                const batch = batches[batchIndex];
+                const progress = 20 + (batchIndex / batches.length) * 60; // Reserve 20% for cleanup
+                progressCallback?.(`Syncing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)...`, progress);
 
-            for (const filePath of filesToSync) {
-                const fileData = fileMap.get(filePath);
-                if (!fileData) {
-                    errors.push({ file: filePath, error: "File data not found" });
-                    continue;
+                // Process batch in parallel for I/O operations, then sync to database
+                const batchResults = await Promise.allSettled(
+                    batch.map(async (fileData): Promise<{ success: true; file: string; } | { success: false; file: string; error: string; }> => {
+                        try {
+                            await this.syncSingleFileOptimized(fileData);
+                            return { success: true, file: fileData.id };
+                        } catch (error) {
+                            const errorMsg = error instanceof Error ? error.message : String(error);
+                            return { success: false, file: fileData.id, error: errorMsg };
+                        }
+                    })
+                );
+
+                // Process batch results
+                for (const result of batchResults) {
+                    if (result.status === 'fulfilled') {
+                        if (result.value.success) {
+                            syncedFiles++;
+                            console.log(`[FileSyncManager] Synced file: ${result.value.file}`);
+                        } else {
+                            errors.push({
+                                file: result.value.file,
+                                error: result.value.error || 'Unknown error during sync'
+                            });
+                        }
+                    } else {
+                        errors.push({ file: 'unknown', error: result.reason });
+                    }
                 }
 
-                try {
-                    const progress = 20 + (processedCount / filesToSync.length) * 70;
-                    progressCallback?.(`Syncing ${fileData.id}...`, progress);
-
-                    await this.syncSingleFile(fileData);
-                    syncedFiles++;
-
-                    console.log(`[FileSyncManager] Synced file: ${fileData.id}`);
-                } catch (error) {
-                    const errorMsg = error instanceof Error ? error.message : String(error);
-                    errors.push({ file: filePath, error: errorMsg });
-                    console.error(`[FileSyncManager] Error syncing file ${filePath}:`, error);
-                }
-
-                processedCount++;
+                processedCount += batch.length;
             }
 
             // Cleanup sync metadata for files that no longer exist
-            progressCallback?.("Cleaning up obsolete metadata...", 95);
+            progressCallback?.("Cleaning up obsolete metadata...", 85);
             const removedCount = await this.sqliteIndex.cleanupSyncMetadata(filePaths);
             if (removedCount > 0) {
                 console.log(`[FileSyncManager] Cleaned up ${removedCount} obsolete sync records`);
             }
 
+            // Create deferred indexes for optimal performance (only after data insertion)
+            if (syncedFiles > 0) {
+                progressCallback?.("Optimizing database indexes...", 90);
+                try {
+                    await this.sqliteIndex.createDeferredIndexes();
+                    console.log("[FileSyncManager] Deferred indexes created for optimal performance");
+                } catch (error) {
+                    console.warn("[FileSyncManager] Error creating deferred indexes:", error);
+                    // Don't fail the sync for index creation errors
+                }
+            }
+
+            // Force save to ensure all changes are persisted
+            progressCallback?.("Finalizing sync...", 95);
+            await this.sqliteIndex.forceSave();
+
             const duration = performance.now() - syncStart;
             progressCallback?.("Sync complete", 100);
 
-            console.log(`[FileSyncManager] Sync completed in ${duration.toFixed(2)}ms`);
+            console.log(`[FileSyncManager] Optimized sync completed in ${duration.toFixed(2)}ms`);
             console.log(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
 
             return {
@@ -175,57 +216,75 @@ export class FileSyncManager {
             };
 
         } catch (error) {
-            console.error("[FileSyncManager] Error during file sync:", error);
+            console.error("[FileSyncManager] Error during optimized file sync:", error);
             throw error;
         }
     }
 
     /**
-     * Sync a single file
+     * Optimized single file sync with reduced I/O operations
      */
-    private async syncSingleFile(fileData: FileData): Promise<void> {
+    private async syncSingleFileOptimized(fileData: FileData): Promise<void> {
         const filePath = fileData.uri.fsPath;
         const fileType = filePath.includes('.source') ? 'source' : 'codex';
 
         try {
-            // Get file stats and compute hash
-            const fileStat = await vscode.workspace.fs.stat(fileData.uri);
-            const fileContent = await vscode.workspace.fs.readFile(fileData.uri);
+            // Batch file operations
+            const [fileStat, fileContent] = await Promise.all([
+                vscode.workspace.fs.stat(fileData.uri),
+                vscode.workspace.fs.readFile(fileData.uri)
+            ]);
+
             const contentHash = createHash("sha256").update(fileContent).digest("hex");
 
-            // Update/insert the file in the main files table
-            const fileId = await this.sqliteIndex.upsertFile(
-                filePath,
-                fileType,
-                fileStat.mtime
-            );
-
-            // Process all cells in the file
-            for (const cell of fileData.cells) {
-                const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
-
-                await this.sqliteIndex.upsertCell(
-                    cellId,
-                    fileId,
-                    fileType === 'source' ? 'source' : 'target',
-                    cell.value,
-                    undefined, // line number not available in current metadata
-                    cell.metadata,
-                    cell.value // raw content same as value for now
+            // Use synchronous database operations within a transaction for speed
+            await this.sqliteIndex.runInTransaction(() => {
+                // Update/insert the file in the main files table
+                const fileId = this.sqliteIndex.upsertFileSync(
+                    filePath,
+                    fileType,
+                    fileStat.mtime
                 );
-            }
 
-            // Update sync metadata
-            await this.sqliteIndex.updateSyncMetadata(
-                filePath,
-                fileType,
-                contentHash,
-                fileStat.size,
-                fileStat.mtime
-            );
+                // Process all cells in the file using sync operations
+                for (const cell of fileData.cells) {
+                    const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
+
+                    this.sqliteIndex.upsertCellSync(
+                        cellId,
+                        fileId,
+                        fileType === 'source' ? 'source' : 'target',
+                        cell.value,
+                        undefined, // line number not available in current metadata
+                        cell.metadata,
+                        cell.value // raw content same as value for now
+                    );
+                }
+
+                // Update sync metadata (this could be async but we'll keep it in transaction)
+                const stmt = this.sqliteIndex.database?.prepare(`
+                    INSERT INTO sync_metadata (file_path, file_type, content_hash, file_size, last_modified_ms, last_synced_ms)
+                    VALUES (?, ?, ?, ?, ?, strftime('%s', 'now') * 1000)
+                    ON CONFLICT(file_path) DO UPDATE SET
+                        content_hash = excluded.content_hash,
+                        file_size = excluded.file_size,
+                        last_modified_ms = excluded.last_modified_ms,
+                        last_synced_ms = strftime('%s', 'now') * 1000,
+                        updated_at = strftime('%s', 'now') * 1000
+                `);
+
+                if (stmt) {
+                    try {
+                        stmt.bind([filePath, fileType, contentHash, fileStat.size, fileStat.mtime]);
+                        stmt.step();
+                    } finally {
+                        stmt.free();
+                    }
+                }
+            });
 
         } catch (error) {
-            console.error(`[FileSyncManager] Error syncing file ${filePath}:`, error);
+            console.error(`[FileSyncManager] Error in optimized sync for file ${filePath}:`, error);
             throw error;
         }
     }

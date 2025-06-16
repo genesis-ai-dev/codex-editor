@@ -207,185 +207,219 @@ export class SQLiteIndexManager {
         if (!this.db) throw new Error("Database not initialized");
 
         const schemaStart = globalThis.performance.now();
-        let stepStart = schemaStart;
 
-        // Enable foreign keys
-        stepStart = this.trackProgress("Enable foreign key constraints", stepStart);
-        this.db.run("PRAGMA foreign_keys = ON");
+        // Optimize database for faster creation (OUTSIDE of transaction)
+        console.log("[SQLiteIndex] Optimizing database settings for fast creation...");
+        this.db.run("PRAGMA synchronous = OFF");        // Disable fsync for speed
+        this.db.run("PRAGMA journal_mode = MEMORY");     // Use memory journal
+        this.db.run("PRAGMA temp_store = MEMORY");       // Store temp data in memory
+        this.db.run("PRAGMA cache_size = -64000");       // 64MB cache
+        this.db.run("PRAGMA foreign_keys = OFF");        // Disable FK checks during creation
 
-        // Sync metadata table - tracks file synchronization state
-        stepStart = this.trackProgress("Create sync metadata table", stepStart);
-        this.db.run(`
-            CREATE TABLE IF NOT EXISTS sync_metadata (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT NOT NULL UNIQUE,
-                file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
-                content_hash TEXT NOT NULL,
-                file_size INTEGER NOT NULL,
-                last_modified_ms INTEGER NOT NULL,
-                last_synced_ms INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
-                git_commit_hash TEXT, -- Future use for git integration
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-            )
-        `);
+        // Batch all schema creation in a single transaction for massive speedup
+        await this.runInTransaction(() => {
+            // Create all tables in batch
+            console.log("[SQLiteIndex] Creating database tables...");
 
-        // Files table - tracks file metadata
-        stepStart = this.trackProgress("Create files table", stepStart);
-        this.db.run(`
-            CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT NOT NULL UNIQUE,
-                file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
-                last_modified_ms INTEGER NOT NULL,
-                content_hash TEXT NOT NULL,
-                total_cells INTEGER DEFAULT 0,
-                total_words INTEGER DEFAULT 0,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-            )
-        `);
+            // Sync metadata table
+            this.db!.run(`
+                CREATE TABLE IF NOT EXISTS sync_metadata (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT NOT NULL UNIQUE,
+                    file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
+                    content_hash TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    last_modified_ms INTEGER NOT NULL,
+                    last_synced_ms INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+                    git_commit_hash TEXT,
+                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+                )
+            `);
 
-        // Cells table - stores individual cells with content hashing
-        stepStart = this.trackProgress("Create cells table", stepStart);
-        this.db.run(`
-            CREATE TABLE IF NOT EXISTS cells (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cell_id TEXT NOT NULL,
-                file_id INTEGER NOT NULL,
-                cell_type TEXT NOT NULL CHECK(cell_type IN ('source', 'target')),
-                content TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                line_number INTEGER,
-                word_count INTEGER DEFAULT 0,
-                metadata TEXT, -- JSON field for flexible metadata
-                raw_content TEXT, -- Raw content with HTML tags
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
-                UNIQUE(cell_id, file_id, cell_type)
-            )
-        `);
+            // Files table
+            this.db!.run(`
+                CREATE TABLE IF NOT EXISTS files (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT NOT NULL UNIQUE,
+                    file_type TEXT NOT NULL CHECK(file_type IN ('source', 'codex')),
+                    last_modified_ms INTEGER NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    total_cells INTEGER DEFAULT 0,
+                    total_words INTEGER DEFAULT 0,
+                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+                )
+            `);
 
-        // Translation pairs table - links source and target cells
-        stepStart = this.trackProgress("Create translation pairs table", stepStart);
-        this.db.run(`
-            CREATE TABLE IF NOT EXISTS translation_pairs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_cell_id INTEGER NOT NULL,
-                target_cell_id INTEGER,
-                is_complete BOOLEAN DEFAULT 0,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (source_cell_id) REFERENCES cells(id) ON DELETE CASCADE,
-                FOREIGN KEY (target_cell_id) REFERENCES cells(id) ON DELETE SET NULL,
-                UNIQUE(source_cell_id, target_cell_id)
-            )
-        `);
+            // Cells table
+            this.db!.run(`
+                CREATE TABLE IF NOT EXISTS cells (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cell_id TEXT NOT NULL,
+                    file_id INTEGER NOT NULL,
+                    cell_type TEXT NOT NULL CHECK(cell_type IN ('source', 'target')),
+                    content TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    line_number INTEGER,
+                    word_count INTEGER DEFAULT 0,
+                    metadata TEXT,
+                    raw_content TEXT,
+                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+                    UNIQUE(cell_id, file_id, cell_type)
+                )
+            `);
 
-        // Words table - tracks word occurrences
-        stepStart = this.trackProgress("Create words table", stepStart);
-        this.db.run(`
-            CREATE TABLE IF NOT EXISTS words (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                word TEXT NOT NULL,
-                cell_id INTEGER NOT NULL,
-                position INTEGER NOT NULL,
-                frequency INTEGER DEFAULT 1,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-                FOREIGN KEY (cell_id) REFERENCES cells(id) ON DELETE CASCADE
-            )
-        `);
+            // Translation pairs table
+            this.db!.run(`
+                CREATE TABLE IF NOT EXISTS translation_pairs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source_cell_id INTEGER NOT NULL,
+                    target_cell_id INTEGER,
+                    is_complete BOOLEAN DEFAULT 0,
+                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    FOREIGN KEY (source_cell_id) REFERENCES cells(id) ON DELETE CASCADE,
+                    FOREIGN KEY (target_cell_id) REFERENCES cells(id) ON DELETE SET NULL,
+                    UNIQUE(source_cell_id, target_cell_id)
+                )
+            `);
 
-        // FTS5 virtual table for cell content search
-        stepStart = this.trackProgress("Create full-text search index", stepStart);
-        this.db.run(`
-            CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
-                cell_id,
-                content,
-                raw_content,
-                content_type,
-                tokenize='porter unicode61'
-            )
-        `); // NOTE: we might not be able to use the porter
+            // Words table
+            this.db!.run(`
+                CREATE TABLE IF NOT EXISTS words (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    word TEXT NOT NULL,
+                    cell_id INTEGER NOT NULL,
+                    position INTEGER NOT NULL,
+                    frequency INTEGER DEFAULT 1,
+                    created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+                    FOREIGN KEY (cell_id) REFERENCES cells(id) ON DELETE CASCADE
+                )
+            `);
 
-        // Create indexes for performance including sync metadata
-        stepStart = this.trackProgress("Create database indexes", stepStart);
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_cell_id ON cells(cell_id)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_content_hash ON cells(content_hash)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_cells_file_id ON cells(file_id)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)");
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id)");
-        this.db.run(
-            "CREATE INDEX IF NOT EXISTS idx_translation_pairs_source ON translation_pairs(source_cell_id)"
-        );
-        this.db.run(
-            "CREATE INDEX IF NOT EXISTS idx_translation_pairs_target ON translation_pairs(target_cell_id)"
-        );
-        this.db.run("CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path)");
+            console.log("[SQLiteIndex] Creating full-text search index...");
+            // FTS5 virtual table - defer this as it's expensive
+            this.db!.run(`
+                CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
+                    cell_id,
+                    content,
+                    raw_content,
+                    content_type,
+                    tokenize='porter unicode61'
+                )
+            `);
+        });
 
-        // Triggers to maintain updated_at timestamps
-        stepStart = this.trackProgress("Create database triggers", stepStart);
-        this.db.run(`
-            CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
-            AFTER UPDATE ON sync_metadata
-            BEGIN
-                UPDATE sync_metadata SET updated_at = strftime('%s', 'now') * 1000 
-                WHERE id = NEW.id;
-            END
-        `);
+        console.log("[SQLiteIndex] Creating database indexes (deferred)...");
+        // Create indexes in a separate optimized transaction
+        await this.runInTransaction(() => {
+            // Create essential indexes only - defer others until after data insertion
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_path ON sync_metadata(file_path)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_files_path ON files(file_path)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_file_id ON cells(file_id)");
+        });
 
-        this.db.run(`
-            CREATE TRIGGER IF NOT EXISTS update_files_timestamp 
-            AFTER UPDATE ON files
-            BEGIN
-                UPDATE files SET updated_at = strftime('%s', 'now') * 1000 
-                WHERE id = NEW.id;
-            END
-        `);
+        console.log("[SQLiteIndex] Creating database triggers...");
+        // Create triggers in batch
+        await this.runInTransaction(() => {
+            // Timestamp triggers
+            this.db!.run(`
+                CREATE TRIGGER IF NOT EXISTS update_sync_metadata_timestamp 
+                AFTER UPDATE ON sync_metadata
+                BEGIN
+                    UPDATE sync_metadata SET updated_at = strftime('%s', 'now') * 1000 
+                    WHERE id = NEW.id;
+                END
+            `);
 
-        this.db.run(`
-            CREATE TRIGGER IF NOT EXISTS update_cells_timestamp 
-            AFTER UPDATE ON cells
-            BEGIN
-                UPDATE cells SET updated_at = strftime('%s', 'now') * 1000 
-                WHERE id = NEW.id;
-            END
-        `);
+            this.db!.run(`
+                CREATE TRIGGER IF NOT EXISTS update_files_timestamp 
+                AFTER UPDATE ON files
+                BEGIN
+                    UPDATE files SET updated_at = strftime('%s', 'now') * 1000 
+                    WHERE id = NEW.id;
+                END
+            `);
 
-        // Trigger to sync FTS table
-        stepStart = this.trackProgress("Setup FTS synchronization", stepStart);
-        this.db.run(`
-            CREATE TRIGGER IF NOT EXISTS cells_fts_insert 
-            AFTER INSERT ON cells
-            BEGIN
-                INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
-                VALUES (NEW.cell_id, NEW.content, COALESCE(NEW.raw_content, NEW.content), NEW.cell_type);
-            END
-        `);
+            this.db!.run(`
+                CREATE TRIGGER IF NOT EXISTS update_cells_timestamp 
+                AFTER UPDATE ON cells
+                BEGIN
+                    UPDATE cells SET updated_at = strftime('%s', 'now') * 1000 
+                    WHERE id = NEW.id;
+                END
+            `);
 
-        this.db.run(`
-            CREATE TRIGGER IF NOT EXISTS cells_fts_update 
-            AFTER UPDATE OF content, raw_content ON cells
-            BEGIN
-                UPDATE cells_fts 
-                SET content = NEW.content, raw_content = COALESCE(NEW.raw_content, NEW.content)
-                WHERE cell_id = NEW.cell_id;
-            END
-        `);
+            // FTS synchronization triggers
+            this.db!.run(`
+                CREATE TRIGGER IF NOT EXISTS cells_fts_insert 
+                AFTER INSERT ON cells
+                BEGIN
+                    INSERT INTO cells_fts(cell_id, content, raw_content, content_type) 
+                    VALUES (NEW.cell_id, NEW.content, COALESCE(NEW.raw_content, NEW.content), NEW.cell_type);
+                END
+            `);
 
-        this.db.run(`
-            CREATE TRIGGER IF NOT EXISTS cells_fts_delete 
-            AFTER DELETE ON cells
-            BEGIN
-                DELETE FROM cells_fts WHERE cell_id = OLD.cell_id;
-            END
-        `);
+            this.db!.run(`
+                CREATE TRIGGER IF NOT EXISTS cells_fts_update 
+                AFTER UPDATE OF content, raw_content ON cells
+                BEGIN
+                    UPDATE cells_fts 
+                    SET content = NEW.content, raw_content = COALESCE(NEW.raw_content, NEW.content)
+                    WHERE cell_id = NEW.cell_id;
+                END
+            `);
 
-        this.trackProgress("Schema Creation Complete", schemaStart);
+            this.db!.run(`
+                CREATE TRIGGER IF NOT EXISTS cells_fts_delete 
+                AFTER DELETE ON cells
+                BEGIN
+                    DELETE FROM cells_fts WHERE cell_id = OLD.cell_id;
+                END
+            `);
+        });
+
+        // Restore normal database settings for production use (OUTSIDE of transaction)
+        console.log("[SQLiteIndex] Restoring production database settings...");
+        this.db.run("PRAGMA synchronous = NORMAL");      // Restore safe sync mode
+        this.db.run("PRAGMA journal_mode = WAL");        // Use WAL mode for better concurrency
+        this.db.run("PRAGMA foreign_keys = ON");         // Re-enable foreign key constraints
+        this.db.run("PRAGMA cache_size = -8000");        // Reasonable cache size (8MB)
+
+        const schemaEndTime = globalThis.performance.now();
+        const totalTime = schemaEndTime - schemaStart;
+        console.log(`[SQLiteIndex] Fast schema creation completed in ${totalTime.toFixed(2)}ms`);
+
+        // Single progress update at the end
+        this.trackProgress("Optimized Schema Creation Complete", schemaStart);
+    }
+
+    /**
+     * Create remaining indexes after data insertion for better performance
+     */
+    async createDeferredIndexes(): Promise<void> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        console.log("[SQLiteIndex] Creating deferred indexes for optimal performance...");
+        const indexStart = globalThis.performance.now();
+
+        await this.runInTransaction(() => {
+            // Create remaining indexes that benefit from having data first
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_hash ON sync_metadata(content_hash)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_sync_metadata_modified ON sync_metadata(last_modified_ms)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_cell_id ON cells(cell_id)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_content_hash ON cells(content_hash)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_cell_id ON words(cell_id)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_translation_pairs_source ON translation_pairs(source_cell_id)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_translation_pairs_target ON translation_pairs(target_cell_id)");
+        });
+
+        const indexEndTime = globalThis.performance.now();
+        console.log(`[SQLiteIndex] Deferred indexes created in ${(indexEndTime - indexStart).toFixed(2)}ms`);
     }
 
     private async ensureSchema(): Promise<void> {
@@ -1002,6 +1036,13 @@ export class SQLiteIndexManager {
         } finally {
             stmt.free();
         }
+    }
+
+    /**
+     * Get database instance for advanced operations (use with caution)
+     */
+    get database(): Database | null {
+        return this.db;
     }
 
     // Search with MiniSearch-compatible interface (minisearch was deprecated–thankfully. We're now using SQLite3 and FTS5.)
