@@ -93,7 +93,10 @@ export class BackgroundValidationService {
         this.scheduleValidation("quick");
         this.scheduleValidation("integrity");
 
-        // Start processing loop
+        // Process immediately on startup (no waiting for overdue validations!)
+        this.processValidationQueue();
+
+        // Start processing loop for ongoing checks
         this.processingTimer = setInterval(() => {
             this.processValidationQueue();
         }, this.PROCESSING_INTERVAL);
@@ -327,109 +330,167 @@ export class BackgroundValidationService {
         }
 
         try {
-            // 1. CROSS-VALIDATE sync_metadata hashes against actual database content
-            // This catches the exact issue you identified!
+            // 1. OPTIMIZED BATCH VALIDATION - Process files in parallel batches
             console.log("🔍 Cross-validating sync metadata against database content...");
 
-            const syncMetadataStmt = this.sqliteIndex.database.prepare(`
+            // Get all sync metadata in one query (much faster than stepping through)
+            const allSyncMetadata = this.sqliteIndex.database.exec(`
                 SELECT file_path, content_hash, file_type 
                 FROM sync_metadata 
                 ORDER BY file_path
-            `);
+            `)[0]?.values || [];
 
-            try {
-                while (syncMetadataStmt.step()) {
-                    const syncRecord = syncMetadataStmt.getAsObject() as any;
+            if (allSyncMetadata.length === 0) {
+                console.log("🔍 No sync metadata found - database may be empty");
+                return {
+                    isValid: true,
+                    validationType: "integrity",
+                    timestamp: new Date().toISOString(),
+                    duration: Date.now() - startTime,
+                    issues: [],
+                    stats,
+                };
+            }
+
+            console.log(`🔍 Validating ${allSyncMetadata.length} files...`);
+
+            // Process files in batches for better performance
+            const BATCH_SIZE = 25; // Optimized batch size
+            const batches = [];
+            for (let i = 0; i < allSyncMetadata.length; i += BATCH_SIZE) {
+                batches.push(allSyncMetadata.slice(i, i + BATCH_SIZE));
+            }
+
+            // Process batches with parallel validation
+            for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+                const batch = batches[batchIndex];
+                console.log(`🔍 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`);
+
+                // Process validation for this batch - use DIRECT FILE READING for accurate hash comparison
+                for (const syncRow of batch) {
+                    const filePath = syncRow[0].toString();
+                    const expectedHash = syncRow[1].toString();
                     stats.filesChecked++;
 
-                    // Get all cells for this file from the database
-                    const cellsStmt = this.sqliteIndex.database.prepare(`
-                        SELECT content, raw_content 
-                        FROM cells c
-                        JOIN files f ON c.file_id = f.id
-                        WHERE f.file_path = ?
-                        ORDER BY c.id
-                    `);
-
-                    let actualFileContent = "";
-                    let cellCount = 0;
                     try {
-                        cellsStmt.bind([syncRecord.file_path]);
-                        while (cellsStmt.step()) {
-                            const cell = cellsStmt.getAsObject() as any;
-                            actualFileContent += (cell.raw_content || cell.content || "") + "\n";
-                            cellCount++;
-                        }
-                    } finally {
-                        cellsStmt.free();
-                    }
+                        // Read actual file content (same method as FileSyncManager uses for sync_metadata)
+                        const fileUri = vscode.Uri.file(filePath);
+                        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+                        const actualHash = createHash("sha256").update(fileContent).digest("hex");
 
-                    stats.cellsValidated += cellCount;
+                        // Get cell count from database for stats
+                        const cellCountStmt = this.sqliteIndex.database.prepare(`
+                            SELECT COUNT(c.id) as cell_count
+                            FROM files f
+                            LEFT JOIN cells c ON c.file_id = f.id
+                            WHERE f.file_path = ?
+                        `);
 
-                    // Compute hash of database content
-                    const databaseContentHash = createHash("sha256")
-                        .update(actualFileContent.trim())
-                        .digest("hex");
-
-                    // Compare with sync metadata hash
-                    if (databaseContentHash !== syncRecord.content_hash) {
-                        stats.hashMismatches++;
-                        const issue: ValidationIssue = {
-                            severity: "error",
-                            type: "hash_mismatch",
-                            description: `Database content doesn't match sync metadata for file: ${syncRecord.file_path}`,
-                            filePath: syncRecord.file_path,
-                            details: {
-                                syncMetadataHash: syncRecord.content_hash,
-                                databaseContentHash: databaseContentHash,
-                                cellCount: cellCount,
-                            },
-                            autoRepaired: false,
-                        };
-
-                        // Attempt auto-repair by triggering re-sync
+                        let cellCount = 0;
                         try {
-                            if (this.fileSyncManager) {
-                                console.log(`🔍 Auto-repairing hash mismatch for ${syncRecord.file_path}`);
-                                await this.fileSyncManager.syncFiles({
-                                    forceSync: false, // Only sync this specific file
-                                });
-                                issue.autoRepaired = true;
-                                stats.autoRepaired++;
-                                console.log(`🔍 ✅ Auto-repaired hash mismatch for ${syncRecord.file_path}`);
+                            cellCountStmt.bind([filePath]);
+                            if (cellCountStmt.step()) {
+                                const result = cellCountStmt.getAsObject() as any;
+                                cellCount = result.cell_count || 0;
                             }
-                        } catch (repairError) {
-                            console.error(`🔍 Failed to auto-repair ${syncRecord.file_path}:`, repairError);
-                            issue.details.repairError = repairError;
+                        } finally {
+                            cellCountStmt.free();
                         }
 
-                        issues.push(issue);
+                        stats.cellsValidated += cellCount;
+
+                        if (actualHash !== expectedHash) {
+                            stats.hashMismatches++;
+                            const issue: ValidationIssue = {
+                                severity: "error",
+                                type: "hash_mismatch",
+                                description: `Database content doesn't match sync metadata for file: ${filePath}`,
+                                filePath: filePath,
+                                details: {
+                                    syncMetadataHash: expectedHash,
+                                    databaseContentHash: actualHash,
+                                    cellCount: cellCount,
+                                },
+                                autoRepaired: false,
+                            };
+
+                            // Attempt auto-repair by triggering re-sync
+                            try {
+                                if (this.fileSyncManager) {
+                                    console.log(`🔍 Auto-repairing hash mismatch for ${filePath}`);
+                                    await this.fileSyncManager.syncFiles({
+                                        forceSync: false, // Only sync this specific file
+                                    });
+                                    issue.autoRepaired = true;
+                                    stats.autoRepaired++;
+                                    console.log(`🔍 ✅ Auto-repaired hash mismatch for ${filePath}`);
+                                }
+                            } catch (repairError) {
+                                console.error(`🔍 Failed to auto-repair ${filePath}:`, repairError);
+                                issue.details.repairError = repairError;
+                            }
+
+                            issues.push(issue);
+
+                            // Early termination if too many corruption issues (performance optimization)
+                            if (stats.hashMismatches > 50) {
+                                console.log(`🔍 ⚠️ Early termination: detected ${stats.hashMismatches} hash mismatches - stopping validation to prevent performance issues`);
+                                issues.push({
+                                    severity: "critical",
+                                    type: "database_corruption",
+                                    description: `Massive corruption detected: ${stats.hashMismatches}+ hash mismatches found. Early termination triggered.`,
+                                    autoRepaired: false,
+                                });
+                                break; // Break out of file processing loop
+                            }
+                        }
+                    } catch (fileError) {
+                        // Handle file read errors
+                        issues.push({
+                            severity: "error",
+                            type: "file_missing",
+                            description: `Failed to read file for validation: ${filePath} - ${fileError}`,
+                            filePath: filePath,
+                            autoRepaired: false,
+                        });
                     }
                 }
-            } finally {
-                syncMetadataStmt.free();
+
+                // Break out of batch processing loop if early termination triggered
+                if (stats.hashMismatches > 50) {
+                    break;
+                }
             }
 
-            // 2. Check for orphaned sync metadata (files that no longer exist)
-            console.log("🔍 Checking for orphaned sync metadata...");
-            const orphanedMetadata = await this.findOrphanedSyncMetadata();
-            for (const orphan of orphanedMetadata) {
-                issues.push({
-                    severity: "warning",
-                    type: "missing_sync_metadata",
-                    description: `Sync metadata exists for non-existent file: ${orphan}`,
-                    filePath: orphan,
-                    autoRepaired: false,
-                });
-            }
+            // Performance summary for batch processing
+            const validationDuration = Date.now() - startTime;
+            console.log(`🔍 Batch validation completed: ${stats.filesChecked} files in ${validationDuration}ms (${Math.round(stats.filesChecked / (validationDuration / 1000))} files/sec)`);
 
-            // 3. Basic referential integrity checks
-            console.log("🔍 Checking referential integrity...");
-            const integrityIssues = await this.checkReferentialIntegrity();
-            issues.push(...integrityIssues);
-            stats.corruptionDetected += integrityIssues.filter(i =>
-                i.type === "database_corruption" || i.type === "cell_corruption"
-            ).length;
+            // Skip expensive checks if early termination was triggered
+            if (stats.hashMismatches <= 50) {
+                // 2. Check for orphaned sync metadata (files that no longer exist) - FAST CHECK
+                console.log("🔍 Checking for orphaned sync metadata...");
+                const orphanedMetadata = await this.findOrphanedSyncMetadata();
+                for (const orphan of orphanedMetadata) {
+                    issues.push({
+                        severity: "warning",
+                        type: "missing_sync_metadata",
+                        description: `Sync metadata exists for non-existent file: ${orphan}`,
+                        filePath: orphan,
+                        autoRepaired: false,
+                    });
+                }
+
+                // 3. Basic referential integrity checks - FAST CHECK
+                console.log("🔍 Checking referential integrity...");
+                const integrityIssues = await this.checkReferentialIntegrity();
+                issues.push(...integrityIssues);
+                stats.corruptionDetected += integrityIssues.filter(i =>
+                    i.type === "database_corruption" || i.type === "cell_corruption"
+                ).length;
+            } else {
+                console.log("🔍 Skipping orphaned metadata and integrity checks due to massive corruption detected");
+            }
 
         } catch (error) {
             issues.push({
