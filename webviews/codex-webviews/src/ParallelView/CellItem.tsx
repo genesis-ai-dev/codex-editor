@@ -69,7 +69,7 @@ const CellItem: React.FC<CellItemProps> = ({ item, onUriClick, isPinned, onPinTo
             <div className="space-y-4">
                 <div>
                     <div className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wider">
-                        Bource Text
+                        Source Text
                     </div>
                     <p className="text-sm leading-relaxed text-gray-900 dark:text-white mb-3">
                         {item.sourceCell.content}
