@@ -337,6 +337,12 @@ export function searchTranslationPairs(
                 : targetResult.targetContent
         ) : "";
 
+        // Additional check: if we're not including incomplete pairs, ensure we have both source and target content
+        if (!includeIncomplete && (!sourceContent.trim() || !targetContent.trim())) {
+            console.log(`[searchTranslationPairs] Skipping ${cellId} - incomplete translation pair (source: ${!!sourceContent.trim()}, target: ${!!targetContent.trim()})`);
+            continue;
+        }
+
         const uri = sourceResult?.uri || targetResult?.uri || "";
         const line = sourceResult?.line || targetResult?.line || 0;
         const notebookId = sourceResult?.notebookId || targetResult?.notebookId || "";

@@ -64,8 +64,18 @@ export async function llmCompletion(
             numberOfFewShotExamples
         );
 
+        console.log(`[llmCompletion] Found ${similarSourceCells.length} similar source cells with complete translation pairs`);
+
         if (!similarSourceCells || similarSourceCells.length === 0) {
+            console.warn(`[llmCompletion] No complete translation pairs found for source content: "${sourceContent?.substring(0, 100)}..."`);
             showNoResultsWarning();
+        } else {
+            // Log the found translation pairs for debugging
+            similarSourceCells.forEach((pair, index) => {
+                console.log(`[llmCompletion] Similar cell ${index + 1}: ${pair.cellId}`);
+                console.log(`  Source: ${pair.sourceCell.content?.substring(0, 100) || "(empty)"}...`);
+                console.log(`  Target: ${pair.targetCell.content?.substring(0, 100) || "(empty)"}...`);
+            });
         }
 
         // Let's correct the retrieval by filtering any results that have no overlapping

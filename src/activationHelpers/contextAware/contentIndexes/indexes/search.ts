@@ -211,26 +211,33 @@ export async function getTranslationPairsFromSourceCellQuery(
 
         // For SQLite results, we might already have the translation pair data
         if (searchResult.sourceContent && searchResult.targetContent !== undefined) {
-            translationPairs.push({
-                cellId: cellId,
-                sourceCell: {
+            // Only include if we have both source AND target content
+            if (searchResult.sourceContent.trim() && searchResult.targetContent.trim()) {
+                translationPairs.push({
                     cellId: cellId,
-                    content: searchResult.sourceContent || searchResult.content || "",
-                    uri: searchResult.uri || "",
-                    line: searchResult.line || 0,
-                },
-                targetCell: {
-                    cellId: cellId,
-                    content: searchResult.targetContent || "",
-                    uri: searchResult.uri || "",
-                    line: searchResult.line || 0,
-                }
-            });
+                    sourceCell: {
+                        cellId: cellId,
+                        content: searchResult.sourceContent || searchResult.content || "",
+                        uri: searchResult.uri || "",
+                        line: searchResult.line || 0,
+                    },
+                    targetCell: {
+                        cellId: cellId,
+                        content: searchResult.targetContent || "",
+                        uri: searchResult.uri || "",
+                        line: searchResult.line || 0,
+                    }
+                });
+            }
         } else {
             // Otherwise, fetch the complete translation pair
             const translationPair = await translationPairsIndex.getTranslationPair(cellId);
 
-            if (translationPair) {
+            // Only include if we have BOTH source and target content
+            if (translationPair &&
+                translationPair.sourceContent.trim() &&
+                translationPair.targetContent.trim()) {
+
                 translationPairs.push({
                     cellId: cellId,
                     sourceCell: {
@@ -246,6 +253,8 @@ export async function getTranslationPairsFromSourceCellQuery(
                         line: translationPair.line || searchResult.line || 0,
                     }
                 });
+            } else {
+                console.log(`[getTranslationPairsFromSourceCellQuery] Skipping ${cellId} - incomplete translation pair (source: ${!!translationPair?.sourceContent}, target: ${!!translationPair?.targetContent})`);
             }
         }
 
@@ -253,7 +262,7 @@ export async function getTranslationPairsFromSourceCellQuery(
         if (translationPairs.length >= k) break;
     }
 
-    console.log(`[getTranslationPairsFromSourceCellQuery] Returning ${translationPairs.length} complete translation pairs`);
+    console.log(`[getTranslationPairsFromSourceCellQuery] Returning ${translationPairs.length} complete translation pairs (filtered out incomplete pairs)`);
     return translationPairs;
 }
 
