@@ -572,7 +572,10 @@ export class SQLiteIndexManager {
     ): Promise<number> {
         if (!this.db) throw new Error("Database not initialized");
 
-        const contentHash = this.computeContentHash(filePath + lastModifiedMs);
+        // Read file content to compute hash
+        const fileUri = vscode.Uri.file(filePath);
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const contentHash = this.computeContentHash(fileContent.toString());
 
         const stmt = this.db.prepare(`
             INSERT INTO files (file_path, file_type, last_modified_ms, content_hash)
