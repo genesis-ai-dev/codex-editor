@@ -6,27 +6,6 @@ import { createNoteBookPair } from "./codexFIleCreateUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { NotebookPreview } from "@types";
 
-// Helper function to close open files if they exist
-async function closeFileIfOpen(uri: vscode.Uri): Promise<void> {
-    try {
-        // Get all visible editors
-        const visibleEditors = vscode.window.visibleTextEditors;
-
-        // Look for editors with matching file system paths
-        for (const editor of visibleEditors) {
-            if (editor.document.uri.fsPath === uri.fsPath) {
-                // Found the editor we want to close
-                await vscode.window.showTextDocument(editor.document, editor.viewColumn);
-                await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-                break;
-            }
-        }
-    } catch (error) {
-        console.warn(`Failed to close file ${uri.fsPath}:`, error);
-        // Don't throw - just log the warning and continue
-    }
-}
-
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
 
