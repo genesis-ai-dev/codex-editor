@@ -1,5 +1,4 @@
 import {
-    WorkflowState,
     ImportProgress,
     ProcessedNotebook,
     ProcessedCell,
@@ -12,20 +11,47 @@ import {
 export const createProgress = (
     stage: string,
     message: string,
-    status: WorkflowState,
     progress?: number
 ): ImportProgress => ({
     stage,
     message,
-    status,
     progress,
 });
 
+// Removed deprecated generateCellId - plugins should handle their own ID generation
+
 /**
- * Generates a unique cell ID
+ * Creates a standardized cell ID following the format: {documentId} {sectionId}:{cellId}
  */
-export const generateCellId = (prefix: string, index: number): string => {
-    return `${prefix}-${Date.now()}-${index}`;
+export const createStandardCellId = (
+    documentName: string,
+    sectionId: number,
+    cellId: number
+): string => {
+    const cleanDocName = documentName
+        .replace(/\.[^/.]+$/, '') // Remove extension
+        .replace(/\s+/g, '') // Remove spaces
+        .replace(/[^a-zA-Z0-9-_]/g, ''); // Remove special characters except hyphens and underscores
+
+    return `${cleanDocName} ${sectionId}:${cellId}`;
+};
+
+/**
+ * Parses a standard cell ID back into its components
+ */
+export const parseStandardCellId = (cellId: string): {
+    documentId: string;
+    sectionId: number;
+    cellId: number;
+} | null => {
+    const match = cellId.match(/^(.+)\s(\d+):(\d+)$/);
+    if (!match) return null;
+
+    return {
+        documentId: match[1],
+        sectionId: parseInt(match[2], 10),
+        cellId: parseInt(match[3], 10),
+    };
 };
 
 /**
@@ -42,80 +68,8 @@ export const createProcessedCell = (
     metadata,
 });
 
-/**
- * Creates a source notebook from processed cells
- */
-export const createSourceNotebook = (
-    fileName: string,
-    cells: ProcessedCell[],
-    importerType: string,
-    additionalMetadata?: Record<string, any>
-): ProcessedNotebook => {
-    const baseName = fileName.replace(/\.[^/.]+$/, ''); // Remove extension
-
-    return {
-        name: `${baseName}.source`,
-        cells,
-        metadata: {
-            id: `source-${Date.now()}`,
-            originalFileName: fileName,
-            importerType,
-            createdAt: new Date().toISOString(),
-            ...additionalMetadata,
-        },
-    };
-};
-
-/**
- * Creates a codex notebook from source cells (empty for translation, preserving images)
- */
-export const createCodexNotebook = (
-    sourceNotebook: ProcessedNotebook
-): ProcessedNotebook => {
-    const codexCells = sourceNotebook.cells.map(sourceCell => ({
-        id: sourceCell.id,
-        content: sourceCell.images.length > 0
-            ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
-            : '', // Empty for translation, preserve images
-        images: sourceCell.images, // Keep images in codex
-        metadata: sourceCell.metadata,
-    }));
-
-    const baseName = sourceNotebook.metadata.originalFileName.replace(/\.[^/.]+$/, '');
-
-    return {
-        name: `${baseName}.codex`,
-        cells: codexCells,
-        metadata: {
-            ...sourceNotebook.metadata,
-            id: `codex-${Date.now()}`,
-        },
-    };
-};
-
-/**
- * Creates a complete notebook pair from source cells
- */
-export const createNotebookPair = (
-    fileName: string,
-    cells: ProcessedCell[],
-    importerType: string,
-    additionalMetadata?: Record<string, any>
-): NotebookPair => {
-    const sourceNotebook = createSourceNotebook(
-        fileName,
-        cells,
-        importerType,
-        additionalMetadata
-    );
-
-    const codexNotebook = createCodexNotebook(sourceNotebook);
-
-    return {
-        source: sourceNotebook,
-        codex: codexNotebook,
-    };
-};
+// Removed createSourceNotebook, createCodexNotebook, createNotebookPair
+// These functions are now implemented directly in each plugin for better modularity
 
 /**
  * Validates file extension against supported extensions

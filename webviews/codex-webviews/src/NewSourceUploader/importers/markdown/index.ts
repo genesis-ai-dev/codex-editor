@@ -6,13 +6,14 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    generateCellId,
+    createStandardCellId,
     createProcessedCell,
     createNotebookPair,
     validateFileExtension,
     splitContentIntoSegments,
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
+import { marked } from 'marked';
 
 const SUPPORTED_EXTENSIONS = ['md', 'markdown'];
 
@@ -31,6 +32,33 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
     // Check file size (warn if > 10MB)
     if (file.size > 10 * 1024 * 1024) {
         warnings.push('Large markdown files may take longer to process');
+    }
+
+    // Basic content validation
+    try {
+        const content = await file.text();
+
+        if (content.trim().length === 0) {
+            errors.push('File appears to be empty');
+        }
+
+        // Check for markdown characteristics
+        const hasMarkdownSyntax = /#{1,6}\s/.test(content) ||
+            /\*\*.*?\*\*/.test(content) ||
+            /\*.*?\*/.test(content) ||
+            /\[.*?\]\(.*?\)/.test(content);
+
+        if (!hasMarkdownSyntax) {
+            warnings.push('File does not appear to contain markdown syntax - consider using plaintext importer');
+        }
+
+        // Check for potential USFM content
+        if (content.includes('\\v ') || content.includes('\\c ')) {
+            warnings.push('File appears to contain USFM markers - consider using USFM importer instead');
+        }
+
+    } catch (error) {
+        errors.push('Could not read file content');
     }
 
     return {
@@ -57,29 +85,56 @@ const parseFile = async (
 
         const text = await file.text();
 
-        onProgress?.(createProgress('Parsing Markdown', 'Parsing Markdown structure...', 'processing', 50));
+        onProgress?.(createProgress('Parsing Markdown', 'Parsing Markdown structure...', 'processing', 30));
+
+        // Configure marked for consistent parsing
+        marked.setOptions({
+            gfm: true, // GitHub Flavored Markdown
+            breaks: false,
+        });
 
         // Split markdown into sections (by headers or double line breaks)
         const segments = splitContentIntoSegments(text, 'sections');
 
-        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 'processing', 80));
+        if (segments.length === 0) {
+            throw new Error('No content segments could be extracted from the markdown file');
+        }
+
+        onProgress?.(createProgress('Converting to HTML', 'Converting markdown to HTML...', 'processing', 60));
 
         // Convert each segment to a cell
         const cells = await Promise.all(
             segments.map(async (segment, index) => {
-                const cellId = generateCellId('markdown', index);
+                const cellId = createStandardCellId(file.name, 1, index + 1);
 
-                // Convert markdown to HTML (placeholder - would use a real markdown parser)
-                const htmlContent = convertMarkdownToHtml(segment);
-                const cell = createProcessedCell(cellId, htmlContent);
+                // Convert markdown to HTML using marked library
+                const htmlContent = await marked.parse(segment);
 
-                // Extract images from markdown/HTML
+                // Create cell with metadata about the segment
+                const cell = createProcessedCell(cellId, htmlContent, {
+                    type: 'markdown',
+                    segmentIndex: index,
+                    originalMarkdown: segment,
+                    // Detect if this segment has a heading
+                    hasHeading: /^#{1,6}\s/.test(segment.trimStart()),
+                    // Extract heading text if present
+                    headingText: segment.match(/^#{1,6}\s(.*)$/m)?.[1],
+                });
+
+                // Extract images from the converted HTML
                 const images = await extractImagesFromHtml(htmlContent);
                 cell.images = images;
 
                 return cell;
             })
         );
+
+        onProgress?.(createProgress('Creating Notebooks', 'Creating notebook pair...', 'processing', 85));
+
+        // Analyze content for metadata
+        const headingCount = cells.filter(cell => cell.metadata?.hasHeading).length;
+        const imageCount = cells.reduce((count, cell) => count + cell.images.length, 0);
+        const wordCount = segments.join(' ').split(/\s+/).filter(w => w.length > 0).length;
 
         // Create notebook pair
         const notebookPair = createNotebookPair(
@@ -88,6 +143,16 @@ const parseFile = async (
             'markdown',
             {
                 segmentCount: segments.length,
+                headingCount,
+                imageCount,
+                wordCount,
+                features: {
+                    hasImages: imageCount > 0,
+                    hasHeadings: headingCount > 0,
+                    hasTables: text.includes('|'),
+                    hasCodeBlocks: text.includes('```'),
+                    hasLinks: /\[.*?\]\(.*?\)/.test(text),
+                },
             }
         );
 
@@ -98,7 +163,17 @@ const parseFile = async (
             notebookPair,
             metadata: {
                 segmentCount: cells.length,
-                imageCount: cells.reduce((count, cell) => count + cell.images.length, 0),
+                headingCount,
+                imageCount,
+                wordCount,
+                fileSize: file.size,
+                features: {
+                    hasImages: imageCount > 0,
+                    hasHeadings: headingCount > 0,
+                    hasTables: text.includes('|'),
+                    hasCodeBlocks: text.includes('```'),
+                    hasLinks: /\[.*?\]\(.*?\)/.test(text),
+                },
             },
         };
 
@@ -112,25 +187,7 @@ const parseFile = async (
     }
 };
 
-/**
- * Simple markdown to HTML converter (placeholder)
- * In a real implementation, you'd use a library like marked or remark
- */
-const convertMarkdownToHtml = (markdown: string): string => {
-    return markdown
-        .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-        .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-        .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/!\[(.*?)\]\((.*?)\)/g, '<img alt="$1" src="$2" />')
-        .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>')
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/^(.+)$/gm, '<p>$1</p>')
-        .replace(/<p><\/p>/g, '')
-        .replace(/<p><h([1-6])>/g, '<h$1>')
-        .replace(/<\/h([1-6])><\/p>/g, '</h$1>');
-};
+
 
 /**
  * Markdown Importer Plugin

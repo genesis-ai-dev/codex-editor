@@ -1,5 +1,3 @@
-export type WorkflowState = 'idle' | 'validating' | 'parsing' | 'processing' | 'complete' | 'error';
-
 export interface ProcessedImage {
     src: string;
     alt?: string;
@@ -36,7 +34,6 @@ export interface NotebookPair {
 export interface ImportProgress {
     stage: string;
     message: string;
-    status: WorkflowState;
     progress?: number; // 0-100
 }
 
@@ -49,6 +46,7 @@ export interface ImportResult {
 }
 
 export interface FileValidationResult {
+    // FIXME: this has to go - we want to handle this in the 'routes'
     isValid: boolean;
     fileType?: string;
     errors: string[];
@@ -61,6 +59,7 @@ export interface ImporterPlugin {
     // Metadata about the plugin
     name: string;
     supportedExtensions: string[];
+    supportedMimeTypes: string[];
     description: string;
 
     // Core functions

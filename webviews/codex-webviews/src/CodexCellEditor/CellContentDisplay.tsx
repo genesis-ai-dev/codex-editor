@@ -431,7 +431,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
     const getBackgroundColor = () => {
         if (highlightedCellId === cellIds[0] && scrollSyncEnabled) {
-            return "rgba(255, 255, 255, 0.1)";
+            return "var(--vscode-editor-selectionBackground)";
+        }
+        return "transparent";
+    };
+
+    const getBorderColor = () => {
+        if (highlightedCellId === cellIds[0] && scrollSyncEnabled) {
+            return "var(--vscode-editor-selectionHighlightBorder)";
         }
         return "transparent";
     };
@@ -497,9 +504,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     return (
         <div
             ref={cellRef}
-            className={`cell-content-display ${
-                highlightedCellId === cellIds[0] ? "highlighted-cell" : ""
-            } ${getAnimationClassName()}`}
+            className={`cell-content-display ${getAnimationClassName()}`}
             style={{
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,

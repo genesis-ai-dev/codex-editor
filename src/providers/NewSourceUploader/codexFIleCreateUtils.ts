@@ -49,7 +49,7 @@ export async function createNoteBookPair({
     token?: vscode.CancellationToken;
     sourceNotebooks: NotebookPreview[];
     codexNotebooks: NotebookPreview[];
-}): Promise<Array<{ sourceUri: vscode.Uri; codexUri: vscode.Uri; notebook: NotebookPreview }>> {
+}): Promise<Array<{ sourceUri: vscode.Uri; codexUri: vscode.Uri; notebook: NotebookPreview; }>> {
     const notebookResults: Array<{
         sourceUri: vscode.Uri;
         codexUri: vscode.Uri;
@@ -71,7 +71,7 @@ export async function createNoteBookPair({
             throw new Error("Notebook name is required");
         }
 
-        // Create final URIs
+        // Create final URIs (notebook names should be base names without extensions)
         const sourceUri = vscode.Uri.joinPath(
             workspaceFolder.uri,
             ".project",
