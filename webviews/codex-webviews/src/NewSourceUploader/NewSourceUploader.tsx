@@ -109,8 +109,9 @@ const NewSourceUploader: React.FC = () => {
             id: "obs",
             label: "Open Bible Stories",
             icon: "book-open",
-            description: "Import Open Bible Stories content",
-            extensions: ["json", "md"],
+            description:
+                "Import Open Bible Stories markdown files with images and story structure from unfoldingWord",
+            extensions: ["md", "zip"],
             enabled: false,
         },
         {
@@ -273,12 +274,168 @@ const NewSourceUploader: React.FC = () => {
     const handleButtonClick = (button: FileImportButton) => {
         if (!button.enabled) return;
 
+        // Special handling for OBS repository download
+        if (button.id === "obs") {
+            // Show options: Upload File or Download from Repository
+            handleObsImportOptions();
+            return;
+        }
+
         // Create a file input for the specific extensions
         const input = document.createElement("input");
         input.type = "file";
         input.accept = button.extensions.map((ext) => `.${ext}`).join(",");
-        input.onchange = handleFileSelect;
+        input.addEventListener("change", (e) => {
+            const target = e.target as HTMLInputElement;
+            if (target.files && target.files[0]) {
+                const syntheticEvent = {
+                    target: { files: target.files },
+                    currentTarget: target,
+                } as any;
+                handleFileSelect(syntheticEvent);
+            }
+        });
         input.click();
+    };
+
+    const handleObsImportOptions = () => {
+        // Create a modal-like selection for OBS import options
+        const optionContainer = document.createElement("div");
+        optionContainer.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        `;
+
+        const optionDialog = document.createElement("div");
+        optionDialog.style.cssText = `
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 4px;
+            padding: 20px;
+            max-width: 400px;
+            width: 90%;
+        `;
+
+        optionDialog.innerHTML = `
+            <h3 style="margin: 0 0 16px 0; color: var(--vscode-editor-foreground);">
+                Open Bible Stories Import Options
+            </h3>
+            <p style="margin: 0 0 20px 0; color: var(--vscode-descriptionForeground); font-size: 14px;">
+                Choose how you want to import Open Bible Stories content:
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <button id="obs-upload-file" style="
+                    padding: 12px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    text-align: left;
+                ">
+                    <strong>📁 Upload File</strong><br>
+                    <small>Upload individual .md story files</small>
+                </button>
+                <button id="obs-download-repo" style="
+                    padding: 12px;
+                    background: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    text-align: left;
+                ">
+                    <strong>🌐 Download from Repository</strong><br>
+                    <small>Download all 50 stories from git.door43.org</small>
+                </button>
+                <button id="obs-cancel" style="
+                    padding: 8px 12px;
+                    background: transparent;
+                    color: var(--vscode-button-foreground);
+                    border: 1px solid var(--vscode-widget-border);
+                    border-radius: 4px;
+                    cursor: pointer;
+                ">
+                    Cancel
+                </button>
+            </div>
+        `;
+
+        optionContainer.appendChild(optionDialog);
+        document.body.appendChild(optionContainer);
+
+        // Handle button clicks
+        document.getElementById("obs-upload-file")?.addEventListener("click", () => {
+            document.body.removeChild(optionContainer);
+            // Trigger file upload
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".md,.zip";
+            input.addEventListener("change", (e) => {
+                const target = e.target as HTMLInputElement;
+                if (target.files && target.files[0]) {
+                    const syntheticEvent = {
+                        target: { files: target.files },
+                        currentTarget: target,
+                    } as any;
+                    handleFileSelect(syntheticEvent);
+                }
+            });
+            input.click();
+        });
+
+        document.getElementById("obs-download-repo")?.addEventListener("click", () => {
+            document.body.removeChild(optionContainer);
+            // Trigger repository download by creating a special file object
+            handleObsRepositoryDownload();
+        });
+
+        document.getElementById("obs-cancel")?.addEventListener("click", () => {
+            document.body.removeChild(optionContainer);
+        });
+
+        // Close on outside click
+        optionContainer.addEventListener("click", (e) => {
+            if (e.target === optionContainer) {
+                document.body.removeChild(optionContainer);
+            }
+        });
+    };
+
+    const handleObsRepositoryDownload = () => {
+        // Create a special file object to indicate repository download
+        const repositoryFile = new File(["repository-download"], "obs-repository-download.md", {
+            type: "text/markdown",
+        });
+
+        // Find the OBS importer
+        const obsImporter = getImporterByExtension("obs-repository-download.md");
+        if (!obsImporter) {
+            setUploadState((prev) => ({
+                ...prev,
+                error: "OBS importer not available",
+                workflowState: "error",
+            }));
+            return;
+        }
+
+        setUploadState((prev) => ({
+            ...prev,
+            selectedFile: repositoryFile,
+            currentImporter: obsImporter,
+            result: null,
+            error: null,
+            progress: [],
+            workflowState: "idle",
+        }));
     };
 
     const formatFileSize = (bytes: number): string => {
@@ -470,7 +627,11 @@ const NewSourceUploader: React.FC = () => {
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center justify-between">
-                            <span>Selected File</span>
+                            <span>
+                                {uploadState.selectedFile.name === "obs-repository-download.md"
+                                    ? "Repository Download"
+                                    : "Selected File"}
+                            </span>
                             <Badge variant="outline">
                                 {uploadState.currentImporter?.name || "Unknown"}
                             </Badge>
@@ -478,11 +639,23 @@ const NewSourceUploader: React.FC = () => {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="flex items-center gap-4 p-4 rounded-lg border bg-muted/50">
-                            <FileText className="h-8 w-8 text-muted-foreground" />
+                            {uploadState.selectedFile.name === "obs-repository-download.md" ? (
+                                <div className="h-8 w-8 text-muted-foreground flex items-center justify-center">
+                                    🌐
+                                </div>
+                            ) : (
+                                <FileText className="h-8 w-8 text-muted-foreground" />
+                            )}
                             <div className="flex-1 space-y-1">
-                                <p className="font-medium">{uploadState.selectedFile.name}</p>
+                                <p className="font-medium">
+                                    {uploadState.selectedFile.name === "obs-repository-download.md"
+                                        ? "Open Bible Stories - Complete Repository"
+                                        : uploadState.selectedFile.name}
+                                </p>
                                 <p className="text-sm text-muted-foreground">
-                                    {formatFileSize(uploadState.selectedFile.size)}
+                                    {uploadState.selectedFile.name === "obs-repository-download.md"
+                                        ? "All 50 stories from git.door43.org"
+                                        : formatFileSize(uploadState.selectedFile.size)}
                                 </p>
                             </div>
                             <div className="flex gap-2">

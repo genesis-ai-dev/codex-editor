@@ -19,9 +19,9 @@ export interface NewSourceUploaderPostMessages {
     command: "uploadFile" | "getProgress" | "reset";
     fileData?: {
         name: string;
-        content: ArrayBuffer;
-        htmlContent: string[];
-        type: string;
+        importerType: string;
+        notebookPair: any; // Will be typed properly when integrated with backend
+        metadata?: any;
     };
 }
 

@@ -2,6 +2,7 @@ import { ImporterPlugin, ImporterRegistry } from '../types/common';
 import { docxImporter } from './docx';
 // import { markdownImporter } from './markdown';
 // import { ebibleCorpusImporter } from './ebibleCorpus';
+import { obsImporter } from './obs';
 
 /**
  * Registry of all available importers
@@ -10,6 +11,7 @@ export const importerRegistry: ImporterRegistry = {
     docx: docxImporter,
     // markdown: markdownImporter,
     // ebibleCorpus: ebibleCorpusImporter,
+    obs: obsImporter,
 };
 
 /**

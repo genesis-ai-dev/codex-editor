@@ -75,7 +75,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         switch (message.command) {
             case "uploadFile":
                 if (message.fileData) {
-                    await this.handleDocxUpload(message.fileData, webviewPanel, token);
+                    await this.handlePluginUpload(message.fileData, webviewPanel, token);
                 }
                 break;
             case "reset":
@@ -93,15 +93,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
     }
 
-    private async handleDocxUpload(
+    private async handlePluginUpload(
         fileData: NewSourceUploaderPostMessages["fileData"],
         webviewPanel: vscode.WebviewPanel,
         token: vscode.CancellationToken
     ): Promise<void> {
         try {
-            // Validate file is DOCX
-            if (!fileData?.name.toLowerCase().endsWith(".docx")) {
-                throw new Error("Only DOCX files are supported");
+            if (!fileData) {
+                throw new Error("No file data provided");
             }
 
             // Send initial progress update
@@ -109,8 +108,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 command: "progressUpdate",
                 progress: [
                     {
-                        stage: "File Validation",
-                        message: `Validating DOCX file: ${fileData.name}`,
+                        stage: "File Processing",
+                        message: `Processing ${fileData.name} with ${fileData.importerType}`,
                         status: "processing",
                     },
                 ],
@@ -118,154 +117,180 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
             const fileName = fileData.name.split(".")[0].replace(/\s+/g, "-");
 
-            const sourceNotebook: NotebookPreview = {
-                name: fileName,
-                cells: fileData.htmlContent.map((html, index) => ({
-                    kind: vscode.NotebookCellKind.Code,
-                    value: html,
-                    languageId: "html",
+            // Check if this is a repository download with multiple notebooks
+            const isRepositoryDownload = fileData.metadata?.allSourceNotebooks && fileData.metadata?.allCodexNotebooks;
+
+            if (isRepositoryDownload) {
+                // Handle multiple notebooks for repository downloads
+                const sourceNotebooks: NotebookPreview[] = fileData.metadata.allSourceNotebooks.map((notebook: any) => ({
+                    name: notebook.name,
+                    cells: notebook.cells.map((cell: any) => ({
+                        kind: vscode.NotebookCellKind.Code,
+                        value: cell.content,
+                        languageId: cell.language || "html",
+                        metadata: {
+                            id: cell.id,
+                            type: CodexCellTypes.TEXT,
+                            data: cell.metadata,
+                        },
+                    })),
                     metadata: {
-                        id: `${fileName} 1:${index.toString()}`,
-                        type: CodexCellTypes.TEXT,
+                        id: notebook.metadata.id || notebook.name.toLowerCase().replace(/\s+/g, "-"),
+                        textDirection: "ltr",
+                        navigation: [],
+                        videoUrl: "",
+                        originalName: notebook.name,
+                        sourceFsPath: "",
+                        codexFsPath: "",
+                        sourceCreatedAt: new Date().toISOString(),
+                        corpusMarker: fileData.importerType,
+                        ...notebook.metadata,
                     },
-                })),
-                metadata: {
-                    id: fileName,
-                    textDirection: "ltr",
-                    navigation: [],
-                    videoUrl: "",
-                    originalName: fileData.name,
-                    sourceFsPath: "",
-                    codexFsPath: "",
-                    sourceCreatedAt: new Date().toISOString(),
-                    corpusMarker: "",
-                },
-            };
+                }));
 
-            const codexNotebook: NotebookPreview = {
-                name: fileName,
-                cells: sourceNotebook.cells.map((cell) => {
-                    // Check if the cell contains images - if so, preserve them in the codex cell
-                    const hasImages = cell.value && /<img\s[^>]*>/i.test(cell.value);
+                const codexNotebooks: NotebookPreview[] = fileData.metadata.allCodexNotebooks.map((notebook: any) => ({
+                    name: notebook.name,
+                    cells: notebook.cells.map((cell: any) => ({
+                        kind: vscode.NotebookCellKind.Code,
+                        value: cell.content,
+                        languageId: cell.language || "html",
+                        metadata: {
+                            id: cell.id,
+                            type: CodexCellTypes.TEXT,
+                            data: cell.metadata,
+                        },
+                    })),
+                    metadata: {
+                        id: notebook.metadata.id || notebook.name.toLowerCase().replace(/\s+/g, "-"),
+                        textDirection: "ltr",
+                        navigation: [],
+                        videoUrl: "",
+                        originalName: notebook.name,
+                        sourceFsPath: "",
+                        codexFsPath: "",
+                        sourceCreatedAt: new Date().toISOString(),
+                        corpusMarker: fileData.importerType,
+                        ...notebook.metadata,
+                    },
+                }));
 
-                    if (hasImages) {
-                        // Extract only the image tags from the HTML content
-                        const imageMatches = cell.value.match(/<img\s[^>]*>/gi);
-                        const imageContent = imageMatches ? imageMatches.join('\n') : '';
-                        return {
-                            ...cell,
-                            value: imageContent,
-                        };
-                    } else {
-                        // For non-image cells, set value to empty string as before
-                        return {
-                            ...cell,
-                            value: "",
-                        };
-                    }
-                }),
-                metadata: {
-                    id: fileName,
-                    textDirection: "ltr",
-                    navigation: [],
-                    videoUrl: "",
-                    originalName: fileData.name,
-                    sourceFsPath: "",
-                    codexFsPath: "",
-                    sourceCreatedAt: new Date().toISOString(),
-                    corpusMarker: "",
-                },
-            };
+                // Create multiple notebook pairs
+                await createNoteBookPair({
+                    token,
+                    sourceNotebooks: sourceNotebooks,
+                    codexNotebooks: codexNotebooks,
+                });
+            } else {
+                // Handle single notebook upload
+                const sourceNotebook: NotebookPreview = {
+                    name: fileName,
+                    cells: fileData.notebookPair.source.cells.map((cell: any) => ({
+                        kind: vscode.NotebookCellKind.Code,
+                        value: cell.content,
+                        languageId: cell.language || "html",
+                        metadata: {
+                            id: cell.id,
+                            type: CodexCellTypes.TEXT,
+                            data: cell.metadata,
+                        },
+                    })),
+                    metadata: {
+                        id: fileName,
+                        textDirection: "ltr",
+                        navigation: [],
+                        videoUrl: "",
+                        originalName: fileData.name,
+                        sourceFsPath: "",
+                        codexFsPath: "",
+                        sourceCreatedAt: new Date().toISOString(),
+                        corpusMarker: fileData.importerType,
+                        ...fileData.notebookPair.source.metadata,
+                    },
+                };
 
-            // Get workspace folder to construct URIs
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                throw new Error("No workspace folder found");
+                const codexNotebook: NotebookPreview = {
+                    name: fileName,
+                    cells: fileData.notebookPair.codex.cells.map((cell: any) => ({
+                        kind: vscode.NotebookCellKind.Code,
+                        value: cell.content,
+                        languageId: cell.language || "html",
+                        metadata: {
+                            id: cell.id,
+                            type: CodexCellTypes.TEXT,
+                            data: cell.metadata,
+                        },
+                    })),
+                    metadata: {
+                        id: fileName,
+                        textDirection: "ltr",
+                        navigation: [],
+                        videoUrl: "",
+                        originalName: fileData.name,
+                        sourceFsPath: "",
+                        codexFsPath: "",
+                        sourceCreatedAt: new Date().toISOString(),
+                        corpusMarker: fileData.importerType,
+                        ...fileData.notebookPair.codex.metadata,
+                    },
+                };
+
+                // Create single notebook pair
+                await createNoteBookPair({
+                    token,
+                    sourceNotebooks: [sourceNotebook],
+                    codexNotebooks: [codexNotebook],
+                });
             }
 
-            // Create URIs for the files that will be created
-            const sourceUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
-                ".project",
-                "sourceTexts",
-                `${fileName}.source`
-            );
-            const codexUri = vscode.Uri.joinPath(
-                workspaceFolder.uri,
-                "files",
-                "target",
-                `${fileName}.codex`
-            );
-
-            // Close any existing open files with these names before creating new ones
-            await closeFileIfOpen(sourceUri);
-            await closeFileIfOpen(codexUri);
-
-            // Simulate validation delay
-            await createNoteBookPair({
-                token,
-                sourceNotebooks: [sourceNotebook],
-                codexNotebooks: [codexNotebook],
-            });
-            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
             // Send processing progress update
             safePostMessageToPanel(webviewPanel, {
                 command: "progressUpdate",
                 progress: [
                     {
-                        stage: "File Validation",
-                        message: "DOCX file validated successfully",
-                        status: "success",
-                    },
-                    {
-                        stage: "Processing File",
-                        message: "Processing DOCX file for HTML conversion...",
+                        stage: "File Processing",
+                        message: "Creating notebook files...",
                         status: "processing",
                     },
                 ],
             });
 
-            // Simulate processing delay
-            // await new Promise((resolve) => setTimeout(resolve, 1000));
-
-            // Calculate file size
-            const fileSizeKB = Math.round(fileData.content.byteLength / 1024);
+            // Force reindex to ensure new files are recognized
+            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
 
             // Send completion progress update
             safePostMessageToPanel(webviewPanel, {
                 command: "progressUpdate",
                 progress: [
                     {
-                        stage: "File Validation",
-                        message: "DOCX file validated successfully",
+                        stage: "File Processing",
+                        message: "Notebook files created successfully",
                         status: "success",
                     },
                     {
-                        stage: "Processing File",
-                        message: "DOCX file processed successfully",
-                        status: "success",
-                    },
-                    {
-                        stage: "HTML Conversion",
-                        message: "HTML conversion completed",
+                        stage: "Indexing",
+                        message: "Reindexing workspace...",
                         status: "success",
                     },
                 ],
             });
 
             // Send success result
+            const notebookCount = isRepositoryDownload ?
+                fileData.metadata?.allSourceNotebooks?.length || 1 : 1;
+
             safePostMessageToPanel(webviewPanel, {
                 command: "uploadResult",
                 result: {
                     success: true,
-                    message: `Successfully processed ${fileData.name} (${fileSizeKB} KB)`,
+                    message: `Successfully imported ${fileData.name} using ${fileData.importerType}${isRepositoryDownload ? ` (${notebookCount} stories)` : ''}`,
                     fileName: fileData.name,
                 },
             });
 
             // Show information message to user
             vscode.window.showInformationMessage(
-                `DOCX file "${fileData.name}" has been converted to HTML successfully!`
+                `File "${fileData.name}" has been imported successfully using ${fileData.importerType}!${isRepositoryDownload ? ` Created ${notebookCount} story notebooks.` : ''
+                }`
             );
         } catch (error) {
             // Send error result
@@ -279,16 +304,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
             // Show error message to user
             vscode.window.showErrorMessage(
-                `Failed to process DOCX file: ${error instanceof Error ? error.message : "Unknown error"}`
+                `Failed to import file: ${error instanceof Error ? error.message : "Unknown error"}`
             );
         }
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
         return getWebviewHtml(webview, this.context, {
-            title: "DOCX to HTML Converter",
+            title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data:;`,
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:;`,
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });
