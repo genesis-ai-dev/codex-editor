@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -314,7 +314,6 @@
                 "title": "Open Startup Flow",
                 "category": "Codex Project Manager"
             },
-
             {
                 "command": "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
                 "title": "Search Source Cells"
@@ -513,7 +512,7 @@
                             30,
                             60
                         ],
-                                                "default": 5,
+                        "default": 5,
                         "description": "Delay in minutes before triggering automatic sync after changes"
                     }
                 }
