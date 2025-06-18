@@ -355,11 +355,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         />
                             <div className="flex items-center gap-2 flex-1 min-w-0">
                                 <span className="font-medium truncate">{cleanName || project.name}</span>
-                                {project.needsMigration && (
-                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs px-2 py-1 whitespace-nowrap">
-                                        Migration Available
-                                    </Badge>
-                                )}
                                 {isUnpublished && (
                                     <Badge variant="outline" className="text-xs">
                                         Unpublished

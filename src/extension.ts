@@ -44,7 +44,7 @@ import {
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
-import { RepositoryMigrationManager } from "./projectManager/utils/repositoryMigration";
+
 import path from "path";
 import fs from "fs";
 
@@ -461,46 +461,7 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    // Migration is now handled at project opening level via StartupFlowProvider
-    // No need for automatic checking on extension activation
 
-    // Migration command for testing/debugging
-    context.subscriptions.push(
-        vscode.commands.registerCommand("codex-project-manager.triggerMigration", async () => {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                vscode.window.showErrorMessage("No workspace folder found");
-                return;
-            }
-
-            const migrationManager = RepositoryMigrationManager.getInstance();
-            const projectPath = workspaceFolder.uri.fsPath;
-            const projectName = workspaceFolder.name;
-
-            try {
-                // Check migration state
-                const migrationState = await migrationManager.checkMigrationRequired(projectPath);
-
-                if (migrationState.error) {
-                    vscode.window.showErrorMessage(`Migration check failed: ${migrationState.error}`);
-                    return;
-                }
-
-                // Confirm migration
-                const confirmChoice = await vscode.window.showWarningMessage(
-                    `This will migrate project "${projectName}" by deleting and recloning it. Continue?`,
-                    { modal: true },
-                    "Migrate"
-                );
-
-                if (confirmChoice === "Migrate") {
-                    await performWorkspaceMigration(projectPath, projectName, migrationManager);
-                }
-            } catch (error) {
-                vscode.window.showErrorMessage(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        })
-    );
 }
 
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
@@ -734,156 +695,6 @@ export function getAuthApi(): FrontierAPI | undefined {
     return authApi;
 }
 
-/**
- * Check if the current workspace needs migration and prompt user if necessary
- */
-async function checkAndPromptForMigration(context: vscode.ExtensionContext): Promise<void> {
-    try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) return;
 
-        const projectPath = workspaceFolder.uri.fsPath;
-        const projectName = workspaceFolder.name;
 
-        // Use static method for fast check
-        const migrationCheck = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(projectPath);
 
-        if (migrationCheck.error) {
-            console.warn("Migration check failed:", migrationCheck.error);
-            return;
-        }
-
-        // Skip if already migrated
-        if (!migrationCheck.needsMigration) {
-            return;
-        }
-
-        // Get detailed migration state for user messaging
-        const migrationManager = RepositoryMigrationManager.getInstance();
-        const migrationState = await migrationManager.checkMigrationRequired(projectPath);
-
-        if (migrationState.error) {
-            console.warn("Detailed migration check failed:", migrationState.error);
-            return;
-        }
-
-        // Show migration prompt
-        let message: string;
-        if (migrationState.hasUncommittedTrackedChanges) {
-            message = `Project "${projectName}" needs migration to clean up database files.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n\nWould you like to migrate now?`;
-        } else {
-            message = `Project "${projectName}" needs migration to clean up database files.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n\nWould you like to migrate now?`;
-        }
-
-        const choice = await vscode.window.showInformationMessage(
-            message,
-            { modal: false },
-            "Migrate Now",
-            "Remind Me Later",
-            "Don't Ask Again"
-        );
-
-        switch (choice) {
-            case "Migrate Now":
-                await performWorkspaceMigration(projectPath, projectName, migrationManager);
-                break;
-
-            case "Don't Ask Again":
-                // Create suppression flag
-                await createMigrationSuppressionFlag(projectPath);
-                break;
-
-            case "Remind Me Later":
-            default:
-                // Do nothing, will prompt again next time
-                break;
-        }
-    } catch (error) {
-        console.error("Error checking for migration needs:", error);
-    }
-}
-
-/**
- * Perform migration for the current workspace
- */
-async function performWorkspaceMigration(
-    projectPath: string,
-    projectName: string,
-    migrationManager: RepositoryMigrationManager
-): Promise<void> {
-    try {
-        await vscode.window.withProgress(
-            {
-                location: vscode.ProgressLocation.Notification,
-                title: `Migrating project "${projectName}"...`,
-                cancellable: false,
-            },
-            async (progress, token) => {
-                try {
-                    // Get project details
-                    const { findAllCodexProjects } = await import("./projectManager/utils/projectUtils");
-                    const localProjects = await findAllCodexProjects();
-                    const project = localProjects.find((p) => p.path === projectPath);
-
-                    if (!project || !project.gitOriginUrl) {
-                        throw new Error("Project not found or missing git origin URL");
-                    }
-
-                    const projectWithSyncStatus = {
-                        ...project,
-                        syncStatus: "downloadedAndSynced" as const
-                    };
-
-                    // Perform the migration
-                    await migrationManager.performMigration(
-                        projectWithSyncStatus,
-                        progress,
-                        token
-                    );
-
-                    vscode.window.showInformationMessage(
-                        `Project "${projectName}" has been successfully migrated. Please reopen the project.`
-                    );
-
-                    // Close the current workspace since the project was deleted and recloned
-                    setTimeout(() => {
-                        vscode.commands.executeCommand("workbench.action.closeFolder");
-                    }, 2000);
-
-                } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    console.error("Workspace migration failed:", errorMessage);
-
-                    vscode.window.showErrorMessage(
-                        `Failed to migrate project: ${errorMessage}`
-                    );
-                }
-            }
-        );
-    } catch (error) {
-        console.error("Error setting up workspace migration:", error);
-        vscode.window.showErrorMessage("Failed to start migration process");
-    }
-}
-
-/**
- * Create a flag to suppress migration prompts for this project
- */
-async function createMigrationSuppressionFlag(projectPath: string): Promise<void> {
-    try {
-        const flagPath = path.join(projectPath, ".codex", "migration_suppressed");
-        const flagDir = path.dirname(flagPath);
-
-        // Ensure .codex directory exists
-        await fs.promises.mkdir(flagDir, { recursive: true });
-
-        const flagContent = {
-            suppressionDate: new Date().toISOString(),
-            reason: "User chose not to migrate"
-        };
-
-        await fs.promises.writeFile(flagPath, JSON.stringify(flagContent, null, 2));
-    } catch (error) {
-        console.error("Failed to create migration suppression flag:", error);
-    }
-}

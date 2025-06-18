@@ -381,7 +381,6 @@ export type ProjectSyncStatus =
 export type ProjectWithSyncStatus = LocalProject & {
     syncStatus: ProjectSyncStatus;
     completionPercentage?: number;
-    needsMigration?: boolean;
 };
 
 export type MessagesFromStartupFlowProvider =
@@ -397,7 +396,7 @@ export type MessagesFromStartupFlowProvider =
     | { command: "error"; message: string; }
     | { command: "extension.checkResponse"; isInstalled: boolean; }
     | { command: "auth.statusResponse"; isAuthenticated: boolean; error?: string; }
-    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; migrated?: boolean; }
+    | { command: "project.deleteResponse"; success: boolean; projectPath?: string; error?: string; }
     | {
         command: "updateAuthState";
         success: boolean;
@@ -1351,7 +1350,6 @@ interface LocalProject {
     gitOriginUrl?: string;
     description: string;
     isOutdated?: boolean;
-    needsMigration?: boolean;
 }
 
 interface BasePreview {

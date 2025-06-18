@@ -16,10 +16,17 @@ import { createEditAnalysisProvider } from "../../providers/EditAnalysisView/Edi
 import { registerSyncCommands } from "../../projectManager/syncManager";
 import { MainMenuProvider } from "../../providers/mainMenu/mainMenuProvider";
 import { getSQLiteIndexManager } from "./contentIndexes/indexes/sqliteIndexManager";
+import { testProjectLoadingPerformance } from "../../test-project-loading";
 
 export async function registerCommands(context: vscode.ExtensionContext) {
     // Register the centralized sync commands
     registerSyncCommands(context);
+
+    // Performance testing command for project loading
+    const testProjectLoadingPerformanceCommand = vscode.commands.registerCommand(
+        "codex-editor.testProjectLoadingPerformance",
+        testProjectLoadingPerformance
+    );
 
     // Register command to navigate to main menu
     const navigateToMainMenuCommand = vscode.commands.registerCommand(
@@ -316,6 +323,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         navigateToMainMenuCommand,
 
         deduplicateSourceCellsCommand,
+        testProjectLoadingPerformanceCommand,
 
     );
 }

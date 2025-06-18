@@ -20,7 +20,7 @@ import { createMachine, assign, createActor } from "xstate";
 import { getCodexProjectsDirectory } from "../../utils/projectLocationUtils";
 import JSZip from "jszip";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
-import { RepositoryMigrationManager, MigrationState } from "../../projectManager/utils/repositoryMigration";
+
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
 import * as path from "path";
 import * as fs from "fs";
@@ -128,7 +128,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         },
     };
     private metadataWatcher?: vscode.FileSystemWatcher;
-    private migrationManager: RepositoryMigrationManager;
+
 
     constructor(private readonly context: vscode.ExtensionContext) {
         // Then initialize preflight state
@@ -149,7 +149,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             })
         );
 
-        this.migrationManager = RepositoryMigrationManager.getInstance();
+
     }
 
     private initializeStateMachine() {
@@ -355,21 +355,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 });
             }
 
-            // Process local projects and check for migration needs
+            // Process local projects
             for (const project of localProject) {
-                const projectWithMigration = { ...project };
-
-                // Check if project needs migration using static method (faster)
-                try {
-                    const migrationCheck = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(project.path);
-                    projectWithMigration.needsMigration = migrationCheck.needsMigration;
-                } catch (error) {
-                    console.warn(`Failed to check migration status for ${project.path}:`, error);
-                }
-
                 if (!project.gitOriginUrl) {
                     projectList.push({
-                        ...projectWithMigration,
+                        ...project,
                         syncStatus: "localOnlyNotSynced",
                     });
                     continue;
@@ -383,13 +373,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 if (matchInRemoteIndex !== -1) {
                     // Update the remote entry with local data
                     projectList[matchInRemoteIndex] = {
-                        ...projectWithMigration,
+                        ...project,
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
                     // Add as local-only project
                     projectList.push({
-                        ...projectWithMigration,
+                        ...project,
                         syncStatus: "localOnlyNotSynced",
                     });
                 }
@@ -902,16 +892,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Opening project", projectPath);
 
                 try {
-                    // Check if project needs migration BEFORE opening
-                    const migrationCheck = await RepositoryMigrationManager.checkProjectNeedsMigrationStatic(projectPath);
-
-                    if (migrationCheck.needsMigration) {
-                        // Project needs migration - handle it before opening
-                        await this.handlePreOpeningMigration(projectPath);
-                        return; // Don't proceed with opening until migration is complete
-                    }
-
-                    // Project doesn't need migration or has been migrated - proceed with opening
+                    // Open the project directly
                     const projectUri = vscode.Uri.file(projectPath);
                     await vscode.commands.executeCommand("vscode.openFolder", projectUri);
 
@@ -1480,17 +1461,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     // Show confirmation dialog
                     const projectName = projectPath.split("/").pop() || projectPath;
 
-                    // Check if project needs migration
-                    let needsMigration = false;
-                    let migrationState: MigrationState | null = null;
 
-                    try {
-                        migrationState = await this.migrationManager.checkMigrationRequired(projectPath);
-                        needsMigration = migrationState.needsMigration &&
-                            migrationState.remoteVerified;
-                    } catch (error) {
-                        console.warn("Could not check migration status:", error);
-                    }
 
                     // Determine if this is a cloud-synced project
                     let isCloudSynced = false;
@@ -1513,18 +1484,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         isCloudSynced = false;
                     }
 
-                    // Enhanced confirmation message based on migration needs
+                    // Confirmation message based on sync status
                     let confirmMessage: string;
                     let actionButtonText: string;
 
-                    if (needsMigration && migrationState) {
-                        if (migrationState.hasUncommittedTrackedChanges) {
-                            confirmMessage = `Project "${projectName}" needs migration to clean up database files.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n\nContinue with migration?`;
-                        } else {
-                            confirmMessage = `Project "${projectName}" needs migration to clean up database files.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n\nContinue with migration?`;
-                        }
-                        actionButtonText = "Migrate Project";
-                    } else if (isCloudSynced) {
+                    if (isCloudSynced) {
                         confirmMessage = `Are you sure you want to delete project \n"${projectName}" locally?\n\nPlease ensure the project is synced before deleting.`;
                         actionButtonText = "Delete";
                     } else {
@@ -1539,13 +1503,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     );
 
                     if (confirmResult === actionButtonText) {
-                        if (needsMigration && isCloudSynced) {
-                            // Perform migration instead of simple deletion
-                            await this.performProjectMigration(projectPath, projectName);
-                        } else {
-                            // Perform regular deletion
-                            await this.performProjectDeletion(projectPath, projectName);
-                        }
+                        // Perform deletion
+                        await this.performProjectDeletion(projectPath, projectName);
                     } else {
                         // User cancelled deletion
                         this.safeSendMessage({
@@ -1663,85 +1622,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     /**
-     * Perform project migration with progress indication
+     * Perform project deletion
      */
-    private async performProjectMigration(projectPath: string, projectName: string): Promise<void> {
-        try {
-            await vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Notification,
-                    title: `Migrating project "${projectName}"...`,
-                    cancellable: false,
-                },
-                async (progress, token) => {
-                    try {
-                        // Find the project details for migration
-                        const localProjects = await findAllCodexProjects();
-                        const project = localProjects.find((p) => p.path === projectPath);
-
-                        if (!project || !project.gitOriginUrl) {
-                            throw new Error("Project not found or missing git origin URL");
-                        }
-
-                        const projectWithSyncStatus: ProjectWithSyncStatus = {
-                            ...project,
-                            syncStatus: "downloadedAndSynced"
-                        };
-
-                        // Perform the migration
-                        await this.migrationManager.performMigration(
-                            projectWithSyncStatus,
-                            progress,
-                            token
-                        );
-
-                        // Send success response to webview
-                        this.safeSendMessage({
-                            command: "project.deleteResponse",
-                            success: true,
-                            projectPath: projectPath,
-                            migrated: true,
-                        });
-
-                        vscode.window.showInformationMessage(
-                            `Project "${projectName}" has been successfully migrated.`
-                        );
-
-                    } catch (error) {
-                        const errorMessage = error instanceof Error ? error.message : String(error);
-                        console.error("Migration failed:", errorMessage);
-
-                        // Send error response to webview
-                        this.safeSendMessage({
-                            command: "project.deleteResponse",
-                            success: false,
-                            error: `Migration failed: ${errorMessage}`,
-                        });
-
-                        vscode.window.showErrorMessage(
-                            `Failed to migrate project: ${errorMessage}`
-                        );
-                    }
-                }
-            );
-        } catch (error) {
-            console.error("Error setting up migration progress:", error);
-
-            // Send error response to webview
-            this.safeSendMessage({
-                command: "project.deleteResponse",
-                success: false,
-                error: "Failed to start migration process",
-            });
-        } finally {
-            // Always refresh the projects list
-            await this.sendList(this.webviewPanel!);
-        }
-    }
-
-    /**
- * Perform regular project deletion (existing functionality)
- */
     private async performProjectDeletion(projectPath: string, projectName: string): Promise<void> {
         try {
             // Use vscode.workspace.fs.delete with the recursive flag
@@ -1777,90 +1659,5 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
     }
 
-    /**
-     * Handle migration before opening a project
-     */
-    private async handlePreOpeningMigration(projectPath: string): Promise<void> {
-        const projectName = projectPath.split("/").pop() || projectPath;
 
-        try {
-            // Get detailed migration state for user messaging
-            const migrationState = await this.migrationManager.checkMigrationRequired(projectPath);
-
-            if (migrationState.error) {
-                vscode.window.showErrorMessage(`Migration check failed: ${migrationState.error}`);
-                return;
-            }
-
-            // Show migration prompt
-            let message: string;
-            if (migrationState.hasUncommittedTrackedChanges) {
-                message = `Project "${projectName}" needs migration to clean up database files before opening.\n\nYou have uncommitted changes that will be saved before migration.\n\nThis process will:\n1. Commit your changes\n2. Delete the local project\n3. Re-download from cloud\n4. Open the migrated project\n\nContinue with migration?`;
-            } else {
-                message = `Project "${projectName}" needs migration to clean up database files before opening.\n\nThis process will:\n1. Delete the local project\n2. Re-download from cloud\n3. Open the migrated project\n\nContinue with migration?`;
-            }
-
-            const choice = await vscode.window.showWarningMessage(
-                message,
-                { modal: true },
-                "Migrate and Open",
-            );
-
-            if (choice === "Migrate and Open") {
-                await vscode.window.withProgress(
-                    {
-                        location: vscode.ProgressLocation.Notification,
-                        title: `Migrating project "${projectName}"...`,
-                        cancellable: false,
-                    },
-                    async (progress, token) => {
-                        try {
-                            // Find the project details for migration
-                            const localProjects = await findAllCodexProjects();
-                            const project = localProjects.find((p) => p.path === projectPath);
-
-                            if (!project || !project.gitOriginUrl) {
-                                throw new Error("Project not found or missing git origin URL");
-                            }
-
-                            const projectWithSyncStatus: ProjectWithSyncStatus = {
-                                ...project,
-                                syncStatus: "downloadedAndSynced"
-                            };
-
-                            // Perform the migration
-                            await this.migrationManager.performMigration(
-                                projectWithSyncStatus,
-                                progress,
-                                token
-                            );
-
-                            vscode.window.showInformationMessage(
-                                `Project "${projectName}" has been successfully migrated.`
-                            );
-
-                            // Open the migrated project
-                            const projectUri = vscode.Uri.file(projectPath);
-                            await vscode.commands.executeCommand("vscode.openFolder", projectUri);
-
-                        } catch (error) {
-                            const errorMessage = error instanceof Error ? error.message : String(error);
-                            console.error("Pre-opening migration failed:", errorMessage);
-
-                            vscode.window.showErrorMessage(
-                                `Failed to migrate project: ${errorMessage}`
-                            );
-                        }
-                    }
-                );
-            }
-            // If user cancels, do nothing - project won't open
-
-        } catch (error) {
-            console.error("Error in pre-opening migration:", error);
-            vscode.window.showErrorMessage(
-                `Migration check failed: ${error instanceof Error ? error.message : String(error)}`
-            );
-        }
-    }
 }
