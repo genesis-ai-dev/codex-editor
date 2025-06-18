@@ -8,7 +8,6 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 
@@ -57,21 +56,21 @@ const parseFile = async (
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Reading File', 'Reading eBible corpus file...', 'processing', 10));
+        onProgress?.(createProgress('Reading File', 'Reading eBible corpus file...', 10));
 
         const text = await file.text();
 
-        onProgress?.(createProgress('Parsing Structure', 'Parsing eBible corpus structure...', 'processing', 30));
+        onProgress?.(createProgress('Parsing Structure', 'Parsing eBible corpus structure...', 30));
 
         // Detect format (TSV, CSV, or plain text)
         const format = detectCorpusFormat(text, file.name);
 
-        onProgress?.(createProgress('Processing Verses', 'Processing verses and references...', 'processing', 60));
+        onProgress?.(createProgress('Processing Verses', 'Processing verses and references...', 60));
 
         // Parse based on detected format
         const verses = parseCorpusData(text, format);
 
-        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 'processing', 80));
+        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 80));
 
         // Convert verses to cells
         const cells = verses.map((verse, index) => {
@@ -85,19 +84,45 @@ const parseFile = async (
             });
         });
 
-        // Create notebook pair
-        const notebookPair = createNotebookPair(
-            file.name,
+        // Create notebook pair manually
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
+
+        const sourceNotebook = {
+            name: baseName,
             cells,
-            'ebibleCorpus',
-            {
+            metadata: {
+                id: `ebible-corpus-source-${Date.now()}`,
+                originalFileName: file.name,
+                importerType: 'ebibleCorpus',
+                createdAt: new Date().toISOString(),
                 format,
                 verseCount: verses.length,
                 books: Array.from(new Set(verses.map(v => v.book))),
-            }
-        );
+            },
+        };
 
-        onProgress?.(createProgress('Complete', 'eBible corpus processing complete', 'complete', 100));
+        const codexCells = cells.map(sourceCell => ({
+            id: sourceCell.id,
+            content: '', // Empty for translation
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        }));
+
+        const codexNotebook = {
+            name: baseName,
+            cells: codexCells,
+            metadata: {
+                ...sourceNotebook.metadata,
+                id: `ebible-corpus-codex-${Date.now()}`,
+            },
+        };
+
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        onProgress?.(createProgress('Complete', 'eBible corpus processing complete', 100));
 
         return {
             success: true,
@@ -110,7 +135,7 @@ const parseFile = async (
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Failed to process eBible corpus file', 'error', 0));
+        onProgress?.(createProgress('Error', 'Failed to process eBible corpus file', 0));
 
         return {
             success: false,
@@ -233,6 +258,7 @@ interface VerseData {
 export const ebibleCorpusImporter: ImporterPlugin = {
     name: 'eBible Corpus Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: ['text/tab-separated-values', 'text/csv', 'text/plain'],
     description: 'Imports eBible corpus files in TSV, CSV, or text format',
     validateFile,
     parseFile,

@@ -40,6 +40,7 @@ export interface ImportProgress {
 export interface ImportResult {
     success: boolean;
     notebookPair?: NotebookPair;
+    notebookPairs?: NotebookPair[]; // For multi-file imports like repository downloads
     error?: string;
     warnings?: string[];
     metadata?: Record<string, any>;

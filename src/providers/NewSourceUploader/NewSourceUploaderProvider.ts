@@ -94,6 +94,11 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         message: WriteNotebooksMessage,
         token: vscode.CancellationToken
     ): Promise<void> {
+        // Debug logging
+        console.log("Received notebook pairs:", message.notebookPairs.length);
+        console.log("First pair source cells:", message.notebookPairs[0]?.source.cells.length);
+        console.log("First pair source cells preview:", message.notebookPairs[0]?.source.cells.slice(0, 2));
+
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = message.notebookPairs.map(pair =>
             this.convertToNotebookPreview(pair.source)
@@ -101,6 +106,10 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const codexNotebooks = message.notebookPairs.map(pair =>
             this.convertToNotebookPreview(pair.codex)
         );
+
+        // Debug logging after conversion
+        console.log("Converted source notebooks cells:", sourceNotebooks[0]?.cells.length);
+        console.log("Converted source cells preview:", sourceNotebooks[0]?.cells.slice(0, 2));
 
         // Create the notebook pairs
         await createNoteBookPair({

@@ -10,7 +10,6 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 import { processImageData } from '../../utils/imageProcessor';
@@ -97,7 +96,7 @@ const parseFile = async (
             return await downloadObsRepository(onProgress);
         }
 
-        onProgress?.(createProgress('Reading File', 'Reading OBS file...', 'processing', 10));
+        onProgress?.(createProgress('Reading File', 'Reading OBS file...', 10));
 
         const isZip = file.name.toLowerCase().endsWith('.zip');
 
@@ -108,7 +107,7 @@ const parseFile = async (
         }
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Failed to process OBS file', 'error', 0));
+        onProgress?.(createProgress('Error', 'Failed to process OBS file', 0));
 
         return {
             success: false,
@@ -124,12 +123,12 @@ const downloadObsRepository = async (
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Repository Access', 'Fetching OBS repository contents...', 'processing', 10));
+        onProgress?.(createProgress('Repository Access', 'Fetching OBS repository contents...', 10));
 
         // Get directory listing to find all story files
         const contentFiles = await fetchRepositoryContents();
 
-        onProgress?.(createProgress('Repository Access', `Found ${contentFiles.length} story files`, 'processing', 20));
+        onProgress?.(createProgress('Repository Access', `Found ${contentFiles.length} story files`, 20));
 
         // Download all story files
         const storyFiles: { name: string; content: string; }[] = [];
@@ -140,7 +139,6 @@ const downloadObsRepository = async (
             onProgress?.(createProgress(
                 'Downloading Stories',
                 `Downloading ${file.name} (${i + 1}/${totalFiles})...`,
-                'processing',
                 20 + Math.round((i / totalFiles) * 50)
             ));
 
@@ -157,7 +155,7 @@ const downloadObsRepository = async (
             throw new Error('No story files could be downloaded from the repository');
         }
 
-        onProgress?.(createProgress('Processing Stories', 'Processing downloaded stories...', 'processing', 75));
+        onProgress?.(createProgress('Processing Stories', 'Processing downloaded stories...', 75));
 
         // Process all stories into separate notebooks
         const sourceNotebooks: any[] = [];
@@ -293,35 +291,19 @@ const downloadObsRepository = async (
             });
         }
 
-        onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 'processing', 90));
+        onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 90));
 
-        // Return a dummy notebook pair with the actual notebooks in metadata
-        // The backend will handle creating individual notebook files
-        const dummyNotebookPair = createNotebookPair(
-            'Open Bible Stories Collection',
-            [], // Empty cells - actual content is in the individual notebooks
-            'obs-repository',
-            {
-                id: 'open-bible-stories-collection',
-                originalFileName: 'Open Bible Stories Repository',
-                importerType: 'obs-repository',
-                createdAt: new Date().toISOString(),
-                repositoryUrl: `${OBS_REPO_CONFIG.baseUrl}/${OBS_REPO_CONFIG.owner}/${OBS_REPO_CONFIG.repo}`,
-                totalStories: storyFiles.length,
-                totalSegments: storyMetadata.reduce((count, story) => count + story.segmentCount, 0),
-                totalImages: storyMetadata.reduce((count, story) => count + story.imageCount, 0),
-                stories: storyMetadata,
-                allSourceNotebooks: sourceNotebooks,
-                allCodexNotebooks: codexNotebooks,
-                downloadedAt: new Date().toISOString(),
-            }
-        );
+        // Convert individual notebooks to NotebookPair format
+        const notebookPairs = sourceNotebooks.map((sourceNotebook, index) => ({
+            source: sourceNotebook,
+            codex: codexNotebooks[index],
+        }));
 
-        onProgress?.(createProgress('Complete', 'OBS repository download complete', 'complete', 100));
+        onProgress?.(createProgress('Complete', 'OBS repository download complete', 100));
 
         return {
             success: true,
-            notebookPair: dummyNotebookPair,
+            notebookPairs, // Return multiple pairs instead of single pair
             metadata: {
                 source: 'repository',
                 repositoryUrl: `${OBS_REPO_CONFIG.baseUrl}/${OBS_REPO_CONFIG.owner}/${OBS_REPO_CONFIG.repo}`,
@@ -329,13 +311,11 @@ const downloadObsRepository = async (
                 totalSegments: storyMetadata.reduce((count, story) => count + story.segmentCount, 0),
                 totalImages: storyMetadata.reduce((count, story) => count + story.imageCount, 0),
                 stories: storyMetadata,
-                allSourceNotebooks: sourceNotebooks,
-                allCodexNotebooks: codexNotebooks,
             },
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Failed to download OBS repository', 'error', 0));
+        onProgress?.(createProgress('Error', 'Failed to download OBS repository', 0));
 
         return {
             success: false,
@@ -396,12 +376,12 @@ const parseObsMarkdown = async (
     file: File,
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
-    onProgress?.(createProgress('Parsing Markdown', 'Parsing OBS markdown content...', 'processing', 30));
+    onProgress?.(createProgress('Parsing Markdown', 'Parsing OBS markdown content...', 30));
 
     const text = await file.text();
     const obsStory = parseObsMarkdownContent(text, file.name);
 
-    onProgress?.(createProgress('Processing Images', 'Processing OBS images...', 'processing', 60));
+    onProgress?.(createProgress('Processing Images', 'Processing OBS images...', 60));
 
     // Convert story segments to cells
     const cells = await Promise.all(
@@ -428,23 +408,51 @@ const parseObsMarkdown = async (
         })
     );
 
-    onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 'processing', 80));
+    onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 80));
 
-    // Create notebook pair
-    const notebookPair = createNotebookPair(
-        file.name,
+    // Create notebook pair manually
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+
+    const sourceNotebook = {
+        name: baseName,
         cells,
-        'obs',
-        {
+        metadata: {
+            id: `obs-source-${Date.now()}`,
+            originalFileName: file.name,
+            importerType: 'obs',
+            createdAt: new Date().toISOString(),
             storyNumber: obsStory.storyNumber,
             storyTitle: obsStory.title,
             totalSegments: obsStory.segments.length,
             imageCount: obsStory.segments.reduce((count, seg) => count + seg.images.length, 0),
             sourceReference: obsStory.sourceReference,
-        }
-    );
+        },
+    };
 
-    onProgress?.(createProgress('Complete', 'OBS processing complete', 'complete', 100));
+    const codexCells = cells.map(sourceCell => ({
+        id: sourceCell.id,
+        content: sourceCell.images.length > 0
+            ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
+            : '', // Empty for translation, preserve images
+        images: sourceCell.images,
+        metadata: sourceCell.metadata,
+    }));
+
+    const codexNotebook = {
+        name: baseName,
+        cells: codexCells,
+        metadata: {
+            ...sourceNotebook.metadata,
+            id: `obs-codex-${Date.now()}`,
+        },
+    };
+
+    const notebookPair = {
+        source: sourceNotebook,
+        codex: codexNotebook,
+    };
+
+    onProgress?.(createProgress('Complete', 'OBS processing complete', 100));
 
     return {
         success: true,
@@ -603,6 +611,7 @@ interface ObsStory {
 export const obsImporter: ImporterPlugin = {
     name: 'Open Bible Stories Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: ['text/markdown', 'application/zip'],
     description: 'Import Open Bible Stories markdown files with images and story structure from unfoldingWord',
     validateFile,
     parseFile,

@@ -8,7 +8,6 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 import './types'; // Import type declarations
@@ -46,7 +45,7 @@ interface UsfmContent {
 /**
  * Validates a USFM file
  */
-const validateFile = async (file: File): Promise<FileValidationResult> => {
+export const validateFile = async (file: File): Promise<FileValidationResult> => {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -102,15 +101,15 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
 /**
  * Parses a USFM file into notebook cells
  */
-const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<ImportResult> => {
+export const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<ImportResult> => {
     try {
         await initializeUsfmGrammar();
 
-        onProgress?.(createProgress('Reading File', 'Reading USFM file...', 'processing', 10));
+        onProgress?.(createProgress('Reading File', 'Reading USFM file...', 10));
 
         const content = await file.text();
 
-        onProgress?.(createProgress('Parsing USFM', 'Parsing USFM content...', 'processing', 30));
+        onProgress?.(createProgress('Parsing USFM', 'Parsing USFM content...', 30));
 
         // Parse USFM using relaxed mode for better compatibility
         const relaxedUsfmParser = new USFMParser(content, LEVEL.RELAXED);
@@ -126,7 +125,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             throw new Error(`Invalid book code format: ${bookCode}. Expected a 3-character code like 'GEN' or 'MAT'`);
         }
 
-        onProgress?.(createProgress('Processing Content', 'Converting to cells...', 'processing', 60));
+        onProgress?.(createProgress('Processing Content', 'Converting to cells...', 60));
 
         const usfmContent: UsfmContent[] = [];
 
@@ -178,7 +177,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             throw new Error('No verses or content found in USFM file');
         }
 
-        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 'processing', 80));
+        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 80));
 
         // Convert to processed cells
         const cells = usfmContent.map((item) => {
@@ -192,15 +191,46 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             });
         });
 
-        // Create notebook pair
-        const notebookPair = createNotebookPair(file.name, cells, 'usfm', {
-            bookCode,
-            totalVerses: usfmContent.filter(c => c.type === 'verse').length,
-            totalParatext: usfmContent.filter(c => c.type === 'paratext').length,
-            chapters: [...new Set(usfmContent.map(c => c.metadata.chapter).filter(Boolean))].sort((a, b) => a! - b!),
-        });
+        // Create notebook pair manually
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
 
-        onProgress?.(createProgress('Complete', 'USFM processing complete', 'complete', 100));
+        const sourceNotebook = {
+            name: baseName,
+            cells,
+            metadata: {
+                id: `usfm-source-${Date.now()}`,
+                originalFileName: file.name,
+                importerType: 'usfm',
+                createdAt: new Date().toISOString(),
+                bookCode,
+                totalVerses: usfmContent.filter(c => c.type === 'verse').length,
+                totalParatext: usfmContent.filter(c => c.type === 'paratext').length,
+                chapters: [...new Set(usfmContent.map(c => c.metadata.chapter).filter(Boolean))].sort((a, b) => a! - b!),
+            },
+        };
+
+        const codexCells = cells.map(sourceCell => ({
+            id: sourceCell.id,
+            content: '', // Empty for translation
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        }));
+
+        const codexNotebook = {
+            name: baseName,
+            cells: codexCells,
+            metadata: {
+                ...sourceNotebook.metadata,
+                id: `usfm-codex-${Date.now()}`,
+            },
+        };
+
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        onProgress?.(createProgress('Complete', 'USFM processing complete', 100));
 
         return {
             success: true,
@@ -214,7 +244,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'USFM processing failed', 'error', 0));
+        onProgress?.(createProgress('Error', 'USFM processing failed', 0));
 
         return {
             success: false,
@@ -226,6 +256,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
 export const usfmImporter: ImporterPlugin = {
     name: 'USFM Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: ['text/plain', 'application/octet-stream'],
     description: 'Import Unified Standard Format Marker (USFM) biblical text files',
     validateFile,
     parseFile,

@@ -8,7 +8,6 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
     validateFileExtension,
     splitContentIntoSegments,
 } from '../../utils/workflowHelpers';
@@ -20,7 +19,7 @@ const SUPPORTED_EXTENSIONS = ['md', 'markdown'];
 /**
  * Validates a Markdown file
  */
-const validateFile = async (file: File): Promise<FileValidationResult> => {
+export const validateFile = async (file: File): Promise<FileValidationResult> => {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -76,16 +75,16 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
 /**
  * Parses a Markdown file
  */
-const parseFile = async (
+export const parseFile = async (
     file: File,
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Reading File', 'Reading Markdown file...', 'processing', 20));
+        onProgress?.(createProgress('Reading File', 'Reading Markdown file...', 20));
 
         const text = await file.text();
 
-        onProgress?.(createProgress('Parsing Markdown', 'Parsing Markdown structure...', 'processing', 30));
+        onProgress?.(createProgress('Parsing Markdown', 'Parsing Markdown structure...', 30));
 
         // Configure marked for consistent parsing
         marked.setOptions({
@@ -100,7 +99,7 @@ const parseFile = async (
             throw new Error('No content segments could be extracted from the markdown file');
         }
 
-        onProgress?.(createProgress('Converting to HTML', 'Converting markdown to HTML...', 'processing', 60));
+        onProgress?.(createProgress('Converting to HTML', 'Converting markdown to HTML...', 60));
 
         // Convert each segment to a cell
         const cells = await Promise.all(
@@ -129,19 +128,23 @@ const parseFile = async (
             })
         );
 
-        onProgress?.(createProgress('Creating Notebooks', 'Creating notebook pair...', 'processing', 85));
+        onProgress?.(createProgress('Creating Notebooks', 'Creating notebook pair...', 85));
 
         // Analyze content for metadata
         const headingCount = cells.filter(cell => cell.metadata?.hasHeading).length;
         const imageCount = cells.reduce((count, cell) => count + cell.images.length, 0);
         const wordCount = segments.join(' ').split(/\s+/).filter(w => w.length > 0).length;
 
-        // Create notebook pair
-        const notebookPair = createNotebookPair(
-            file.name,
+        // Create notebook pair directly
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const sourceNotebook = {
+            name: baseName,
             cells,
-            'markdown',
-            {
+            metadata: {
+                id: `source-${Date.now()}`,
+                originalFileName: file.name,
+                importerType: 'markdown',
+                createdAt: new Date().toISOString(),
                 segmentCount: segments.length,
                 headingCount,
                 imageCount,
@@ -153,10 +156,33 @@ const parseFile = async (
                     hasCodeBlocks: text.includes('```'),
                     hasLinks: /\[.*?\]\(.*?\)/.test(text),
                 },
-            }
-        );
+            },
+        };
 
-        onProgress?.(createProgress('Complete', 'Markdown processing complete', 'complete', 100));
+        const codexCells = cells.map(sourceCell => ({
+            id: sourceCell.id,
+            content: sourceCell.images.length > 0
+                ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
+                : '', // Empty for translation, preserve images
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        }));
+
+        const codexNotebook = {
+            name: baseName,
+            cells: codexCells,
+            metadata: {
+                ...sourceNotebook.metadata,
+                id: `codex-${Date.now()}`,
+            },
+        };
+
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        onProgress?.(createProgress('Complete', 'Markdown processing complete', 100));
 
         return {
             success: true,
@@ -178,7 +204,7 @@ const parseFile = async (
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Failed to process Markdown file', 'error', 0));
+        onProgress?.(createProgress('Error', 'Failed to process Markdown file', 0));
 
         return {
             success: false,
@@ -195,6 +221,7 @@ const parseFile = async (
 export const markdownImporter: ImporterPlugin = {
     name: 'Markdown Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: ['text/markdown', 'text/x-markdown'],
     description: 'Imports Markdown files with section-based splitting',
     validateFile,
     parseFile,

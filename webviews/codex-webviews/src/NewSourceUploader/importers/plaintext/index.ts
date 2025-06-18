@@ -8,7 +8,6 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
     validateFileExtension,
     splitContentIntoSegments,
 } from '../../utils/workflowHelpers';
@@ -20,7 +19,7 @@ type SplitStrategy = 'paragraphs' | 'lines' | 'sections';
 /**
  * Validates a plaintext file
  */
-const validateFile = async (file: File): Promise<FileValidationResult> => {
+export const validateFile = async (file: File): Promise<FileValidationResult> => {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -104,9 +103,9 @@ const determineSplitStrategy = (content: string): SplitStrategy => {
 /**
  * Parses a plaintext file into notebook cells
  */
-const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<ImportResult> => {
+export const parseFile = async (file: File, onProgress?: ProgressCallback, options?: any): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Reading File', 'Reading text file...', 'processing', 10));
+        onProgress?.(createProgress('Reading File', 'Reading text file...', 10));
 
         const content = await file.text();
 
@@ -114,12 +113,12 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             throw new Error('File is empty');
         }
 
-        onProgress?.(createProgress('Analyzing Content', 'Analyzing text structure...', 'processing', 30));
+        onProgress?.(createProgress('Analyzing Content', 'Analyzing text structure...', 30));
 
         // Determine the best way to split the content
         const splitStrategy = determineSplitStrategy(content);
 
-        onProgress?.(createProgress('Splitting Content', `Splitting by ${splitStrategy}...`, 'processing', 50));
+        onProgress?.(createProgress('Splitting Content', `Splitting by ${splitStrategy}...`, 50));
 
         // Split content into segments
         const segments = splitContentIntoSegments(content, splitStrategy);
@@ -128,7 +127,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             throw new Error('No content segments could be extracted from the file');
         }
 
-        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 'processing', 70));
+        onProgress?.(createProgress('Creating Cells', 'Creating notebook cells...', 70));
 
         // Convert segments to cells
         const cells = segments.map((segment, index) => {
@@ -143,21 +142,51 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
             });
         });
 
-        // Create notebook pair
-        const notebookPair = createNotebookPair(file.name, cells, 'plaintext', {
-            splitStrategy,
-            totalSegments: segments.length,
-            originalLength: content.length,
-            // Provide some basic statistics
-            statistics: {
-                characters: content.length,
-                words: content.split(/\s+/).filter(w => w.length > 0).length,
-                lines: content.split('\n').length,
-                paragraphs: segments.length,
-            },
-        });
+        // Create notebook pair manually
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
 
-        onProgress?.(createProgress('Complete', 'Text processing complete', 'complete', 100));
+        const sourceNotebook = {
+            name: baseName,
+            cells,
+            metadata: {
+                id: `plaintext-source-${Date.now()}`,
+                originalFileName: file.name,
+                importerType: 'plaintext',
+                createdAt: new Date().toISOString(),
+                splitStrategy,
+                totalSegments: segments.length,
+                originalLength: content.length,
+                statistics: {
+                    characters: content.length,
+                    words: content.split(/\s+/).filter(w => w.length > 0).length,
+                    lines: content.split('\n').length,
+                    paragraphs: segments.length,
+                },
+            },
+        };
+
+        const codexCells = cells.map(sourceCell => ({
+            id: sourceCell.id,
+            content: '', // Empty for translation
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        }));
+
+        const codexNotebook = {
+            name: baseName,
+            cells: codexCells,
+            metadata: {
+                ...sourceNotebook.metadata,
+                id: `plaintext-codex-${Date.now()}`,
+            },
+        };
+
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        onProgress?.(createProgress('Complete', 'Text processing complete', 100));
 
         return {
             success: true,
@@ -175,7 +204,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Text processing failed', 'error', 0));
+        onProgress?.(createProgress('Error', 'Text processing failed', 0));
 
         return {
             success: false,
@@ -187,6 +216,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
 export const plaintextImporter: ImporterPlugin = {
     name: 'Enhanced Plaintext Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: ['text/plain'],
     description: 'Import plain text files with intelligent paragraph and section detection',
     validateFile,
     parseFile,
