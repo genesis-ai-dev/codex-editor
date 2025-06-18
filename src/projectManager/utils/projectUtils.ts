@@ -909,6 +909,9 @@ export async function isValidCodexProject(folderPath: string): Promise<{
 }
 
 export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
+    const startTime = Date.now();
+    debug("Starting parallel local project scanning");
+
     const config = vscode.workspace.getConfiguration("codex-project-manager");
     let watchedFolders = config.get<string[]>("watchedFolders") || [];
     const projectHistory = config.get<Record<string, string>>("projectHistory") || {};
@@ -930,75 +933,149 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         watchedFolders = validFolders;
     }
 
-    const projects = [];
+    const folderScanStart = Date.now();
+    debug(`Scanning ${watchedFolders.length} watched folders in parallel`);
 
-    for (const folder of watchedFolders) {
-        try {
-            const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(folder));
-            for (const [name, type] of entries) {
-                if (type === vscode.FileType.Directory) {
-                    const projectPath = path.join(folder, name);
-                    const projectStatus = await isValidCodexProject(projectPath);
+    // Process all watched folders in parallel
+    const folderResults = await Promise.allSettled(
+        watchedFolders.map(folder => processWatchedFolder(folder, projectHistory))
+    );
 
-                    if (projectStatus.isValid) {
-                        const stats = await vscode.workspace.fs.stat(vscode.Uri.file(projectPath));
+    const folderScanTime = Date.now() - folderScanStart;
+    debug(`Folder scanning completed in ${folderScanTime}ms`);
 
-                        // Try to get project name from metadata.json
-                        let projectName = name;
-                        try {
-                            const metadataPath = vscode.Uri.file(
-                                path.join(projectPath, "metadata.json")
-                            );
-                            const metadata = await vscode.workspace.fs.readFile(metadataPath);
-                            const metadataJson = JSON.parse(
-                                Buffer.from(metadata).toString("utf-8")
-                            );
-                            if (metadataJson.projectName) {
-                                projectName = metadataJson.projectName;
-                            }
-                        } catch (error) {
-                            console.debug(
-                                `Could not read metadata.json for ${projectPath}, using folder name`
-                            );
-                        }
+    // Flatten results and filter out any failed folder scans
+    const projects = folderResults
+        .filter((result): result is PromiseFulfilledResult<LocalProject[]> => result.status === 'fulfilled')
+        .flatMap(result => result.value);
 
-                        // Get git origin URL using isomorphic-git
-                        let gitOriginUrl: string | undefined;
-                        try {
-                            const config = await git.listRemotes({
-                                fs,
-                                dir: projectPath,
-                            });
-                            const origin = config.find((remote: any) => remote.remote === "origin");
-                            if (origin?.url) {
-                                const urlObj = new URL(origin.url);
-                                gitOriginUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
-                            }
-                        } catch (error) {
-                            console.debug(`No git origin found for ${projectPath}:`, error);
-                        }
-
-                        projects.push({
-                            name: projectName,
-                            path: projectPath,
-                            lastOpened: projectHistory[projectPath]
-                                ? new Date(projectHistory[projectPath])
-                                : undefined,
-                            lastModified: new Date(stats.mtime),
-                            version: projectStatus.version || "🚫",
-                            hasVersionMismatch: projectStatus.hasVersionMismatch,
-                            gitOriginUrl,
-                            description: "...",
-                        });
-                    }
-                }
-            }
-        } catch (error) {
-            console.error(`Error scanning folder ${folder}:`, error);
+    // Log any failures for debugging
+    folderResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            console.error(`Error scanning folder ${watchedFolders[index]}:`, result.reason);
         }
-    }
+    });
+
+    const totalTime = Date.now() - startTime;
+    debug(`Local project scanning completed in ${totalTime}ms - Found ${projects.length} projects`);
 
     return projects;
+}
+
+/**
+ * Process a single watched folder and return all valid Codex projects within it
+ */
+async function processWatchedFolder(folder: string, projectHistory: Record<string, string>): Promise<LocalProject[]> {
+    try {
+        const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(folder));
+
+        // Process all potential project directories in parallel
+        const projectResults = await Promise.allSettled(
+            entries
+                .filter(([name, type]) => type === vscode.FileType.Directory)
+                .map(([name]) => processProjectDirectory(folder, name, projectHistory))
+        );
+
+        // Extract successful results and filter out null values
+        const projects = projectResults
+            .filter((result): result is PromiseFulfilledResult<LocalProject | null> => result.status === 'fulfilled')
+            .map(result => result.value)
+            .filter((project): project is LocalProject => project !== null);
+
+        return projects;
+    } catch (error) {
+        console.error(`Error reading directory ${folder}:`, error);
+        return [];
+    }
+}
+
+/**
+ * Process a single project directory and return project data if it's a valid Codex project
+ */
+async function processProjectDirectory(
+    folder: string,
+    name: string,
+    projectHistory: Record<string, string>
+): Promise<LocalProject | null> {
+    const projectPath = path.join(folder, name);
+
+    try {
+        // Run project validation, metadata reading, git operations, and stats in parallel
+        const [projectStatus, projectName, gitOriginUrl, stats] = await Promise.allSettled([
+            isValidCodexProject(projectPath),
+            getProjectNameFromMetadata(projectPath, name),
+            getGitOriginUrl(projectPath),
+            vscode.workspace.fs.stat(vscode.Uri.file(projectPath))
+        ]);
+
+        // Check if project is valid
+        const statusResult = projectStatus.status === 'fulfilled' ? projectStatus.value : { isValid: false };
+        if (!statusResult.isValid) {
+            return null;
+        }
+
+        // Extract other results with fallbacks
+        const nameResult = projectName.status === 'fulfilled' ? projectName.value : name;
+        const gitResult = gitOriginUrl.status === 'fulfilled' ? gitOriginUrl.value : undefined;
+        const statsResult = stats.status === 'fulfilled' ? stats.value : null;
+
+        if (!statsResult) {
+            debug(`Could not get stats for ${projectPath}`);
+            return null;
+        }
+
+        return {
+            name: nameResult,
+            path: projectPath,
+            lastOpened: projectHistory[projectPath]
+                ? new Date(projectHistory[projectPath])
+                : undefined,
+            lastModified: new Date(statsResult.mtime),
+            version: statusResult.version || "🚫",
+            hasVersionMismatch: statusResult.hasVersionMismatch,
+            gitOriginUrl: gitResult,
+            description: "...",
+        };
+    } catch (error) {
+        debug(`Error processing project directory ${projectPath}:`, error);
+        return null;
+    }
+}
+
+/**
+ * Get project name from metadata.json file
+ */
+async function getProjectNameFromMetadata(projectPath: string, fallbackName: string): Promise<string> {
+    try {
+        const metadataPath = vscode.Uri.file(path.join(projectPath, "metadata.json"));
+        const metadata = await vscode.workspace.fs.readFile(metadataPath);
+        const metadataJson = JSON.parse(Buffer.from(metadata).toString("utf-8"));
+        return metadataJson.projectName || fallbackName;
+    } catch (error) {
+        debug(`Could not read metadata.json for ${projectPath}, using folder name`);
+        return fallbackName;
+    }
+}
+
+/**
+ * Get git origin URL for a project
+ */
+async function getGitOriginUrl(projectPath: string): Promise<string | undefined> {
+    try {
+        const config = await git.listRemotes({
+            fs,
+            dir: projectPath,
+        });
+        const origin = config.find((remote: any) => remote.remote === "origin");
+        if (origin?.url) {
+            const urlObj = new URL(origin.url);
+            return `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+        }
+        return undefined;
+    } catch (error) {
+        debug(`No git origin found for ${projectPath}:`, error);
+        return undefined;
+    }
 }
 
 export { stageAndCommitAllAndSync };

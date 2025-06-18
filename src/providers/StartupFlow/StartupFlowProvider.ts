@@ -298,50 +298,43 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             return;
         }
 
+        const startTime = Date.now();
+        debugLog("Starting projects list fetch with parallel operations");
+
         try {
-            // First fetch progress data
-            let progressData;
-            try {
-                debugLog("Fetching progress data before sending project list");
-                progressData = await vscode.commands.executeCommand(
-                    "frontier.getAggregatedProgress"
-                );
-                debugLog("Fetched progress data:", progressData);
-            } catch (error) {
-                console.warn("Error fetching progress data:", error);
+            // Run all expensive operations in parallel for better performance
+            const [progressData, remoteProjects, localProjects] = await Promise.allSettled([
+                // Fetch progress data
+                this.fetchProgressData(),
+                // Fetch remote projects if authenticated
+                this.fetchRemoteProjects(),
+                // Fetch local projects
+                this.fetchLocalProjects()
+            ]);
+
+            const parallelTime = Date.now() - startTime;
+            debugLog(`Parallel operations completed in ${parallelTime}ms`);
+
+            // Extract results, handling any failures gracefully
+            const progressResult = progressData.status === 'fulfilled' ? progressData.value : undefined;
+            const remoteResult = remoteProjects.status === 'fulfilled' ? remoteProjects.value : [];
+            const localResult = localProjects.status === 'fulfilled' ? localProjects.value : [];
+
+            // Log any failures for debugging
+            if (progressData.status === 'rejected') {
+                console.warn("Error fetching progress data:", progressData.reason);
+            }
+            if (remoteProjects.status === 'rejected') {
+                console.error("Error fetching remote projects:", remoteProjects.reason);
+            }
+            if (localProjects.status === 'rejected') {
+                console.error("Error fetching local projects:", localProjects.reason);
             }
 
             const projectList: ProjectWithSyncStatus[] = [];
 
-            // Fetch remote projects if authenticated
-            let remoteProjects: GitLabProject[] = [];
-            if (this.frontierApi) {
-                try {
-                    remoteProjects = await this.frontierApi.listProjects(false);
-
-                    // Clean up project names - remove unique IDs
-                    remoteProjects.forEach((project) => {
-                        if (project.name[project.name.length - 23] === "-") {
-                            project.name = project.name.slice(0, -23);
-                        }
-                    });
-                } catch (error) {
-                    console.error("Error fetching remote projects:", error);
-                    // Continue with empty remote projects list
-                }
-            }
-
-            // Fetch local projects
-            let localProject: LocalProject[] = [];
-            try {
-                localProject = await findAllCodexProjects();
-            } catch (error) {
-                console.error("Error finding local Codex projects:", error);
-                // Continue with empty local projects list
-            }
-
             // Process remote projects
-            for (const project of remoteProjects) {
+            for (const project of remoteResult) {
                 projectList.push({
                     name: project.name,
                     path: "",
@@ -356,7 +349,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
 
             // Process local projects
-            for (const project of localProject) {
+            for (const project of localResult) {
                 if (!project.gitOriginUrl) {
                     projectList.push({
                         ...project,
@@ -385,11 +378,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
+            const totalTime = Date.now() - startTime;
+            debugLog(`Projects list completed in ${totalTime}ms - Found ${projectList.length} projects (${localResult.length} local, ${remoteResult.length} remote)`);
+
             // Send the compiled list to the webview along with progress data
             safePostMessageToPanel(webviewPanel, {
                 command: "projectsListFromGitLab",
                 projects: projectList,
-                progressData: progressData, // Include progress data
+                progressData: progressResult,
             } as MessagesFromStartupFlowProvider, "StartupFlow");
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
@@ -400,6 +396,66 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 projects: [],
                 error: error instanceof Error ? error.message : "Failed to fetch projects",
             } as MessagesFromStartupFlowProvider, "StartupFlow");
+        }
+    }
+
+    /**
+     * Fetch progress data with error handling
+     */
+    private async fetchProgressData(): Promise<any> {
+        try {
+            debugLog("Fetching progress data");
+            const progressData = await vscode.commands.executeCommand(
+                "frontier.getAggregatedProgress"
+            );
+            debugLog("Fetched progress data:", progressData);
+            return progressData;
+        } catch (error) {
+            console.warn("Error fetching progress data:", error);
+            return undefined;
+        }
+    }
+
+    /**
+     * Fetch remote projects with error handling and cleanup
+     */
+    private async fetchRemoteProjects(): Promise<GitLabProject[]> {
+        if (!this.frontierApi) {
+            debugLog("No Frontier API available for remote projects");
+            return [];
+        }
+
+        try {
+            debugLog("Fetching remote projects");
+            const remoteProjects = await this.frontierApi.listProjects(false);
+
+            // Clean up project names - remove unique IDs
+            remoteProjects.forEach((project) => {
+                if (project.name[project.name.length - 23] === "-") {
+                    project.name = project.name.slice(0, -23);
+                }
+            });
+
+            debugLog(`Fetched ${remoteProjects.length} remote projects`);
+            return remoteProjects;
+        } catch (error) {
+            console.error("Error fetching remote projects:", error);
+            return [];
+        }
+    }
+
+    /**
+     * Fetch local projects with error handling
+     */
+    private async fetchLocalProjects(): Promise<LocalProject[]> {
+        try {
+            debugLog("Fetching local projects");
+            const localProjects = await findAllCodexProjects();
+            debugLog(`Fetched ${localProjects.length} local projects`);
+            return localProjects;
+        } catch (error) {
+            console.error("Error finding local Codex projects:", error);
+            return [];
         }
     }
 
