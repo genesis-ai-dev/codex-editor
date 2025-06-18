@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
-import {
-    VSCodeProgressRing,
-} from "@vscode/webview-ui-toolkit/react";
 import VerseItem from "./CellItem";
 import { TranslationPair } from "../../../../types";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Card, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 interface SearchTabProps {
     verses: TranslationPair[];
@@ -118,155 +120,168 @@ function SearchTab({
 
     return (
         <div className="flex flex-col h-full p-4 gap-4" onClick={handleClickOutside}>
-            <div className="card p-4">
-                <form onSubmit={handleSearch} className="flex flex-col gap-4">
-                    <div className="search-input-container">
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            className="search-input"
-                            placeholder="Search Bible text..."
-                            value={lastQuery}
-                            onChange={(e) => onQueryChange(e.target.value)}
-                            onFocus={handleSearchFocus}
-                            onKeyDown={handleKeyDown}
-                            aria-label="Search Bible text"
-                        />
-                        
-                        {isLoading ? (
-                            <div className="search-loading">
-                                <VSCodeProgressRing aria-label="Searching"></VSCodeProgressRing>
-                            </div>
-                        ) : (
-                            <button
-                                type="submit"
-                                className="search-button"
-                                disabled={!lastQuery.trim()}
-                                aria-label="Search"
-                            >
-                                <span className="codicon codicon-search"></span>
-                            </button>
-                        )}
-
-                        {showRecentSearches && recentSearches.length > 0 && (
-                            <div className="recent-searches-dropdown">
-                                <div className="dropdown-header">
-                                    <span className="dropdown-header-text">
-                                        Recent Searches
-                                    </span>
-                                    <button
-                                        className="clear-all-button"
-                                        onClick={() => {
-                                            setRecentSearches([]);
-                                            localStorage.removeItem("recentBibleSearches");
-                                            setShowRecentSearches(false);
-                                        }}
-                                        aria-label="Clear all recent searches"
-                                    >
-                                        Clear All
-                                    </button>
+            <Card className="p-4">
+                <CardContent className="p-0">
+                    <form onSubmit={handleSearch} className="flex flex-col gap-4">
+                        <div className="search-input-container relative">
+                            <Input
+                                ref={searchInputRef}
+                                type="text"
+                                className="pr-12"
+                                placeholder="Search Bible text..."
+                                value={lastQuery}
+                                onChange={(e) => onQueryChange(e.target.value)}
+                                onFocus={handleSearchFocus}
+                                onKeyDown={handleKeyDown}
+                                aria-label="Search Bible text"
+                            />
+                            
+                            {isLoading ? (
+                                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                                    <LoadingSpinner size="sm" />
                                 </div>
-                                <div>
-                                    {recentSearches.map((search, index) => (
-                                        <button
-                                            key={`recent-${index}`}
-                                            className="recent-search-item"
-                                            onClick={() => handleRecentSearchClick(search)}
-                                        >
-                                            <span className="codicon codicon-history" style={{ color: 'var(--gray-400)', fontSize: '14px' }}></span>
-                                            <span>{search}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                            ) : (
+                                <Button
+                                    type="submit"
+                                    size="sm"
+                                    className="absolute right-1 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
+                                    disabled={!lastQuery.trim()}
+                                    aria-label="Search"
+                                >
+                                    <span className="codicon codicon-search"></span>
+                                </Button>
+                            )}
 
-                    <div className="flex items-center justify-between gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
-                            className="settings-toggle"
-                            aria-label="Toggle search settings"
-                            aria-expanded={isSettingsExpanded}
-                        >
-                            <span className="codicon codicon-settings-gear"></span>
-                            <span>Settings</span>
-                            <span className={`codicon codicon-chevron-${isSettingsExpanded ? 'up' : 'down'}`}></span>
-                        </button>
+                            {showRecentSearches && recentSearches.length > 0 && (
+                                <Card className="recent-searches-dropdown absolute top-full left-0 right-0 mt-1 z-10">
+                                    <CardContent className="p-0">
+                                        <div className="flex justify-between items-center p-3 border-b">
+                                            <span className="text-sm font-medium text-muted-foreground">
+                                                Recent Searches
+                                            </span>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => {
+                                                    setRecentSearches([]);
+                                                    localStorage.removeItem("recentBibleSearches");
+                                                    setShowRecentSearches(false);
+                                                }}
+                                                aria-label="Clear all recent searches"
+                                            >
+                                                Clear All
+                                            </Button>
+                                        </div>
+                                        <div>
+                                            {recentSearches.map((search, index) => (
+                                                <Button
+                                                    key={`recent-${index}`}
+                                                    variant="ghost"
+                                                    className="w-full justify-start gap-2 h-auto p-3 recent-search-item"
+                                                    onClick={() => handleRecentSearchClick(search)}
+                                                >
+                                                    <span className="codicon codicon-history text-muted-foreground"></span>
+                                                    <span>{search}</span>
+                                                </Button>
+                                            ))}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+                        </div>
 
-                        {verses.length > 0 && (
-                            <button
+                        <div className="flex items-center justify-between gap-2">
+                            <Button
                                 type="button"
-                                onClick={onPinAll}
-                                className="action-button"
-                                aria-label="Pin all verses"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
+                                aria-label="Toggle search settings"
+                                aria-expanded={isSettingsExpanded}
                             >
-                                <span className="codicon codicon-pin"></span>
-                                <span>Pin All</span>
-                                <span className="badge">
-                                    {verses.length}
-                                </span>
-                            </button>
+                                <span className="codicon codicon-settings-gear mr-2"></span>
+                                <span>Settings</span>
+                                <span className={`codicon codicon-chevron-${isSettingsExpanded ? 'up' : 'down'} ml-2`}></span>
+                            </Button>
+
+                            {verses.length > 0 && (
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={onPinAll}
+                                    aria-label="Pin all results"
+                                >
+                                    <span className="codicon codicon-pin mr-2"></span>
+                                    Pin All
+                                </Button>
+                            )}
+                        </div>
+
+                        {isSettingsExpanded && (
+                            <div className="border-t pt-4">
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        id="complete-only"
+                                        checked={completeOnly}
+                                        onChange={(e) => onCompleteOnlyChange(e.target.checked)}
+                                        className="h-4 w-4 rounded border border-input text-primary"
+                                    />
+                                    <label
+                                        htmlFor="complete-only"
+                                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                        Show only completed translations
+                                    </label>
+                                </div>
+                            </div>
                         )}
-                    </div>
-                </form>
+                    </form>
+                </CardContent>
+            </Card>
 
-                {isSettingsExpanded && (
-                    <div className="settings-section">
-                        <div className="settings-divider" />
-                        <label className="custom-checkbox">
-                            <input
-                                type="checkbox"
-                                className="checkbox-input"
-                                checked={completeOnly}
-                                onChange={(e) => onCompleteOnlyChange(e.target.checked)}
-                            />
-                            <span className="checkbox-label">
-                                Show translated verses only
-                            </span>
-                        </label>
+            {verses.length > 0 && (
+                <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">Search Results</span>
+                        <Badge variant="secondary">{verses.length}</Badge>
                     </div>
-                )}
-            </div>
+                    {pinnedVerses.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Pinned:</span>
+                            <Badge variant="outline">{pinnedVerses.length}</Badge>
+                        </div>
+                    )}
+                </div>
+            )}
 
-            <div className="flex-1 overflow-y-auto p-4">
-                {isLoading ? (
-                    <div className="empty-state">
-                        <VSCodeProgressRing aria-label="Loading search results"></VSCodeProgressRing>
-                        <div className="empty-state-title">Searching verses...</div>
-                        <div className="empty-state-description">
-                            Finding relevant passages in your Bible text
+            <div className="flex-1 overflow-y-auto space-y-4">
+                {verses.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+                        <div className="text-4xl text-muted-foreground mb-4">
+                            <span className="codicon codicon-search"></span>
                         </div>
-                    </div>
-                ) : verses.length > 0 ? (
-                    <div className="flex flex-col gap-3">
-                        {verses.map((item, index) => (
-                            <VerseItem
-                                key={index}
-                                item={item}
-                                onUriClick={onUriClick}
-                                isPinned={pinnedVerses.some((v) => v.cellId === item.cellId)}
-                                onPinToggle={onPinToggle}
-                            />
-                        ))}
-                    </div>
-                ) : lastQuery ? (
-                    <div className="empty-state">
-                        <span className="empty-state-icon codicon codicon-search"></span>
-                        <div className="empty-state-title">No results found</div>
-                        <div className="empty-state-description">
-                            No verses found for "{lastQuery}". Try different keywords or check your spelling.
-                        </div>
+                        <h3 className="text-lg font-semibold mb-2">No search results</h3>
+                        <p className="text-muted-foreground">
+                            Enter a search term to find Bible verses across your project files.
+                        </p>
                     </div>
                 ) : (
-                    <div className="empty-state">
-                        <span className="empty-state-icon codicon codicon-search"></span>
-                        <div className="empty-state-title">Search the Bible</div>
-                        <div className="empty-state-description">
-                            Enter words or phrases to find relevant verses in your translation project.
-                        </div>
-                    </div>
+                    verses.map((item, index) => {
+                        const isPinned = pinnedVerses.some(
+                            (verse) => verse.cellId === item.cellId
+                        );
+                        return (
+                            <VerseItem
+                                key={`${item.cellId}-${index}`}
+                                item={item}
+                                isPinned={isPinned}
+                                onPinToggle={onPinToggle}
+                                onUriClick={onUriClick}
+                            />
+                        );
+                    })
                 )}
             </div>
         </div>
