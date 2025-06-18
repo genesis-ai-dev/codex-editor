@@ -9,9 +9,8 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    generateCellId,
+    createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 import { processImageData, extractImagesFromHtml } from '../../utils/imageProcessor';
@@ -22,7 +21,7 @@ const SUPPORTED_EXTENSIONS = ['docx'];
 /**
  * Validates a DOCX file
  */
-const validateFile = async (file: File): Promise<FileValidationResult> => {
+export const validateFile = async (file: File): Promise<FileValidationResult> => {
     const errors: string[] = [];
     const warnings: string[] = [];
 
@@ -67,16 +66,16 @@ const validateFile = async (file: File): Promise<FileValidationResult> => {
 /**
  * Parses a DOCX file using mammoth.js
  */
-const parseFile = async (
+export const parseFile = async (
     file: File,
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Reading File', 'Reading DOCX file...', 'processing', 10));
+        onProgress?.(createProgress('Reading File', 'Reading DOCX file...', 10));
 
         const arrayBuffer = await file.arrayBuffer();
 
-        onProgress?.(createProgress('Converting to HTML', 'Converting DOCX to HTML using mammoth.js...', 'processing', 30));
+        onProgress?.(createProgress('Converting to HTML', 'Converting DOCX to HTML using mammoth.js...', 30));
 
         // Configure mammoth.js options
         const mammothOptions: DocxMammothOptions = {
@@ -137,17 +136,17 @@ const parseFile = async (
         const result = await mammoth.convertToHtml(mammothOptions as any);
         const htmlContent = result.value;
 
-        onProgress?.(createProgress('Parsing Structure', 'Parsing HTML structure...', 'processing', 60));
+        onProgress?.(createProgress('Parsing Structure', 'Parsing HTML structure...', 60));
 
         // Parse HTML structure
         const htmlSegments = await parseHtmlStructure(htmlContent);
 
-        onProgress?.(createProgress('Processing Images', 'Processing embedded images...', 'processing', 80));
+        onProgress?.(createProgress('Processing Images', 'Processing embedded images...', 80));
 
         // Process each segment into cells
         const cells = await Promise.all(
             htmlSegments.map(async (segment, index) => {
-                const cellId = generateCellId('docx', index);
+                const cellId = createStandardCellId(file.name, 1, index + 1);
                 const cell = createProcessedCell(cellId, segment);
 
                 // Extract and process images from this cell
@@ -158,20 +157,47 @@ const parseFile = async (
             })
         );
 
-        onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 'processing', 90));
+        onProgress?.(createProgress('Creating Notebooks', 'Creating source and codex notebooks...', 90));
 
-        // Create notebook pair
-        const notebookPair = createNotebookPair(
-            file.name,
+        // Create notebook pair directly
+        const baseName = file.name.replace(/\.[^/.]+$/, '');
+        const sourceNotebook = {
+            name: baseName, // Just the base name, no extension
             cells,
-            'docx',
-            {
+            metadata: {
+                id: `source-${Date.now()}`,
+                originalFileName: file.name,
+                importerType: 'docx',
+                createdAt: new Date().toISOString(),
                 wordCount: countWordsInHtml(htmlContent),
                 mammothMessages: result.messages,
-            }
-        );
+            },
+        };
 
-        onProgress?.(createProgress('Complete', 'DOCX processing complete', 'complete', 100));
+        const codexCells = cells.map(sourceCell => ({
+            id: sourceCell.id,
+            content: sourceCell.images.length > 0
+                ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
+                : '', // Empty for translation, preserve images
+            images: sourceCell.images,
+            metadata: sourceCell.metadata,
+        }));
+
+        const codexNotebook = {
+            name: baseName, // Just the base name, no extension
+            cells: codexCells,
+            metadata: {
+                ...sourceNotebook.metadata,
+                id: `codex-${Date.now()}`,
+            },
+        };
+
+        const notebookPair = {
+            source: sourceNotebook,
+            codex: codexNotebook,
+        };
+
+        onProgress?.(createProgress('Complete', 'DOCX processing complete', 100));
 
         return {
             success: true,
@@ -184,7 +210,7 @@ const parseFile = async (
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'Failed to process DOCX file', 'error', 0));
+        onProgress?.(createProgress('Error', 'Failed to process DOCX file', 0));
 
         return {
             success: false,
@@ -309,6 +335,7 @@ const countWordsInHtml = (html: string): number => {
 export const docxImporter: ImporterPlugin = {
     name: 'DOCX Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
     description: 'Imports Microsoft Word DOCX files using mammoth.js',
     validateFile,
     parseFile,

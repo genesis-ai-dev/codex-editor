@@ -8,7 +8,7 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    generateCellId,
+    createStandardCellId,
     createProcessedCell,
     createNotebookPair,
     validateFileExtension,
@@ -406,7 +406,7 @@ const parseObsMarkdown = async (
     // Convert story segments to cells
     const cells = await Promise.all(
         obsStory.segments.map(async (segment, index) => {
-            const cellId = generateCellId('obs', index);
+            const cellId = createStandardCellId(file.name, obsStory.storyNumber, index + 1);
             const cell = createProcessedCell(cellId, segment.html, {
                 storyNumber: obsStory.storyNumber,
                 storyTitle: obsStory.title,

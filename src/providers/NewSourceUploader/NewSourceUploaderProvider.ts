@@ -1,38 +1,16 @@
 import * as vscode from "vscode";
-import { NewSourceUploaderPostMessages } from "@newSourceUploaderTypes";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
-import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
+import { WriteNotebooksMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
+import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
+import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
-import { NotebookPreview } from "@types";
-
-// Helper function to close open files if they exist
-async function closeFileIfOpen(uri: vscode.Uri): Promise<void> {
-    try {
-        // Get all visible editors
-        const visibleEditors = vscode.window.visibleTextEditors;
-
-        // Look for editors with matching file system paths
-        for (const editor of visibleEditors) {
-            if (editor.document.uri.fsPath === uri.fsPath) {
-                // Found the editor we want to close
-                await vscode.window.showTextDocument(editor.document, editor.viewColumn);
-                await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-                break;
-            }
-        }
-    } catch (error) {
-        console.warn(`Failed to close file ${uri.fsPath}:`, error);
-        // Don't throw - just log the warning and continue
-    }
-}
 
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
 
-    constructor(private readonly context: vscode.ExtensionContext) {
-        // Constructor simplified for now
-    }
+    constructor(private readonly context: vscode.ExtensionContext) { }
 
     async openCustomDocument(
         uri: vscode.Uri,
@@ -56,257 +34,94 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         webviewPanel.webview.onDidReceiveMessage(async (message: any) => {
             try {
-                await this.handleMessage(message, webviewPanel, token);
+                if (message.command === "writeNotebooks") {
+                    await this.handleWriteNotebooks(message as WriteNotebooksMessage, token);
+
+                    // Send success notification
+                    webviewPanel.webview.postMessage({
+                        command: "notification",
+                        type: "success",
+                        message: "Notebooks created successfully!"
+                    });
+                }
             } catch (error) {
                 console.error("Error handling message:", error);
-                safePostMessageToPanel(webviewPanel, {
-                    command: "error",
-                    error: error instanceof Error ? error.message : "Unknown error occurred",
+
+                // Send error notification
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "error",
+                    message: error instanceof Error ? error.message : "Unknown error occurred"
                 });
             }
         });
     }
 
-    private async handleMessage(
-        message: NewSourceUploaderPostMessages,
-        webviewPanel: vscode.WebviewPanel,
-        token: vscode.CancellationToken
-    ): Promise<void> {
-        switch (message.command) {
-            case "uploadFile":
-                if (message.fileData) {
-                    await this.handlePluginUpload(message.fileData, webviewPanel, token);
-                }
-                break;
-            case "reset":
-                // Handle reset command
-                safePostMessageToPanel(webviewPanel, {
-                    command: "uploadResult",
-                    result: null,
-                });
-                break;
-            case "getProgress":
-                // Handle progress requests
-                break;
-            default:
-                console.warn("Unhandled message command:", message.command);
-        }
+    /**
+ * Converts a ProcessedNotebook to NotebookPreview format
+ */
+    private convertToNotebookPreview(processedNotebook: ProcessedNotebook): NotebookPreview {
+        const cells: CodexCell[] = processedNotebook.cells.map(processedCell => ({
+            kind: vscode.NotebookCellKind.Code,
+            value: processedCell.content,
+            languageId: "html",
+            metadata: {
+                id: processedCell.id,
+                type: CodexCellTypes.TEXT,
+                data: processedCell.metadata || {},
+            }
+        }));
+
+        const metadata: CustomNotebookMetadata = {
+            id: processedNotebook.metadata.id,
+            originalName: processedNotebook.metadata.originalFileName,
+            sourceFsPath: "",
+            codexFsPath: "",
+            navigation: [],
+            sourceCreatedAt: processedNotebook.metadata.createdAt,
+            corpusMarker: processedNotebook.metadata.importerType,
+            textDirection: "ltr",
+        };
+
+        return {
+            name: processedNotebook.name,
+            cells,
+            metadata,
+        };
     }
 
-    private async handlePluginUpload(
-        fileData: NewSourceUploaderPostMessages["fileData"],
-        webviewPanel: vscode.WebviewPanel,
+    private async handleWriteNotebooks(
+        message: WriteNotebooksMessage,
         token: vscode.CancellationToken
     ): Promise<void> {
-        try {
-            if (!fileData) {
-                throw new Error("No file data provided");
-            }
+        // Convert ProcessedNotebooks to NotebookPreview format
+        const sourceNotebooks = message.notebookPairs.map(pair =>
+            this.convertToNotebookPreview(pair.source)
+        );
+        const codexNotebooks = message.notebookPairs.map(pair =>
+            this.convertToNotebookPreview(pair.codex)
+        );
 
-            // Send initial progress update
-            safePostMessageToPanel(webviewPanel, {
-                command: "progressUpdate",
-                progress: [
-                    {
-                        stage: "File Processing",
-                        message: `Processing ${fileData.name} with ${fileData.importerType}`,
-                        status: "processing",
-                    },
-                ],
-            });
+        // Create the notebook pairs
+        await createNoteBookPair({
+            token,
+            sourceNotebooks,
+            codexNotebooks,
+        });
 
-            const fileName = fileData.name.split(".")[0].replace(/\s+/g, "-");
+        // Show success message
+        const count = message.notebookPairs.length;
+        const notebooksText = count === 1 ? "notebook" : "notebooks";
+        const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
 
-            // Check if this is a repository download with multiple notebooks
-            const isRepositoryDownload = fileData.metadata?.allSourceNotebooks && fileData.metadata?.allCodexNotebooks;
+        vscode.window.showInformationMessage(
+            count === 1
+                ? `Successfully imported "${firstNotebookName}"!`
+                : `Successfully imported ${count} ${notebooksText}!`
+        );
 
-            if (isRepositoryDownload) {
-                // Handle multiple notebooks for repository downloads
-                const sourceNotebooks: NotebookPreview[] = fileData.metadata.allSourceNotebooks.map((notebook: any) => ({
-                    name: notebook.name,
-                    cells: notebook.cells.map((cell: any) => ({
-                        kind: vscode.NotebookCellKind.Code,
-                        value: cell.content,
-                        languageId: cell.language || "html",
-                        metadata: {
-                            id: cell.id,
-                            type: CodexCellTypes.TEXT,
-                            data: cell.metadata,
-                        },
-                    })),
-                    metadata: {
-                        id: notebook.metadata.id || notebook.name.toLowerCase().replace(/\s+/g, "-"),
-                        textDirection: "ltr",
-                        navigation: [],
-                        videoUrl: "",
-                        originalName: notebook.name,
-                        sourceFsPath: "",
-                        codexFsPath: "",
-                        sourceCreatedAt: new Date().toISOString(),
-                        corpusMarker: fileData.importerType,
-                        ...notebook.metadata,
-                    },
-                }));
-
-                const codexNotebooks: NotebookPreview[] = fileData.metadata.allCodexNotebooks.map((notebook: any) => ({
-                    name: notebook.name,
-                    cells: notebook.cells.map((cell: any) => ({
-                        kind: vscode.NotebookCellKind.Code,
-                        value: cell.content,
-                        languageId: cell.language || "html",
-                        metadata: {
-                            id: cell.id,
-                            type: CodexCellTypes.TEXT,
-                            data: cell.metadata,
-                        },
-                    })),
-                    metadata: {
-                        id: notebook.metadata.id || notebook.name.toLowerCase().replace(/\s+/g, "-"),
-                        textDirection: "ltr",
-                        navigation: [],
-                        videoUrl: "",
-                        originalName: notebook.name,
-                        sourceFsPath: "",
-                        codexFsPath: "",
-                        sourceCreatedAt: new Date().toISOString(),
-                        corpusMarker: fileData.importerType,
-                        ...notebook.metadata,
-                    },
-                }));
-
-                // Create multiple notebook pairs
-                await createNoteBookPair({
-                    token,
-                    sourceNotebooks: sourceNotebooks,
-                    codexNotebooks: codexNotebooks,
-                });
-            } else {
-                // Handle single notebook upload
-                const sourceNotebook: NotebookPreview = {
-                    name: fileName,
-                    cells: fileData.notebookPair.source.cells.map((cell: any) => ({
-                        kind: vscode.NotebookCellKind.Code,
-                        value: cell.content,
-                        languageId: cell.language || "html",
-                        metadata: {
-                            id: cell.id,
-                            type: CodexCellTypes.TEXT,
-                            data: cell.metadata,
-                        },
-                    })),
-                    metadata: {
-                        id: fileName,
-                        textDirection: "ltr",
-                        navigation: [],
-                        videoUrl: "",
-                        originalName: fileData.name,
-                        sourceFsPath: "",
-                        codexFsPath: "",
-                        sourceCreatedAt: new Date().toISOString(),
-                        corpusMarker: fileData.importerType,
-                        ...fileData.notebookPair.source.metadata,
-                    },
-                };
-
-                const codexNotebook: NotebookPreview = {
-                    name: fileName,
-                    cells: fileData.notebookPair.codex.cells.map((cell: any) => ({
-                        kind: vscode.NotebookCellKind.Code,
-                        value: cell.content,
-                        languageId: cell.language || "html",
-                        metadata: {
-                            id: cell.id,
-                            type: CodexCellTypes.TEXT,
-                            data: cell.metadata,
-                        },
-                    })),
-                    metadata: {
-                        id: fileName,
-                        textDirection: "ltr",
-                        navigation: [],
-                        videoUrl: "",
-                        originalName: fileData.name,
-                        sourceFsPath: "",
-                        codexFsPath: "",
-                        sourceCreatedAt: new Date().toISOString(),
-                        corpusMarker: fileData.importerType,
-                        ...fileData.notebookPair.codex.metadata,
-                    },
-                };
-
-                // Create single notebook pair
-                await createNoteBookPair({
-                    token,
-                    sourceNotebooks: [sourceNotebook],
-                    codexNotebooks: [codexNotebook],
-                });
-            }
-
-            // Send processing progress update
-            safePostMessageToPanel(webviewPanel, {
-                command: "progressUpdate",
-                progress: [
-                    {
-                        stage: "File Processing",
-                        message: "Creating notebook files...",
-                        status: "processing",
-                    },
-                ],
-            });
-
-            // Force reindex to ensure new files are recognized
-            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
-
-            // Send completion progress update
-            safePostMessageToPanel(webviewPanel, {
-                command: "progressUpdate",
-                progress: [
-                    {
-                        stage: "File Processing",
-                        message: "Notebook files created successfully",
-                        status: "success",
-                    },
-                    {
-                        stage: "Indexing",
-                        message: "Reindexing workspace...",
-                        status: "success",
-                    },
-                ],
-            });
-
-            // Send success result
-            const notebookCount = isRepositoryDownload ?
-                fileData.metadata?.allSourceNotebooks?.length || 1 : 1;
-
-            safePostMessageToPanel(webviewPanel, {
-                command: "uploadResult",
-                result: {
-                    success: true,
-                    message: `Successfully imported ${fileData.name} using ${fileData.importerType}${isRepositoryDownload ? ` (${notebookCount} stories)` : ''}`,
-                    fileName: fileData.name,
-                },
-            });
-
-            // Show information message to user
-            vscode.window.showInformationMessage(
-                `File "${fileData.name}" has been imported successfully using ${fileData.importerType}!${isRepositoryDownload ? ` Created ${notebookCount} story notebooks.` : ''
-                }`
-            );
-        } catch (error) {
-            // Send error result
-            safePostMessageToPanel(webviewPanel, {
-                command: "uploadResult",
-                result: {
-                    success: false,
-                    message: error instanceof Error ? error.message : "Unknown error occurred",
-                },
-            });
-
-            // Show error message to user
-            vscode.window.showErrorMessage(
-                `Failed to import file: ${error instanceof Error ? error.message : "Unknown error"}`
-            );
-        }
+        // Force reindex to ensure new files are recognized
+        await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
@@ -317,14 +132,5 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });
-    }
-
-    private getNonce(): string {
-        let text = "";
-        const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        for (let i = 0; i < 32; i++) {
-            text += possible.charAt(Math.floor(Math.random() * possible.length));
-        }
-        return text;
     }
 }

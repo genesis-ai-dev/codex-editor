@@ -1689,3 +1689,6 @@ interface MenuButton {
     command?: string;
     description?: string;
 }
+
+// NewSourceUploader message types (moved to plugin types)
+export type NewSourceUploaderPostMessages = any; // Placeholder - actual types are in plugin.ts

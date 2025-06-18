@@ -6,7 +6,7 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    generateCellId,
+    createStandardCellId,
     createProcessedCell,
     createNotebookPair,
     validateFileExtension,
@@ -75,7 +75,7 @@ const parseFile = async (
 
         // Convert verses to cells
         const cells = verses.map((verse, index) => {
-            const cellId = generateCellId('ebible', index);
+            const cellId = createStandardCellId(file.name, verse.chapter, verse.verseNumber);
             const content = formatVerseContent(verse);
             return createProcessedCell(cellId, content, {
                 verseReference: verse.reference,
