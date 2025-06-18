@@ -242,14 +242,46 @@ const CodexCellEditor: React.FC = () => {
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
 
-            // If chapter is changing, reset subsection index
-            if (newChapterNumber !== chapterNumber) {
-                setCurrentSubsectionIndex(0);
+            // Get all cells for the target chapter
+            const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
+                return verseChapter === newChapterNumber.toString();
+            });
+
+            // Find the index of the highlighted cell within the chapter
+            const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                (verse) => verse.cellMarkers[0] === cellId
+            );
+
+            // Calculate which subsection this cell belongs to
+            let targetSubsectionIndex = 0;
+            if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
+                targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
             }
 
-            setChapterNumber(newChapterNumber);
+            // If chapter is changing, update chapter and subsection
+            if (newChapterNumber !== chapterNumber) {
+                setChapterNumber(newChapterNumber);
+                setCurrentSubsectionIndex(targetSubsectionIndex);
+            } else {
+                // Same chapter, but check if we need to change subsection
+                // Check if chapter has multiple pages (subsections)
+                if (
+                    allCellsForTargetChapter.length > cellsPerPage &&
+                    targetSubsectionIndex !== currentSubsectionIndex
+                ) {
+                    setCurrentSubsectionIndex(targetSubsectionIndex);
+                }
+            }
         }
-    }, [highlightedCellId, scrollSyncEnabled, chapterNumber]);
+    }, [
+        highlightedCellId,
+        scrollSyncEnabled,
+        chapterNumber,
+        translationUnits,
+        cellsPerPage,
+        currentSubsectionIndex,
+    ]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
