@@ -3,6 +3,11 @@ import { WelcomeViewProvider } from "./welcomeViewProvider";
 
 let provider: WelcomeViewProvider;
 
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && console.log(`[WelcomeView] ${message}`, ...args);
+};
+
 export function registerWelcomeViewProvider(context: vscode.ExtensionContext): WelcomeViewProvider {
     provider = new WelcomeViewProvider(context.extensionUri);
 
@@ -17,7 +22,7 @@ export function registerWelcomeViewProvider(context: vscode.ExtensionContext): W
     // Show welcome view when all editors are closed
     context.subscriptions.push(
         vscode.window.onDidChangeVisibleTextEditors(async (editors) => {
-            console.log("[WelcomeView] Editors changed, count:", editors.length);
+            debug("[WelcomeView] Editors changed, count:", editors.length);
             // Only show welcome view when all editors are closed and we have a workspace
             if (
                 editors.length === 0 &&
@@ -33,7 +38,7 @@ export function registerWelcomeViewProvider(context: vscode.ExtensionContext): W
     // Add watcher for text document close events - this helps catch editor closures
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument(async (document) => {
-            console.log(`[WelcomeView] Document closed: ${document.uri.toString()}`);
+            debug(`[WelcomeView] Document closed: ${document.uri.toString()}`);
             // After a short delay, check if all editors are now closed and show welcome view if needed
             setTimeout(() => {
                 showWelcomeViewIfNeeded();
@@ -44,7 +49,7 @@ export function registerWelcomeViewProvider(context: vscode.ExtensionContext): W
     // Also watch for notebook document close events
     context.subscriptions.push(
         vscode.workspace.onDidCloseNotebookDocument(async (document) => {
-            console.log(`[WelcomeView] Notebook document closed: ${document.uri.toString()}`);
+            debug(`[WelcomeView] Notebook document closed: ${document.uri.toString()}`);
             // After a short delay, check if all editors are now closed
             setTimeout(() => {
                 showWelcomeViewIfNeeded();
@@ -57,7 +62,7 @@ export function registerWelcomeViewProvider(context: vscode.ExtensionContext): W
         context.subscriptions.push(
             vscode.window.tabGroups.onDidChangeTabs(async (event) => {
                 if (event.closed.length > 0) {
-                    console.log(`[WelcomeView] Tabs closed: ${event.closed.length}`);
+                    debug(`[WelcomeView] Tabs closed: ${event.closed.length}`);
                     // After a short delay, check if all editors are now closed
                     setTimeout(() => {
                         showWelcomeViewIfNeeded();
@@ -99,7 +104,7 @@ export async function showWelcomeViewIfNeeded() {
     // Check all open tabs in all tab groups (this should catch all editors of any type)
     const hasOpenTabs = vscode.window.tabGroups.all.some((group) => group.tabs.length > 0);
 
-    console.log("[WelcomeView]", {
+    debug("[WelcomeView]", {
         hasVisibleEditors,
         hasOpenNotebooks,
         hasActiveEditor,
@@ -111,9 +116,9 @@ export async function showWelcomeViewIfNeeded() {
     });
 
     if (!hasVisibleEditors && !hasOpenNotebooks && !hasActiveEditor && !hasOpenTabs) {
-        console.log("[WelcomeView] No editors open, showing welcome view");
+        debug("[WelcomeView] No editors open, showing welcome view");
         await provider.show();
     } else {
-        console.log(`[WelcomeView] Editors found, skipping welcome view`);
+        debug(`[WelcomeView] Editors found, skipping welcome view`);
     }
 }

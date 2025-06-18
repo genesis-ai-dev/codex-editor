@@ -3,6 +3,10 @@ import * as vscode from "vscode";
 import { getWorkSpaceFolder, getWorkSpaceUri } from "../../../../utils";
 import { IndexingStatusBarHandler } from "../statusBarHandler";
 
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && console.log(`[Index] ${message}`, ...args);
+};
 
 import {
     searchTargetCellsByQuery,
@@ -120,7 +124,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         }
 
         if (isForced) {
-            console.log(`[Index] Forced rebuild allowed: ${reason}`);
+            debug(`[Index] Forced rebuild allowed: ${reason}`);
             return { allowed: true };
         }
 
@@ -155,7 +159,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
      */
     async function checkIfRebuildNeeded(): Promise<{ needsRebuild: boolean; reason: string; }> {
         try {
-            console.log("[Index] Checking if rebuild needed using file-level sync...");
+            debug("[Index] Checking if rebuild needed using file-level sync...");
 
             // Create sync manager
             const fileSyncManager = new FileSyncManager(translationPairsIndex);
@@ -174,11 +178,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     reason += ` (${summary.changedFiles} changed files)`;
                 }
 
-                console.log(`[Index] Rebuild needed: ${reason}`);
+                debug(`[Index] Rebuild needed: ${reason}`);
                 return { needsRebuild: true, reason };
             }
 
-            console.log(`[Index] No rebuild needed - all ${syncStatus.summary.totalFiles} files are up to date`);
+            debug(`[Index] No rebuild needed - all ${syncStatus.summary.totalFiles} files are up to date`);
             return { needsRebuild: false, reason: "all files synchronized" };
 
         } catch (error) {
@@ -192,7 +196,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
      * Smart rebuild using file-level synchronization
      */
     async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
-        console.log(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
+        debug(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
 
         // Check consecutive rebuilds protection
         const rebuildCheck = isRebuildAllowed(reason, isForced);
@@ -216,7 +220,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             // For forced rebuilds, clear everything first
             if (isForced) {
-                console.log("[Index] Forced rebuild - clearing existing indexes...");
+                debug("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
@@ -224,17 +228,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Perform intelligent file synchronization
-            console.log("[Index] Starting file-level synchronization...");
+            debug("[Index] Starting file-level synchronization...");
 
             const syncResult: FileSyncResult = await fileSyncManager.syncFiles({
                 forceSync: isForced,
                 progressCallback: (message, progress) => {
-                    console.log(`[Index] Sync progress: ${message} (${progress}%)`);
+                    debug(`[Index] Sync progress: ${message} (${progress}%)`);
                     // Use existing status bar methods
                 }
             });
 
-            console.log(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
+            debug(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
 
             if (syncResult.errors.length > 0) {
                 console.warn(`[Index] Sync completed with ${syncResult.errors.length} errors:`);
@@ -244,7 +248,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Update other indexes that depend on the file data
-            console.log("[Index] Updating complementary indexes...");
+            debug("[Index] Updating complementary indexes...");
 
             try {
                 // Update words and files indexes
@@ -255,14 +259,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 // Update complete drafts
                 await updateCompleteDrafts(targetFiles);
 
-                console.log("[Index] Complementary indexes updated successfully");
+                debug("[Index] Complementary indexes updated successfully");
             } catch (error) {
                 console.warn("[Index] Error updating complementary indexes:", error);
                 // Don't fail the entire rebuild for complementary index errors
             }
 
             const finalDocCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
+            debug(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
 
             statusBarHandler.updateIndexCounts(
                 finalDocCount,
@@ -278,9 +282,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             // Show sync statistics
             try {
                 const stats = await fileSyncManager.getSyncStatistics();
-                console.log(`[Index] Sync Statistics:`);
-                console.log(`  - Total files: ${stats.syncStats.totalFiles} (${stats.syncStats.sourceFiles} source, ${stats.syncStats.codexFiles} codex)`);
-                console.log(`  - Index stats: ${stats.indexStats.totalCells} cells, ${stats.indexStats.totalWords} words`);
+                debug(`[Index] Sync Statistics:`);
+                debug(`  - Total files: ${stats.syncStats.totalFiles} (${stats.syncStats.sourceFiles} source, ${stats.syncStats.codexFiles} codex)`);
+                debug(`  - Index stats: ${stats.indexStats.totalCells} cells, ${stats.indexStats.totalWords} words`);
             } catch (error) {
                 console.warn("[Index] Error getting sync statistics:", error);
             }
@@ -345,7 +349,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     const currentDocCount = translationPairsIndex.documentCount;
     const healthCheck = await validateIndexHealthConservatively();
 
-    console.log(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
+    debug(`[Index] Health check: ${healthCheck.isHealthy ? 'HEALTHY' : 'CRITICAL ISSUE'} - ${healthCheck.criticalIssue || 'OK'} (${currentDocCount} documents)`);
 
     let needsRebuild = false;
     let rebuildReason = '';
@@ -366,7 +370,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     if (needsRebuild) {
-        console.log(`[Index] Rebuild needed: ${rebuildReason}`);
+        debug(`[Index] Rebuild needed: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy || currentDocCount === 0;
@@ -381,7 +385,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 await smartRebuildIndexes(rebuildReason, isCritical);
 
                 const finalCount = translationPairsIndex.documentCount;
-                console.log(`[Index] Rebuild completed with ${finalCount} documents`);
+                debug(`[Index] Rebuild completed with ${finalCount} documents`);
 
                 if (finalCount > 0) {
                     vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
@@ -396,7 +400,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         });
     } else {
         // Database is healthy and up to date
-        console.log(`[Index] Index is healthy and up to date with ${currentDocCount} documents`);
+        debug(`[Index] Index is healthy and up to date with ${currentDocCount} documents`);
         statusBarHandler.updateIndexCounts(
             translationPairsIndex.documentCount,
             sourceTextIndex.documentCount
@@ -485,14 +489,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!cellId) return null; // User cancelled the input
                     showInfo = true;
                 }
-                console.log(
+                debug(
                     `Executing getSourceCellByCellIdFromAllSourceCells for cellId: ${cellId}`
                 );
                 const results = await getSourceCellByCellIdFromAllSourceCells(
                     sourceTextIndex,
                     cellId
                 );
-                console.log("getSourceCellByCellIdFromAllSourceCells results:", results);
+                debug("getSourceCellByCellIdFromAllSourceCells results:", results);
                 if (showInfo && results) {
                     vscode.window.showInformationMessage(
                         `Source cell for ${cellId}: ${results.content}`
@@ -557,7 +561,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async () => {
                 const { targetFiles } = await readSourceAndTargetFiles();
                 wordsIndex = await initializeWordsIndex(new Map(), targetFiles);
-                console.log("Word index refreshed");
+                debug("Word index refreshed");
             }
         );
 
@@ -571,7 +575,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     wordsIndex = await initializeWordsIndex(wordsIndex, targetFiles);
                 }
                 const wordsAboveThreshold = await getWordsAboveThreshold(wordsIndex, threshold);
-                console.log(`Words above threshold: ${wordsAboveThreshold}`);
+                debug(`Words above threshold: ${wordsAboveThreshold}`);
                 return wordsAboveThreshold;
             }
         );
@@ -739,7 +743,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     options // Pass through options including isParallelPassagesWebview
                 );
 
-                console.log(`Search results for "${query}":`, results);
+                debug(`Search results for "${query}":`, results);
 
                 if (showInfo) {
                     const resultsString = results
@@ -901,8 +905,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         const choice = await vscode.window.showInformationMessage(message, action, "OK");
 
                         if (choice === action) {
-                            console.log('Full integrity check results:', integrityResult);
-                            console.log('Full content stats:', stats);
+                            debug('Full integrity check results:', integrityResult);
+                            debug('Full content stats:', stats);
                         }
                     } else {
                         vscode.window.showErrorMessage("Data integrity check only available for SQLite index");
@@ -1005,25 +1009,25 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (choice === "Rebuild Index") {
                         vscode.commands.executeCommand("codex-editor-extension.forceCompleteRebuild");
                     } else if (choice === "View Full Diagnostics") {
-                        console.log("=== Full Index Diagnostics ===");
-                        console.log(`Documents in index: ${currentDocCount}`);
-                        console.log(`Source files: ${sourceFiles.length}`);
-                        console.log(`Target files: ${targetFiles.length}`);
+                        debug("=== Full Index Diagnostics ===");
+                        debug(`Documents in index: ${currentDocCount}`);
+                        debug(`Source files: ${sourceFiles.length}`);
+                        debug(`Target files: ${targetFiles.length}`);
 
                         if (translationPairsIndex instanceof SQLiteIndexManager) {
                             const stats = await translationPairsIndex.getContentStats();
                             const pairStats = await translationPairsIndex.getTranslationPairStats();
                             const integrityCheck = await translationPairsIndex.verifyDataIntegrity();
 
-                            console.log("\nContent Statistics:", stats);
-                            console.log("\nTranslation Pair Statistics:", pairStats);
-                            console.log("\nData Integrity Check:", integrityCheck);
+                            debug("\nContent Statistics:", stats);
+                            debug("\nTranslation Pair Statistics:", pairStats);
+                            debug("\nData Integrity Check:", integrityCheck);
 
                             // Sample some cells to see what's in the database
-                            console.log("\nSample cells from database:");
+                            debug("\nSample cells from database:");
                             const sampleCells = await translationPairsIndex.searchCells("", undefined, 5);
                             sampleCells.forEach((cell: any, i: number) => {
-                                console.log(`Sample ${i + 1}: ${cell.cell_id} (${cell.cell_type}) - Content: ${cell.content?.substring(0, 50)}...`);
+                                debug(`Sample ${i + 1}: ${cell.cell_id} (${cell.cell_type}) - Content: ${cell.content?.substring(0, 50)}...`);
                             });
                         }
                     }
@@ -1065,7 +1069,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             "codex-editor-extension.refreshIndex",
             async () => {
                 try {
-                    console.log("[Index] Manual refresh requested");
+                    debug("[Index] Manual refresh requested");
                     await smartRebuildIndexes("manual refresh", true);
                     vscode.window.showInformationMessage(
                         `Codex: Index refreshed successfully! Indexed ${translationPairsIndex.documentCount} documents.`
@@ -1083,7 +1087,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             "codex-editor-extension.checkSyncStatus",
             async () => {
                 try {
-                    console.log("[Index] Checking sync status...");
+                    debug("[Index] Checking sync status...");
                     const fileSyncManager = new FileSyncManager(translationPairsIndex);
 
                     const [syncStatus, stats] = await Promise.all([
@@ -1103,9 +1107,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     );
 
                     // Log detailed information
-                    console.log("[Index] Sync Status Details:");
+                    debug("[Index] Sync Status Details:");
                     for (const [file, detail] of syncStatus.details) {
-                        console.log(`  - ${file}: ${detail.reason}`);
+                        debug(`  - ${file}: ${detail.reason}`);
                     }
                 } catch (error) {
                     console.error("Error checking sync status:", error);
@@ -1160,7 +1164,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         try {
             const fileSyncManager = new FileSyncManager(translationPairsIndex);
             registerBackgroundValidation(context, translationPairsIndex, fileSyncManager);
-            console.log("🔍 Background Validation Service registered successfully");
+            debug("🔍 Background Validation Service registered successfully");
         } catch (error) {
             console.error("🔍 Failed to register Background Validation Service:", error);
         }

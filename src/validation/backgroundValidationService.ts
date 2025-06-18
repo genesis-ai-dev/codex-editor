@@ -3,6 +3,11 @@ import { createHash } from "crypto";
 import { SQLiteIndexManager } from "../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndex";
 import { FileSyncManager } from "../activationHelpers/contextAware/contentIndexes/fileSyncManager";
 
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && console.log(`[BackgroundValidationService] ${message}`, ...args);
+};
+
 export interface ValidationResult {
     isValid: boolean;
     validationType: "quick" | "integrity";
@@ -74,7 +79,7 @@ export class BackgroundValidationService {
     public initialize(sqliteIndex: SQLiteIndexManager, fileSyncManager: FileSyncManager): void {
         this.sqliteIndex = sqliteIndex;
         this.fileSyncManager = fileSyncManager;
-        console.log("🔍 Background Validation Service initialized");
+        debug("🔍 Background Validation Service initialized");
     }
 
     /**
@@ -82,12 +87,12 @@ export class BackgroundValidationService {
      */
     public start(): void {
         if (this.isRunning) {
-            console.log("🔍 Background Validation Service already running");
+            debug("🔍 Background Validation Service already running");
             return;
         }
 
         this.isRunning = true;
-        console.log("🔍 Background Validation Service started");
+        debug("🔍 Background Validation Service started");
 
         // Schedule initial validation checks
         this.scheduleValidation("quick");
@@ -118,7 +123,7 @@ export class BackgroundValidationService {
         }
 
         this.pendingValidations.clear();
-        console.log("🔍 Background Validation Service stopped");
+        debug("🔍 Background Validation Service stopped");
     }
 
     /**
@@ -131,7 +136,7 @@ export class BackgroundValidationService {
 
         // Smart scheduling: avoid redundant validations
         if (this.shouldSkipValidation(type)) {
-            console.log(`🔍 Skipping ${type} validation (${this.getSkipReason(type)})`);
+            debug(`🔍 Skipping ${type} validation (${this.getSkipReason(type)})`);
             return;
         }
 
@@ -143,14 +148,14 @@ export class BackgroundValidationService {
         };
 
         this.pendingValidations.set(requestId, request);
-        console.log(`🔍 Scheduled ${type} validation: ${requestId}`);
+        debug(`🔍 Scheduled ${type} validation: ${requestId}`);
     }
 
     /**
  * Force immediate validation (for manual triggers)
  */
     public async forceValidation(type: "quick" | "integrity"): Promise<ValidationResult> {
-        console.log(`🔍 Force-running ${type} validation...`);
+        debug(`🔍 Force-running ${type} validation...`);
 
         switch (type) {
             case "quick":
@@ -180,7 +185,7 @@ export class BackgroundValidationService {
         this.pendingValidations.delete(requestId);
 
         try {
-            console.log(`🔍 Processing ${request.type} validation: ${requestId}`);
+            debug(`🔍 Processing ${request.type} validation: ${requestId}`);
             let result: ValidationResult;
 
             switch (request.type) {
@@ -215,7 +220,7 @@ export class BackgroundValidationService {
     private async performQuickValidation(): Promise<ValidationResult> {
         const startTime = Date.now();
         const issues: ValidationIssue[] = [];
-        let stats = {
+        const stats = {
             filesChecked: 0,
             cellsValidated: 0,
             hashMismatches: 0,
@@ -305,7 +310,7 @@ export class BackgroundValidationService {
     private async performIntegrityValidation(): Promise<ValidationResult> {
         const startTime = Date.now();
         const issues: ValidationIssue[] = [];
-        let stats = {
+        const stats = {
             filesChecked: 0,
             cellsValidated: 0,
             hashMismatches: 0,
@@ -331,7 +336,7 @@ export class BackgroundValidationService {
 
         try {
             // 1. OPTIMIZED BATCH VALIDATION - Process files in parallel batches
-            console.log("🔍 Cross-validating sync metadata against database content...");
+            debug("🔍 Cross-validating sync metadata against database content...");
 
             // Get all sync metadata in one query (much faster than stepping through)
             const allSyncMetadata = this.sqliteIndex.database.exec(`
@@ -341,7 +346,7 @@ export class BackgroundValidationService {
             `)[0]?.values || [];
 
             if (allSyncMetadata.length === 0) {
-                console.log("🔍 No sync metadata found - database may be empty");
+                debug("🔍 No sync metadata found - database may be empty");
                 return {
                     isValid: true,
                     validationType: "integrity",
@@ -352,7 +357,7 @@ export class BackgroundValidationService {
                 };
             }
 
-            console.log(`🔍 Validating ${allSyncMetadata.length} files...`);
+            debug(`🔍 Validating ${allSyncMetadata.length} files...`);
 
             // Process files in batches for better performance
             const BATCH_SIZE = 25; // Optimized batch size
@@ -364,7 +369,7 @@ export class BackgroundValidationService {
             // Process batches with parallel validation
             for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
                 const batch = batches[batchIndex];
-                console.log(`🔍 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`);
+                debug(`🔍 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`);
 
                 // Process validation for this batch - use DIRECT FILE READING for accurate hash comparison
                 for (const syncRow of batch) {
@@ -417,13 +422,13 @@ export class BackgroundValidationService {
                             // Attempt auto-repair by triggering re-sync
                             try {
                                 if (this.fileSyncManager) {
-                                    console.log(`🔍 Auto-repairing hash mismatch for ${filePath}`);
+                                    debug(`🔍 Auto-repairing hash mismatch for ${filePath}`);
                                     await this.fileSyncManager.syncFiles({
                                         forceSync: false, // Only sync this specific file
                                     });
                                     issue.autoRepaired = true;
                                     stats.autoRepaired++;
-                                    console.log(`🔍 ✅ Auto-repaired hash mismatch for ${filePath}`);
+                                    debug(`🔍 ✅ Auto-repaired hash mismatch for ${filePath}`);
                                 }
                             } catch (repairError) {
                                 console.error(`🔍 Failed to auto-repair ${filePath}:`, repairError);
@@ -434,7 +439,7 @@ export class BackgroundValidationService {
 
                             // Early termination if too many corruption issues (performance optimization)
                             if (stats.hashMismatches > 50) {
-                                console.log(`🔍 ⚠️ Early termination: detected ${stats.hashMismatches} hash mismatches - stopping validation to prevent performance issues`);
+                                debug(`🔍 ⚠️ Early termination: detected ${stats.hashMismatches} hash mismatches - stopping validation to prevent performance issues`);
                                 issues.push({
                                     severity: "critical",
                                     type: "database_corruption",
@@ -464,12 +469,12 @@ export class BackgroundValidationService {
 
             // Performance summary for batch processing
             const validationDuration = Date.now() - startTime;
-            console.log(`🔍 Batch validation completed: ${stats.filesChecked} files in ${validationDuration}ms (${Math.round(stats.filesChecked / (validationDuration / 1000))} files/sec)`);
+            debug(`🔍 Batch validation completed: ${stats.filesChecked} files in ${validationDuration}ms (${Math.round(stats.filesChecked / (validationDuration / 1000))} files/sec)`);
 
             // Skip expensive checks if early termination was triggered
             if (stats.hashMismatches <= 50) {
                 // 2. Check for orphaned sync metadata (files that no longer exist) - FAST CHECK
-                console.log("🔍 Checking for orphaned sync metadata...");
+                debug("🔍 Checking for orphaned sync metadata...");
                 const orphanedMetadata = await this.findOrphanedSyncMetadata();
                 for (const orphan of orphanedMetadata) {
                     issues.push({
@@ -482,14 +487,14 @@ export class BackgroundValidationService {
                 }
 
                 // 3. Basic referential integrity checks - FAST CHECK
-                console.log("🔍 Checking referential integrity...");
+                debug("🔍 Checking referential integrity...");
                 const integrityIssues = await this.checkReferentialIntegrity();
                 issues.push(...integrityIssues);
                 stats.corruptionDetected += integrityIssues.filter(i =>
                     i.type === "database_corruption" || i.type === "cell_corruption"
                 ).length;
             } else {
-                console.log("🔍 Skipping orphaned metadata and integrity checks due to massive corruption detected");
+                debug("🔍 Skipping orphaned metadata and integrity checks due to massive corruption detected");
             }
 
         } catch (error) {
@@ -521,7 +526,7 @@ export class BackgroundValidationService {
         const errorIssues = result.issues.filter(i => i.severity === "error");
         const warningIssues = result.issues.filter(i => i.severity === "warning");
 
-        console.log(`🔍 ${result.validationType} validation completed:`, {
+        debug(`🔍 ${result.validationType} validation completed:`, {
             duration: `${result.duration}ms`,
             isValid: result.isValid,
             issues: result.issues.length,
@@ -580,7 +585,7 @@ ${issueList}
 ${result.issues.length > 20 ? `... and ${result.issues.length - 20} more issues` : ''}
         `.trim();
 
-        console.log("🔍 Detailed validation report:", report);
+        debug("🔍 Detailed validation report:", report);
 
         // Could show in output channel or webview for better UX
         const outputChannel = vscode.window.createOutputChannel("Codex Validation");
@@ -830,7 +835,7 @@ Last Integrity: ${status.lastValidationTimes.integrity || 'never'}`;
 
                 vscode.window.showInformationMessage("Validation Status", "View Details").then(choice => {
                     if (choice === "View Details") {
-                        console.log("Validation service status:", status);
+                        debug("Validation service status:", status);
                     }
                 });
             }
@@ -884,8 +889,8 @@ Sync status: ${debugInfo.cellsCount === debugInfo.ftsCount ? '✅ Synchronized' 
                     if (choice === "Refresh Index") {
                         vscode.commands.executeCommand("codex-editor-extension.refreshSearchIndex");
                     } else if (choice === "View Details") {
-                        console.log("Search index debug info:", debugInfo);
-                        console.log("Search index status details:", statusMessage);
+                        debug("Search index debug info:", debugInfo);
+                        debug("Search index status details:", statusMessage);
                     }
                 } catch (error) {
                     vscode.window.showErrorMessage(`Failed to get search index status: ${error}`);

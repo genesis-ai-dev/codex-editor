@@ -175,7 +175,7 @@ export async function initializeFilesIndex(): Promise<Map<string, FileInfo>> {
             }
         }
 
-        console.log(`Total file pairs indexed: ${result.size}`);
+        // console.log(`Total file pairs indexed: ${result.size}`);
         return result;
     } catch (error) {
         console.error("Error initializing files index:", error);

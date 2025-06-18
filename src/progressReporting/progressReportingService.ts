@@ -3,6 +3,11 @@ import * as path from "path";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
 
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && console.log(`[Progress Reporting] ${message}`, ...args);
+};
+
 // Types for progress reporting
 export interface BookProgress {
     bookId: string;
@@ -82,7 +87,7 @@ export class ProgressReportingService {
         }
 
         this.isRunning = true;
-        console.log("📊 Progress Reporting Service started");
+        debug("📊 Progress Reporting Service started");
 
         // Process pending reports every 30 seconds
         setInterval(() => {
@@ -95,7 +100,7 @@ export class ProgressReportingService {
      */
     public stop(): void {
         this.isRunning = false;
-        console.log("📊 Progress Reporting Service stopped");
+        debug("📊 Progress Reporting Service stopped");
     }
 
     /**
@@ -103,7 +108,7 @@ export class ProgressReportingService {
      */
     public scheduleProgressReport(): void {
         if (!this.shouldGenerateReport()) {
-            console.log("📊 Progress report not needed (generated recently)");
+            debug("📊 Progress report not needed (generated recently)");
             return;
         }
 
@@ -114,7 +119,7 @@ export class ProgressReportingService {
         };
 
         this.pendingReports.set(requestId, request);
-        console.log(`📊 Progress report scheduled with ID: ${requestId}`);
+        debug(`📊 Progress report scheduled with ID: ${requestId}`);
     }
 
     /**
@@ -122,11 +127,11 @@ export class ProgressReportingService {
      */
     public async forceProgressReport(): Promise<boolean> {
         try {
-            console.log("📊 Forcing progress report generation...");
+            debug("📊 Forcing progress report generation...");
             const report = await this.generateProgressReport();
 
             if (!report) {
-                console.log("📊 Failed to generate progress report");
+                debug("📊 Failed to generate progress report");
                 return false;
             }
 
@@ -145,7 +150,7 @@ export class ProgressReportingService {
             return;
         }
 
-        console.log(`📊 Processing ${this.pendingReports.size} pending reports...`);
+        debug(`📊 Processing ${this.pendingReports.size} pending reports...`);
 
         // Process one report at a time to avoid overwhelming the system
         const firstEntry = this.pendingReports.entries().next().value;
@@ -177,7 +182,7 @@ export class ProgressReportingService {
      * Process a scheduled report
      */
     private async processScheduledReport(request: ProgressReportingRequest): Promise<void> {
-        console.log(`📊 Processing scheduled report ${request.requestId}`);
+        debug(`📊 Processing scheduled report ${request.requestId}`);
 
         const report = await this.generateProgressReport();
         if (report) {
@@ -189,7 +194,7 @@ export class ProgressReportingService {
      * Process a generate report request
      */
     private async processGenerateReport(request: ProgressReportingRequest): Promise<void> {
-        console.log(`📊 Generating report ${request.requestId}`);
+        debug(`📊 Generating report ${request.requestId}`);
         await this.generateProgressReport();
     }
 
@@ -197,7 +202,7 @@ export class ProgressReportingService {
      * Process a submit report request
      */
     private async processSubmitReport(request: ProgressReportingRequest): Promise<void> {
-        console.log(`📊 Submitting report ${request.requestId}`);
+        debug(`📊 Submitting report ${request.requestId}`);
         if (request.payload) {
             await this.submitProgressReport(request.payload);
         }
@@ -223,7 +228,7 @@ export class ProgressReportingService {
 
             const allMetadata = metadataManager.getAllMetadata();
             if (!allMetadata || allMetadata.length === 0) {
-                console.log("📊 No project metadata available for progress report");
+                debug("📊 No project metadata available for progress report");
                 return null;
             }
 
@@ -262,11 +267,11 @@ export class ProgressReportingService {
                                     projectId = matchedProject.name;
                                     projectName = matchedProject.name;
                                     gitlabProjectFound = true;
-                                    console.log(`📊 Found matching project: ${projectId}`);
+                                    debug(`📊 Found matching project: ${projectId}`);
                                 }
                             }
                         } catch (error) {
-                            console.log("📊 Error fetching GitLab projects:", error);
+                            debug("📊 Error fetching GitLab projects:", error);
                         }
                     }
 
@@ -325,7 +330,7 @@ export class ProgressReportingService {
             // Generate mock data for other metrics
             this.generateMockMetrics(report);
 
-            console.log("📊 Progress report generated successfully");
+            debug("📊 Progress report generated successfully");
             return report;
         } catch (error) {
             console.error("📊 Error generating progress report:", error);
@@ -375,7 +380,7 @@ export class ProgressReportingService {
                         const bookProgress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
                         bookCompletionMap[fileNameAbbr] = Math.round(bookProgress * 100) / 100;
 
-                        console.log(
+                        debug(
                             `📊 Processed ${fileNameAbbr}: ${cellsWithValues}/${totalCells} verses translated (${bookProgress.toFixed(2)}%)`
                         );
                     } catch (jsonError) {
@@ -454,16 +459,16 @@ export class ProgressReportingService {
         try {
             const authApi = getAuthApi();
             if (!authApi) {
-                console.log("📊 Auth API not available, cannot submit progress report");
+                debug("📊 Auth API not available, cannot submit progress report");
                 return false;
             }
 
             if ("submitProgressReport" in authApi) {
-                console.log("📊 Submitting progress report to API...");
+                debug("📊 Submitting progress report to API...");
                 const result = await authApi.submitProgressReport(report);
 
                 if (result.success) {
-                    console.log(`📊 Progress report submitted successfully: ${result.reportId}`);
+                    debug(`📊 Progress report submitted successfully: ${result.reportId}`);
                     this.lastReportTime = Date.now();
                     return true;
                 } else {
@@ -471,7 +476,7 @@ export class ProgressReportingService {
                     return false;
                 }
             } else {
-                console.log("📊 submitProgressReport method not available in API");
+                debug("📊 submitProgressReport method not available in API");
                 return false;
             }
         } catch (error) {

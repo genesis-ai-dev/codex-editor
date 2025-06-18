@@ -8,6 +8,11 @@ import { debounce } from "lodash";
 
 const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && debug(`${message}`, ...args);
+};
+
 // Schema version for migrations
 const CURRENT_SCHEMA_VERSION = 6;
 
@@ -27,7 +32,7 @@ export class SQLiteIndexManager {
         const duration = stepEndTime - stepStartTime; // Duration of THIS step only
 
         this.progressTimings.push({ step, duration, startTime: stepStartTime });
-        console.log(`[SQLiteIndex] ${step}: ${duration.toFixed(2)}ms`);
+        debug(`${step}: ${duration.toFixed(2)}ms`);
 
         // Stop any previous real-time timer
         if (this.currentProgressTimer) {
@@ -90,7 +95,7 @@ export class SQLiteIndexManager {
             if (lastIndex >= 0 && this.progressTimings[lastIndex].step === this.currentProgressName) {
                 this.progressTimings[lastIndex].duration = finalDuration;
                 updateSplashScreenTimings(this.progressTimings);
-                console.log(`[SQLiteIndex] ${this.currentProgressName}: ${finalDuration.toFixed(2)}ms`);
+                debug(`${this.currentProgressName}: ${finalDuration.toFixed(2)}ms`);
             }
         }
 
@@ -178,18 +183,18 @@ export class SQLiteIndexManager {
                 errorMessage.includes("database corruption");
 
             if (isCorruption) {
-                console.warn(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
-                console.warn("[SQLiteIndex] Deleting corrupt database and creating new one");
+                debug(`[SQLiteIndex] Database corruption detected: ${errorMessage}`);
+                debug("[SQLiteIndex] Deleting corrupt database and creating new one");
 
                 // Delete the corrupted database file
                 try {
                     await vscode.workspace.fs.delete(dbPath);
                     stepStart = this.trackProgress("Delete corrupted database", stepStart);
                 } catch (deleteError) {
-                    console.warn("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
+                    debug("[SQLiteIndex] Could not delete corrupted database file:", deleteError);
                 }
             } else {
-                console.log("[SQLiteIndex] Database file not found or other error, creating new database");
+                debug("Database file not found or other error, creating new database");
             }
 
             stepStart = this.trackProgress("Create new database", stepStart);
@@ -209,7 +214,7 @@ export class SQLiteIndexManager {
         const schemaStart = globalThis.performance.now();
 
         // Optimize database for faster creation (OUTSIDE of transaction)
-        console.log("[SQLiteIndex] Optimizing database settings for fast creation...");
+        debug("Optimizing database settings for fast creation...");
         this.db.run("PRAGMA synchronous = OFF");        // Disable fsync for speed
         this.db.run("PRAGMA journal_mode = MEMORY");     // Use memory journal
         this.db.run("PRAGMA temp_store = MEMORY");       // Store temp data in memory
@@ -219,7 +224,7 @@ export class SQLiteIndexManager {
         // Batch all schema creation in a single transaction for massive speedup
         await this.runInTransaction(() => {
             // Create all tables in batch
-            console.log("[SQLiteIndex] Creating database tables...");
+            debug("Creating database tables...");
 
             // Sync metadata table
             this.db!.run(`
@@ -300,7 +305,7 @@ export class SQLiteIndexManager {
                 )
             `);
 
-            console.log("[SQLiteIndex] Creating full-text search index...");
+            debug("Creating full-text search index...");
             // FTS5 virtual table - defer this as it's expensive
             this.db!.run(`
                 CREATE VIRTUAL TABLE IF NOT EXISTS cells_fts USING fts5(
@@ -313,7 +318,7 @@ export class SQLiteIndexManager {
             `);
         });
 
-        console.log("[SQLiteIndex] Creating database indexes (deferred)...");
+        debug("Creating database indexes (deferred)...");
         // Create indexes in a separate optimized transaction
         await this.runInTransaction(() => {
             // Create essential indexes only - defer others until after data insertion
@@ -322,7 +327,7 @@ export class SQLiteIndexManager {
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_file_id ON cells(file_id)");
         });
 
-        console.log("[SQLiteIndex] Creating database triggers...");
+        debug("Creating database triggers...");
         // Create triggers in batch
         await this.runInTransaction(() => {
             // Timestamp triggers
@@ -383,7 +388,7 @@ export class SQLiteIndexManager {
         });
 
         // Restore normal database settings for production use (OUTSIDE of transaction)
-        console.log("[SQLiteIndex] Restoring production database settings...");
+        debug("Restoring production database settings...");
         this.db.run("PRAGMA synchronous = NORMAL");      // Restore safe sync mode
         this.db.run("PRAGMA journal_mode = WAL");        // Use WAL mode for better concurrency
         this.db.run("PRAGMA foreign_keys = ON");         // Re-enable foreign key constraints
@@ -391,7 +396,7 @@ export class SQLiteIndexManager {
 
         const schemaEndTime = globalThis.performance.now();
         const totalTime = schemaEndTime - schemaStart;
-        console.log(`[SQLiteIndex] Fast schema creation completed in ${totalTime.toFixed(2)}ms`);
+        debug(`Fast schema creation completed in ${totalTime.toFixed(2)}ms`);
 
         // Single progress update at the end
         this.trackProgress("Optimized Schema Creation Complete", schemaStart);
@@ -403,7 +408,7 @@ export class SQLiteIndexManager {
     async createDeferredIndexes(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        console.log("[SQLiteIndex] Creating deferred indexes for optimal performance...");
+        debug("Creating deferred indexes for optimal performance...");
         const indexStart = globalThis.performance.now();
 
         await this.runInTransaction(() => {
@@ -419,7 +424,7 @@ export class SQLiteIndexManager {
         });
 
         const indexEndTime = globalThis.performance.now();
-        console.log(`[SQLiteIndex] Deferred indexes created in ${(indexEndTime - indexStart).toFixed(2)}ms`);
+        debug(`Deferred indexes created in ${(indexEndTime - indexStart).toFixed(2)}ms`);
     }
 
     private async ensureSchema(): Promise<void> {
@@ -432,35 +437,35 @@ export class SQLiteIndexManager {
             // Check current schema version
             stepStart = this.trackProgress("Check database schema version", stepStart);
             const currentVersion = this.getSchemaVersion();
-            console.log(`[SQLiteIndex] Current schema version: ${currentVersion}`);
+            debug(`Current schema version: ${currentVersion}`);
 
             if (currentVersion === 0) {
                 // New database - create with latest schema
                 stepStart = this.trackProgress("Initialize new database schema", stepStart);
-                console.log("[SQLiteIndex] Setting up new database with latest schema");
+                debug("Setting up new database with latest schema");
                 await this.createSchema();
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
                 this.trackProgress("New database schema initialized", stepStart);
-                console.log(`[SQLiteIndex] New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
+                debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion > CURRENT_SCHEMA_VERSION) {
                 // Database schema is ahead of code - recreate to avoid compatibility issues
                 stepStart = this.trackProgress("Handle future schema version", stepStart);
-                console.warn(`[SQLiteIndex] Database schema version ${currentVersion} is ahead of code version ${CURRENT_SCHEMA_VERSION}`);
-                console.warn("[SQLiteIndex] Recreating database to ensure compatibility");
+                debug(`[SQLiteIndex] Database schema version ${currentVersion} is ahead of code version ${CURRENT_SCHEMA_VERSION}`);
+                debug("[SQLiteIndex] Recreating database to ensure compatibility");
 
                 await this.recreateDatabase();
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
 
                 this.trackProgress("Future schema compatibility resolved", stepStart);
-                console.log(`[SQLiteIndex] Database recreated with compatible schema version ${CURRENT_SCHEMA_VERSION}`);
+                debug(`Database recreated with compatible schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
                 // Handle migrations based on version
                 stepStart = this.trackProgress("Migrate database schema", stepStart);
-                console.log(`[SQLiteIndex] Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
+                debug(`Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
 
                 // Schema version 6: content_hash -> raw_content_hash and hash calculation change
                 // This is a breaking change that requires full database recreation
-                console.log("[SQLiteIndex] Schema version 6 requires full database recreation due to hash column changes");
+                debug("Schema version 6 requires full database recreation due to hash column changes");
 
                 // Show user notification about the one-time migration
                 const vscode = await import('vscode');
@@ -471,10 +476,10 @@ export class SQLiteIndexManager {
                 // Update schema version after successful migration
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
                 this.trackProgress("Database migration complete", stepStart);
-                console.log(`[SQLiteIndex] Database migrated to schema version ${CURRENT_SCHEMA_VERSION}`);
+                debug(`Database migrated to schema version ${CURRENT_SCHEMA_VERSION}`);
             } else {
                 stepStart = this.trackProgress("Verify database schema", stepStart);
-                console.log(`[SQLiteIndex] Schema is up to date (version ${currentVersion})`);
+                debug(`Schema is up to date (version ${currentVersion})`);
 
                 // Schema is current - no additional checks needed
             }
@@ -489,7 +494,7 @@ export class SQLiteIndexManager {
 
             if (isCorruption) {
                 console.error(`[SQLiteIndex] Database corruption detected during schema operations: ${errorMessage}`);
-                console.warn("[SQLiteIndex] Recreating corrupted database");
+                debug("[SQLiteIndex] Recreating corrupted database");
                 stepStart = this.trackProgress("Recreate corrupted database", stepStart);
 
                 // Force recreate the database
@@ -498,7 +503,7 @@ export class SQLiteIndexManager {
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
 
                 this.trackProgress("Database corruption recovery complete", stepStart);
-                console.log("[SQLiteIndex] Successfully recreated database after corruption");
+                debug("Successfully recreated database after corruption");
             } else {
                 // Re-throw non-corruption errors
                 throw error;
@@ -509,7 +514,7 @@ export class SQLiteIndexManager {
     private async recreateDatabase(): Promise<void> {
         if (!this.db) throw new Error("Database not initialized");
 
-        console.log("[SQLiteIndex] Dropping all existing tables...");
+        debug("Dropping all existing tables...");
 
         // Get all table names first
         const tablesStmt = this.db.prepare(`
@@ -541,7 +546,7 @@ export class SQLiteIndexManager {
             }
         });
 
-        console.log("[SQLiteIndex] Creating fresh schema...");
+        debug("Creating fresh schema...");
         await this.createSchema();
 
         // Yield control after schema creation
@@ -850,7 +855,7 @@ export class SQLiteIndexManager {
 
     // Add a single document (DEPRECATED - use FileSyncManager instead)
     add(doc: any): void {
-        console.warn("[SQLiteIndex] DEPRECATED: add() method called - use FileSyncManager instead", {
+        debug("[SQLiteIndex] DEPRECATED: add() method called - use FileSyncManager instead", {
             cellId: doc.cellId,
             caller: new Error().stack?.split('\n')[2]?.trim()
         });
@@ -862,7 +867,7 @@ export class SQLiteIndexManager {
 
     // Add multiple documents (DEPRECATED - use FileSyncManager instead)
     async addAll(documents: any[]): Promise<void> {
-        console.warn("[SQLiteIndex] DEPRECATED: addAll() method called - use FileSyncManager instead", {
+        debug("[SQLiteIndex] DEPRECATED: addAll() method called - use FileSyncManager instead", {
             documentCount: documents.length,
             caller: new Error().stack?.split('\n')[2]?.trim()
         });
@@ -1018,7 +1023,7 @@ export class SQLiteIndexManager {
 
                 // Verify both columns contain data - no fallbacks
                 if (!row.content || !row.raw_content) {
-                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data:`, {
+                    debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data:`, {
                         content: !!row.content,
                         raw_content: !!row.raw_content
                     });
@@ -1320,7 +1325,7 @@ export class SQLiteIndexManager {
 
                 // Verify both columns contain data
                 if (!row.content || !row.raw_content) {
-                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
+                    debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
                     continue;
                 }
 
@@ -1463,7 +1468,7 @@ export class SQLiteIndexManager {
 
                 // Verify both columns contain data
                 if (!row.content || !row.raw_content) {
-                    console.warn(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
+                    debug(`[SQLiteIndex] Cell ${row.cell_id} missing content data`);
                     continue;
                 }
 
@@ -1900,7 +1905,7 @@ export class SQLiteIndexManager {
                 await this.saveDatabase();
                 this.db.close();
                 this.db = null;
-                console.log("[SQLiteIndex] Database connection closed and resources cleaned up");
+                debug("Database connection closed and resources cleaned up");
             } catch (error) {
                 console.error("[SQLiteIndex] Error during database close:", error);
                 // Still close the database even if save fails
@@ -1955,9 +1960,9 @@ export class SQLiteIndexManager {
 
             try {
                 await vscode.workspace.fs.delete(dbPath);
-                console.log("[SQLiteIndex] Database file deleted successfully");
+                debug("Database file deleted successfully");
             } catch (deleteError) {
-                console.warn("[SQLiteIndex] Could not delete database file:", deleteError);
+                debug("[SQLiteIndex] Could not delete database file:", deleteError);
                 // Don't throw here - we want to continue with reindex even if file deletion fails
             }
         } catch (error) {
@@ -1967,7 +1972,7 @@ export class SQLiteIndexManager {
 
     // Manual command to delete database and trigger reindex
     async deleteDatabaseAndTriggerReindex(): Promise<void> {
-        console.log("[SQLiteIndex] Manual database deletion requested...");
+        debug("Manual database deletion requested...");
 
         // Show user confirmation
         const vscode = await import('vscode');
@@ -2191,7 +2196,7 @@ export class SQLiteIndexManager {
     }> {
         if (!this.db) throw new Error("Database not initialized");
 
-        console.log("[SQLiteIndex] Starting source cell deduplication...");
+        debug("Starting source cell deduplication...");
 
         // First, identify the "unknown" file ID
         const unknownFileStmt = this.db.prepare(`
@@ -2209,11 +2214,11 @@ export class SQLiteIndexManager {
         }
 
         if (!unknownFileId) {
-            console.log("[SQLiteIndex] No 'unknown' source file found - no deduplication needed");
+            debug("No 'unknown' source file found - no deduplication needed");
             return { duplicatesRemoved: 0, cellsAffected: 0, unknownFileRemoved: false };
         }
 
-        console.log(`[SQLiteIndex] Found 'unknown' file with ID: ${unknownFileId}`);
+        debug(`Found 'unknown' file with ID: ${unknownFileId}`);
 
         // Find all cell_ids that exist both in 'unknown' file and in proper source files
         const duplicateQuery = `
@@ -2244,7 +2249,7 @@ export class SQLiteIndexManager {
             duplicateStmt.free();
         }
 
-        console.log(`[SQLiteIndex] Found ${duplicatesToRemove.length} duplicate cells to remove from 'unknown' file`);
+        debug(`Found ${duplicatesToRemove.length} duplicate cells to remove from 'unknown' file`);
 
         if (duplicatesToRemove.length === 0) {
             return { duplicatesRemoved: 0, cellsAffected: 0, unknownFileRemoved: false };
@@ -2296,15 +2301,15 @@ export class SQLiteIndexManager {
         if (remainingCells === 0) {
             this.db.run("DELETE FROM files WHERE id = ?", [unknownFileId]);
             unknownFileRemoved = true;
-            console.log("[SQLiteIndex] Removed empty 'unknown' file entry");
+            debug("Removed empty 'unknown' file entry");
         }
 
         // Refresh FTS index to ensure consistency
         await this.refreshFTSIndex();
 
-        console.log(`[SQLiteIndex] Deduplication complete: removed ${duplicatesRemoved} duplicate cells`);
-        console.log(`[SQLiteIndex] Cells affected: ${duplicatesToRemove.length}`);
-        console.log(`[SQLiteIndex] Unknown file removed: ${unknownFileRemoved}`);
+        debug(`Deduplication complete: removed ${duplicatesRemoved} duplicate cells`);
+        debug(`Cells affected: ${duplicatesToRemove.length}`);
+        debug(`Unknown file removed: ${unknownFileRemoved}`);
 
         return {
             duplicatesRemoved,

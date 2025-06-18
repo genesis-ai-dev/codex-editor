@@ -2,6 +2,10 @@ import * as vscode from "vscode";
 import { createHash } from "crypto";
 import { SQLiteIndexManager } from "./indexes/sqliteIndex";
 import { FileData, readSourceAndTargetFiles } from "./indexes/fileReaders";
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && debug(`[FileSyncManager] ${message}`, ...args);
+};
 
 export interface FileSyncResult {
     totalFiles: number;
@@ -37,7 +41,7 @@ export class FileSyncManager {
         details: Map<string, { reason: string; oldHash?: string; newHash?: string; }>;
     }> {
         const syncStart = performance.now();
-        console.log("[FileSyncManager] Checking sync status...");
+        debug("[FileSyncManager] Checking sync status...");
 
         try {
             // Get all current files
@@ -53,8 +57,8 @@ export class FileSyncManager {
             const newFiles = Array.from(syncCheck.details.values()).filter(d => d.reason.includes("new file")).length;
 
             const syncDuration = performance.now() - syncStart;
-            console.log(`[FileSyncManager] Sync check completed in ${syncDuration.toFixed(2)}ms`);
-            console.log(`[FileSyncManager] Files needing sync: ${syncCheck.needsSync.length}/${filePaths.length}`);
+            debug(`[FileSyncManager] Sync check completed in ${syncDuration.toFixed(2)}ms`);
+            debug(`[FileSyncManager] Files needing sync: ${syncCheck.needsSync.length}/${filePaths.length}`);
 
             return {
                 needsSync: syncCheck.needsSync.length > 0,
@@ -79,7 +83,7 @@ export class FileSyncManager {
         const syncStart = performance.now();
         const { forceSync = false, progressCallback } = options;
 
-        console.log(`[FileSyncManager] Starting optimized file sync (force: ${forceSync})...`);
+        debug(`[FileSyncManager] Starting optimized file sync (force: ${forceSync})...`);
         progressCallback?.("Initializing sync process...", 0);
 
         const errors: Array<{ file: string; error: string; }> = [];
@@ -108,10 +112,10 @@ export class FileSyncManager {
                 syncDetails = syncCheck.details;
             }
 
-            console.log(`[FileSyncManager] Files to sync: ${filesToSync.length}/${filePaths.length}`);
+            debug(`[FileSyncManager] Files to sync: ${filesToSync.length}/${filePaths.length}`);
 
             if (filesToSync.length === 0) {
-                console.log("[FileSyncManager] No files need synchronization");
+                debug("[FileSyncManager] No files need synchronization");
                 progressCallback?.("All files up to date", 100);
 
                 return {
@@ -136,7 +140,7 @@ export class FileSyncManager {
                 batches.push(filesToProcess.slice(i, i + BATCH_SIZE));
             }
 
-            console.log(`[FileSyncManager] Processing ${filesToProcess.length} files in ${batches.length} batches of ${BATCH_SIZE}`);
+            debug(`[FileSyncManager] Processing ${filesToProcess.length} files in ${batches.length} batches of ${BATCH_SIZE}`);
 
             let processedCount = 0;
             for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -162,7 +166,7 @@ export class FileSyncManager {
                     if (result.status === 'fulfilled') {
                         if (result.value.success) {
                             syncedFiles++;
-                            console.log(`[FileSyncManager] Synced file: ${result.value.file}`);
+                            debug(`[FileSyncManager] Synced file: ${result.value.file}`);
                         } else {
                             errors.push({
                                 file: result.value.file,
@@ -181,7 +185,7 @@ export class FileSyncManager {
             progressCallback?.("Cleaning up obsolete metadata...", 85);
             const removedCount = await this.sqliteIndex.cleanupSyncMetadata(filePaths);
             if (removedCount > 0) {
-                console.log(`[FileSyncManager] Cleaned up ${removedCount} obsolete sync records`);
+                debug(`[FileSyncManager] Cleaned up ${removedCount} obsolete sync records`);
             }
 
             // Create deferred indexes for optimal performance (only after data insertion)
@@ -189,7 +193,7 @@ export class FileSyncManager {
                 progressCallback?.("Optimizing database indexes...", 90);
                 try {
                     await this.sqliteIndex.createDeferredIndexes();
-                    console.log("[FileSyncManager] Deferred indexes created for optimal performance");
+                    debug("[FileSyncManager] Deferred indexes created for optimal performance");
                 } catch (error) {
                     console.warn("[FileSyncManager] Error creating deferred indexes:", error);
                     // Don't fail the sync for index creation errors
@@ -203,8 +207,8 @@ export class FileSyncManager {
             const duration = performance.now() - syncStart;
             progressCallback?.("Sync complete", 100);
 
-            console.log(`[FileSyncManager] Optimized sync completed in ${duration.toFixed(2)}ms`);
-            console.log(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
+            debug(`[FileSyncManager] Optimized sync completed in ${duration.toFixed(2)}ms`);
+            debug(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
 
             return {
                 totalFiles: allFiles.length,
@@ -342,7 +346,7 @@ export class FileSyncManager {
         const syncStart = performance.now();
         const { forceSync = false, progressCallback } = options;
 
-        console.log(`[FileSyncManager] Starting targeted sync of ${filePaths.length} specific files...`);
+        debug(`[FileSyncManager] Starting targeted sync of ${filePaths.length} specific files...`);
         progressCallback?.("Initializing targeted sync...", 0);
 
         const errors: Array<{ file: string; error: string; }> = [];
@@ -363,11 +367,11 @@ export class FileSyncManager {
                 console.warn(`[FileSyncManager] Some requested files not found: ${missingPaths.join(", ")}`);
             }
 
-            console.log(`[FileSyncManager] Found ${requestedFiles.length} of ${filePaths.length} requested files`);
+            debug(`[FileSyncManager] Found ${requestedFiles.length} of ${filePaths.length} requested files`);
             progressCallback?.("Analyzing targeted files...", 10);
 
             if (requestedFiles.length === 0) {
-                console.log("[FileSyncManager] No files found to sync");
+                debug("[FileSyncManager] No files found to sync");
                 return {
                     totalFiles: 0,
                     syncedFiles: 0,
@@ -392,10 +396,10 @@ export class FileSyncManager {
                 syncDetails = syncCheck.details;
             }
 
-            console.log(`[FileSyncManager] Targeted sync: ${filesToSync.length} need sync, ${unchangedFiles} unchanged`);
+            debug(`[FileSyncManager] Targeted sync: ${filesToSync.length} need sync, ${unchangedFiles} unchanged`);
 
             if (filesToSync.length === 0) {
-                console.log("[FileSyncManager] All targeted files are already synchronized");
+                debug("[FileSyncManager] All targeted files are already synchronized");
                 progressCallback?.("All targeted files up to date", 100);
 
                 return {
@@ -422,7 +426,7 @@ export class FileSyncManager {
                 try {
                     await this.syncSingleFileOptimized(fileData);
                     syncedFiles++;
-                    console.log(`[FileSyncManager] Synced targeted file: ${fileData.id}`);
+                    debug(`[FileSyncManager] Synced targeted file: ${fileData.id}`);
                 } catch (error) {
                     const errorMsg = error instanceof Error ? error.message : String(error);
                     errors.push({ file: fileData.id, error: errorMsg });
@@ -437,8 +441,8 @@ export class FileSyncManager {
             const duration = performance.now() - syncStart;
             progressCallback?.("Targeted sync complete", 100);
 
-            console.log(`[FileSyncManager] Targeted sync completed in ${duration.toFixed(2)}ms`);
-            console.log(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
+            debug(`[FileSyncManager] Targeted sync completed in ${duration.toFixed(2)}ms`);
+            debug(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
 
             return {
                 totalFiles: requestedFiles.length,

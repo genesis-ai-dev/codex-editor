@@ -4,6 +4,11 @@ import * as path from "path";
 import { getAuthApi } from "../../extension";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
+const DEBUG_MODE = false;
+const debug = (message: string, ...args: any[]) => {
+    DEBUG_MODE && console.log(`[WelcomeView] ${message}`, ...args);
+};
+
 export class WelcomeViewProvider {
     public static readonly viewType = "codex-welcome-view";
 
@@ -55,7 +60,7 @@ export class WelcomeViewProvider {
      * Handle main menu actions with ping-pong messaging to track state
      */
     private async handleMainMenu(action: "show" | "hide" | "toggle") {
-        console.log(
+        debug(
             `[WelcomeView] Main menu action: ${action}, current state: ${this._isMenuVisible ? "visible" : "hidden"}`
         );
 
@@ -65,14 +70,14 @@ export class WelcomeViewProvider {
             // If toggle is requested, determine whether to show or hide
             if (action === "toggle") {
                 newAction = this._isMenuVisible ? "hide" : "show";
-                console.log(`[WelcomeView] Toggle resolved to: ${newAction}`);
+                debug(`[WelcomeView] Toggle resolved to: ${newAction}`);
             }
 
             // Execute the appropriate action
             switch (newAction) {
                 case "show":
                     // First make sure sidebar is visible, then focus the main menu
-                    console.log("[WelcomeView] Showing and focusing main menu");
+                    debug("[WelcomeView] Showing and focusing main menu");
                     await vscode.commands.executeCommand(
                         "workbench.action.toggleSidebarVisibility"
                     );
@@ -82,7 +87,7 @@ export class WelcomeViewProvider {
 
                 case "hide":
                     // Just hide the sidebar
-                    console.log("[WelcomeView] Hiding sidebar");
+                    debug("[WelcomeView] Hiding sidebar");
                     await vscode.commands.executeCommand(
                         "workbench.action.toggleSidebarVisibility"
                     );
@@ -107,7 +112,7 @@ export class WelcomeViewProvider {
      * Handle opening translation file with navigation view focus
      */
     private async handleOpenTranslationFile() {
-        console.log("[WelcomeView] Opening and focusing navigation view");
+        debug("[WelcomeView] Opening and focusing navigation view");
 
         try {
             // Make sure sidebar is visible
@@ -137,7 +142,7 @@ export class WelcomeViewProvider {
         this._hasWorkspaceOpen = this.hasWorkspaceOpen();
         // Update authentication status
         this._checkAuthStatus();
-        console.log(
+        debug(
             `[WelcomeView] Showing with workspace open: ${this._hasWorkspaceOpen}, authenticated: ${this._isAuthenticated}`
         );
 
@@ -647,7 +652,7 @@ export class WelcomeViewProvider {
     }
 
     private async openLoginFlowWithEditorCheck() {
-        console.log("[WelcomeView] Opening login flow with editor check");
+        debug("[WelcomeView] Opening login flow with editor check");
 
         try {
             // Show loading indicator in the welcome view
@@ -660,7 +665,7 @@ export class WelcomeViewProvider {
 
             // Get current editor count before opening login flow
             const initialEditorCount = vscode.window.visibleTextEditors.length;
-            console.log(
+            debug(
                 `[WelcomeView] Current editor count before opening login: ${initialEditorCount}`
             );
 
