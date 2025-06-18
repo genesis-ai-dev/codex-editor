@@ -11,7 +11,7 @@ import {
 } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Settings } from "lucide-react";
+import { Upload, Type, CheckCircle, XCircle, ArrowLeft, Eye, Settings } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { Label } from "../../../components/ui/label";
 import {
@@ -21,35 +21,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from "../../../components/ui/select";
+import { plaintextImporter } from "./index";
 
-// Temporary mock functions - these should be imported from the actual parser
-const validateFile = async (file: File) => ({ isValid: true, errors: [], warnings: [] });
-const parseFile = async (file: File, onProgress?: any, options?: any) => ({
-    success: true,
-    notebookPair: {
-        source: {
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            cells: [],
-            metadata: {
-                id: `source-${Date.now()}`,
-                originalFileName: file.name,
-                importerType: "plaintext",
-                createdAt: new Date().toISOString(),
-            },
-        },
-        codex: {
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            cells: [],
-            metadata: {
-                id: `codex-${Date.now()}`,
-                originalFileName: file.name,
-                importerType: "plaintext",
-                createdAt: new Date().toISOString(),
-            },
-        },
-    },
-    error: undefined,
-});
+// Use the real parser functions from the Plaintext importer
+const { validateFile, parseFile } = plaintextImporter;
 
 export const PlaintextImporterForm: React.FC<ImporterComponentProps> = ({
     onComplete,
@@ -115,12 +90,8 @@ export const PlaintextImporterForm: React.FC<ImporterComponentProps> = ({
                 throw new Error(validation.errors.join(", "));
             }
 
-            // Parse file with options
-            const importResult = await parseFile(file, onProgress, {
-                splitMode,
-                preserveEmptyLines,
-                autoDetectStructure,
-            });
+            // Parse file (the parser automatically determines the best split strategy)
+            const importResult = await parseFile(file, onProgress);
 
             if (!importResult.success || !importResult.notebookPair) {
                 throw new Error(importResult.error || "Failed to parse file");
@@ -156,7 +127,7 @@ export const PlaintextImporterForm: React.FC<ImporterComponentProps> = ({
         <div className="container mx-auto p-6 max-w-4xl space-y-6">
             <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <FileText className="h-6 w-6" />
+                    <Type className="h-6 w-6" />
                     Import Plain Text
                 </h1>
                 <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
@@ -204,7 +175,7 @@ export const PlaintextImporterForm: React.FC<ImporterComponentProps> = ({
                         <div className="space-y-4">
                             <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                                 <div className="flex items-center gap-3">
-                                    <FileText className="h-5 w-5 text-muted-foreground" />
+                                    <Type className="h-5 w-5 text-muted-foreground" />
                                     <div>
                                         <p className="font-medium">{file.name}</p>
                                         <p className="text-sm text-muted-foreground">
