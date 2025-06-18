@@ -1496,6 +1496,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "project.delete": {
+                debugLog("Project deletion request received:", message);
+
                 // Extract project path from either format
                 const projectPath =
                     "projectPath" in message
@@ -1507,7 +1509,17 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             ? message.data.path
                             : "";
 
-                debugLog("Deleting project", projectPath);
+                debugLog("Extracted project path for deletion:", projectPath);
+
+                if (!projectPath) {
+                    debugLog("No project path provided in delete message");
+                    this.safeSendMessage({
+                        command: "project.deleteResponse",
+                        success: false,
+                        error: "No project path provided",
+                    });
+                    return;
+                }
 
                 // Ensure the path exists
                 try {
@@ -1554,8 +1566,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     const confirmResult = await vscode.window.showWarningMessage(
                         confirmMessage,
-                        { modal: false },
-                        actionButtonText
+                        { modal: true },
+                        actionButtonText,
+                        "Cancel"
                     );
 
                     if (confirmResult === actionButtonText) {
