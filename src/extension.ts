@@ -266,18 +266,9 @@ export async function activate(context: vscode.ExtensionContext) {
         const parallelInitStart = globalThis.performance.now();
         await Promise.all([
             // Register project manager first to ensure it's available
-            (async () => {
-                const start = globalThis.performance.now();
-                registerProjectManager(context);
-                console.log(`[Activation]  Setup Project Management: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
-
+            registerProjectManager(context),
             // Register welcome view provider
-            (async () => {
-                const start = globalThis.performance.now();
-                registerWelcomeViewProvider(context);
-                console.log(`[Activation]  Setup Welcome Interface: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
+            registerWelcomeViewProvider(context),
         ]);
         stepStart = trackTiming("Parallel Basic Setup", parallelInitStart);
 
@@ -294,7 +285,7 @@ export async function activate(context: vscode.ExtensionContext) {
             startRealtimeStep("Load Database Engine");
             try {
                 global.db = await initializeSqlJs(context);
-                console.log("initializeSqlJs db", global.db);
+
             } catch (error) {
                 console.error("Error initializing SqlJs:", error);
             }
@@ -319,7 +310,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const workspaceStart = globalThis.performance.now();
         if (workspaceFolders && workspaceFolders.length > 0) {
             if (!vscode.workspace.isTrusted) {
-                console.log("Workspace not trusted. Waiting for trust...");
+
                 vscode.window
                     .showWarningMessage(
                         "This workspace needs to be trusted before Codex Editor can fully activate.",
@@ -347,7 +338,7 @@ export async function activate(context: vscode.ExtensionContext) {
             trackTiming("Initialize Workspace", workspaceStart);
 
             if (!metadataExists) {
-                console.log("metadata.json not found. Waiting for initialization.");
+
                 const watchStart = globalThis.performance.now();
                 await watchForInitialization(context, metadataUri);
                 trackTiming("Watch for Initialization", watchStart);
@@ -356,7 +347,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 await initializeExtension(context, metadataExists);
             }
         } else {
-            console.log("No workspace folder found");
+
             vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
             trackTiming("Initialize Workspace", workspaceStart);
         }
@@ -365,41 +356,12 @@ export async function activate(context: vscode.ExtensionContext) {
         const coreComponentsStart = globalThis.performance.now();
 
         await Promise.all([
-            (async () => {
-                const start = globalThis.performance.now();
-                registerSmartEditCommands(context);
-                console.log(`[Activation]  Register Smart Edit Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
-
-            (async () => {
-                const start = globalThis.performance.now();
-                await registerSourceUploadCommands(context);
-                console.log(`[Activation]  Register Source Upload Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
-
-            (async () => {
-                const start = globalThis.performance.now();
-                await registerNewSourceUploadCommands(context);
-                console.log(`[Activation]  Register New Source Upload Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
-
-            (async () => {
-                const start = globalThis.performance.now();
-                registerProviders(context);
-                console.log(`[Activation]  Register Providers: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
-
-            (async () => {
-                const start = globalThis.performance.now();
-                await registerCommands(context);
-                console.log(`[Activation]  Register Commands: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
-
-            (async () => {
-                const start = globalThis.performance.now();
-                await initializeWebviews(context);
-                console.log(`[Activation]  Initialize Webviews: ${(globalThis.performance.now() - start).toFixed(2)}ms`);
-            })(),
+            registerSmartEditCommands(context),
+            registerSourceUploadCommands(context),
+            registerNewSourceUploadCommands(context),
+            registerProviders(context),
+            registerCommands(context),
+            initializeWebviews(context),
         ]);
 
         // Track total time for core components
@@ -442,7 +404,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Don't close splash screen yet - we still have sync operations to show
         // The splash screen will be closed after all operations complete
-        console.log("[Extension] Keeping splash screen open for post-activation operations");
+
 
         // Instead of calling showWelcomeViewIfNeeded directly, it will be called by the splash screen callback
         // showWelcomeViewIfNeeded();

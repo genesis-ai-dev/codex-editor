@@ -15,8 +15,9 @@ function isValidFilter(value: string): value is ProjectFilter {
     return ["all", "local", "remote", "synced", "non-synced"].includes(value);
 }
 
-// Debug mode flag - check if URL has debug=true
+// Debug mode flags - check if URL has debug parameters
 const DEBUG_MODE = new URLSearchParams(window.location.search).get("debug") === "true";
+const DEBUG_PROGRESS_MATCHING = new URLSearchParams(window.location.search).get("debug-progress") === "true" || DEBUG_MODE;
 
 interface GitLabProjectsListProps {
     projects: ProjectWithSyncStatus[];
@@ -66,18 +67,22 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         }
 
         // Log progress data for debugging
-        console.log(
-            "Processing progress data:",
-            progressData.projectSummaries.length,
-            "project summaries"
-        );
+        if (DEBUG_PROGRESS_MATCHING) {
+            console.log(
+                "Processing progress data:",
+                progressData.projectSummaries.length,
+                "project summaries"
+            );
+        }
 
         const progressMap = new Map();
         progressData.projectSummaries.forEach((summary: any) => {
             progressMap.set(summary.projectId, summary.completionPercentage);
             // Also map by name for fuzzy matching
             progressMap.set(summary.projectName, summary.completionPercentage);
-            console.log(`Progress for ${summary.projectName}: ${summary.completionPercentage}%`);
+            if (DEBUG_PROGRESS_MATCHING) {
+                console.log(`Progress for ${summary.projectName}: ${summary.completionPercentage}%`);
+            }
         });
 
         // Create a deep copy of projects to update
@@ -92,9 +97,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
                 if (progressMap.has(possibleId)) {
                     projectCopy.completionPercentage = progressMap.get(possibleId);
-                    console.log(
-                        `Matched by ID: ${project.name} -> ${projectCopy.completionPercentage}%`
-                    );
+                    if (DEBUG_PROGRESS_MATCHING) {
+                        console.log(
+                            `Matched by ID: ${project.name} -> ${projectCopy.completionPercentage}%`
+                        );
+                    }
                     return projectCopy;
                 }
             }
@@ -102,9 +109,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             // Try matching by project name
             if (progressMap.has(project.name)) {
                 projectCopy.completionPercentage = progressMap.get(project.name);
-                console.log(
-                    `Matched by name: ${project.name} -> ${projectCopy.completionPercentage}%`
-                );
+                if (DEBUG_PROGRESS_MATCHING) {
+                    console.log(
+                        `Matched by name: ${project.name} -> ${projectCopy.completionPercentage}%`
+                    );
+                }
                 return projectCopy;
             }
 
@@ -115,9 +124,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
                 if (keyLower.includes(projectNameLower) || projectNameLower.includes(keyLower)) {
                     projectCopy.completionPercentage = percentage;
-                    console.log(
-                        `Matched by fuzzy: ${project.name} -> ${projectCopy.completionPercentage}%`
-                    );
+                    if (DEBUG_PROGRESS_MATCHING) {
+                        console.log(
+                            `Matched by fuzzy: ${project.name} -> ${projectCopy.completionPercentage}%`
+                        );
+                    }
                     return projectCopy;
                 }
             }

@@ -42,7 +42,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
             // Handle global messages first
             if ("destination" in message) {
                 GlobalProvider.getInstance().handleMessage(message);
-                console.log("Using global provider and exiting");
+
                 return;
             }
 
@@ -152,7 +152,7 @@ export abstract class BaseWebviewProvider implements vscode.WebviewViewProvider 
 
     // Common receive message method (for GlobalProvider compatibility)
     public async receiveMessage(message: any): Promise<void> {
-        console.log(`${this.getWebviewId()} Provider received:`, message);
+
         if (!this._view) {
             console.warn(`WebviewView ${this.getWebviewId()} is not initialized`);
             return;
@@ -182,7 +182,7 @@ export class GlobalProvider {
         key: string,
         provider: CodexCellEditorProvider | CustomWebviewProvider
     ): vscode.Disposable {
-        console.log("registering provider: ", { key, provider });
+
         this.providers.set(key, provider);
 
         // Return a disposable that removes the provider from the map
@@ -193,7 +193,7 @@ export class GlobalProvider {
 
     public handleMessage(message: any) {
         if ("destination" in message) {
-            console.log("routing message: ", { message });
+
             const destination = message.destination;
             if (destination === "webview") {
                 this.postMessageToAllWebviews(message);
@@ -221,7 +221,7 @@ export class GlobalProvider {
             destination: "all",
             content,
         };
-        console.log("Posting message to all webviews:", message);
+
         this.providers.forEach((provider, key) => {
             provider.postMessage(message);
         });
