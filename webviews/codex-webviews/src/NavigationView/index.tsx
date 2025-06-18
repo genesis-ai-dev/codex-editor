@@ -40,18 +40,18 @@ interface State {
     openMenu: string | null;
 }
 
-// Styles object to keep things organized
+// Redesigned styles following Jobs/DHH principles: clean, purposeful, delightful
 const styles = {
     container: {
-        padding: "8px",
+        padding: "12px",
         height: "100vh",
         overflow: "auto",
         display: "flex",
         flexDirection: "column" as const,
+        backgroundColor: "var(--vscode-sideBar-background)",
     },
     searchContainer: {
-        position: "relative" as const,
-        marginBottom: "8px",
+        marginBottom: "16px",
         display: "flex",
         gap: "8px",
         alignItems: "center",
@@ -62,160 +62,197 @@ const styles = {
     },
     searchIcon: {
         position: "absolute" as const,
-        left: "8px",
+        left: "12px",
         top: "50%",
         transform: "translateY(-50%)",
         color: "var(--vscode-input-placeholderForeground)",
-        fontSize: "14px",
+        fontSize: "16px",
+        zIndex: 1,
     },
     refreshButton: {
-        padding: "4px",
-        height: "28px",
-        width: "28px",
+        padding: "8px",
+        height: "36px",
+        width: "36px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        borderRadius: "6px",
     },
     itemsContainer: {
         display: "flex",
         flexDirection: "column" as const,
-        gap: "1px",
+        gap: "2px",
     },
-    item: {
+    // Main clickable item container - the entire thing is now clickable
+    itemContainer: {
         cursor: "pointer",
         userSelect: "none" as const,
-        padding: "6px 8px",
-        borderRadius: "3px",
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "4px",
-        transition: "background-color 0.1s ease",
+        padding: "0",
+        borderRadius: "6px",
+        transition: "all 0.15s ease",
+        position: "relative" as const,
+        backgroundColor: "transparent",
+        border: "1px solid transparent",
         "&:hover": {
             backgroundColor: "var(--vscode-list-hoverBackground)",
+            borderColor: "var(--vscode-focusBorder)",
+        },
+        "&:active": {
+            transform: "scale(0.98)",
         },
     },
-    groupItem: {
+    groupItemContainer: {
+        cursor: "pointer",
+        userSelect: "none" as const,
+        padding: "0",
+        borderRadius: "6px",
+        transition: "all 0.15s ease",
+        position: "relative" as const,
         backgroundColor: "var(--vscode-sideBar-background)",
-        padding: "6px 8px",
-        cursor: "pointer",
-        userSelect: "none" as const,
-        borderRadius: "3px",
-        transition: "background-color 0.1s ease",
+        border: "1px solid var(--vscode-sideBar-border)",
         "&:hover": {
             backgroundColor: "var(--vscode-list-hoverBackground)",
+            borderColor: "var(--vscode-focusBorder)",
         },
     },
+    // Content inside the clickable container
     itemContent: {
+        padding: "12px 16px",
         display: "flex",
         flexDirection: "column" as const,
-        gap: "4px",
-        width: "100%",
+        gap: "8px",
     },
     itemHeader: {
         display: "flex",
         alignItems: "center",
-        gap: "6px",
+        gap: "12px",
         width: "100%",
-        minHeight: "22px",
-        position: "relative" as const,
+        minHeight: "24px",
     },
     label: {
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
         flex: 1,
-        fontSize: "13px",
+        fontSize: "14px",
+        fontWeight: "500",
         color: "var(--vscode-foreground)",
-        fontFeatureSettings: "'kern' 1, 'liga' 1",
+        lineHeight: "1.4",
     },
     icon: {
-        fontSize: "14px",
-        color: "var(--vscode-foreground)",
-        opacity: 0.8,
+        fontSize: "16px",
+        color: "var(--vscode-symbolIcon-fileForeground)",
         width: "16px",
+        height: "16px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
+        flexShrink: 0,
     },
-    checkIcon: {
-        fontSize: "14px",
+    chevronIcon: {
+        fontSize: "16px",
+        color: "var(--vscode-foreground)",
+        width: "16px",
+        height: "16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        opacity: 0.7,
+        transition: "transform 0.2s ease, opacity 0.2s ease",
+    },
+    completedIcon: {
+        fontSize: "16px",
         color: "var(--vscode-terminal-ansiGreen)",
-        opacity: 0.8,
+        width: "16px",
+        height: "16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
     },
     progressSection: {
         display: "flex",
         flexDirection: "column" as const,
-        gap: "4px",
-        width: "100%",
-        paddingLeft: "22px",
+        gap: "6px",
+        paddingLeft: "28px",
     },
     progressLabel: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        fontSize: "11px",
+        fontSize: "12px",
         color: "var(--vscode-descriptionForeground)",
+        fontWeight: "500",
     },
     progressBar: {
         width: "100%",
-        height: "2px",
+        height: "4px",
         backgroundColor: "var(--vscode-progressBar-background)",
-        borderRadius: "1px",
+        borderRadius: "2px",
         overflow: "hidden",
     },
-    progressFill: (progress: number) => ({
-        width: `${progress}%`,
-        height: "100%",
-        backgroundColor: "var(--vscode-progressBar-foreground)",
-        transition: "width 0.3s ease",
-    }),
     childrenContainer: {
-        marginLeft: "16px",
+        marginLeft: "20px",
+        marginTop: "4px",
         display: "flex",
         flexDirection: "column" as const,
-        gap: "1px",
+        gap: "2px",
     },
     noResults: {
-        padding: "16px",
+        padding: "32px 16px",
         textAlign: "center" as const,
         color: "var(--vscode-descriptionForeground)",
+        fontSize: "14px",
     },
+    // Menu button positioned absolutely in top-right
     menuButton: {
-        padding: "2px",
-        background: "transparent",
-        border: "none",
-        borderRadius: "3px",
+        position: "absolute" as const,
+        top: "8px",
+        right: "8px",
+        padding: "4px",
+        background: "var(--vscode-button-secondaryBackground)",
+        border: "1px solid var(--vscode-button-border)",
+        borderRadius: "4px",
         cursor: "pointer",
-        transition: "opacity 0.2s ease, background-color 0.1s ease",
+        transition: "all 0.15s ease",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontSize: "12px",
-        color: "var(--vscode-foreground)",
-        minWidth: "16px",
-        height: "16px",
-        maxWidth: "fit-content",
+        color: "var(--vscode-button-secondaryForeground)",
+        width: "24px",
+        height: "24px",
+        opacity: 0,
+        transform: "scale(0.9)",
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
+            transform: "scale(1)",
+        },
     },
     popover: {
         position: "absolute" as const,
-        top: "100%",
-        right: "0px",
+        top: "32px",
+        right: "8px",
         backgroundColor: "var(--vscode-menu-background)",
         border: "1px solid var(--vscode-menu-border)",
-        borderRadius: "3px",
-        boxShadow: "0 2px 8px rgba(0, 0, 0, 0.32)",
+        borderRadius: "6px",
+        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
         zIndex: 1000,
-        minWidth: "120px",
-        padding: "4px 0",
+        minWidth: "140px",
+        padding: "4px",
+        overflow: "hidden",
     },
     popoverItem: {
-        padding: "6px 12px",
+        padding: "8px 12px",
         cursor: "pointer",
         fontSize: "13px",
         color: "var(--vscode-menu-foreground)",
         display: "flex",
         alignItems: "center",
-        gap: "6px",
+        gap: "8px",
+        borderRadius: "4px",
+        transition: "background-color 0.1s ease",
         "&:hover": {
             backgroundColor: "var(--vscode-menu-selectionBackground)",
             color: "var(--vscode-menu-selectionForeground)",
@@ -535,79 +572,103 @@ function NavigationView() {
             console.warn("Empty display label for item:", item);
         }
 
+        // Handle click on the entire item container
+        const handleItemClick = (e: React.MouseEvent) => {
+            // Don't trigger if clicking on menu button
+            if ((e.target as Element).closest(".menu-button")) {
+                return;
+            }
+
+            if (isGroup) {
+                toggleGroup(item.label);
+            } else {
+                openFile(item);
+            }
+        };
+
         return (
             <div key={item.label + item.uri}>
                 <div
                     style={{
-                        ...(isGroup ? styles.groupItem : styles.item),
+                        ...(isGroup ? styles.groupItemContainer : styles.itemContainer),
                         position: "relative",
                     }}
-                    // onMouseEnter={(e) => {
-                    //     if (!isGroup) {
-                    //         const menuButton = e.currentTarget.querySelector(
-                    //             ".menu-button"
-                    //         ) as HTMLElement;
-                    //         if (menuButton) {
-                    //             menuButton.style.opacity = "1";
-                    //         }
-                    //     }
-                    // }}
-                    // onMouseLeave={(e) => {
-                    //     if (!isGroup && !isMenuOpen) {
-                    //         const menuButton = e.currentTarget.querySelector(
-                    //             ".menu-button"
-                    //         ) as HTMLElement;
-                    //         if (menuButton) {
-                    //             menuButton.style.opacity = "0";
-                    //         }
-                    //     }
-                    // }}
+                    onClick={handleItemClick}
+                    onMouseEnter={(e) => {
+                        if (!isGroup) {
+                            const menuButton = e.currentTarget.querySelector(
+                                ".menu-button"
+                            ) as HTMLElement;
+                            if (menuButton) {
+                                menuButton.style.opacity = "1";
+                                menuButton.style.transform = "scale(1)";
+                            }
+                        }
+                    }}
+                    onMouseLeave={(e) => {
+                        if (!isGroup && !isMenuOpen) {
+                            const menuButton = e.currentTarget.querySelector(
+                                ".menu-button"
+                            ) as HTMLElement;
+                            if (menuButton) {
+                                menuButton.style.opacity = "0";
+                                menuButton.style.transform = "scale(0.9)";
+                            }
+                        }
+                    }}
                 >
-                    <div
-                        style={styles.itemHeader}
-                        onClick={() => (isGroup ? toggleGroup(item.label) : openFile(item))}
-                    >
-                        {isGroup && (
-                            <i
-                                className={`codicon codicon-${
-                                    isExpanded ? "chevron-down" : "chevron-right"
-                                }`}
-                                style={styles.icon}
-                            />
-                        )}
-                        <i className={`codicon codicon-${icon}`} style={styles.icon} />
-                        <span style={styles.label}>{displayLabel}</span>
-                        {item.progress === 100 && (
-                            <i className="codicon codicon-check" style={styles.checkIcon} />
-                        )}
-                        {!isGroup && (
+                    <div style={styles.itemContent}>
+                        <div style={styles.itemHeader}>
+                            {isGroup && (
+                                <i
+                                    className={`codicon codicon-${
+                                        isExpanded ? "chevron-down" : "chevron-right"
+                                    }`}
+                                    style={{
+                                        ...styles.chevronIcon,
+                                        transform: isExpanded ? "rotate(0deg)" : "rotate(0deg)",
+                                    }}
+                                />
+                            )}
+                            <i className={`codicon codicon-${icon}`} style={styles.icon} />
+                            <span style={styles.label}>{displayLabel}</span>
+                            {item.progress === 100 && (
+                                <i className="codicon codicon-check" style={styles.completedIcon} />
+                            )}
+                        </div>
+                        {renderProgressSection(item.progress)}
+                    </div>
+
+                    {/* Menu button positioned absolutely */}
+                    {!isGroup && (
+                        <>
                             <button
                                 className="menu-button"
-                                style={{
-                                    ...styles.menuButton,
+                                style={styles.menuButton}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleMenu(itemId, e);
                                 }}
-                                onClick={(e) => toggleMenu(itemId, e)}
                                 title="More options"
                             >
                                 <i className="codicon codicon-kebab-vertical" />
                             </button>
-                        )}
-                        {!isGroup && isMenuOpen && (
-                            <div style={styles.popover}>
-                                <div
-                                    style={styles.popoverItem}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDelete(item);
-                                    }}
-                                >
-                                    <i className="codicon codicon-trash" />
-                                    Delete
+                            {isMenuOpen && (
+                                <div style={styles.popover}>
+                                    <div
+                                        style={styles.popoverItem}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDelete(item);
+                                        }}
+                                    >
+                                        <i className="codicon codicon-trash" />
+                                        Delete
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
-                    {renderProgressSection(item.progress)}
+                            )}
+                        </>
+                    )}
                 </div>
                 {isGroup && isExpanded && item.children && (
                     <div style={styles.childrenContainer}>
@@ -632,7 +693,13 @@ function NavigationView() {
                         placeholder="Search files..."
                         value={state.searchQuery}
                         onChange={handleSearch}
-                        style={{ width: "100%", paddingLeft: "28px" }}
+                        style={{
+                            width: "100%",
+                            paddingLeft: "36px",
+                            fontSize: "14px",
+                            height: "36px",
+                            borderRadius: "6px",
+                        }}
                     />
                 </div>
                 <Button variant="outline" onClick={handleRefresh} style={styles.refreshButton}>
