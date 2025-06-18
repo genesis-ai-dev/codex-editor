@@ -93,17 +93,11 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     useEffect(() => {
         const messageHandler = (event: MessageEvent<MessagesFromStartupFlowProvider>) => {
             const message = event.data;
-            console.log({ message }, "message in ProjectSetupStep");
-
             if (message.command === "projectsListFromGitLab") {
-                console.log(message.projects, "projects list updated");
                 setProjectsList(message.projects);
                 setIsLoading(false);
             } else if (message.command === "project.deleteResponse") {
-                console.log(`Project deletion response:`, message);
-
                 if (message.success) {
-                    console.log(`Project at ${message.projectPath} successfully deleted`);
 
                     // Explicitly request a fresh project list
                     vscode.postMessage({
@@ -111,9 +105,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     } as MessagesToStartupFlowProvider);
                 } else {
                     // Handle different error cases
-                    if (message.error === "Deletion cancelled by user") {
-                        console.log("Project deletion was cancelled by user");
-                    } else {
+                    if (message.error !== "Deletion cancelled by user") {
                         console.error(`Failed to delete project: ${message.error}`);
                     }
 
@@ -121,7 +113,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     setIsLoading(false);
                 }
             } else if (message.command === "aggregatedProgressData") {
-                console.log("Received progress data:", message.data);
                 setProgressData(message.data);
                 setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {

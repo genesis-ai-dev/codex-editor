@@ -910,7 +910,7 @@ export async function isValidCodexProject(folderPath: string): Promise<{
 
 export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     const startTime = Date.now();
-    debug("Starting parallel local project scanning");
+
 
     const config = vscode.workspace.getConfiguration("codex-project-manager");
     let watchedFolders = config.get<string[]>("watchedFolders") || [];
@@ -923,7 +923,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
             await vscode.workspace.fs.stat(vscode.Uri.file(folder));
             validFolders.push(folder);
         } catch (error) {
-            debug(`Removing non-existent folder from watched folders: ${folder}`);
+
         }
     }
 
@@ -934,15 +934,14 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
     }
 
     const folderScanStart = Date.now();
-    debug(`Scanning ${watchedFolders.length} watched folders in parallel`);
+
 
     // Process all watched folders in parallel
     const folderResults = await Promise.allSettled(
         watchedFolders.map(folder => processWatchedFolder(folder, projectHistory))
     );
 
-    const folderScanTime = Date.now() - folderScanStart;
-    debug(`Folder scanning completed in ${folderScanTime}ms`);
+
 
     // Flatten results and filter out any failed folder scans
     const projects = folderResults
@@ -956,8 +955,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
         }
     });
 
-    const totalTime = Date.now() - startTime;
-    debug(`Local project scanning completed in ${totalTime}ms - Found ${projects.length} projects`);
+
 
     return projects;
 }

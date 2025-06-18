@@ -299,7 +299,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         }
 
         const startTime = Date.now();
-        debugLog("Starting projects list fetch with parallel operations");
+
 
         try {
             // Run all expensive operations in parallel for better performance
@@ -404,11 +404,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      */
     private async fetchProgressData(): Promise<any> {
         try {
-            debugLog("Fetching progress data");
             const progressData = await vscode.commands.executeCommand(
                 "frontier.getAggregatedProgress"
             );
-            debugLog("Fetched progress data:", progressData);
             return progressData;
         } catch (error) {
             console.warn("Error fetching progress data:", error);
@@ -421,12 +419,10 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      */
     private async fetchRemoteProjects(): Promise<GitLabProject[]> {
         if (!this.frontierApi) {
-            debugLog("No Frontier API available for remote projects");
             return [];
         }
 
         try {
-            debugLog("Fetching remote projects");
             const remoteProjects = await this.frontierApi.listProjects(false);
 
             // Clean up project names - remove unique IDs
@@ -436,7 +432,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             });
 
-            debugLog(`Fetched ${remoteProjects.length} remote projects`);
+
             return remoteProjects;
         } catch (error) {
             console.error("Error fetching remote projects:", error);
@@ -449,9 +445,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
      */
     private async fetchLocalProjects(): Promise<LocalProject[]> {
         try {
-            debugLog("Fetching local projects");
             const localProjects = await findAllCodexProjects();
-            debugLog(`Fetched ${localProjects.length} local projects`);
             return localProjects;
         } catch (error) {
             console.error("Error finding local Codex projects:", error);
@@ -585,7 +579,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     dispose() {
-        debugLog("Disposing StartupFlowProvider");
         this.webviewPanel?.dispose();
         this.webviewPanel = undefined;
         this.disposables.forEach((d) => d.dispose());

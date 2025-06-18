@@ -49,7 +49,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
 
         SQL = await initSqlJs({
             locateFile: (file: string) => {
-                console.log("Locating file:", file);
+
                 return sqlWasmPath.fsPath;
             },
         });
@@ -58,7 +58,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
             throw new Error("Failed to initialize fts5-sql-bundle");
         }
 
-        console.log("fts5-sql-bundle initialized successfully");
+
     } catch (error) {
         console.error("Error initializing fts5-sql-bundle:", error);
         vscode.window.showErrorMessage(`Failed to initialize fts5-sql-bundle: ${error}`);
@@ -78,7 +78,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
         // NOTE: Use a stream to read the database file to avoid memory issues that can arise from large files and crashes the app
         const fileContent = await vscode.workspace.fs.readFile(dbPath);
         fileBuffer = fileContent;
-        console.log("File buffer loaded");
+
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const isCorruption = errorMessage.includes("database disk image is malformed") ||
@@ -93,12 +93,12 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
             // Delete the corrupted database file
             try {
                 await vscode.workspace.fs.delete(dbPath);
-                console.log("[Dictionary DB] Deleted corrupt database file");
+
             } catch (deleteError) {
                 console.warn("[Dictionary DB] Could not delete corrupted database file:", deleteError);
             }
         } else {
-            console.log("File buffer not found, creating new database");
+
         }
 
         // Create new database
@@ -176,7 +176,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
             const newFileBuffer = newDb.export();
             await vscode.workspace.fs.writeFile(dbPath, newFileBuffer);
 
-            console.log("[Dictionary DB] Successfully recreated database after corruption");
+
             vscode.window.showWarningMessage("Dictionary database was corrupted and has been recreated. You may need to re-import your dictionary entries.");
 
             // Return the new database
@@ -191,10 +191,7 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
 };
 
 export const registerLookupWordCommand = (db: Database, context: vscode.ExtensionContext) => {
-    console.log("registerLookupWordCommand called");
     const disposable = vscode.commands.registerCommand("extension.lookupWord", () => {
-        console.log("lookupWord command called");
-        console.log({ allEntries: getWords(db) });
         return lookupWord(db);
     });
     context.subscriptions.push(disposable);
@@ -213,7 +210,7 @@ export const addWord = async ({
     authorId: string;
     isUserEntry?: boolean;
 }) => {
-    console.log("addWord called", { headWord, definition, authorId, isUserEntry });
+
     const stmt = db.prepare(
         `INSERT INTO entries (id, head_word, definition, is_user_entry, author_id, createdAt, updatedAt) 
          VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
@@ -353,7 +350,7 @@ export const updateWord = async ({
     authorId: string;
     isUserEntry?: boolean;
 }) => {
-    console.log("updateWord called", { headWord, definition, authorId, isUserEntry, id });
+
     const stmt = db.prepare(`
         UPDATE entries 
         SET head_word = ?,
@@ -366,9 +363,7 @@ export const updateWord = async ({
     try {
         stmt.bind([headWord, definition, isUserEntry ? 1 : 0, authorId, id]);
         const result = stmt.step();
-        console.log("Update result:", result);
         const rowsModified = db.getRowsModified();
-        console.log("Rows modified:", rowsModified);
         if (rowsModified === 0) {
             console.warn(`No rows were updated. Check if the id ${id} exists.`);
         }
@@ -515,7 +510,7 @@ export const exportUserEntries = async (db: Database) => {
         await vscode.workspace.fs.createDirectory(filesDir);
     } catch (error) {
         // Directory might already exist, which is fine
-        console.log("Files directory already exists or could not be created:", error);
+
     }
 
     const exportPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "project.dictionary");
@@ -546,13 +541,13 @@ export const ingestJsonlDictionaryEntries = async (db: Database) => {
             .split("\n")
             .filter((line: string) => line)
             .map((line: string) => JSON.parse(line));
-        console.log("Loaded dictionary entries:", { entries });
+
 
         await bulkAddWords(db, entries);
     } catch (error) {
         // Check if it's a file not found error
         if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-            console.log("No dictionary file found - this is normal for new projects");
+
             return;
         }
         console.error("Error reading dictionary file:", error);
@@ -570,7 +565,7 @@ export const saveDatabase = async (db: Database) => {
     try {
         const fileBuffer = db.export();
         await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
-        console.log("Database saved successfully to:", dbPath.fsPath);
+
     } catch (error) {
         console.error("Error saving database:", error);
         vscode.window.showErrorMessage(`Failed to save dictionary database: ${error}`);
