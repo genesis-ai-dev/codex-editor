@@ -1636,7 +1636,8 @@ export type WelcomeViewPostMessages =
 
 export type WelcomeViewReceiveMessages =
     | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string; }
-    | { command: "showLoginLoading"; loading: boolean; };
+    | { command: "showLoginLoading"; loading: boolean; }
+    | { command: "startupFlowStateChanged"; isOpen: boolean; };
 
 
 export interface SplashScreenMessage {

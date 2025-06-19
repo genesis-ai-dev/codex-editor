@@ -3,6 +3,7 @@ import * as path from "path";
 
 import { getAuthApi } from "../../extension";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { StartupFlowGlobalState } from "../StartupFlow/StartupFlowProvider";
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
@@ -24,6 +25,8 @@ export class WelcomeViewProvider {
         this._extensionUri = extensionUri;
         // Check authentication status
         this._checkAuthStatus();
+        // Setup startup flow state listener
+        this._setupStartupFlowListener();
     }
 
     // Check if user is authenticated
@@ -40,6 +43,27 @@ export class WelcomeViewProvider {
         } else {
             this._isAuthenticated = false;
         }
+    }
+
+    // Setup listener for startup flow state changes
+    private _setupStartupFlowListener(): void {
+        // Listen for startup flow state changes
+        this._disposables.push(
+            StartupFlowGlobalState.instance.onStateChanged((isOpen) => {
+                debug(`[WelcomeView] Startup flow state changed: ${isOpen ? 'opened' : 'closed'}`);
+                if (this._panel) {
+                    safePostMessageToPanel(this._panel, {
+                        command: "startupFlowStateChanged",
+                        isOpen: isOpen,
+                    });
+                }
+            })
+        );
+    }
+
+    // Get current startup flow state
+    private _getCurrentStartupFlowState(): boolean {
+        return StartupFlowGlobalState.instance.isOpen;
     }
 
     public dispose() {
@@ -264,6 +288,10 @@ export class WelcomeViewProvider {
                     <i class="codicon codicon-loading codicon-modifier-spin"></i>
                     <span>Opening login...</span>
                 </div>
+                <div id="login-page-opened" class="login-page-opened" style="display: none;">
+                    <i class="codicon codicon-check"></i>
+                    <span>Login page opened, please log in to continue</span>
+                </div>
             </div>
             `
             : "";
@@ -405,6 +433,17 @@ export class WelcomeViewProvider {
                     gap: 6px;
                     color: var(--vscode-descriptionForeground);
                     font-size: 12px;
+                }
+                .login-page-opened {
+                    margin-left: auto;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    color: var(--vscode-foreground);
+                    font-size: 12px;
+                }
+                .login-page-opened .codicon {
+                    color: var(--vscode-testing-iconPassed);
                 }
                 @keyframes spin {
                     from {
@@ -577,11 +616,38 @@ export class WelcomeViewProvider {
                                 loginText.style.display = 'inline';
                             }
                         }
+                    } else if (message.command === 'startupFlowStateChanged') {
+                        // Handle startup flow state changes
+                        const loginText = document.getElementById('login-text');
+                        const loginLoading = document.getElementById('login-loading');
+                        const loginPageOpened = document.getElementById('login-page-opened');
+                        
+                        if (message.isOpen) {
+                            // Startup flow is open - show "Login page opened"
+                            if (loginText) loginText.style.display = 'none';
+                            if (loginLoading) loginLoading.style.display = 'none';
+                            if (loginPageOpened) loginPageOpened.style.display = 'flex';
+                        } else {
+                            // Startup flow is closed - revert to "Log in" text
+                            if (loginText) loginText.style.display = 'inline';
+                            if (loginLoading) loginLoading.style.display = 'none';
+                            if (loginPageOpened) loginPageOpened.style.display = 'none';
+                        }
                     }
                 });
                 
                 // Initialize UI on load
                 updateMenuButtonUI();
+                
+                // Check initial startup flow state
+                const initialStartupFlowState = ${this._getCurrentStartupFlowState()};
+                if (initialStartupFlowState) {
+                    // If startup flow is already open, show "Login page opened"
+                    const loginText = document.getElementById('login-text');
+                    const loginPageOpened = document.getElementById('login-page-opened');
+                    if (loginText) loginText.style.display = 'none';
+                    if (loginPageOpened) loginPageOpened.style.display = 'flex';
+                }
             </script>
         </body>
         </html>`;
@@ -673,6 +739,7 @@ export class WelcomeViewProvider {
             await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
 
             // Hide loading indicator after startup flow is opened
+            // The startup flow state change will handle showing "Login page opened"
             if (this._panel) {
                 // Short delay to ensure the flow has time to initialize
                 setTimeout(() => {
@@ -680,7 +747,7 @@ export class WelcomeViewProvider {
                         command: "showLoginLoading",
                         loading: false,
                     });
-                }, 1000);
+                }, 500); // Reduced timeout since we don't need to wait for state changes
             }
         } catch (error) {
             // If opening fails, hide the loading indicator and show error
