@@ -29,6 +29,9 @@ interface CodexItem {
     corpusMarker?: string;
     progress?: number;
     sortOrder?: string;
+    isProjectDictionary?: boolean;
+    wordCount?: number;
+    isEnabled?: boolean;
 }
 
 interface State {
@@ -258,6 +261,78 @@ const styles = {
             color: "var(--vscode-menu-selectionForeground)",
         },
     },
+    dictionaryContainer: {
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "8px",
+        padding: "16px",
+        backgroundColor: "var(--vscode-sideBarSectionHeader-background)",
+        borderRadius: "8px",
+        border: "1px solid var(--vscode-sideBarSectionHeader-border)",
+        transition: "all 0.2s ease",
+    },
+    dictionaryHeader: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+    },
+    dictionaryIconSection: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+    },
+    dictionaryIcon: {
+        fontSize: "20px",
+        color: "var(--vscode-symbolIcon-keywordForeground)",
+        width: "20px",
+        height: "20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+    },
+    dictionaryInfo: {
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "2px",
+    },
+    dictionaryTitle: {
+        fontSize: "14px",
+        fontWeight: "600",
+        color: "var(--vscode-foreground)",
+    },
+    dictionaryStats: {
+        fontSize: "12px",
+        color: "var(--vscode-descriptionForeground)",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+    },
+    dictionaryToggle: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        fontSize: "12px",
+        color: "var(--vscode-descriptionForeground)",
+    },
+    toggleButton: {
+        padding: "4px 8px",
+        borderRadius: "4px",
+        border: "1px solid var(--vscode-button-border)",
+        backgroundColor: "var(--vscode-button-secondaryBackground)",
+        color: "var(--vscode-button-secondaryForeground)",
+        cursor: "pointer",
+        fontSize: "11px",
+        fontWeight: "500",
+        transition: "all 0.15s ease",
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
+        },
+    },
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -476,6 +551,12 @@ function NavigationView() {
         });
     };
 
+    const handleToggleDictionary = () => {
+        vscode.postMessage({
+            command: "toggleDictionary",
+        });
+    };
+
     // Close menu when clicking outside
     useEffect(() => {
         const handleClickOutside = () => {
@@ -566,6 +647,7 @@ function NavigationView() {
         const displayLabel = formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
         const isMenuOpen = state.openMenu === itemId;
+        const isProjectDict = item.isProjectDictionary;
 
         // Debug logging (can be removed later)
         if (!displayLabel || displayLabel.trim() === "") {
@@ -586,6 +668,59 @@ function NavigationView() {
             }
         };
 
+        // Special rendering for project dictionary
+        if (isProjectDict) {
+            return (
+                <div key={item.label + item.uri}>
+                    <div style={styles.dictionaryContainer} onClick={handleItemClick}>
+                        <div style={styles.dictionaryHeader}>
+                            <div style={styles.dictionaryIconSection}>
+                                <i
+                                    className="codicon codicon-book"
+                                    style={styles.dictionaryIcon}
+                                    title="Project Dictionary"
+                                />
+                                <div style={styles.dictionaryInfo}>
+                                    <div style={styles.dictionaryTitle}>Dictionary</div>
+                                    <div style={styles.dictionaryStats}>
+                                        <i className="codicon codicon-symbol-key" />
+                                        <span>{item.wordCount || 0} words</span>
+                                        <span>•</span>
+                                        <span>{item.isEnabled ? "Active" : "Inactive"}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={styles.dictionaryToggle}>
+                                <button
+                                    style={{
+                                        ...styles.toggleButton,
+                                        backgroundColor: item.isEnabled
+                                            ? "var(--vscode-button-background)"
+                                            : "var(--vscode-button-secondaryBackground)",
+                                        color: item.isEnabled
+                                            ? "var(--vscode-button-foreground)"
+                                            : "var(--vscode-button-secondaryForeground)",
+                                    }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleDictionary();
+                                    }}
+                                    title={`${item.isEnabled ? "Disable" : "Enable"} spellcheck`}
+                                >
+                                    <i
+                                        className={`codicon codicon-${
+                                            item.isEnabled ? "check" : "circle-slash"
+                                        }`}
+                                    />
+                                    {item.isEnabled ? "ON" : "OFF"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div key={item.label + item.uri}>
                 <div
@@ -595,7 +730,7 @@ function NavigationView() {
                     }}
                     onClick={handleItemClick}
                     onMouseEnter={(e) => {
-                        if (!isGroup) {
+                        if (!isGroup && !isProjectDict) {
                             const menuButton = e.currentTarget.querySelector(
                                 ".menu-button"
                             ) as HTMLElement;
@@ -606,7 +741,7 @@ function NavigationView() {
                         }
                     }}
                     onMouseLeave={(e) => {
-                        if (!isGroup && !isMenuOpen) {
+                        if (!isGroup && !isProjectDict && !isMenuOpen) {
                             const menuButton = e.currentTarget.querySelector(
                                 ".menu-button"
                             ) as HTMLElement;

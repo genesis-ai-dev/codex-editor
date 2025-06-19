@@ -36,6 +36,9 @@ export interface CodexItem {
     corpusMarker?: string;
     progress?: number;
     sortOrder?: string;
+    isProjectDictionary?: boolean;
+    wordCount?: number;
+    isEnabled?: boolean;
 }
 
 export class NavigationWebviewProvider extends BaseWebviewProvider {
@@ -279,6 +282,24 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
+            case "toggleDictionary": {
+                try {
+                    const config = vscode.workspace.getConfiguration("codex-project-manager");
+                    const currentState = config.get<boolean>("spellcheckIsEnabled", true);
+                    await config.update("spellcheckIsEnabled", !currentState, vscode.ConfigurationTarget.Workspace);
+
+                    // Refresh dictionary items to update the enabled state
+                    await this.buildInitialData();
+
+                    vscode.window.showInformationMessage(
+                        `Spellcheck ${!currentState ? 'enabled' : 'disabled'}`
+                    );
+                } catch (error) {
+                    console.error("Error toggling dictionary:", error);
+                    vscode.window.showErrorMessage(`Failed to toggle dictionary: ${error}`);
+                }
+                break;
+            }
         }
     }
 
@@ -347,7 +368,9 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             this.codexItems = groupedItems;
 
             // Process dictionary items
-            this.dictionaryItems = dictUris.map((uri) => this.makeDictionaryItem(uri));
+            this.dictionaryItems = await Promise.all(
+                dictUris.map((uri) => this.makeDictionaryItem(uri))
+            );
 
             this.sendItemsToWebview();
         } catch (error) {
@@ -466,12 +489,56 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
         };
     }
 
-    private makeDictionaryItem(uri: vscode.Uri): CodexItem {
+    private async getDictionaryWordCount(uri: vscode.Uri): Promise<number> {
+        try {
+            const content = await vscode.workspace.fs.readFile(uri);
+            const text = Buffer.from(content).toString('utf8');
+
+            // Parse the dictionary content and count entries
+            // Assuming dictionary is in a structured format (JSON or line-separated)
+            try {
+                const jsonData = JSON.parse(text);
+                if (Array.isArray(jsonData)) {
+                    return jsonData.length;
+                } else if (typeof jsonData === 'object') {
+                    return Object.keys(jsonData).length;
+                }
+            } catch {
+                // If not JSON, count lines (assuming one word per line)
+                const lines = text.split('\n').filter(line => line.trim().length > 0);
+                return lines.length;
+            }
+
+            return 0;
+        } catch (error) {
+            console.warn(`Failed to count words in dictionary ${uri.fsPath}:`, error);
+            return 0;
+        }
+    }
+
+    private async makeDictionaryItem(uri: vscode.Uri): Promise<CodexItem> {
         const fileName = path.basename(uri.fsPath, ".dictionary");
+        const isProjectDictionary = fileName === "project";
+
+        let wordCount = 0;
+        let isEnabled = true;
+
+        if (isProjectDictionary) {
+            // Get word count from dictionary file
+            wordCount = await this.getDictionaryWordCount(uri);
+
+            // Get spellcheck enabled status from workspace configuration
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            isEnabled = config.get<boolean>("spellcheckIsEnabled", true);
+        }
+
         return {
             uri,
             label: fileName,
             type: "dictionary",
+            isProjectDictionary,
+            wordCount,
+            isEnabled,
         };
     }
 
