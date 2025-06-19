@@ -57,8 +57,97 @@ export class WelcomeViewProvider {
                         isOpen: isOpen,
                     });
                 }
+
+                // If startup flow closes and user is authenticated, check if we should redirect
+                if (!isOpen && this._isAuthenticated) {
+                    this._handleAuthenticatedUserWithClosedStartupFlow();
+                }
             })
         );
+
+        // Also listen for authentication state changes
+        this._setupAuthenticationListener();
+    }
+
+    // Setup authentication state listener
+    private _setupAuthenticationListener(): void {
+        const authApi = getAuthApi();
+        if (authApi) {
+            this._disposables.push(
+                authApi.onAuthStatusChanged((status) => {
+                    debug(`[WelcomeView] Auth status changed: ${status?.isAuthenticated ? 'authenticated' : 'not authenticated'}`);
+                    const wasAuthenticated = this._isAuthenticated;
+                    this._isAuthenticated = status?.isAuthenticated || false;
+
+                    // Update the welcome view UI to reflect authentication status
+                    this._updateWelcomeViewForAuthChange();
+
+                    // If user just became authenticated, handle the transition
+                    if (!wasAuthenticated && this._isAuthenticated) {
+                        this._handleSuccessfulAuthentication();
+                    }
+                })
+            );
+        }
+    }
+
+    // Update the welcome view UI when authentication status changes
+    private _updateWelcomeViewForAuthChange(): void {
+        if (this._panel) {
+            // Refresh the entire welcome view to show/hide login notification
+            this._panel.webview.html = this._getHtmlForWebview();
+        }
+    }
+
+    // Handle what happens when user successfully authenticates
+    private _handleSuccessfulAuthentication(): void {
+        debug("[WelcomeView] User successfully authenticated");
+
+        // Check if there's a workspace open with a proper project
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            // Check if this workspace has a proper project setup
+            this._checkProjectSetupAndRedirect();
+        } else {
+            // No workspace open - the startup flow should handle project selection
+            // We'll let the startup flow's state machine handle this transition
+            debug("[WelcomeView] No workspace open, letting startup flow handle project selection");
+        }
+    }
+
+    // Handle when startup flow closes but user is authenticated
+    private _handleAuthenticatedUserWithClosedStartupFlow(): void {
+        debug("[WelcomeView] Startup flow closed for authenticated user");
+        this._checkProjectSetupAndRedirect();
+    }
+
+    // Check if project is properly set up and redirect accordingly
+    private async _checkProjectSetupAndRedirect(): Promise<void> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            debug("[WelcomeView] No workspace open, staying on welcome view");
+            return;
+        }
+
+        try {
+            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+            const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+            const metadata = JSON.parse(metadataContent.toString());
+
+            const sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
+            const targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+
+            if (sourceLanguage && targetLanguage) {
+                debug("[WelcomeView] Project is properly set up, redirecting to project manager");
+                // Close welcome view and open project manager
+                this._panel?.dispose();
+                await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+            } else {
+                debug("[WelcomeView] Project needs setup, staying on welcome view");
+            }
+        } catch (error) {
+            debug("[WelcomeView] No metadata.json found or error reading it, staying on welcome view");
+        }
     }
 
     // Get current startup flow state
