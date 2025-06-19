@@ -237,7 +237,7 @@ const CodexCellEditor: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (highlightedCellId && scrollSyncEnabled) {
+        if (highlightedCellId && scrollSyncEnabled && !isSourceText) {
             const cellId = highlightedCellId;
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
@@ -281,7 +281,22 @@ const CodexCellEditor: React.FC = () => {
         translationUnits,
         cellsPerPage,
         currentSubsectionIndex,
+        isSourceText,
     ]);
+
+    // Clear highlight when chapter changes in source files to ensure free navigation
+    useEffect(() => {
+        if (isSourceText && highlightedCellId) {
+            // Extract chapter from highlighted cell ID
+            const highlightedChapter = highlightedCellId?.split(" ")[1]?.split(":")[0];
+            const highlightedChapterNumber = parseInt(highlightedChapter) || 1;
+            
+            // If user navigated to a different chapter, clear the highlight
+            if (highlightedChapterNumber !== chapterNumber) {
+                setHighlightedCellId(null);
+            }
+        }
+    }, [chapterNumber, isSourceText, highlightedCellId]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
