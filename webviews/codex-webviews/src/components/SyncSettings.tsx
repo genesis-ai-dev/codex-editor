@@ -20,46 +20,136 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     onTriggerSync,
 }) => {
     return (
-        <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-sm font-medium">Sync Settings</CardTitle>
-                <Button onClick={onTriggerSync} size="sm" variant="outline">
-                    <i className="codicon codicon-sync mr-2 h-4 w-4" />
-                    Sync Now
-                </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
+        <Card
+            className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+            style={{
+                borderColor: "var(--ring)",
+                backgroundColor: "var(--card)",
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+            }}
+        >
+            <CardHeader className="pb-4 mb-3">
                 <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                        <label className="text-sm font-medium">Auto-sync changes</label>
-                        <p className="text-xs text-muted-foreground">
-                            Automatically sync your changes to the cloud
+                    <CardTitle
+                        className="text-base font-semibold flex items-center gap-2"
+                        style={{ color: "var(--foreground)" }}
+                    >
+                        <i
+                            className="codicon codicon-cloud text-lg"
+                            style={{ color: "var(--ring)" }}
+                        />
+                        Sync Settings
+                    </CardTitle>
+                    <Button
+                        onClick={onTriggerSync}
+                        size="default"
+                        className="button-primary font-semibold px-4 py-2 shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200"
+                    >
+                        <i className="codicon codicon-sync mr-2 h-4 w-4" />
+                        Sync Now
+                    </Button>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+                <div
+                    className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200"
+                    style={{
+                        backgroundColor: "var(--muted)",
+                        borderColor: "var(--border)",
+                    }}
+                >
+                    <div className="space-y-1">
+                        <label
+                            className="text-sm font-semibold flex items-center gap-2"
+                            style={{ color: "var(--foreground)" }}
+                        >
+                            <i
+                                className="codicon codicon-settings-gear"
+                                style={{ color: "var(--muted-foreground)" }}
+                            />
+                            Auto-sync
+                        </label>
+                        <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                            <i className="codicon codicon-cloud-upload mr-1" />
+                            Automatically sync changes to cloud
                         </p>
                     </div>
-                    <Switch checked={autoSyncEnabled} onCheckedChange={onToggleAutoSync} />
+                    <Switch
+                        checked={autoSyncEnabled}
+                        onCheckedChange={onToggleAutoSync}
+                        styles={
+                            {
+                                "--tw-ring-color": "var(--ring)",
+                            } as React.CSSProperties
+                        }
+                    />
                 </div>
 
                 {autoSyncEnabled && (
-                    <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                            <label className="text-sm font-medium">Sync interval</label>
-                            <p className="text-xs text-muted-foreground">
-                                How often to sync your changes
+                    <div
+                        className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300"
+                        style={{
+                            backgroundColor: "var(--muted)",
+                            borderColor: "var(--border)",
+                        }}
+                    >
+                        <div className="space-y-1">
+                            <label
+                                className="text-sm font-semibold flex items-center gap-2"
+                                style={{ color: "var(--foreground)" }}
+                            >
+                                <i
+                                    className="codicon codicon-clock"
+                                    style={{ color: "var(--muted-foreground)" }}
+                                />
+                                Sync Interval
+                            </label>
+                            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+                                <i className="codicon codicon-watch mr-1" />
+                                How often to sync changes
                             </p>
                         </div>
                         <Select
                             value={syncDelayMinutes.toString()}
                             onValueChange={(value) => onChangeSyncDelay(parseInt(value, 10))}
                         >
-                            <SelectTrigger className="w-32">
+                            <SelectTrigger
+                                className="w-36 font-medium input"
+                                style={{
+                                    borderWidth: "2px",
+                                    borderColor: "var(--border)",
+                                }}
+                            >
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="1">1 minute</SelectItem>
-                                <SelectItem value="5">5 minutes</SelectItem>
-                                <SelectItem value="15">15 minutes</SelectItem>
-                                <SelectItem value="30">30 minutes</SelectItem>
-                                <SelectItem value="60">60 minutes</SelectItem>
+                                <SelectItem value="1">
+                                    <span className="flex items-center gap-2">
+                                        <i className="codicon codicon-dashboard" />1 min
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="5">
+                                    <span className="flex items-center gap-2">
+                                        <i className="codicon codicon-dashboard" />5 min
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="15">
+                                    <span className="flex items-center gap-2">
+                                        <i className="codicon codicon-watch" />
+                                        15 min
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="30">
+                                    <span className="flex items-center gap-2">
+                                        <i className="codicon codicon-watch" />
+                                        30 min
+                                    </span>
+                                </SelectItem>
+                                <SelectItem value="60">
+                                    <span className="flex items-center gap-2">
+                                        <i className="codicon codicon-clock" />1 hour
+                                    </span>
+                                </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

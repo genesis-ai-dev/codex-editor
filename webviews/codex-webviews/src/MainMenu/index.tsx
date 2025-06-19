@@ -332,32 +332,65 @@ function MainMenu() {
 
                                     <Separator />
 
-                                    <div className="flex items-center justify-between">
-                                        <div className="space-y-0.5">
-                                            <label className="text-sm font-medium">
+                                    <div
+                                        className="flex items-center justify-between p-3 rounded-lg border"
+                                        style={{
+                                            backgroundColor: "var(--muted)",
+                                            borderColor: "var(--border)",
+                                        }}
+                                    >
+                                        <div className="space-y-1">
+                                            <label
+                                                className="text-sm font-semibold flex items-center gap-2"
+                                                style={{ color: "var(--foreground)" }}
+                                            >
+                                                <i
+                                                    className="codicon codicon-book"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                />
                                                 Spellcheck
                                             </label>
-                                            <p className="text-xs text-muted-foreground">
+                                            <p
+                                                className="text-xs"
+                                                style={{ color: "var(--muted-foreground)" }}
+                                            >
+                                                <i
+                                                    className={`codicon codicon-${
+                                                        projectState.projectOverview
+                                                            .spellcheckIsEnabled
+                                                            ? "check"
+                                                            : "circle-slash"
+                                                    } mr-1`}
+                                                />
                                                 {projectState.projectOverview.spellcheckIsEnabled
-                                                    ? "Spellcheck is enabled"
-                                                    : "Spellcheck is disabled"}
+                                                    ? "Dictionary checking enabled"
+                                                    : "Dictionary checking disabled"}
                                             </p>
                                         </div>
                                         <Button
-                                            size="sm"
-                                            variant="outline"
+                                            size="default"
+                                            variant={
+                                                projectState.projectOverview.spellcheckIsEnabled
+                                                    ? "default"
+                                                    : "outline"
+                                            }
                                             onClick={() => handleProjectAction("toggleSpellcheck")}
+                                            className={`px-4 py-2 font-semibold transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 ${
+                                                projectState.projectOverview.spellcheckIsEnabled
+                                                    ? "button-primary"
+                                                    : "button-outline border-2"
+                                            }`}
                                         >
                                             <i
                                                 className={`codicon codicon-${
                                                     projectState.projectOverview.spellcheckIsEnabled
                                                         ? "check"
-                                                        : "x"
+                                                        : "circle-slash"
                                                 } mr-2 h-4 w-4`}
                                             />
                                             {projectState.projectOverview.spellcheckIsEnabled
-                                                ? "Enabled"
-                                                : "Disabled"}
+                                                ? "ON"
+                                                : "OFF"}
                                         </Button>
                                     </div>
                                 </CardContent>
@@ -376,27 +409,56 @@ function MainMenu() {
 
                             {/* Publish Card - only show if project doesn't have remote */}
                             {!projectState.repoHasRemote && (
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <i className="codicon codicon-cloud-upload" />
+                                <Card
+                                    className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                                    style={{
+                                        borderColor: "var(--ring)",
+                                        backgroundColor: "var(--card)",
+                                    }}
+                                >
+                                    <CardHeader className="pb-4">
+                                        <CardTitle
+                                            className="flex items-center gap-3 text-lg font-bold"
+                                            style={{ color: "var(--foreground)" }}
+                                        >
+                                            <i
+                                                className="codicon codicon-cloud-upload text-2xl"
+                                                style={{ color: "var(--ring)" }}
+                                            />
                                             Publish Project
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="space-y-3">
-                                            <p className="text-sm text-muted-foreground">
-                                                Publish your project to the cloud to enable syncing
-                                                across devices and collaboration.
-                                            </p>
+                                        <div className="space-y-4">
+                                            <div
+                                                className="flex items-start gap-3 p-3 rounded-lg border"
+                                                style={{
+                                                    backgroundColor: "var(--muted)",
+                                                    borderColor: "var(--border)",
+                                                }}
+                                            >
+                                                <i
+                                                    className="codicon codicon-info text-lg mt-0.5"
+                                                    style={{ color: "var(--ring)" }}
+                                                />
+                                                <p
+                                                    className="text-sm leading-relaxed"
+                                                    style={{ color: "var(--foreground)" }}
+                                                >
+                                                    Publish your project to the cloud to enable{" "}
+                                                    <strong>syncing across devices</strong> and{" "}
+                                                    <strong>team collaboration</strong>.
+                                                </p>
+                                            </div>
                                             <Button
                                                 onClick={() =>
                                                     handleProjectAction("publishProject")
                                                 }
-                                                className="w-full"
+                                                className="button-primary w-full h-12 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                             >
-                                                <i className="codicon codicon-cloud-upload mr-2 h-4 w-4" />
+                                                <i className="codicon codicon-cloud-upload mr-3 h-5 w-5" />
                                                 Publish to Cloud
+                                                <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
                                             </Button>
                                         </div>
                                     </CardContent>
@@ -404,111 +466,228 @@ function MainMenu() {
                             )}
 
                             {/* Project Actions */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="text-sm">Project Tools</CardTitle>
+                            <Card
+                                className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                                style={{
+                                    borderColor: "var(--ring)",
+                                    backgroundColor: "var(--card)",
+                                    boxShadow:
+                                        "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+                                }}
+                            >
+                                <CardHeader className="pb-4 mb-3">
+                                    <CardTitle
+                                        className="text-base font-semibold flex items-center gap-2"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        <i
+                                            className="codicon codicon-tools text-lg"
+                                            style={{ color: "var(--ring)" }}
+                                        />
+                                        Project Tools
+                                    </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <Button
                                             variant="outline"
-                                            size="sm"
+                                            size="default"
                                             onClick={() => handleProjectAction("openEditAnalysis")}
-                                            className="justify-start"
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
-                                            <i className="codicon codicon-graph mr-2 h-4 w-4" />
-                                            AI Metrics
+                                            <i
+                                                className="codicon codicon-graph mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">AI Metrics</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Analysis & insights
+                                                </div>
+                                            </div>
                                         </Button>
 
                                         <Button
                                             variant="outline"
-                                            size="sm"
+                                            size="default"
                                             onClick={() => executeCommand("openCellLabelImporter")}
-                                            className="justify-start"
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
-                                            <i className="codicon codicon-symbol-array mr-2 h-4 w-4" />
-                                            Import Labels
+                                            <i
+                                                className="codicon codicon-symbol-array mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Import Labels</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Cell label import
+                                                </div>
+                                            </div>
                                         </Button>
 
                                         <Button
                                             variant="outline"
-                                            size="sm"
+                                            size="default"
                                             onClick={() =>
                                                 handleProjectAction("openBookNameEditor")
                                             }
-                                            className="justify-start"
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
-                                            <i className="codicon codicon-book mr-2 h-4 w-4" />
-                                            Book Names
+                                            <i
+                                                className="codicon codicon-book mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Book Names</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Configure books
+                                                </div>
+                                            </div>
                                         </Button>
 
-                                        {/* Manual sync button - only show if project has remote and auto-sync is disabled */}
-                                        {/* {projectState.repoHasRemote && !state.autoSyncEnabled && (
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handleProjectAction("syncProject")}
-                                                className="justify-start"
-                                            >
-                                                <i className="codicon codicon-sync mr-2 h-4 w-4" />
-                                                Sync Project
-                                            </Button>
-                                        )} */}
                                         {!projectState.repoHasRemote && (
                                             <Button
                                                 onClick={() =>
                                                     handleProjectAction("publishProject")
                                                 }
+                                                className="button-primary justify-start h-14 p-4 border-2 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                             >
-                                                <i className="codicon codicon-cloud-upload mr-2 h-4 w-4" />
-                                                Publish Project
+                                                <i className="codicon codicon-cloud-upload mr-3 h-5 w-5" />
+                                                <div className="text-left">
+                                                    <div className="font-semibold">
+                                                        Publish Project
+                                                    </div>
+                                                    <div className="text-xs opacity-90">
+                                                        Share to cloud
+                                                    </div>
+                                                </div>
                                             </Button>
                                         )}
+
                                         <Button
                                             variant="outline"
-                                            size="sm"
+                                            size="default"
                                             onClick={() => handleProjectAction("openAISettings")}
-                                            className="justify-start"
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
-                                            <i className="codicon codicon-settings mr-2 h-4 w-4" />
-                                            Copilot Settings
+                                            <i
+                                                className="codicon codicon-settings mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">
+                                                    Copilot Settings
+                                                </div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    AI configuration
+                                                </div>
+                                            </div>
                                         </Button>
+
                                         <Button
                                             variant="outline"
-                                            size="sm"
+                                            size="default"
                                             onClick={() => handleProjectAction("openExportView")}
-                                            className="justify-start"
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
-                                            <i className="codicon codicon-export mr-2 h-4 w-4" />
-                                            Export Project
+                                            <i
+                                                className="codicon codicon-export mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Export Project</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Download files
+                                                </div>
+                                            </div>
                                         </Button>
+
                                         <Button
                                             variant="outline"
-                                            size="sm"
+                                            size="default"
                                             onClick={() => executeCommand("closeProject")}
-                                            className="justify-start"
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
-                                            <i className="codicon codicon-close mr-2 h-4 w-4" />
-                                            Close Project
+                                            <i
+                                                className="codicon codicon-close mr-3 h-5 w-5"
+                                                style={{ color: "var(--destructive)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Close Project</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Exit workspace
+                                                </div>
+                                            </div>
                                         </Button>
                                     </div>
                                 </CardContent>
                             </Card>
                         </div>
                     ) : projectState.canInitializeProject ? (
-                        <Card>
-                            <CardContent className="flex flex-col items-center justify-center p-8 text-center space-y-4">
-                                <i className="codicon codicon-folder-opened text-4xl text-muted-foreground" />
-                                <div className="space-y-2">
-                                    <h3 className="text-lg font-semibold">Initialize Project</h3>
-                                    <p className="text-sm text-muted-foreground">
-                                        This workspace doesn't have a project yet. Initialize it to
-                                        get started.
-                                    </p>
+                        <Card
+                            className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                            style={{
+                                borderColor: "var(--ring)",
+                                backgroundColor: "var(--card)",
+                            }}
+                        >
+                            <CardContent className="flex flex-col items-center justify-center p-8 text-center space-y-6">
+                                <i
+                                    className="codicon codicon-folder-opened text-5xl"
+                                    style={{ color: "var(--ring)" }}
+                                />
+                                <div className="space-y-3">
+                                    <h3
+                                        className="text-xl font-bold"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        Initialize Project
+                                    </h3>
+                                    <div
+                                        className="flex items-center gap-2 p-3 rounded-lg border"
+                                        style={{
+                                            backgroundColor: "var(--muted)",
+                                            borderColor: "var(--border)",
+                                        }}
+                                    >
+                                        <i
+                                            className="codicon codicon-lightbulb"
+                                            style={{ color: "var(--ring)" }}
+                                        />
+                                        <p
+                                            className="text-sm"
+                                            style={{ color: "var(--foreground)" }}
+                                        >
+                                            This workspace doesn't have a project yet. Initialize it
+                                            to get started with translation.
+                                        </p>
+                                    </div>
                                 </div>
-                                <Button onClick={() => handleProjectAction("initializeProject")}>
-                                    <i className="codicon codicon-add mr-2 h-4 w-4" />
+                                <Button
+                                    onClick={() => handleProjectAction("initializeProject")}
+                                    className="button-primary h-12 px-8 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                                >
+                                    <i className="codicon codicon-add mr-3 h-5 w-5" />
                                     Initialize Project
+                                    <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
                                 </Button>
                             </CardContent>
                         </Card>
