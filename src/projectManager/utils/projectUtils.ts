@@ -1133,10 +1133,10 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
 
             if (gitignoreExists) {
                 debug("Rewrote .gitignore file to match standard format");
-                vscode.window.showInformationMessage("Updated .gitignore to standard format");
+                console.log("Updated .gitignore to standard format");
             } else {
                 debug("Created new .gitignore file");
-                vscode.window.showInformationMessage("Created .gitignore file with standard ignore patterns");
+                console.log("Created .gitignore file with standard ignore patterns");
             }
         } catch (error) {
             console.error("Failed to write .gitignore file:", error);
