@@ -342,6 +342,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "workspace.create"; }
     | { command: "workspace.continue"; }
     | { command: "getProjectsListFromGitLab"; }
+    | { command: "forceRefreshProjectsList"; }
     | { command: "getProjectsSyncStatus"; }
     | { command: "project.open"; projectPath: string; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
@@ -387,6 +388,7 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "projectsListFromGitLab";
         projects: Array<ProjectWithSyncStatus>;
+        isPartial?: boolean;
     }
     | {
         command: "checkWorkspaceState";
@@ -1636,7 +1638,8 @@ export type WelcomeViewPostMessages =
 
 export type WelcomeViewReceiveMessages =
     | { command: "menuStateChanged"; isVisible: boolean; actionPerformed: string; }
-    | { command: "showLoginLoading"; loading: boolean; };
+    | { command: "showLoginLoading"; loading: boolean; }
+    | { command: "startupFlowStateChanged"; isOpen: boolean; };
 
 
 export interface SplashScreenMessage {

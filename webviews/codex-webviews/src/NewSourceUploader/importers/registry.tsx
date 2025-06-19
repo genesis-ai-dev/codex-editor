@@ -20,6 +20,7 @@ import { plaintextImporterPlugin } from "./plaintext/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
 import { obsImporterPlugin } from "./obs/index.tsx";
+import { recursiveTextSplitterPlugin } from "./recursiveTextSplitter/index.tsx";
 
 // Import placeholder components - these will be created for each importer
 // For now, we'll create a temporary placeholder component
@@ -40,6 +41,7 @@ export const importerPlugins: ImporterPlugin[] = [
     markdownImporterPlugin,
     usfmImporterPlugin,
     plaintextImporterPlugin,
+    recursiveTextSplitterPlugin,
     ebibleDownloadImporterPlugin,
     subtitlesImporterPlugin,
     obsImporterPlugin,

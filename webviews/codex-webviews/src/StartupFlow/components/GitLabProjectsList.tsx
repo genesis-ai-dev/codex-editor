@@ -3,7 +3,13 @@ import { ProjectWithSyncStatus, ProjectSyncStatus } from "types";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Input } from "../../components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "../../components/ui/select";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
 import { cn } from "../../lib/utils";
 
@@ -16,8 +22,10 @@ function isValidFilter(value: string): value is ProjectFilter {
 }
 
 // Debug mode flags - check if URL has debug parameters
-const DEBUG_MODE = new URLSearchParams(window.location.search).get("debug") === "true";
-const DEBUG_PROGRESS_MATCHING = new URLSearchParams(window.location.search).get("debug-progress") === "true" || DEBUG_MODE;
+const DEBUG_MODE = false;
+const DEBUG_PROGRESS_MATCHING = false;
+
+const INDENTATION_SIZE_REM = 1.25;
 
 interface GitLabProjectsListProps {
     projects: ProjectWithSyncStatus[];
@@ -25,6 +33,7 @@ interface GitLabProjectsListProps {
     onOpenProject: (project: ProjectWithSyncStatus) => void;
     onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
+    hasPartialData?: boolean; // Indicates if we have local projects but are still loading remote
     vscode: any;
     progressData?: any;
 }
@@ -49,6 +58,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     onOpenProject,
     onDeleteProject,
     isLoading,
+    hasPartialData,
     vscode,
     progressData,
 }) => {
@@ -57,6 +67,52 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
     const [projectsWithProgress, setProjectsWithProgress] = useState<ProjectWithSyncStatus[]>([]);
+    const [newlyAddedProjects, setNewlyAddedProjects] = useState<Set<string>>(new Set());
+    const [statusChangedProjects, setStatusChangedProjects] = useState<Set<string>>(new Set());
+
+    // Track newly added projects for animation
+    useEffect(() => {
+        const currentProjectNames = new Set(projects.map((p) => p.name));
+        const previousProjectNames = new Set(projectsWithProgress.map((p) => p.name));
+
+        // Find newly added projects
+        const newProjects = Array.from(currentProjectNames).filter(
+            (name) => !previousProjectNames.has(name)
+        );
+
+        if (newProjects.length > 0) {
+            setNewlyAddedProjects(new Set(newProjects));
+
+            // Remove the highlight after animation
+            setTimeout(() => {
+                setNewlyAddedProjects(new Set());
+            }, 2000);
+        }
+    }, [projects, projectsWithProgress]);
+
+    // Track status changes for animation
+    useEffect(() => {
+        const currentProjectsMap = new Map(projects.map((p) => [p.name, p.syncStatus]));
+        const previousProjectsMap = new Map(
+            projectsWithProgress.map((p) => [p.name, p.syncStatus])
+        );
+
+        const statusChanged = Array.from(currentProjectsMap.entries())
+            .filter(([name, status]) => {
+                const previousStatus = previousProjectsMap.get(name);
+                return previousStatus && previousStatus !== status;
+            })
+            .map(([name]) => name);
+
+        if (statusChanged.length > 0) {
+            setStatusChangedProjects(new Set(statusChanged));
+
+            // Remove the highlight after animation
+            setTimeout(() => {
+                setStatusChangedProjects(new Set());
+            }, 1500);
+        }
+    }, [projects, projectsWithProgress]);
 
     // Add effect to update projects with progress data
     useEffect(() => {
@@ -81,7 +137,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             // Also map by name for fuzzy matching
             progressMap.set(summary.projectName, summary.completionPercentage);
             if (DEBUG_PROGRESS_MATCHING) {
-                console.log(`Progress for ${summary.projectName}: ${summary.completionPercentage}%`);
+                console.log(
+                    `Progress for ${summary.projectName}: ${summary.completionPercentage}%`
+                );
             }
         });
 
@@ -176,6 +234,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
     const parseProjectUrl = (url?: string) => {
         if (!url) {
+            if (DEBUG_MODE) {
+                console.log("parseProjectUrl: No URL provided");
+            }
             return {
                 groups: [],
                 cleanName: "",
@@ -184,21 +245,41 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             };
         }
 
+        if (DEBUG_MODE) {
+            console.log(`parseProjectUrl: Parsing URL: ${url}`);
+        }
+
         try {
             const urlObj = new URL(url);
             const pathParts = urlObj.pathname.split("/").filter(Boolean);
 
+            if (DEBUG_MODE) {
+                console.log(`parseProjectUrl: Path parts:`, pathParts);
+            }
+
             if (pathParts.length >= 2) {
-            const groups = pathParts.slice(0, -1);
+                const groups = pathParts.slice(0, -1);
                 const projectNameWithExt = pathParts[pathParts.length - 1];
                 const cleanName = projectNameWithExt.replace(/\.git$/, "");
                 const displayUrl = `${urlObj.hostname}${urlObj.pathname}`;
                 const uniqueId = cleanName;
 
-            return { groups, cleanName, displayUrl, uniqueId };
+                if (DEBUG_MODE) {
+                    console.log(`parseProjectUrl: Extracted groups:`, groups);
+                    console.log(`parseProjectUrl: Clean name:`, cleanName);
+                }
+
+                return { groups, cleanName, displayUrl, uniqueId };
             }
         } catch (error) {
             console.warn("Failed to parse project URL:", url, error);
+            if (DEBUG_MODE) {
+                console.log(`parseProjectUrl: Failed to parse URL: ${url}`, error);
+            }
+        }
+
+        if (DEBUG_MODE) {
+            console.log(`parseProjectUrl: Returning fallback for URL: ${url}`);
         }
 
         return {
@@ -213,11 +294,22 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const hierarchy: Record<string, ProjectGroup> = {};
         const ungrouped: ProjectWithSyncStatus[] = [];
 
+        if (DEBUG_MODE) {
+            console.log(`Grouping ${projects.length} projects by hierarchy...`);
+        }
+
         projects.forEach((project) => {
             const { groups } = parseProjectUrl(project.gitOriginUrl);
 
+            if (DEBUG_MODE) {
+                console.log(`Project "${project.name}" parsed groups:`, groups);
+            }
+
             if (groups.length === 0) {
                 ungrouped.push(project);
+                if (DEBUG_MODE) {
+                    console.log(`Project "${project.name}" added to ungrouped (no groups found)`);
+                }
                 return;
             }
 
@@ -234,15 +326,26 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         subgroups: {},
                         isLast: index === groups.length - 1,
                     };
+                    if (DEBUG_MODE) {
+                        console.log(`Created group: "${group}" at path: "${currentPath}"`);
+                    }
                 }
 
                 if (index === groups.length - 1) {
                     currentLevel[group].projects.push(project);
+                    if (DEBUG_MODE) {
+                        console.log(`Added project "${project.name}" to group "${group}"`);
+                    }
                 } else {
                     currentLevel = currentLevel[group].subgroups;
                 }
             });
         });
+
+        if (DEBUG_MODE) {
+            console.log("Final hierarchy:", hierarchy);
+            console.log(`Ungrouped projects: ${ungrouped.length}`);
+        }
 
         return { hierarchy, ungrouped };
     };
@@ -307,12 +410,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
         if (isLocal) {
             return (
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                     <Button
                         variant="default"
                         size="sm"
                         onClick={() => onOpenProject(project)}
-                        className="h-8"
+                        className="h-6 text-xs px-2"
                     >
                         <i className="codicon codicon-folder-opened mr-1" />
                         Open
@@ -322,7 +425,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             variant="outline"
                             size="sm"
                             onClick={() => onDeleteProject(project)}
-                            className="h-8 text-red-500 hover:text-red-600"
+                            className="h-6 text-xs px-2 text-red-500 hover:text-red-600"
                         >
                             <i className="codicon codicon-trash" />
                         </Button>
@@ -337,7 +440,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     variant="default"
                     size="sm"
                     onClick={() => onCloneProject(project)}
-                    className="h-8"
+                    className="h-6 text-xs px-2"
                 >
                     <i className="codicon codicon-cloud-download mr-1" />
                     Clone
@@ -354,102 +457,140 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const isUnpublished = !project.gitOriginUrl;
         const status = getStatusIcon(project.syncStatus);
         const isExpanded = expandedProjects[project.name];
+        const isNewlyAdded = newlyAddedProjects.has(project.name);
+        const isStatusChanged = statusChangedProjects.has(project.name);
 
         return (
-            <Card key={project.name} className="mb-4">
-                <CardHeader className="pb-3">
+            <Card
+                key={project.name}
+                className={cn(
+                    "mb-2 transition-all duration-300 ease-in-out hover:shadow-sm border-l-4",
+                    isNewlyAdded &&
+                        "ring-1 ring-blue-500 ring-opacity-30 bg-blue-50 border-l-blue-500",
+                    isStatusChanged &&
+                        "ring-1 ring-green-500 ring-opacity-30 bg-green-50 border-l-green-500",
+                    !isNewlyAdded && !isStatusChanged && "border-l-transparent"
+                )}
+            >
+                <CardHeader className="pb-2 pt-3">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <i
-                                className={cn("codicon", status.icon, status.className)}
-                            title={status.title}
-                        />
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="relative">
+                                <i
+                                    className={cn(
+                                        "codicon text-sm",
+                                        status.icon,
+                                        status.className,
+                                        "transition-all duration-300"
+                                    )}
+                                    title={status.title}
+                                />
+                                {/* Show a subtle loading indicator when we have partial data and this is a local project */}
+                                {hasPartialData &&
+                                    isLoading &&
+                                    project.syncStatus === "localOnlyNotSynced" && (
+                                        <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                                    )}
+                            </div>
                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <span className="font-medium truncate">{cleanName || project.name}</span>
+                                <span className="font-medium truncate transition-colors duration-200 text-sm">
+                                    {cleanName || project.name}
+                                </span>
                                 {isUnpublished && (
-                                    <Badge variant="outline" className="text-xs">
+                                    <Badge variant="outline" className="text-xs px-1 py-0">
                                         Unpublished
                                     </Badge>
                                 )}
+                                {isNewlyAdded && (
+                                    <Badge
+                                        variant="default"
+                                        className="text-xs bg-blue-500 animate-pulse px-1 py-0"
+                                    >
+                                        New
+                                    </Badge>
+                                )}
+                                {isStatusChanged && (
+                                    <Badge
+                                        variant="default"
+                                        className="text-xs bg-green-500 animate-pulse px-1 py-0"
+                                    >
+                                        Updated
+                                    </Badge>
+                                )}
+                            </div>
                         </div>
-                        {uniqueId && (
-                            <span
-                                    className="text-sm text-muted-foreground opacity-40 hover:opacity-100 transition-opacity cursor-help"
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.textContent = `#${uniqueId}`;
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.textContent = `#${uniqueId.slice(0, 3)}...`;
-                                }}
-                                title={`Full ID: ${uniqueId}`}
-                            >
-                                #{uniqueId.slice(0, 3)}...
-                            </span>
-                        )}
-                    </div>
                         <div className="flex items-center gap-2">
-                        {project.completionPercentage !== undefined && (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium">
-                                    {project.completionPercentage.toFixed(1)}%
-                                </span>
-                                    <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            {project.completionPercentage !== undefined && (
+                                <div className="flex items-center gap-1">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                        {project.completionPercentage.toFixed(0)}%
+                                    </span>
+                                    <div className="w-12 h-1.5 bg-gray-200 rounded-full overflow-hidden">
                                         <div
-                                            className="h-full bg-green-500 transition-all duration-300"
+                                            className="h-full bg-green-500 transition-all duration-500 ease-out"
                                             style={{
-                                                width: `${Math.min(project.completionPercentage, 100)}%`
+                                                width: `${Math.min(
+                                                    project.completionPercentage,
+                                                    100
+                                                )}%`,
                                             }}
                                         />
                                     </div>
-                            </div>
-                        )}
+                                </div>
+                            )}
                             {renderProjectActions(project)}
                             {displayUrl && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                onClick={() =>
-                                    setExpandedProjects((prev) => ({
-                                        ...prev,
-                                        [project.name]: !prev[project.name],
-                                    }))
-                                }
-                                    className="h-8 w-8 p-0"
-                            >
-                                    <i className={cn(
-                                        "codicon codicon-chevron-down transition-transform",
-                                        isExpanded && "rotate-180"
-                                    )} />
+                                    onClick={() =>
+                                        setExpandedProjects((prev) => ({
+                                            ...prev,
+                                            [project.name]: !prev[project.name],
+                                        }))
+                                    }
+                                    className="h-6 w-6 p-0 transition-transform duration-200"
+                                >
+                                    <i
+                                        className={cn(
+                                            "codicon codicon-chevron-down transition-transform duration-200 text-xs",
+                                            isExpanded && "rotate-180"
+                                        )}
+                                    />
                                 </Button>
-                        )}
+                            )}
+                        </div>
                     </div>
-                </div>
                 </CardHeader>
 
                 {isExpanded && displayUrl && (
-                    <CardContent className="pt-0">
-                        <div className="space-y-3 border-t pt-3">
+                    <CardContent className="pt-0 pb-3">
+                        <div className="space-y-2 border-t pt-2">
                             <div className="flex items-center justify-between">
-                                <span className="text-sm text-muted-foreground font-mono">{displayUrl}</span>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                    {displayUrl}
+                                </span>
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() =>
                                         navigator.clipboard.writeText(project.gitOriginUrl || "")
                                     }
-                                    className="h-7"
+                                    className="h-6 text-xs"
                                 >
                                     <i className="codicon codicon-copy" />
                                 </Button>
                             </div>
                             {uniqueId && (
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted-foreground">#{uniqueId}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                        #{uniqueId}
+                                    </span>
                                     <Button
                                         variant="outline"
                                         size="sm"
                                         onClick={() => navigator.clipboard.writeText(uniqueId)}
-                                        className="h-7"
+                                        className="h-6 text-xs"
                                     >
                                         <i className="codicon codicon-copy" />
                                     </Button>
@@ -458,7 +599,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             {(project.syncStatus === "downloadedAndSynced" ||
                                 project.syncStatus === "localOnlyNotSynced") && (
                                 <div className="flex items-center justify-between">
-                                    <span className="text-sm">{project.name}</span>
+                                    <span className="text-xs">{project.name}</span>
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -469,7 +610,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                                 projectPath: project.path,
                                             });
                                         }}
-                                        className="h-7"
+                                        className="h-6 text-xs"
                                     >
                                         <i className="codicon codicon-package mr-1" />
                                         ZIP
@@ -504,32 +645,36 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const isExpanded = expandedGroups[group.name] ?? true;
 
         return (
-            <div key={group.name} className="mb-6">
+            <div key={group.name} className="mb-4">
                 <div
-                    className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg cursor-pointer hover:bg-muted/70 transition-colors"
+                    className="flex items-center gap-2 p-2 bg-muted/30 rounded-md cursor-pointer hover:bg-muted/50 transition-colors"
+                    style={{ marginLeft: `${depth * INDENTATION_SIZE_REM}rem` }}
                     onClick={() =>
                         setExpandedGroups((prev) => ({
                             ...prev,
-                            [group.name]: !prev[group.name],
+                            [group.name]: !(prev[group.name] ?? true),
                         }))
                     }
                 >
                     <i
                         className={cn(
-                            "codicon transition-transform",
+                            "codicon transition-transform text-sm",
                             isExpanded ? "codicon-chevron-down" : "codicon-chevron-right"
                         )}
                     />
-                    <i className="codicon codicon-folder" />
-                    <h2 className="font-semibold">{(group.name || "").replace(/_/g, " ")}</h2>
-                    <Badge variant="secondary" className="ml-auto">
+                    <i className="codicon codicon-folder text-sm" />
+                    <h3 className="font-medium text-sm">{(group.name || "").replace(/_/g, " ")}</h3>
+                    <Badge variant="secondary" className="ml-auto text-xs px-1.5 py-0">
                         {filteredProjects.length}
                     </Badge>
                 </div>
                 {isExpanded && (
-                    <div className="mt-4 space-y-4">
+                    <div className="mt-2 space-y-1">
                         {filteredProjects.length > 0 && (
-                            <div className="space-y-2">
+                            <div
+                                className="space-y-1"
+                                style={{ marginLeft: `${(depth + 1) * INDENTATION_SIZE_REM}rem` }}
+                            >
                                 {filteredProjects.map((project) => renderProjectCard(project))}
                             </div>
                         )}
@@ -594,65 +739,140 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     };
 
     return (
-        <div className="flex flex-col gap-4 h-[calc(100vh-130px)] w-full">
-            <div className="sticky top-0 z-10 bg-background p-4 border-b shadow-sm">
-                <div className="flex gap-3 items-center">
+        <div className="flex flex-col gap-3 h-[calc(100vh-130px)] w-full">
+            <div className="sticky top-0 z-10 bg-background p-3 border-b shadow-sm">
+                <div className="flex gap-2 items-center">
                     <div className="relative flex-1">
-                        <i className="codicon codicon-search absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" />
+                        <i className="codicon codicon-search absolute left-2 top-1/2 transform -translate-y-1/2 text-muted-foreground text-sm" />
                         <Input
-                        placeholder="Search projects..."
-                        value={searchQuery}
+                            placeholder="Search projects..."
+                            value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10"
+                            className="pl-8 h-8 text-sm"
                         />
-                    {searchQuery && (
+                        {searchQuery && (
                             <Button
                                 variant="ghost"
                                 size="sm"
-                            onClick={() => setSearchQuery("")}
-                                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-7 w-7 p-0"
-                        >
-                                <i className="codicon codicon-close" />
+                                onClick={() => setSearchQuery("")}
+                                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 w-6 p-0"
+                            >
+                                <i className="codicon codicon-close text-xs" />
                             </Button>
-                    )}
-                </div>
+                        )}
+                    </div>
 
-                    <Select value={filter} onValueChange={(value) => setFilter(value as ProjectFilter)}>
-                        <SelectTrigger className="w-48">
+                    <Select
+                        value={filter}
+                        onValueChange={(value) => setFilter(value as ProjectFilter)}
+                    >
+                        <SelectTrigger className="w-40 h-8 text-sm">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">
-                            All Projects ({getFilterCount("all")})
+                                All Projects ({getFilterCount("all")})
                             </SelectItem>
                             <SelectItem value="local">
-                            Available Locally ({getFilterCount("local")})
+                                Available Locally ({getFilterCount("local")})
                             </SelectItem>
                             <SelectItem value="remote">
-                            Remote Only ({getFilterCount("remote")})
+                                Remote Only ({getFilterCount("remote")})
                             </SelectItem>
                             <SelectItem value="synced">
-                            Synced Projects ({getFilterCount("synced")})
+                                Synced Projects ({getFilterCount("synced")})
                             </SelectItem>
                             <SelectItem value="non-synced">
-                            Non-Synced Projects ({getFilterCount("non-synced")})
+                                Non-Synced Projects ({getFilterCount("non-synced")})
                             </SelectItem>
                         </SelectContent>
                     </Select>
+
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                            vscode.postMessage({
+                                command: "forceRefreshProjectsList",
+                            });
+                        }}
+                        className="h-8 w-8 p-0"
+                        title="Force refresh projects list"
+                    >
+                        <i className="codicon codicon-refresh text-sm" />
+                    </Button>
                 </div>
             </div>
 
-            {isLoading ? (
-                <div className="flex justify-center items-center p-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            {isLoading && !hasPartialData ? (
+                <div className="flex justify-center items-center p-6">
+                    <div className="text-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-3"></div>
+                        <p className="text-sm text-muted-foreground">Loading projects...</p>
+                    </div>
                 </div>
             ) : (
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-6">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
+                    {/* Show loading indicator at top when we have partial data */}
+                    {hasPartialData && isLoading && (
+                        <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md mb-3 animate-pulse">
+                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
+                            <span className="text-xs text-blue-700">
+                                Loading remote projects...
+                            </span>
+                        </div>
+                    )}
+
                     {/* Debug information - only show when DEBUG_MODE is true */}
-                    {DEBUG_MODE && progressData && (
+                    {DEBUG_MODE && (
                         <Card className="p-4">
                             <h3 className="font-semibold mb-2">Debug Information</h3>
-                            <pre className="text-xs overflow-auto">{JSON.stringify(progressData, null, 2)}</pre>
+                            <div className="space-y-4">
+                                <div>
+                                    <h4 className="font-medium mb-2">
+                                        Raw Projects Data ({projects.length} projects)
+                                    </h4>
+                                    <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
+                                        {JSON.stringify(projects, null, 2)}
+                                    </pre>
+                                </div>
+                                {progressData && (
+                                    <div>
+                                        <h4 className="font-medium mb-2">Progress Data</h4>
+                                        <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
+                                            {JSON.stringify(progressData, null, 2)}
+                                        </pre>
+                                    </div>
+                                )}
+                                <div>
+                                    <h4 className="font-medium mb-2">Hierarchy Structure</h4>
+                                    <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
+                                        {JSON.stringify(hierarchy, null, 2)}
+                                    </pre>
+                                </div>
+                                <div>
+                                    <h4 className="font-medium mb-2">
+                                        Ungrouped Projects ({ungroupedProjects.length})
+                                    </h4>
+                                    <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
+                                        {JSON.stringify(ungroupedProjects, null, 2)}
+                                    </pre>
+                                </div>
+                                <div>
+                                    <h4 className="font-medium mb-2">Refresh Information</h4>
+                                    <div className="text-xs bg-gray-100 p-2 rounded">
+                                        <p>
+                                            • Periodic refresh: Every 5 minutes (when authenticated)
+                                        </p>
+                                        <p>• Force refresh: Use the refresh button above</p>
+                                        <p>
+                                            • Manual refresh: Use the refresh button in
+                                            ProjectSetupStep
+                                        </p>
+                                        <p>• Last update: {new Date().toLocaleTimeString()}</p>
+                                    </div>
+                                </div>
+                            </div>
                         </Card>
                     )}
                     {Object.entries(hierarchy || {}).map(([groupName, group]) =>
@@ -660,14 +880,17 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                     )}
                     {filteredUngroupedProjects.length > 0 && (
                         <div>
-                            <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg mb-4">
-                                <i className="codicon codicon-folder" />
-                                <h2 className="font-semibold">Ungrouped Projects</h2>
-                                <Badge variant="secondary" className="ml-auto">
+                            <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-md mb-2">
+                                <i className="codicon codicon-folder text-sm" />
+                                <h3 className="font-medium text-sm">Ungrouped Projects</h3>
+                                <Badge variant="secondary" className="ml-auto text-xs px-1.5 py-0">
                                     {filteredUngroupedProjects.length}
                                 </Badge>
                             </div>
-                            <div className="space-y-2">
+                            <div
+                                className="space-y-1"
+                                style={{ marginLeft: `${INDENTATION_SIZE_REM}rem` }}
+                            >
                                 {filteredUngroupedProjects.map((project) =>
                                     renderProjectCard(project)
                                 )}
@@ -677,11 +900,17 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
                     {filteredUngroupedProjects.length === 0 &&
                         Object.keys(hierarchy || {}).length === 0 && (
-                            <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
-                                <i className="codicon codicon-info text-4xl text-muted-foreground" />
-                                <p className="text-lg text-muted-foreground">No projects match the current filters</p>
+                            <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+                                <i className="codicon codicon-info text-2xl text-muted-foreground" />
+                                <p className="text-sm text-muted-foreground">
+                                    No projects match the current filters
+                                </p>
                                 {filter !== "all" && (
-                                    <Button onClick={() => setFilter("all")}>
+                                    <Button
+                                        onClick={() => setFilter("all")}
+                                        size="sm"
+                                        className="text-xs"
+                                    >
                                         Show All Projects
                                     </Button>
                                 )}

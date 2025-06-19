@@ -3,6 +3,7 @@ import * as path from "path";
 
 import { getAuthApi } from "../../extension";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import { StartupFlowGlobalState } from "../StartupFlow/StartupFlowProvider";
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
@@ -24,6 +25,8 @@ export class WelcomeViewProvider {
         this._extensionUri = extensionUri;
         // Check authentication status
         this._checkAuthStatus();
+        // Setup startup flow state listener
+        this._setupStartupFlowListener();
     }
 
     // Check if user is authenticated
@@ -40,6 +43,116 @@ export class WelcomeViewProvider {
         } else {
             this._isAuthenticated = false;
         }
+    }
+
+    // Setup listener for startup flow state changes
+    private _setupStartupFlowListener(): void {
+        // Listen for startup flow state changes
+        this._disposables.push(
+            StartupFlowGlobalState.instance.onStateChanged((isOpen) => {
+                debug(`[WelcomeView] Startup flow state changed: ${isOpen ? 'opened' : 'closed'}`);
+                if (this._panel) {
+                    safePostMessageToPanel(this._panel, {
+                        command: "startupFlowStateChanged",
+                        isOpen: isOpen,
+                    });
+                }
+
+                // If startup flow closes and user is authenticated, check if we should redirect
+                if (!isOpen && this._isAuthenticated) {
+                    this._handleAuthenticatedUserWithClosedStartupFlow();
+                }
+            })
+        );
+
+        // Also listen for authentication state changes
+        this._setupAuthenticationListener();
+    }
+
+    // Setup authentication state listener
+    private _setupAuthenticationListener(): void {
+        const authApi = getAuthApi();
+        if (authApi) {
+            this._disposables.push(
+                authApi.onAuthStatusChanged((status) => {
+                    debug(`[WelcomeView] Auth status changed: ${status?.isAuthenticated ? 'authenticated' : 'not authenticated'}`);
+                    const wasAuthenticated = this._isAuthenticated;
+                    this._isAuthenticated = status?.isAuthenticated || false;
+
+                    // Update the welcome view UI to reflect authentication status
+                    this._updateWelcomeViewForAuthChange();
+
+                    // If user just became authenticated, handle the transition
+                    if (!wasAuthenticated && this._isAuthenticated) {
+                        this._handleSuccessfulAuthentication();
+                    }
+                })
+            );
+        }
+    }
+
+    // Update the welcome view UI when authentication status changes
+    private _updateWelcomeViewForAuthChange(): void {
+        if (this._panel) {
+            // Refresh the entire welcome view to show/hide login notification
+            this._panel.webview.html = this._getHtmlForWebview();
+        }
+    }
+
+    // Handle what happens when user successfully authenticates
+    private _handleSuccessfulAuthentication(): void {
+        debug("[WelcomeView] User successfully authenticated");
+
+        // Check if there's a workspace open with a proper project
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+            // Check if this workspace has a proper project setup
+            this._checkProjectSetupAndRedirect();
+        } else {
+            // No workspace open - the startup flow should handle project selection
+            // We'll let the startup flow's state machine handle this transition
+            debug("[WelcomeView] No workspace open, letting startup flow handle project selection");
+        }
+    }
+
+    // Handle when startup flow closes but user is authenticated
+    private _handleAuthenticatedUserWithClosedStartupFlow(): void {
+        debug("[WelcomeView] Startup flow closed for authenticated user");
+        this._checkProjectSetupAndRedirect();
+    }
+
+    // Check if project is properly set up and redirect accordingly
+    private async _checkProjectSetupAndRedirect(): Promise<void> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            debug("[WelcomeView] No workspace open, staying on welcome view");
+            return;
+        }
+
+        try {
+            const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
+            const metadataContent = await vscode.workspace.fs.readFile(metadataUri);
+            const metadata = JSON.parse(metadataContent.toString());
+
+            const sourceLanguage = metadata.languages?.find((l: any) => l.projectStatus === "source");
+            const targetLanguage = metadata.languages?.find((l: any) => l.projectStatus === "target");
+
+            if (sourceLanguage && targetLanguage) {
+                debug("[WelcomeView] Project is properly set up, redirecting to project manager");
+                // Close welcome view and open project manager
+                this._panel?.dispose();
+                await vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
+            } else {
+                debug("[WelcomeView] Project needs setup, staying on welcome view");
+            }
+        } catch (error) {
+            debug("[WelcomeView] No metadata.json found or error reading it, staying on welcome view");
+        }
+    }
+
+    // Get current startup flow state
+    private _getCurrentStartupFlowState(): boolean {
+        return StartupFlowGlobalState.instance.isOpen;
     }
 
     public dispose() {
@@ -264,6 +377,10 @@ export class WelcomeViewProvider {
                     <i class="codicon codicon-loading codicon-modifier-spin"></i>
                     <span>Opening login...</span>
                 </div>
+                <div id="login-page-opened" class="login-page-opened" style="display: none;">
+                    <i class="codicon codicon-check"></i>
+                    <span>Login page opened, please log in to continue</span>
+                </div>
             </div>
             `
             : "";
@@ -405,6 +522,17 @@ export class WelcomeViewProvider {
                     gap: 6px;
                     color: var(--vscode-descriptionForeground);
                     font-size: 12px;
+                }
+                .login-page-opened {
+                    margin-left: auto;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    color: var(--vscode-foreground);
+                    font-size: 12px;
+                }
+                .login-page-opened .codicon {
+                    color: var(--vscode-testing-iconPassed);
                 }
                 @keyframes spin {
                     from {
@@ -567,11 +695,38 @@ export class WelcomeViewProvider {
                                 loginText.style.display = 'inline';
                             }
                         }
+                    } else if (message.command === 'startupFlowStateChanged') {
+                        // Handle startup flow state changes
+                        const loginText = document.getElementById('login-text');
+                        const loginLoading = document.getElementById('login-loading');
+                        const loginPageOpened = document.getElementById('login-page-opened');
+                        
+                        if (message.isOpen) {
+                            // Startup flow is open - show "Login page opened"
+                            if (loginText) loginText.style.display = 'none';
+                            if (loginLoading) loginLoading.style.display = 'none';
+                            if (loginPageOpened) loginPageOpened.style.display = 'flex';
+                        } else {
+                            // Startup flow is closed - revert to "Log in" text
+                            if (loginText) loginText.style.display = 'inline';
+                            if (loginLoading) loginLoading.style.display = 'none';
+                            if (loginPageOpened) loginPageOpened.style.display = 'none';
+                        }
                     }
                 });
                 
                 // Initialize UI on load
                 updateMenuButtonUI();
+                
+                // Check initial startup flow state
+                const initialStartupFlowState = ${this._getCurrentStartupFlowState()};
+                if (initialStartupFlowState) {
+                    // If startup flow is already open, show "Login page opened"
+                    const loginText = document.getElementById('login-text');
+                    const loginPageOpened = document.getElementById('login-page-opened');
+                    if (loginText) loginText.style.display = 'none';
+                    if (loginPageOpened) loginPageOpened.style.display = 'flex';
+                }
             </script>
         </body>
         </html>`;
@@ -656,6 +811,7 @@ export class WelcomeViewProvider {
             await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
 
             // Hide loading indicator after startup flow is opened
+            // The startup flow state change will handle showing "Login page opened"
             if (this._panel) {
                 // Short delay to ensure the flow has time to initialize
                 setTimeout(() => {
@@ -663,7 +819,7 @@ export class WelcomeViewProvider {
                         command: "showLoginLoading",
                         loading: false,
                     });
-                }, 1000);
+                }, 500); // Reduced timeout since we don't need to wait for state changes
             }
         } catch (error) {
             // If opening fails, hide the loading indicator and show error

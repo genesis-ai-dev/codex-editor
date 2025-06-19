@@ -31,6 +31,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
     const [isLoading, setIsLoading] = useState(true);
+    const [hasPartialData, setHasPartialData] = useState(false);
     const [progressData, setProgressData] = useState<any>(null);
     const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     // const [state, send, service] = useMachine(startupFlowMachine);
@@ -40,6 +41,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
+        setHasPartialData(false); // Reset partial data state when refreshing
         // Note: Don't fetch progress data on refresh to keep it fast
         // Progress will update automatically when projects change
     };
@@ -69,6 +71,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
 
         // Set loading state
         setIsLoading(true);
+        setHasPartialData(false); // Reset partial data state when deleting
     };
 
     useEffect(() => {
@@ -95,10 +98,14 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             const message = event.data;
             if (message.command === "projectsListFromGitLab") {
                 setProjectsList(message.projects);
-                setIsLoading(false);
+                // Track if we have partial data
+                setHasPartialData(message.isPartial || false);
+                // Only stop loading if this is the complete list (not partial)
+                if (!message.isPartial) {
+                    setIsLoading(false);
+                }
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
-
                     // Explicitly request a fresh project list
                     vscode.postMessage({
                         command: "getProjectsListFromGitLab",
@@ -117,6 +124,9 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {
                 setSyncStatus(message.status);
+            } else if (message.command === "progressData") {
+                setProgressData(message.data);
+                setIsLoadingProgress(false);
             }
         };
 
@@ -206,6 +216,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 }
                 vscode={vscode}
                 progressData={progressData}
+                hasPartialData={hasPartialData}
             />
         </div>
     );

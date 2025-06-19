@@ -25,6 +25,39 @@ import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } fr
 import * as path from "path";
 import * as fs from "fs";
 
+// Add global state tracking for startup flow
+export class StartupFlowGlobalState {
+    private static _instance: StartupFlowGlobalState;
+    private _isOpen: boolean = false;
+    private _eventEmitter = new vscode.EventEmitter<boolean>();
+
+    public static get instance(): StartupFlowGlobalState {
+        if (!StartupFlowGlobalState._instance) {
+            StartupFlowGlobalState._instance = new StartupFlowGlobalState();
+        }
+        return StartupFlowGlobalState._instance;
+    }
+
+    public get isOpen(): boolean {
+        return this._isOpen;
+    }
+
+    public setOpen(isOpen: boolean): void {
+        if (this._isOpen !== isOpen) {
+            this._isOpen = isOpen;
+            this._eventEmitter.fire(isOpen);
+        }
+    }
+
+    public get onStateChanged(): vscode.Event<boolean> {
+        return this._eventEmitter.event;
+    }
+
+    public dispose(): void {
+        this._eventEmitter.dispose();
+    }
+}
+
 // State machine types
 export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -300,41 +333,40 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         const startTime = Date.now();
 
-
         try {
-            // Run all expensive operations in parallel for better performance
-            const [progressData, remoteProjects, localProjects] = await Promise.allSettled([
-                // Fetch progress data
-                this.fetchProgressData(),
-                // Fetch remote projects if authenticated
-                this.fetchRemoteProjects(),
-                // Fetch local projects
-                this.fetchLocalProjects()
-            ]);
+            // Step 1: Send local projects immediately (fastest)
+            debugLog("Fetching local projects first...");
+            const localProjects = await this.fetchLocalProjects();
 
-            const parallelTime = Date.now() - startTime;
-            debugLog(`Parallel operations completed in ${parallelTime}ms`);
+            // Send local projects immediately
+            safePostMessageToPanel(webviewPanel, {
+                command: "projectsListFromGitLab",
+                projects: localProjects.map(project => ({
+                    ...project,
+                    syncStatus: "localOnlyNotSynced" as const,
+                })),
+                isPartial: true, // Indicate this is not the complete list
+            } as MessagesFromStartupFlowProvider, "StartupFlow");
 
-            // Extract results, handling any failures gracefully
-            const progressResult = progressData.status === 'fulfilled' ? progressData.value : undefined;
-            const remoteResult = remoteProjects.status === 'fulfilled' ? remoteProjects.value : [];
-            const localResult = localProjects.status === 'fulfilled' ? localProjects.value : [];
+            debugLog(`Local projects sent in ${Date.now() - startTime}ms - Found ${localProjects.length} projects`);
 
-            // Log any failures for debugging
-            if (progressData.status === 'rejected') {
-                console.warn("Error fetching progress data:", progressData.reason);
+            // Step 2: Fetch remote projects in parallel (if authenticated)
+            let remoteProjects: GitLabProject[] = [];
+            if (this.frontierApi) {
+                try {
+                    debugLog("Fetching remote projects...");
+                    remoteProjects = await this.fetchRemoteProjects();
+                    debugLog(`Remote projects fetched in ${Date.now() - startTime}ms - Found ${remoteProjects.length} projects`);
+                } catch (error) {
+                    console.error("Error fetching remote projects:", error);
+                }
             }
-            if (remoteProjects.status === 'rejected') {
-                console.error("Error fetching remote projects:", remoteProjects.reason);
-            }
-            if (localProjects.status === 'rejected') {
-                console.error("Error fetching local projects:", localProjects.reason);
-            }
 
+            // Step 3: Merge and send complete project list
             const projectList: ProjectWithSyncStatus[] = [];
 
             // Process remote projects
-            for (const project of remoteResult) {
+            for (const project of remoteProjects) {
                 projectList.push({
                     name: project.name,
                     path: "",
@@ -348,8 +380,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 });
             }
 
-            // Process local projects
-            for (const project of localResult) {
+            // Process local projects and check for matches
+            for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
                     projectList.push({
                         ...project,
@@ -378,15 +410,19 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            const totalTime = Date.now() - startTime;
-            debugLog(`Projects list completed in ${totalTime}ms - Found ${projectList.length} projects (${localResult.length} local, ${remoteResult.length} remote)`);
-
-            // Send the compiled list to the webview along with progress data
+            // Send the complete merged list
             safePostMessageToPanel(webviewPanel, {
                 command: "projectsListFromGitLab",
                 projects: projectList,
-                progressData: progressResult,
+                isPartial: false, // Indicate this is the complete list
             } as MessagesFromStartupFlowProvider, "StartupFlow");
+
+            const mergeTime = Date.now() - startTime;
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects (${localProjects.length} local, ${remoteProjects.length} remote)`);
+
+            // Step 4: Fetch progress data asynchronously (slowest operation)
+            this.fetchProgressDataAsync(webviewPanel);
+
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
 
@@ -396,6 +432,34 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 projects: [],
                 error: error instanceof Error ? error.message : "Failed to fetch projects",
             } as MessagesFromStartupFlowProvider, "StartupFlow");
+        }
+    }
+
+    /**
+     * Fetch progress data asynchronously and send when ready
+     */
+    private async fetchProgressDataAsync(webviewPanel: vscode.WebviewPanel) {
+        try {
+            debugLog("Fetching progress data asynchronously...");
+            const progressStartTime = Date.now();
+
+            const progressData = await this.fetchProgressData();
+
+            const progressTime = Date.now() - progressStartTime;
+            debugLog(`Progress data fetched in ${progressTime}ms`);
+
+            // Only send if webview is still available
+            if (safeIsVisible(webviewPanel, "StartupFlow")) {
+                safePostMessageToPanel(webviewPanel, {
+                    command: "progressData",
+                    data: progressData,
+                } as MessagesFromStartupFlowProvider, "StartupFlow");
+
+                debugLog("Progress data sent to webview");
+            }
+        } catch (error) {
+            console.warn("Error fetching progress data:", error);
+            // Don't send error for progress data as it's not critical
         }
     }
 
@@ -1057,11 +1121,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.webviewPanel?.dispose();
         this.webviewPanel = webviewPanel;
 
+        // Notify that startup flow is now open
+        StartupFlowGlobalState.instance.setOpen(true);
+
         // Add the webview panel to disposables
         this.disposables.push(
             webviewPanel.onDidDispose(() => {
                 debugLog("Webview panel disposed");
                 this.webviewPanel = undefined;
+                // Notify that startup flow is now closed
+                StartupFlowGlobalState.instance.setOpen(false);
             })
         );
 
@@ -1719,7 +1788,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Always refresh the projects list
             await this.sendList(this.webviewPanel!);
         }
+
     }
 
 
 }
+
