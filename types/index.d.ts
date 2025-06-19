@@ -1669,7 +1669,30 @@ export type CellLabelImporterReceiveMessages = {
 export type MainMenuPostMessages =
     | { command: "focusView"; viewId: string; }
     | { command: "executeCommand"; commandName: string; }
-    | { command: "webviewReady"; };
+    | { command: "webviewReady"; }
+    // Project Manager integration
+    | ProjectManagerMessageFromWebview;
+
+// Menu interfaces
+export interface MenuSection {
+    title: string;
+    buttons: MenuButton[];
+}
+
+export interface MenuButton {
+    id: string;
+    label: string;
+    icon: string;
+    viewId?: string;
+    command?: string;
+    description?: string;
+}
+
+export type MainMenuMessages =
+    | { command: "updateMenu"; menuConfig: MenuSection[]; }
+    | { command: "setActiveView"; viewId: string; }
+    // Project Manager integration
+    | ProjectManagerMessageToWebview;
 
 export type MainMenuReceiveMessages =
     | { command: "updateMenu"; menuConfig: MenuSection[]; }
