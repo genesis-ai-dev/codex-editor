@@ -37,7 +37,7 @@ function SearchTab({
     const [recentSearches, setRecentSearches] = useState<string[]>([]);
     const [showRecentSearches, setShowRecentSearches] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
-    
+
     // Focus the search input on component mount
     useEffect(() => {
         if (searchInputRef.current) {
@@ -47,7 +47,7 @@ function SearchTab({
 
     // Load recent searches from localStorage on mount
     useEffect(() => {
-        const savedSearches = localStorage.getItem('recentBibleSearches');
+        const savedSearches = localStorage.getItem("recentBibleSearches");
         if (savedSearches) {
             setRecentSearches(JSON.parse(savedSearches).slice(0, 5));
         }
@@ -56,58 +56,58 @@ function SearchTab({
     const handleSearch = (event?: React.FormEvent) => {
         if (event) event.preventDefault();
         if (!lastQuery.trim()) return;
-        
+
         setIsLoading(true);
         onSearch(lastQuery, event);
-        
+
         // Save to recent searches
         const newRecentSearches = [
             lastQuery,
-            ...recentSearches.filter(s => s !== lastQuery)
+            ...recentSearches.filter((s) => s !== lastQuery),
         ].slice(0, 5);
-        
+
         setRecentSearches(newRecentSearches);
-        localStorage.setItem('recentBibleSearches', JSON.stringify(newRecentSearches));
+        localStorage.setItem("recentBibleSearches", JSON.stringify(newRecentSearches));
         setShowRecentSearches(false);
-        
+
         // Shorter loading time for better UX
         setTimeout(() => setIsLoading(false), 600);
     };
-    
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter") {
             e.preventDefault();
             handleSearch();
         }
-        
+
         if (e.key === "Escape") {
             if (showRecentSearches) {
                 setShowRecentSearches(false);
             }
             e.stopPropagation();
         }
-        
+
         if (e.key === "ArrowDown" && showRecentSearches) {
             e.preventDefault();
-            const recentSearchElements = document.querySelectorAll('.recent-search-item');
+            const recentSearchElements = document.querySelectorAll(".recent-search-item");
             if (recentSearchElements.length > 0) {
                 (recentSearchElements[0] as HTMLElement).focus();
             }
         }
     };
-    
+
     const handleRecentSearchClick = (search: string) => {
         onQueryChange(search);
         setShowRecentSearches(false);
         setTimeout(() => handleSearch(), 0);
     };
-    
+
     const handleSearchFocus = () => {
         if (recentSearches.length > 0) {
             setShowRecentSearches(true);
         }
     };
-    
+
     const handleClickOutside = (e: React.MouseEvent) => {
         const target = e.target as HTMLElement;
         if (
@@ -135,7 +135,7 @@ function SearchTab({
                                 onKeyDown={handleKeyDown}
                                 aria-label="Search Bible text"
                             />
-                            
+
                             {isLoading ? (
                                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                                     <LoadingSpinner size="sm" />
@@ -198,10 +198,15 @@ function SearchTab({
                                 onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}
                                 aria-label="Toggle search settings"
                                 aria-expanded={isSettingsExpanded}
+                                className="parallel-action-button flex-1 min-w-0"
                             >
-                                <span className="codicon codicon-settings-gear mr-2"></span>
-                                <span>Settings</span>
-                                <span className={`codicon codicon-chevron-${isSettingsExpanded ? 'up' : 'down'} ml-2`}></span>
+                                <span className="codicon codicon-settings-gear flex-shrink-0"></span>
+                                <span className="parallel-button-text ml-2">Settings</span>
+                                <span
+                                    className={`codicon codicon-chevron-${
+                                        isSettingsExpanded ? "up" : "down"
+                                    } ml-2 flex-shrink-0`}
+                                ></span>
                             </Button>
 
                             {verses.length > 0 && (
@@ -211,9 +216,10 @@ function SearchTab({
                                     size="sm"
                                     onClick={onPinAll}
                                     aria-label="Pin all results"
+                                    className="parallel-action-button flex-1 min-w-0"
                                 >
-                                    <span className="codicon codicon-pin mr-2"></span>
-                                    Pin All
+                                    <span className="codicon codicon-pin flex-shrink-0"></span>
+                                    <span className="parallel-button-text ml-2">Pin All</span>
                                 </Button>
                             )}
                         </div>
@@ -269,9 +275,7 @@ function SearchTab({
                     </div>
                 ) : (
                     verses.map((item, index) => {
-                        const isPinned = pinnedVerses.some(
-                            (verse) => verse.cellId === item.cellId
-                        );
+                        const isPinned = pinnedVerses.some((verse) => verse.cellId === item.cellId);
                         return (
                             <VerseItem
                                 key={`${item.cellId}-${index}`}
