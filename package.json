@@ -33,9 +33,9 @@
                 {
                     "type": "webview",
                     "id": "codex-editor.mainMenu",
-                    "name": "Main Menu",
+                    "name": "Project Settings",
                     "icon": "$(list-tree)",
-                    "contextualTitle": "Codex Main Menu"
+                    "contextualTitle": "Codex Project Settings"
                 }
             ],
             "search-passages-view": [

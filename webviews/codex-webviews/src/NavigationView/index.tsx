@@ -685,7 +685,6 @@ function NavigationView() {
 
     return (
         <div style={styles.container}>
-            <WebviewHeader title="Files & Navigation" vscode={vscode} />
             <div style={styles.searchContainer}>
                 <div style={styles.searchWrapper}>
                     <i className="codicon codicon-search" style={styles.searchIcon} />
