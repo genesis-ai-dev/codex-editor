@@ -342,6 +342,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "workspace.create"; }
     | { command: "workspace.continue"; }
     | { command: "getProjectsListFromGitLab"; }
+    | { command: "forceRefreshProjectsList"; }
     | { command: "getProjectsSyncStatus"; }
     | { command: "project.open"; projectPath: string; }
     | { command: "project.delete"; projectPath: string; syncStatus?: ProjectSyncStatus; }
@@ -387,6 +388,7 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "projectsListFromGitLab";
         projects: Array<ProjectWithSyncStatus>;
+        isPartial?: boolean;
     }
     | {
         command: "checkWorkspaceState";
