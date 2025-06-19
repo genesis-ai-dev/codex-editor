@@ -300,6 +300,15 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 }
                 break;
             }
+            case "openSourceUpload": {
+                try {
+                    await vscode.commands.executeCommand("codex-project-manager.openSourceUpload");
+                } catch (error) {
+                    console.error("Error opening source upload:", error);
+                    vscode.window.showErrorMessage(`Failed to open source upload: ${error}`);
+                }
+                break;
+            }
         }
     }
 

@@ -48,10 +48,27 @@ const styles = {
     container: {
         padding: "12px",
         height: "100vh",
-        overflow: "auto",
+        overflow: "hidden",
         display: "flex",
         flexDirection: "column" as const,
         backgroundColor: "var(--vscode-sideBar-background)",
+    },
+    scrollableContent: {
+        flex: 1,
+        overflow: "auto",
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "2px",
+    },
+    bottomSection: {
+        marginTop: "auto",
+        paddingTop: "16px",
+        borderTop: "2px solid var(--vscode-sideBarSectionHeader-border)",
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "12px",
+        backgroundColor: "var(--vscode-sideBar-background)",
+        position: "relative" as const,
     },
     searchContainer: {
         marginBottom: "16px",
@@ -84,7 +101,6 @@ const styles = {
     itemsContainer: {
         display: "flex",
         flexDirection: "column" as const,
-        gap: "2px",
     },
     // Main clickable item container - the entire thing is now clickable
     itemContainer: {
@@ -270,6 +286,11 @@ const styles = {
         borderRadius: "8px",
         border: "1px solid var(--vscode-sideBarSectionHeader-border)",
         transition: "all 0.2s ease",
+        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+        "&:hover": {
+            backgroundColor: "var(--vscode-list-hoverBackground)",
+            boxShadow: "0 2px 6px rgba(0, 0, 0, 0.12)",
+        },
     },
     dictionaryHeader: {
         display: "flex",
@@ -283,10 +304,10 @@ const styles = {
         gap: "12px",
     },
     dictionaryIcon: {
-        fontSize: "20px",
+        fontSize: "18px",
         color: "var(--vscode-symbolIcon-keywordForeground)",
-        width: "20px",
-        height: "20px",
+        width: "18px",
+        height: "18px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -301,6 +322,9 @@ const styles = {
         fontSize: "14px",
         fontWeight: "600",
         color: "var(--vscode-foreground)",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
     },
     dictionaryStats: {
         fontSize: "12px",
@@ -317,21 +341,57 @@ const styles = {
         color: "var(--vscode-descriptionForeground)",
     },
     toggleButton: {
-        padding: "4px 8px",
-        borderRadius: "4px",
+        padding: "6px 10px",
+        borderRadius: "6px",
         border: "1px solid var(--vscode-button-border)",
         backgroundColor: "var(--vscode-button-secondaryBackground)",
         color: "var(--vscode-button-secondaryForeground)",
         cursor: "pointer",
-        fontSize: "11px",
-        fontWeight: "500",
+        fontSize: "12px",
+        fontWeight: "600",
         transition: "all 0.15s ease",
         display: "flex",
         alignItems: "center",
         gap: "4px",
+        minWidth: "50px",
+        justifyContent: "center",
         "&:hover": {
             backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
+            transform: "scale(1.05)",
         },
+        "&:active": {
+            transform: "scale(0.98)",
+        },
+    },
+    addFilesButton: {
+        padding: "16px 20px",
+        borderRadius: "8px",
+        border: "2px solid var(--vscode-button-background)",
+        backgroundColor: "var(--vscode-button-background)",
+        color: "var(--vscode-button-foreground)",
+        cursor: "pointer",
+        fontSize: "14px",
+        fontWeight: "600",
+        transition: "all 0.2s ease",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "10px",
+        boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+        position: "relative" as const,
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-hoverBackground)",
+            transform: "translateY(-1px)",
+            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)",
+        },
+        "&:active": {
+            transform: "translateY(0px)",
+            boxShadow: "0 1px 2px rgba(0, 0, 0, 0.1)",
+        },
+    },
+    addFilesIcon: {
+        fontSize: "16px",
+        fontWeight: "bold",
     },
 };
 
@@ -557,6 +617,12 @@ function NavigationView() {
         });
     };
 
+    const handleAddFiles = () => {
+        vscode.postMessage({
+            command: "openSourceUpload",
+        });
+    };
+
     // Close menu when clicking outside
     useEffect(() => {
         const handleClickOutside = () => {
@@ -675,18 +741,24 @@ function NavigationView() {
                     <div style={styles.dictionaryContainer} onClick={handleItemClick}>
                         <div style={styles.dictionaryHeader}>
                             <div style={styles.dictionaryIconSection}>
-                                <i
-                                    className="codicon codicon-book"
-                                    style={styles.dictionaryIcon}
-                                    title="Project Dictionary"
-                                />
                                 <div style={styles.dictionaryInfo}>
-                                    <div style={styles.dictionaryTitle}>Dictionary</div>
+                                    <div style={styles.dictionaryTitle}>
+                                        <i
+                                            className="codicon codicon-book"
+                                            style={styles.dictionaryIcon}
+                                        />
+                                        Dictionary
+                                    </div>
                                     <div style={styles.dictionaryStats}>
-                                        <i className="codicon codicon-symbol-key" />
-                                        <span>{item.wordCount || 0} words</span>
+                                        <i className="codicon codicon-list-ordered" />
+                                        <span>{item.wordCount || 0}</span>
                                         <span>•</span>
-                                        <span>{item.isEnabled ? "Active" : "Inactive"}</span>
+                                        <i
+                                            className={`codicon codicon-${
+                                                item.isEnabled ? "check" : "circle-slash"
+                                            }`}
+                                        />
+                                        <span>{item.isEnabled ? "ON" : "OFF"}</span>
                                     </div>
                                 </div>
                             </div>
@@ -818,6 +890,10 @@ function NavigationView() {
     const filteredDictionaryItems = filterItems(state.dictionaryItems);
     const hasResults = filteredCodexItems.length > 0 || filteredDictionaryItems.length > 0;
 
+    // Separate project dictionary from other dictionaries
+    const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
+    const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
+
     return (
         <div style={styles.container}>
             <div style={styles.searchContainer}>
@@ -840,17 +916,36 @@ function NavigationView() {
                     <i className="codicon codicon-refresh" />
                 </Button>
             </div>
-            <div style={styles.itemsContainer}>
-                {hasResults ? (
-                    <>
-                        {filteredCodexItems.map(renderItem)}
-                        {filteredDictionaryItems.map(renderItem)}
-                    </>
-                ) : state.codexItems.length === 0 && state.dictionaryItems.length === 0 ? (
-                    <div style={styles.noResults}>Loading files...</div>
-                ) : (
-                    <div style={styles.noResults}>No matching files found</div>
-                )}
+
+            <div style={styles.scrollableContent}>
+                <div style={styles.itemsContainer}>
+                    {filteredCodexItems.length > 0 || otherDictionaries.length > 0 ? (
+                        <>
+                            {filteredCodexItems.map(renderItem)}
+                            {otherDictionaries.map(renderItem)}
+                        </>
+                    ) : state.codexItems.length === 0 && state.dictionaryItems.length === 0 ? (
+                        <div style={styles.noResults}>Loading files...</div>
+                    ) : (
+                        <div style={styles.noResults}>No matching files found</div>
+                    )}
+                </div>
+            </div>
+
+            <div style={styles.bottomSection}>
+                {/* Add Files Button */}
+                <button
+                    style={styles.addFilesButton}
+                    onClick={handleAddFiles}
+                    title="Add files to translate"
+                >
+                    <i className="codicon codicon-add" style={styles.addFilesIcon} />
+                    <i className="codicon codicon-file-text" />
+                    Add Files
+                </button>
+
+                {/* Project Dictionary */}
+                {projectDictionary && renderItem(projectDictionary)}
             </div>
         </div>
     );
