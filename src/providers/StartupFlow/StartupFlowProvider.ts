@@ -25,6 +25,39 @@ import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } fr
 import * as path from "path";
 import * as fs from "fs";
 
+// Add global state tracking for startup flow
+export class StartupFlowGlobalState {
+    private static _instance: StartupFlowGlobalState;
+    private _isOpen: boolean = false;
+    private _eventEmitter = new vscode.EventEmitter<boolean>();
+
+    public static get instance(): StartupFlowGlobalState {
+        if (!StartupFlowGlobalState._instance) {
+            StartupFlowGlobalState._instance = new StartupFlowGlobalState();
+        }
+        return StartupFlowGlobalState._instance;
+    }
+
+    public get isOpen(): boolean {
+        return this._isOpen;
+    }
+
+    public setOpen(isOpen: boolean): void {
+        if (this._isOpen !== isOpen) {
+            this._isOpen = isOpen;
+            this._eventEmitter.fire(isOpen);
+        }
+    }
+
+    public get onStateChanged(): vscode.Event<boolean> {
+        return this._eventEmitter.event;
+    }
+
+    public dispose(): void {
+        this._eventEmitter.dispose();
+    }
+}
+
 // State machine types
 export enum StartupFlowStates {
     LOGIN_REGISTER = "loginRegister",
@@ -1057,11 +1090,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         this.webviewPanel?.dispose();
         this.webviewPanel = webviewPanel;
 
+        // Notify that startup flow is now open
+        StartupFlowGlobalState.instance.setOpen(true);
+
         // Add the webview panel to disposables
         this.disposables.push(
             webviewPanel.onDidDispose(() => {
                 debugLog("Webview panel disposed");
                 this.webviewPanel = undefined;
+                // Notify that startup flow is now closed
+                StartupFlowGlobalState.instance.setOpen(false);
             })
         );
 

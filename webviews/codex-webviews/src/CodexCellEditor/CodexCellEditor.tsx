@@ -98,6 +98,11 @@ const CodexCellEditor: React.FC = () => {
     const [isSourceText, setIsSourceText] = useState<boolean>(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState<boolean>(false);
 
+    // Track if user has manually navigated away from the highlighted chapter in source files
+    const [hasManuallyNavigatedAway, setHasManuallyNavigatedAway] = useState<boolean>(false);
+    const [lastHighlightedChapter, setLastHighlightedChapter] = useState<number | null>(null);
+    const [chapterWhenHighlighted, setChapterWhenHighlighted] = useState<number | null>(null);
+
     const [metadata, setMetadata] = useState<CustomNotebookMetadata>({
         videoUrl: "", // FIXME: use attachments instead of videoUrl
     } as CustomNotebookMetadata);
@@ -196,8 +201,16 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            if (message.type === "highlightCell" && message.cellId) {
+            if (message.type === "highlightCell") {
+                // Set the highlighted cell ID (null clears the highlight)
                 setHighlightedCellId(message.cellId);
+                
+                // Reset manual navigation tracking when highlight is cleared
+                if (!message.cellId) {
+                    setHasManuallyNavigatedAway(false);
+                    setLastHighlightedChapter(null);
+                    setChapterWhenHighlighted(null);
+                }
             }
 
             // Add handler for pending validations updates
@@ -237,40 +250,58 @@ const CodexCellEditor: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (highlightedCellId && scrollSyncEnabled) {
+        if (highlightedCellId && scrollSyncEnabled && isSourceText) {
             const cellId = highlightedCellId;
             const chapter = cellId?.split(" ")[1]?.split(":")[0];
             const newChapterNumber = parseInt(chapter) || 1;
 
-            // Get all cells for the target chapter
-            const allCellsForTargetChapter = translationUnits.filter((verse) => {
-                const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
-                return verseChapter === newChapterNumber.toString();
-            });
-
-            // Find the index of the highlighted cell within the chapter
-            const cellIndexInChapter = allCellsForTargetChapter.findIndex(
-                (verse) => verse.cellMarkers[0] === cellId
-            );
-
-            // Calculate which subsection this cell belongs to
-            let targetSubsectionIndex = 0;
-            if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
-                targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
+            // Check if this is a new highlight (different chapter than last highlighted)
+            const isNewHighlight = newChapterNumber !== lastHighlightedChapter;
+            
+            if (isNewHighlight) {
+                // Reset the manual navigation flag for new highlights
+                setHasManuallyNavigatedAway(false);
+                setLastHighlightedChapter(newChapterNumber);
+                setChapterWhenHighlighted(chapterNumber); // Remember current chapter when highlight was set
             }
 
-            // If chapter is changing, update chapter and subsection
-            if (newChapterNumber !== chapterNumber) {
-                setChapterNumber(newChapterNumber);
-                setCurrentSubsectionIndex(targetSubsectionIndex);
-            } else {
-                // Same chapter, but check if we need to change subsection
-                // Check if chapter has multiple pages (subsections)
-                if (
-                    allCellsForTargetChapter.length > cellsPerPage &&
-                    targetSubsectionIndex !== currentSubsectionIndex
-                ) {
+            // Only auto-navigate if:
+            // 1. User hasn't manually navigated away, OR this is a new highlight
+            // 2. We're still on the same chapter as when the highlight was originally set (prevents conflicts)
+            const shouldAutoNavigate = (!hasManuallyNavigatedAway || isNewHighlight) && 
+                                     (isNewHighlight || chapterNumber === chapterWhenHighlighted);
+
+            if (shouldAutoNavigate) {
+                // Get all cells for the target chapter
+                const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                    const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
+                    return verseChapter === newChapterNumber.toString();
+                });
+
+                // Find the index of the highlighted cell within the chapter
+                const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                    (verse) => verse.cellMarkers[0] === cellId
+                );
+
+                // Calculate which subsection this cell belongs to
+                let targetSubsectionIndex = 0;
+                if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
+                    targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
+                }
+
+                // If chapter is changing, update chapter and subsection
+                if (newChapterNumber !== chapterNumber) {
+                    setChapterNumber(newChapterNumber);
                     setCurrentSubsectionIndex(targetSubsectionIndex);
+                } else {
+                    // Same chapter, but check if we need to change subsection
+                    // Check if chapter has multiple pages (subsections)
+                    if (
+                        allCellsForTargetChapter.length > cellsPerPage &&
+                        targetSubsectionIndex !== currentSubsectionIndex
+                    ) {
+                        setCurrentSubsectionIndex(targetSubsectionIndex);
+                    }
                 }
             }
         }
@@ -281,7 +312,21 @@ const CodexCellEditor: React.FC = () => {
         translationUnits,
         cellsPerPage,
         currentSubsectionIndex,
+        isSourceText,
+        hasManuallyNavigatedAway,
+        lastHighlightedChapter,
+        chapterWhenHighlighted,
     ]);
+
+    // Track manual navigation away from highlighted chapter in source files
+    useEffect(() => {
+        if (isSourceText && highlightedCellId && lastHighlightedChapter !== null) {
+            // If current chapter is different from the highlighted chapter, user navigated manually
+            if (chapterNumber !== lastHighlightedChapter) {
+                setHasManuallyNavigatedAway(true);
+            }
+        }
+    }, [chapterNumber, isSourceText, highlightedCellId, lastHighlightedChapter]);
 
     // A "temp" video URL that is used to update the video URL in the metadata modal.
     // We need to use the client-side file picker, so we need to then pass the picked
@@ -549,6 +594,14 @@ const CodexCellEditor: React.FC = () => {
         debug("editor", "Closing editor");
         setContentBeingUpdated({} as EditorCellContent);
         setUnsavedChanges(false);
+
+        // Clear the global state to stop highlighting in source files
+        vscode.postMessage({
+            command: "setCurrentIdToGlobalState",
+            content: {
+                currentLineId: "", // Clear the cell ID
+            },
+        } as EditorPostMessages);
 
         // Request updated audio attachments when closing editor
         vscode.postMessage({
