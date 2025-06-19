@@ -1226,23 +1226,35 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     public updateCellIdState(cellId: string, uri: string) {
         debug("Updating cell ID state:", { cellId, uri, stateStore: this.stateStore });
-        if (cellId && uri) {
-            // Only send highlight messages to source files when a codex file is active
+
+        // Handle both setting and clearing highlights
+        if (uri) {
             const valueIsCodexFile = this.isCodexFile(uri);
             if (valueIsCodexFile) {
-                debug("Processing codex file highlight");
+                // Send highlight/clear messages to source files when a codex file is active
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
                     const isSourceFile = this.isSourceText(panelUri);
-                    debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
                     if (isSourceFile) {
-                        safePostMessageToPanel(panel, {
-                            type: "highlightCell",
-                            cellId: cellId,
-                        });
+                        if (cellId) {
+                            // Set highlight
+                            debug("Sending highlight message to source file:", panelUri, "cellId:", cellId);
+                            safePostMessageToPanel(panel, {
+                                type: "highlightCell",
+                                cellId: cellId,
+                            });
+                        } else {
+                            // Clear highlight
+                            debug("Clearing highlight in source file:", panelUri);
+                            safePostMessageToPanel(panel, {
+                                type: "highlightCell",
+                                cellId: null,
+                            });
+                        }
                     }
                 }
             }
         }
+
         if (!this.stateStore) {
             console.warn("State store not initialized when trying to update cell ID");
             return;

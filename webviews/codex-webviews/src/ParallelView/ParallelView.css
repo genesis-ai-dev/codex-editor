@@ -1,34 +1,62 @@
 /* Base */
 .parallel-view {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: var(--vscode-editor-background);
-  color: var(--vscode-editor-foreground);
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
 }
 
 /* VSCode codicon integration */
 .codicon {
-  font-family: codicon;
-  font-size: 16px;
-  line-height: 1;
-  display: inline-block;
+    font-family: codicon;
+    font-size: 16px;
+    line-height: 1;
+    display: inline-block;
 }
 
 /* Recent searches dropdown positioning */
 .recent-searches-dropdown {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 /* Search input container for positioning */
 .search-input-container {
-  position: relative;
+    position: relative;
 }
 
 /* Focus styles for recent search items */
 .recent-search-item:focus {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: -1px;
-} 
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: -1px;
+}
+
+/* Parallel action buttons (Settings and Pin All) */
+.parallel-action-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 80px; /* Minimum width to ensure icons are always visible */
+}
+
+/* Container query for buttons - hide text when container is narrow */
+@container (max-width: 170px) {
+    .parallel-button-text {
+        display: none;
+    }
+}
+
+/* Fallback media query for older browsers */
+@media (max-width: 254px) {
+    .parallel-button-text {
+        display: none;
+    }
+}
+
+/* When both buttons are present, ensure equal width */
+.parallel-action-button:not(:only-child) {
+    flex: 1;
+    max-width: 50%;
+}
