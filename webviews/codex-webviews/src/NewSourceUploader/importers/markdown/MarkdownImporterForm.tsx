@@ -11,36 +11,12 @@ import {
 } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye } from "lucide-react";
+import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
-// Temporary mock functions - these should be imported from the actual parser
-const validateFile = async (file: File) => ({ isValid: true, errors: [], warnings: [] });
-const parseFile = async (file: File, onProgress?: any) => ({
-    success: true,
-    notebookPair: {
-        source: {
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            cells: [],
-            metadata: {
-                id: `source-${Date.now()}`,
-                originalFileName: file.name,
-                importerType: "markdown",
-                createdAt: new Date().toISOString(),
-            },
-        },
-        codex: {
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            cells: [],
-            metadata: {
-                id: `codex-${Date.now()}`,
-                originalFileName: file.name,
-                importerType: "markdown",
-                createdAt: new Date().toISOString(),
-            },
-        },
-    },
-    error: undefined,
-});
+import { markdownImporter } from "./index";
+
+// Use the real parser functions from the Markdown importer
+const { validateFile, parseFile } = markdownImporter;
 
 export const MarkdownImporterForm: React.FC<ImporterComponentProps> = ({
     onComplete,

@@ -11,36 +11,12 @@ import {
 } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
-import { Upload, BookOpen, CheckCircle, XCircle, ArrowLeft, Eye, FolderOpen } from "lucide-react";
+import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
-// Temporary mock functions - these should be imported from the actual parser
-const validateFile = async (file: File) => ({ isValid: true, errors: [], warnings: [] });
-const parseFile = async (file: File, onProgress?: any) => ({
-    success: true,
-    notebookPair: {
-        source: {
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            cells: [],
-            metadata: {
-                id: `source-${Date.now()}`,
-                originalFileName: file.name,
-                importerType: "usfm",
-                createdAt: new Date().toISOString(),
-            },
-        },
-        codex: {
-            name: file.name.replace(/\.[^/.]+$/, ""),
-            cells: [],
-            metadata: {
-                id: `codex-${Date.now()}`,
-                originalFileName: file.name,
-                importerType: "usfm",
-                createdAt: new Date().toISOString(),
-            },
-        },
-    },
-    error: undefined,
-});
+import { usfmImporter } from "./index";
+
+// Use the real parser functions from the USFM importer
+const { validateFile, parseFile } = usfmImporter;
 
 export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, onCancel }) => {
     const [files, setFiles] = useState<FileList | null>(null);
@@ -166,7 +142,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
         <div className="container mx-auto p-6 max-w-4xl space-y-6">
             <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <BookOpen className="h-6 w-6" />
+                    <FileText className="h-6 w-6" />
                     Import USFM Files
                 </h1>
                 <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
@@ -205,7 +181,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
                             htmlFor="usfm-file-input"
                             className="cursor-pointer inline-flex flex-col items-center gap-2"
                         >
-                            <FolderOpen className="h-12 w-12 text-muted-foreground" />
+                            <Hash className="h-12 w-12 text-muted-foreground" />
                             <span className="text-sm text-muted-foreground">
                                 Click to select USFM files or drag and drop
                             </span>
@@ -219,7 +195,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
                         <div className="space-y-4">
                             <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                                 <div className="flex items-center gap-3">
-                                    <BookOpen className="h-5 w-5 text-muted-foreground" />
+                                    <FileText className="h-5 w-5 text-muted-foreground" />
                                     <div>
                                         <p className="font-medium">
                                             {files.length} file{files.length > 1 ? "s" : ""}{" "}
