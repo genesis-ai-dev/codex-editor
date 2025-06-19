@@ -669,12 +669,8 @@ export class WelcomeViewProvider {
                 `[WelcomeView] Current editor count before opening login: ${initialEditorCount}`
             );
 
-            // Open the startup flow without closing the welcome view
-            await vscode.commands.executeCommand(
-                "vscode.openWith",
-                vscode.Uri.parse("untitled:startupflow.codex"),
-                "startupFlowProvider"
-            );
+            // Open the startup flow using the proper command
+            await vscode.commands.executeCommand("codex-project-manager.openStartupFlow");
 
             // Hide loading indicator after startup flow is opened
             if (this._panel) {
