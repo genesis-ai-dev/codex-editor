@@ -74,15 +74,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             Automatically sync changes to cloud
                         </p>
                     </div>
-                    <Switch
-                        checked={autoSyncEnabled}
-                        onCheckedChange={onToggleAutoSync}
-                        styles={
-                            {
-                                "--tw-ring-color": "var(--ring)",
-                            } as React.CSSProperties
-                        }
-                    />
+                    <Switch checked={autoSyncEnabled} onCheckedChange={onToggleAutoSync} />
                 </div>
 
                 {autoSyncEnabled && (
