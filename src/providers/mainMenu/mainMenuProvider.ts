@@ -490,6 +490,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "openEditAnalysis":
                 await vscode.commands.executeCommand("codex-editor-extension.analyzeEdits");
                 break;
+            case "publishProject":
+                await this.publishProject();
+                break;
             case "initializeProject":
                 console.log("initializeProject");
                 this.store.setState({ isInitializing: true });

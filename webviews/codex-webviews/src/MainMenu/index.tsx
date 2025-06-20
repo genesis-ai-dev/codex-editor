@@ -554,25 +554,6 @@ function MainMenu() {
                                             </div>
                                         </Button>
 
-                                        {!projectState.repoHasRemote && (
-                                            <Button
-                                                onClick={() =>
-                                                    handleProjectAction("publishProject")
-                                                }
-                                                className="button-primary justify-start h-14 p-4 border-2 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
-                                            >
-                                                <i className="codicon codicon-cloud-upload mr-3 h-5 w-5" />
-                                                <div className="text-left">
-                                                    <div className="font-semibold">
-                                                        Publish Project
-                                                    </div>
-                                                    <div className="text-xs opacity-90">
-                                                        Share to cloud
-                                                    </div>
-                                                </div>
-                                            </Button>
-                                        )}
-
                                         <Button
                                             variant="outline"
                                             size="default"
