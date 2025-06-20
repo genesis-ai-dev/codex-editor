@@ -452,7 +452,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
         const getTranslationPairsFromSourceCellQueryCommand = vscode.commands.registerCommand(
             "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
-            async (query?: string, k: number = 10, showInfo: boolean = false) => {
+            async (query?: string, k: number = 10, onlyValidated: boolean = false, showInfo: boolean = false) => {
                 if (!query) {
                     query = await vscode.window.showInputBox({
                         prompt: "Enter a query to search source cells",
@@ -461,17 +461,20 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
+                console.log({ query, k, onlyValidated });
                 const results = await getTranslationPairsFromSourceCellQuery(
                     translationPairsIndex,
                     query,
-                    k
+                    k,
+                    onlyValidated
                 );
+                console.log({ results });
                 if (showInfo) {
                     const resultsString = results
                         .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
                         .join("\n");
                     vscode.window.showInformationMessage(
-                        `Found ${results.length} results for query: ${query}\n${resultsString}`
+                        `Found ${results.length} ${onlyValidated ? 'validated' : 'all'} results for query: ${query}\n${resultsString}`
                     );
                 }
                 return results;

@@ -743,6 +743,12 @@
                         "minimum": 5,
                         "maximum": 200,
                         "description": "Number of cells to display per page when a chapter has many cells. Helps with performance for large chapters."
+                    },
+                    "codex-editor-extension.useOnlyValidatedExamples": {
+                        "title": "Use Only Validated Examples",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, AI will only use translation pairs that have been validated by users as examples for few-shot prompting. This ensures higher quality examples but may reduce the number of available examples."
                     }
                 }
             }

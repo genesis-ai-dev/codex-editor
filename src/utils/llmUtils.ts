@@ -37,8 +37,8 @@ export async function callLLM(messages: ChatMessage[], config: CompletionConfig)
             baseURL: config.endpoint,
             defaultHeaders: authBearerToken
                 ? {
-                      Authorization: `Bearer ${authBearerToken}`,
-                  }
+                    Authorization: `Bearer ${authBearerToken}`,
+                }
                 : undefined,
         });
 
@@ -238,10 +238,14 @@ export interface CompletionConfig {
     chatSystemMessage: string;
     numberOfFewShotExamples: number;
     debugMode: boolean;
+    useOnlyValidatedExamples: boolean;
 }
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
+        const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") ?? false;
+        console.log("[fetchCompletionConfig] useOnlyValidatedExamples setting:", useOnlyValidatedExamples);
+
         // if (sharedStateExtension) {
         //     const stateStore = sharedStateExtension.exports;
         //     stateStore.updateStoreState({
@@ -249,23 +253,26 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
         //         value: config.get("api_key", undefined, true) || "",
         //     });
         // }
-        return {
-            endpoint: config.get("llmEndpoint") || "https://api.openai.com/v1",
-            apiKey: config.get("api_key") || "",
-            model: config.get("model") || "gpt-4o",
-            customModel: config.get("customModel") || "",
-            contextSize: config.get("contextSize") || "large",
-            additionalResourceDirectory: config.get("additionalResourcesDirectory") || "",
-            contextOmission: config.get("experimentalContextOmission") || false,
-            sourceBookWhitelist: config.get("sourceBookWhitelist") || "",
-            maxTokens: config.get("max_tokens") || 2048,
-            temperature: config.get("temperature") || 0.8,
-            mainChatLanguage: config.get("main_chat_language") || "English",
-            chatSystemMessage: config.get("chatSystemMessage") ||
+        const completionConfig: CompletionConfig = {
+            endpoint: (config.get("llmEndpoint") as string) || "https://api.openai.com/v1",
+            apiKey: (config.get("api_key") as string) || "",
+            model: (config.get("model") as string) || "gpt-4o",
+            customModel: (config.get("customModel") as string) || "",
+            contextSize: (config.get("contextSize") as string) || "large",
+            additionalResourceDirectory: (config.get("additionalResourcesDirectory") as string) || "",
+            contextOmission: (config.get("experimentalContextOmission") as boolean) || false,
+            sourceBookWhitelist: (config.get("sourceBookWhitelist") as string) || "",
+            maxTokens: (config.get("max_tokens") as number) || 2048,
+            temperature: (config.get("temperature") as number) || 0.8,
+            mainChatLanguage: (config.get("main_chat_language") as string) || "English",
+            chatSystemMessage: (config.get("chatSystemMessage") as string) ||
                 "This is a chat between a helpful Bible translation assistant and a Bible translator...",
-            numberOfFewShotExamples: config.get("numberOfFewShotExamples") || 30,
+            numberOfFewShotExamples: (config.get("numberOfFewShotExamples") as number) || 30,
             debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
+            useOnlyValidatedExamples: useOnlyValidatedExamples as boolean,
         };
+        console.log("[fetchCompletionConfig] Final config useOnlyValidatedExamples:", completionConfig.useOnlyValidatedExamples);
+        return completionConfig;
     } catch (error) {
         console.error("Error getting completion configuration", error);
         throw new Error("Failed to get completion configuration");

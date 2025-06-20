@@ -20,7 +20,7 @@ import {
     getProjectOverview,
     updateProjectSettings,
 } from "./utils/projectUtils";
-import { openSystemMessageEditor } from "../copilotSettings/copilotSettings";
+import { openSystemMessageEditor, debugValidationSetting } from "../copilotSettings/copilotSettings";
 import { openProjectExportView } from "./projectExportView";
 import { ensureCodexProjectsDirInWatchedFolders } from "../utils/projectLocationUtils";
 import { openBookNameEditor } from '../bookNameSettings/bookNameSettings';
@@ -522,6 +522,11 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         openSystemMessageEditor
     );
 
+    const debugValidationSettingCommand = vscode.commands.registerCommand(
+        "codex-project-manager.debugValidationSetting",
+        debugValidationSetting
+    );
+
     const openExportViewCommand = vscode.commands.registerCommand(
         "codex-project-manager.openExportView",
         () => openProjectExportView(context)
@@ -603,6 +608,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
         reinstallExtensionsCommand,
         showProjectOverviewCommand,
         openAISettingsCommand,
+        debugValidationSettingCommand,
         openExportViewCommand,
         openLicenseSettingsCommand,
         openBookNameEditorCommand,

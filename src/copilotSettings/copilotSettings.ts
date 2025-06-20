@@ -8,6 +8,23 @@ interface ProjectLanguage {
     projectStatus: string;
 }
 
+export async function debugValidationSetting() {
+    const config = vscode.workspace.getConfiguration("codex-editor-extension");
+    const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples");
+    const inspectResult = config.inspect("useOnlyValidatedExamples");
+
+    console.log("[debugValidationSetting] Raw config value:", useOnlyValidatedExamples);
+    console.log("[debugValidationSetting] Config inspect result:", inspectResult);
+
+    vscode.window.showInformationMessage(
+        `Validation Setting Debug:\n` +
+        `Current value: ${useOnlyValidatedExamples}\n` +
+        `Global value: ${inspectResult?.globalValue}\n` +
+        `Workspace value: ${inspectResult?.workspaceValue}\n` +
+        `Workspace folder value: ${inspectResult?.workspaceFolderValue}`
+    );
+}
+
 export async function openSystemMessageEditor() {
     const panel = vscode.window.createWebviewPanel(
         "systemMessageEditor",
@@ -22,30 +39,14 @@ export async function openSystemMessageEditor() {
     // Get configurations
     const config = vscode.workspace.getConfiguration("codex-editor-extension");
     const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
+    const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") as boolean ?? false;
+    console.log("[openSystemMessageEditor] Initial useOnlyValidatedExamples value:", useOnlyValidatedExamples);
 
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const sourceLanguage = projectConfig.get("sourceLanguage") as ProjectLanguage;
     const targetLanguage = projectConfig.get("targetLanguage") as ProjectLanguage;
 
-    panel.webview.html = getWebviewContent(workspaceMessage, sourceLanguage, targetLanguage);
-
-    // Create message handler function that we can remove later
-    const handleMessage = async (event: MessageEvent) => {
-        const message = event.data;
-        if (message.command === "updateInput") {
-            const input = document.getElementById("input") as HTMLTextAreaElement;
-            if (!input) {
-                location.reload();
-            } else {
-                input.value = message.text;
-            }
-        }
-    };
-
-    // Add cleanup when panel is disposed
-    panel.onDidDispose(() => {
-        window.removeEventListener("message", handleMessage);
-    });
+    panel.webview.html = getWebviewContent(workspaceMessage, useOnlyValidatedExamples, sourceLanguage, targetLanguage);
 
     panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.command) {
@@ -81,6 +82,7 @@ export async function openSystemMessageEditor() {
                                 chatSystemMessage: "",
                                 numberOfFewShotExamples: 0,
                                 debugMode: false,
+                                useOnlyValidatedExamples: false,
                             };
 
                             progress.report({ message: "Preparing prompt..." });
@@ -106,6 +108,7 @@ export async function openSystemMessageEditor() {
                             );
                             panel.webview.html = getWebviewContent(
                                 response,
+                                useOnlyValidatedExamples,
                                 sourceLanguage,
                                 targetLanguage
                             );
@@ -128,6 +131,37 @@ export async function openSystemMessageEditor() {
                 );
                 panel.dispose();
                 break;
+            case "saveSettings": {
+                console.log("[CopilotSettings] Saving validation setting:", message.useOnlyValidatedExamples);
+                // Save validation setting
+                await config.update(
+                    "useOnlyValidatedExamples",
+                    message.useOnlyValidatedExamples,
+                    vscode.ConfigurationTarget.Workspace
+                );
+                // Verify the setting was saved
+                const savedValue = config.get("useOnlyValidatedExamples");
+                console.log("[CopilotSettings] Setting saved, current value:", savedValue);
+
+                // Save system message if provided
+                if (message.text !== undefined) {
+                    await config.update(
+                        "chatSystemMessage",
+                        message.text,
+                        vscode.ConfigurationTarget.Workspace
+                    );
+                    vscode.window.showInformationMessage(
+                        "Copilot settings updated successfully"
+                    );
+                    panel.dispose();
+                } else {
+                    // Auto-save validation setting - show brief confirmation
+                    vscode.window.showInformationMessage(
+                        `Few-shot examples will ${message.useOnlyValidatedExamples ? 'only use validated' : 'use all available'} translation pairs`
+                    );
+                }
+                break;
+            }
             case "cancel":
                 panel.dispose();
                 break;
@@ -137,6 +171,7 @@ export async function openSystemMessageEditor() {
 
 function getWebviewContent(
     workspaceMessage: string,
+    useOnlyValidatedExamples: boolean,
     sourceLanguage?: ProjectLanguage,
     targetLanguage?: ProjectLanguage
 ) {
@@ -223,29 +258,116 @@ function getWebviewContent(
                     font-size: var(--vscode-font-size);
                     padding: 12px 24px;
                 }
+                .settings-section {
+                    margin: 16px 0;
+                    padding: 16px;
+                    border: 1px solid var(--vscode-input-border);
+                    border-radius: 4px;
+                    background-color: var(--vscode-editor-background);
+                }
+                .setting-item {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin: 12px 0;
+                }
+                .setting-label {
+                    flex: 1;
+                    margin-right: 12px;
+                    font-weight: 500;
+                }
+                .setting-description {
+                    font-size: 0.9em;
+                    color: var(--vscode-descriptionForeground);
+                    margin-top: 4px;
+                }
+                .toggle-switch {
+                    position: relative;
+                    display: inline-block;
+                    width: 50px;
+                    height: 24px;
+                }
+                .toggle-switch input {
+                    opacity: 0;
+                    width: 0;
+                    height: 0;
+                }
+                .slider {
+                    position: absolute;
+                    cursor: pointer;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background-color: var(--vscode-input-background);
+                    border: 1px solid var(--vscode-input-border);
+                    transition: .4s;
+                    border-radius: 24px;
+                }
+                .slider:before {
+                    position: absolute;
+                    content: "";
+                    height: 18px;
+                    width: 18px;
+                    left: 2px;
+                    top: 2px;
+                    background-color: var(--vscode-editor-foreground);
+                    transition: .4s;
+                    border-radius: 50%;
+                }
+                input:checked + .slider {
+                    background-color: var(--vscode-button-background);
+                }
+                input:checked + .slider:before {
+                    transform: translateX(26px);
+                }
+                .section-title {
+                    font-size: 1.1em;
+                    font-weight: 600;
+                    margin-bottom: 8px;
+                    color: var(--vscode-editor-foreground);
+                }
             </style>
         </head>
         <body>
             <div class="container">
-                ${
-                    hasLanguages
-                        ? `
-                    ${
-                        workspaceMessage
-                            ? `
-                        <textarea id="input" spellcheck="false">${escapeHtml(workspaceMessage)}</textarea>
-                        <div class="button-container">
-                            <button onclick="generate()">✨ Regenerate</button>
-                            <button class="secondary" onclick="cancel()">Cancel</button>
-                            <button onclick="save()">Save</button>
+                ${hasLanguages
+            ? `
+                    <div class="settings-section">
+                        <div class="section-title">Few-Shot Learning Settings</div>
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                Use Only Validated Examples
+                                <div class="setting-description">
+                                    When enabled, AI will only use translation pairs that have been validated by users as examples for few-shot prompting. This ensures higher quality examples but may reduce the number of available examples.
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="useOnlyValidatedExamples" ${useOnlyValidatedExamples ? 'checked' : ''}>
+                                <span class="slider"></span>
+                            </label>
                         </div>
-                    `
-                            : `
-                        <button class="generate-button" onclick="generate()">✨ Generate AI Instructions</button>
-                    `
-                    }
+
+                    </div>
+
+                    <div class="settings-section">
+                        <div class="section-title">System Message</div>
+                        ${workspaceMessage
+                ? `
+                            <textarea id="input" spellcheck="false">${escapeHtml(workspaceMessage)}</textarea>
+                            <div class="button-container">
+                                <button onclick="generate()">✨ Regenerate</button>
+                                <button class="secondary" onclick="cancel()">Cancel</button>
+                                <button onclick="save()">Save All Settings</button>
+                            </div>
+                        `
+                : `
+                            <button class="generate-button" onclick="generate()">✨ Generate AI Instructions</button>
+                        `
+            }
+                    </div>
                 `
-                        : `
+            : `
                     <div class="message">
                         Please set source and target languages first
                         <div class="button-container" style="justify-content: center">
@@ -253,7 +375,7 @@ function getWebviewContent(
                         </div>
                     </div>
                 `
-                }
+        }
             </div>
 
             <script>
@@ -265,9 +387,19 @@ function getWebviewContent(
                 }
 
                 function save() {
+                    const validationToggle = document.getElementById('useOnlyValidatedExamples');
                     vscode.postMessage({
-                        command: 'save',
-                        text: input.value
+                        command: 'saveSettings',
+                        text: input ? input.value : undefined,
+                        useOnlyValidatedExamples: validationToggle ? validationToggle.checked : false
+                    });
+                }
+
+                function saveValidationSetting(checked) {
+                    console.log('[saveValidationSetting] Auto-saving validation setting:', checked);
+                    vscode.postMessage({
+                        command: 'saveSettings',
+                        useOnlyValidatedExamples: checked
                     });
                 }
 
@@ -279,8 +411,8 @@ function getWebviewContent(
                     vscode.postMessage({ command: 'generate' });
                 }
 
-                // Create message handler function that we can remove later
-                const handleMessage = (event) => {
+                // Handle messages from extension host
+                window.addEventListener('message', (event) => {
                     const message = event.data;
                     if (message.command === 'updateInput') {
                         if (!input) {
@@ -289,10 +421,17 @@ function getWebviewContent(
                             input.value = message.text;
                         }
                     }
-                };
+                });
 
-                // Add event listener
-                window.addEventListener('message', handleMessage);
+                // Add validation toggle event listener with auto-save
+                const validationToggle = document.getElementById('useOnlyValidatedExamples');
+                if (validationToggle) {
+                    validationToggle.addEventListener('change', function() {
+                        console.log('Validation toggle changed:', this.checked);
+                        // Auto-save when toggle changes
+                        saveValidationSetting(this.checked);
+                    });
+                }
             </script>
         </body>
     </html>`;

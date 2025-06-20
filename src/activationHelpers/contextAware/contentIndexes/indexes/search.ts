@@ -168,7 +168,8 @@ export async function getTranslationPairFromProject(
 export async function getTranslationPairsFromSourceCellQuery(
     translationPairsIndex: IndexType,
     query: string,
-    k: number = 5
+    k: number = 5,
+    onlyValidated: boolean = false
 ): Promise<TranslationPair[]> {
     console.log(`[getTranslationPairsFromSourceCellQuery] Searching for: "${query.substring(0, 100)}..." with k=${k}`);
 
@@ -179,8 +180,8 @@ export async function getTranslationPairsFromSourceCellQuery(
     let results: any[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
-        results = await translationPairsIndex.searchCompleteTranslationPairs(query, initialLimit);
-        console.log(`[getTranslationPairsFromSourceCellQuery] Complete pairs search returned ${results.length} results`);
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
+        console.log(`[getTranslationPairsFromSourceCellQuery] Complete pairs search (${onlyValidated ? 'validated-only' : 'all'}) returned ${results.length} results`);
     } else {
         // This case shouldn't happen in current implementation since IndexType is SQLiteIndexManager
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
@@ -189,9 +190,9 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     // If we still don't have results, get some recent complete pairs as fallback
     if (results.length === 0) {
-        console.log(`[getTranslationPairsFromSourceCellQuery] No results found, getting recent complete pairs`);
+        console.log(`[getTranslationPairsFromSourceCellQuery] No results found, getting recent complete pairs (${onlyValidated ? 'validated-only' : 'all'})`);
         if (translationPairsIndex instanceof SQLiteIndexManager) {
-            results = await translationPairsIndex.searchCompleteTranslationPairs('', Math.max(k * 2, 10));
+            results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
         }
         console.log(`[getTranslationPairsFromSourceCellQuery] Fallback query returned ${results.length} results`);
     }
