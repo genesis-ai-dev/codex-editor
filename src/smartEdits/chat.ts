@@ -54,7 +54,7 @@ class Chatbot {
         // Warn if API key is not set and no Frontier API is available
         const apiKey = this.getApiKey();
         if (!apiKey && !frontierApiAvailable) {
-            vscode.window.showWarningMessage(
+            console.warn(
                 "Smart Edits LLM API key is not set (codex-editor-extension.api_key) and you are not logged into Frontier. LLM suggestions will be disabled."
             );
         }
@@ -64,8 +64,8 @@ class Chatbot {
             baseURL: llmEndpoint || this.config.get("llmEndpoint") || "https://api.openai.com/v1",
             defaultHeaders: authBearerToken
                 ? {
-                      Authorization: `Bearer ${authBearerToken}`,
-                  }
+                    Authorization: `Bearer ${authBearerToken}`,
+                }
                 : undefined,
         });
         console.log("Called OpenAI from smart edits with", {
@@ -272,7 +272,7 @@ class Chatbot {
 
     async sendMessageStream(
         message: string,
-        onChunk: (chunk: { index: number; content: string }, isLast: boolean) => void
+        onChunk: (chunk: { index: number; content: string; }, isLast: boolean) => void
     ): Promise<string> {
         await this.addMessage("user", message);
         let fullResponse = "";
