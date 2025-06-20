@@ -64,7 +64,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             syncStatus: project.syncStatus,
         } as MessagesToStartupFlowProvider);
 
-        setIsLoading(true);
+        // Don't set loading state here - wait for confirmation
+        // setIsLoading(true); will be called in message handler if deletion is confirmed
     };
 
     useEffect(() => {
@@ -94,6 +95,8 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsLoading(false);
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
+                    // Set loading state only after deletion is confirmed
+                    setIsLoading(true);
                     vscode.postMessage({
                         command: "getProjectsListFromGitLab",
                     } as MessagesToStartupFlowProvider);
@@ -101,7 +104,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                     if (message.error !== "Deletion cancelled by user") {
                         console.error(`Failed to delete project: ${message.error}`);
                     }
-                    setIsLoading(false);
+                    // No need to set loading false since we never set it true for cancelled deletions
                 }
             } else if (
                 message.command === "aggregatedProgressData" ||
