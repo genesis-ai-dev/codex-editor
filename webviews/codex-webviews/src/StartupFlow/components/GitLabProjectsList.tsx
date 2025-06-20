@@ -11,6 +11,7 @@ import {
     SelectValue,
 } from "../../components/ui/select";
 import { Card, CardContent, CardHeader } from "../../components/ui/card";
+import { Skeleton } from "../../components/ui/skeleton";
 import { cn } from "../../lib/utils";
 
 // Filter options for projects
@@ -21,10 +22,6 @@ function isValidFilter(value: string): value is ProjectFilter {
     return ["all", "local", "remote", "synced", "non-synced"].includes(value);
 }
 
-// Debug mode flags - check if URL has debug parameters
-const DEBUG_MODE = false;
-const DEBUG_PROGRESS_MATCHING = false;
-
 const INDENTATION_SIZE_REM = 1.25;
 
 interface GitLabProjectsListProps {
@@ -33,7 +30,6 @@ interface GitLabProjectsListProps {
     onOpenProject: (project: ProjectWithSyncStatus) => void;
     onDeleteProject?: (project: ProjectWithSyncStatus) => void;
     isLoading: boolean;
-    hasPartialData?: boolean; // Indicates if we have local projects but are still loading remote
     vscode: any;
     progressData?: any;
 }
@@ -52,13 +48,23 @@ interface ParsedProjectInfo {
     uniqueId: string;
 }
 
+const ProjectCardSkeleton = () => (
+    <div className="flex items-center space-x-4 p-3">
+        <Skeleton className="h-4 w-4 rounded-full" />
+        <div className="space-y-2 flex-1">
+            <Skeleton className="h-4 w-3/4" />
+        </div>
+        <Skeleton className="h-4 w-12" />
+        <Skeleton className="h-6 w-16" />
+    </div>
+);
+
 export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
     projects,
     onCloneProject,
     onOpenProject,
     onDeleteProject,
     isLoading,
-    hasPartialData,
     vscode,
     progressData,
 }) => {
@@ -122,25 +128,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             return;
         }
 
-        // Log progress data for debugging
-        if (DEBUG_PROGRESS_MATCHING) {
-            console.log(
-                "Processing progress data:",
-                progressData.projectSummaries.length,
-                "project summaries"
-            );
-        }
-
         const progressMap = new Map();
         progressData.projectSummaries.forEach((summary: any) => {
             progressMap.set(summary.projectId, summary.completionPercentage);
             // Also map by name for fuzzy matching
             progressMap.set(summary.projectName, summary.completionPercentage);
-            if (DEBUG_PROGRESS_MATCHING) {
-                console.log(
-                    `Progress for ${summary.projectName}: ${summary.completionPercentage}%`
-                );
-            }
         });
 
         // Create a deep copy of projects to update
@@ -155,11 +147,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
                 if (progressMap.has(possibleId)) {
                     projectCopy.completionPercentage = progressMap.get(possibleId);
-                    if (DEBUG_PROGRESS_MATCHING) {
-                        console.log(
-                            `Matched by ID: ${project.name} -> ${projectCopy.completionPercentage}%`
-                        );
-                    }
                     return projectCopy;
                 }
             }
@@ -167,11 +154,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             // Try matching by project name
             if (progressMap.has(project.name)) {
                 projectCopy.completionPercentage = progressMap.get(project.name);
-                if (DEBUG_PROGRESS_MATCHING) {
-                    console.log(
-                        `Matched by name: ${project.name} -> ${projectCopy.completionPercentage}%`
-                    );
-                }
                 return projectCopy;
             }
 
@@ -182,11 +164,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
                 if (keyLower.includes(projectNameLower) || projectNameLower.includes(keyLower)) {
                     projectCopy.completionPercentage = percentage;
-                    if (DEBUG_PROGRESS_MATCHING) {
-                        console.log(
-                            `Matched by fuzzy: ${project.name} -> ${projectCopy.completionPercentage}%`
-                        );
-                    }
                     return projectCopy;
                 }
             }
@@ -234,9 +211,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
 
     const parseProjectUrl = (url?: string) => {
         if (!url) {
-            if (DEBUG_MODE) {
-                console.log("parseProjectUrl: No URL provided");
-            }
             return {
                 groups: [],
                 cleanName: "",
@@ -245,17 +219,9 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             };
         }
 
-        if (DEBUG_MODE) {
-            console.log(`parseProjectUrl: Parsing URL: ${url}`);
-        }
-
         try {
             const urlObj = new URL(url);
             const pathParts = urlObj.pathname.split("/").filter(Boolean);
-
-            if (DEBUG_MODE) {
-                console.log(`parseProjectUrl: Path parts:`, pathParts);
-            }
 
             if (pathParts.length >= 2) {
                 const groups = pathParts.slice(0, -1);
@@ -264,22 +230,10 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 const displayUrl = `${urlObj.hostname}${urlObj.pathname}`;
                 const uniqueId = cleanName;
 
-                if (DEBUG_MODE) {
-                    console.log(`parseProjectUrl: Extracted groups:`, groups);
-                    console.log(`parseProjectUrl: Clean name:`, cleanName);
-                }
-
                 return { groups, cleanName, displayUrl, uniqueId };
             }
         } catch (error) {
             console.warn("Failed to parse project URL:", url, error);
-            if (DEBUG_MODE) {
-                console.log(`parseProjectUrl: Failed to parse URL: ${url}`, error);
-            }
-        }
-
-        if (DEBUG_MODE) {
-            console.log(`parseProjectUrl: Returning fallback for URL: ${url}`);
         }
 
         return {
@@ -294,22 +248,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const hierarchy: Record<string, ProjectGroup> = {};
         const ungrouped: ProjectWithSyncStatus[] = [];
 
-        if (DEBUG_MODE) {
-            console.log(`Grouping ${projects.length} projects by hierarchy...`);
-        }
-
         projects.forEach((project) => {
             const { groups } = parseProjectUrl(project.gitOriginUrl);
 
-            if (DEBUG_MODE) {
-                console.log(`Project "${project.name}" parsed groups:`, groups);
-            }
-
             if (groups.length === 0) {
                 ungrouped.push(project);
-                if (DEBUG_MODE) {
-                    console.log(`Project "${project.name}" added to ungrouped (no groups found)`);
-                }
                 return;
             }
 
@@ -326,26 +269,15 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                         subgroups: {},
                         isLast: index === groups.length - 1,
                     };
-                    if (DEBUG_MODE) {
-                        console.log(`Created group: "${group}" at path: "${currentPath}"`);
-                    }
                 }
 
                 if (index === groups.length - 1) {
                     currentLevel[group].projects.push(project);
-                    if (DEBUG_MODE) {
-                        console.log(`Added project "${project.name}" to group "${group}"`);
-                    }
                 } else {
                     currentLevel = currentLevel[group].subgroups;
                 }
             });
         });
-
-        if (DEBUG_MODE) {
-            console.log("Final hierarchy:", hierarchy);
-            console.log(`Ungrouped projects: ${ungrouped.length}`);
-        }
 
         return { hierarchy, ungrouped };
     };
@@ -412,7 +344,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
             return (
                 <div className="flex gap-1">
                     <Button
-                        variant="default"
+                        variant="ghost"
                         size="sm"
                         onClick={() => onOpenProject(project)}
                         className="h-6 text-xs px-2"
@@ -437,12 +369,12 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         if (isRemote) {
             return (
                 <Button
-                    variant="default"
+                    variant="secondary"
                     size="sm"
                     onClick={() => onCloneProject(project)}
                     className="h-6 text-xs px-2"
                 >
-                    <i className="codicon codicon-cloud-download mr-1" />
+                    <i className="codicon codicon-arrow-circle-down mr-1" />
                     Clone
                 </Button>
             );
@@ -461,17 +393,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
         const isStatusChanged = statusChangedProjects.has(project.name);
 
         return (
-            <Card
-                key={project.name}
-                className={cn(
-                    "mb-2 transition-all duration-300 ease-in-out hover:shadow-sm border-l-4",
-                    isNewlyAdded &&
-                        "ring-1 ring-blue-500 ring-opacity-30 bg-blue-50 border-l-blue-500",
-                    isStatusChanged &&
-                        "ring-1 ring-green-500 ring-opacity-30 bg-green-50 border-l-green-500",
-                    !isNewlyAdded && !isStatusChanged && "border-l-transparent"
-                )}
-            >
+            <Card key={project.name} className={cn("border-l-transparent")}>
                 <CardHeader className="pb-2 pt-3">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -485,12 +407,6 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                     )}
                                     title={status.title}
                                 />
-                                {/* Show a subtle loading indicator when we have partial data and this is a local project */}
-                                {hasPartialData &&
-                                    isLoading &&
-                                    project.syncStatus === "localOnlyNotSynced" && (
-                                        <div className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                                    )}
                             </div>
                             <div className="flex items-center gap-2 flex-1 min-w-0">
                                 <span className="font-medium truncate transition-colors duration-200 text-sm">
@@ -520,7 +436,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {project.completionPercentage !== undefined && (
+                            {project.completionPercentage !== undefined ? (
                                 <div className="flex items-center gap-1">
                                     <span className="text-xs font-medium text-muted-foreground">
                                         {project.completionPercentage.toFixed(0)}%
@@ -536,6 +452,11 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             }}
                                         />
                                     </div>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1">
+                                    <Skeleton className="h-3 w-5" />
+                                    <Skeleton className="h-1.5 w-12" />
                                 </div>
                             )}
                             {renderProjectActions(project)}
@@ -804,77 +725,14 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                 </div>
             </div>
 
-            {isLoading && !hasPartialData ? (
-                <div className="flex justify-center items-center p-6">
-                    <div className="text-center">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-3"></div>
-                        <p className="text-sm text-muted-foreground">Loading projects...</p>
-                    </div>
+            {isLoading ? (
+                <div className="p-3 space-y-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <ProjectCardSkeleton key={i} />
+                    ))}
                 </div>
             ) : (
                 <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-3">
-                    {/* Show loading indicator at top when we have partial data */}
-                    {hasPartialData && isLoading && (
-                        <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md mb-3 animate-pulse">
-                            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div>
-                            <span className="text-xs text-blue-700">
-                                Loading remote projects...
-                            </span>
-                        </div>
-                    )}
-
-                    {/* Debug information - only show when DEBUG_MODE is true */}
-                    {DEBUG_MODE && (
-                        <Card className="p-4">
-                            <h3 className="font-semibold mb-2">Debug Information</h3>
-                            <div className="space-y-4">
-                                <div>
-                                    <h4 className="font-medium mb-2">
-                                        Raw Projects Data ({projects.length} projects)
-                                    </h4>
-                                    <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
-                                        {JSON.stringify(projects, null, 2)}
-                                    </pre>
-                                </div>
-                                {progressData && (
-                                    <div>
-                                        <h4 className="font-medium mb-2">Progress Data</h4>
-                                        <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
-                                            {JSON.stringify(progressData, null, 2)}
-                                        </pre>
-                                    </div>
-                                )}
-                                <div>
-                                    <h4 className="font-medium mb-2">Hierarchy Structure</h4>
-                                    <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
-                                        {JSON.stringify(hierarchy, null, 2)}
-                                    </pre>
-                                </div>
-                                <div>
-                                    <h4 className="font-medium mb-2">
-                                        Ungrouped Projects ({ungroupedProjects.length})
-                                    </h4>
-                                    <pre className="text-xs overflow-auto max-h-40 bg-gray-100 p-2 rounded">
-                                        {JSON.stringify(ungroupedProjects, null, 2)}
-                                    </pre>
-                                </div>
-                                <div>
-                                    <h4 className="font-medium mb-2">Refresh Information</h4>
-                                    <div className="text-xs bg-gray-100 p-2 rounded">
-                                        <p>
-                                            • Periodic refresh: Every 5 minutes (when authenticated)
-                                        </p>
-                                        <p>• Force refresh: Use the refresh button above</p>
-                                        <p>
-                                            • Manual refresh: Use the refresh button in
-                                            ProjectSetupStep
-                                        </p>
-                                        <p>• Last update: {new Date().toLocaleTimeString()}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </Card>
-                    )}
                     {Object.entries(hierarchy || {}).map(([groupName, group]) =>
                         group ? renderGroupSection(group, 0) : null
                     )}

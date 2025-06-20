@@ -10,7 +10,7 @@ import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
 import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
-    import {
+import {
     createNewProject,
     createNewWorkspaceAndProject,
 } from "../../utils/projectCreationUtils/projectCreationUtils";
@@ -324,7 +324,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
-        // First check if webview is still available
         if (!safeIsVisible(webviewPanel, "StartupFlow")) {
             debugLog("WebviewPanel is no longer available, skipping sendList");
             return;
@@ -333,35 +332,23 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const startTime = Date.now();
 
         try {
-            // Step 1: Send local projects immediately (fastest)
-            debugLog("Fetching local projects first...");
-            const localProjects = await this.fetchLocalProjects();
+            const [localProjectsResult, remoteProjectsResult] = await Promise.allSettled([
+                this.fetchLocalProjects(),
+                this.fetchRemoteProjects(),
+            ]);
 
-            // Send local projects immediately
-            safePostMessageToPanel(webviewPanel, {
-                command: "projectsListFromGitLab",
-                projects: localProjects.map(project => ({
-                    ...project,
-                    syncStatus: "localOnlyNotSynced" as const,
-                })),
-                isPartial: true, // Indicate this is not the complete list
-            } as MessagesFromStartupFlowProvider, "StartupFlow");
-
-            debugLog(`Local projects sent in ${Date.now() - startTime}ms - Found ${localProjects.length} projects`);
-
-            // Step 2: Fetch remote projects in parallel (if authenticated)
-            let remoteProjects: GitLabProject[] = [];
-            if (this.frontierApi) {
-                try {
-                    debugLog("Fetching remote projects...");
-                    remoteProjects = await this.fetchRemoteProjects();
-                    debugLog(`Remote projects fetched in ${Date.now() - startTime}ms - Found ${remoteProjects.length} projects`);
-                } catch (error) {
-                    console.error("Error fetching remote projects:", error);
-                }
+            const localProjects =
+                localProjectsResult.status === "fulfilled" ? localProjectsResult.value : [];
+            if (localProjectsResult.status === "rejected") {
+                console.error("Error fetching local projects:", localProjectsResult.reason);
             }
 
-            // Step 3: Merge and send complete project list
+            const remoteProjects =
+                remoteProjectsResult.status === "fulfilled" ? remoteProjectsResult.value : [];
+            if (remoteProjectsResult.status === "rejected") {
+                console.error("Error fetching remote projects:", remoteProjectsResult.reason);
+            }
+
             const projectList: ProjectWithSyncStatus[] = [];
 
             // Process remote projects
@@ -389,19 +376,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     continue;
                 }
 
-                // Check if this local project matches a remote one
                 const matchInRemoteIndex = projectList.findIndex(
                     (p) => p.gitOriginUrl === project.gitOriginUrl
                 );
 
                 if (matchInRemoteIndex !== -1) {
-                    // Update the remote entry with local data
                     projectList[matchInRemoteIndex] = {
                         ...project,
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
-                    // Add as local-only project
                     projectList.push({
                         ...project,
                         syncStatus: "localOnlyNotSynced",
@@ -409,28 +393,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            // Send the complete merged list
-            safePostMessageToPanel(webviewPanel, {
-                command: "projectsListFromGitLab",
-                projects: projectList,
-                isPartial: false, // Indicate this is the complete list
-            } as MessagesFromStartupFlowProvider, "StartupFlow");
+            safePostMessageToPanel(
+                webviewPanel,
+                {
+                    command: "projectsListFromGitLab",
+                    projects: projectList,
+                } as MessagesFromStartupFlowProvider,
+                "StartupFlow"
+            );
 
             const mergeTime = Date.now() - startTime;
-            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects (${localProjects.length} local, ${remoteProjects.length} remote)`);
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects`);
 
-            // Step 4: Fetch progress data asynchronously (slowest operation)
             this.fetchProgressDataAsync(webviewPanel);
 
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
-
-            // Send error response only if webview is still available
-            safePostMessageToPanel(webviewPanel, {
-                command: "projectsListFromGitLab",
-                projects: [],
-                error: error instanceof Error ? error.message : "Failed to fetch projects",
-            } as MessagesFromStartupFlowProvider, "StartupFlow");
+            safePostMessageToPanel(
+                webviewPanel,
+                {
+                    command: "projectsListFromGitLab",
+                    projects: [],
+                    error: error instanceof Error ? error.message : "Failed to fetch projects",
+                } as MessagesFromStartupFlowProvider,
+                "StartupFlow"
+            );
         }
     }
 

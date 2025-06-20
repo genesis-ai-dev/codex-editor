@@ -31,7 +31,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const [projectsList, setProjectsList] = useState<ProjectWithSyncStatus[]>([]);
     const [syncStatus, setSyncStatus] = useState<Record<string, "synced" | "cloud" | "error">>({});
     const [isLoading, setIsLoading] = useState(true);
-    const [hasPartialData, setHasPartialData] = useState(false);
     const [progressData, setProgressData] = useState<any>(null);
     const [isLoadingProgress, setIsLoadingProgress] = useState(false);
     // const [state, send, service] = useMachine(startupFlowMachine);
@@ -41,9 +40,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
-        setHasPartialData(false); // Reset partial data state when refreshing
-        // Note: Don't fetch progress data on refresh to keep it fast
-        // Progress will update automatically when projects change
     };
 
     const fetchProgressData = () => {
@@ -62,16 +58,13 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const handleDeleteProject = (project: ProjectWithSyncStatus) => {
         if (!project.path) return;
 
-        // Show confirmation dialog via VSCode
         vscode.postMessage({
             command: "project.delete",
             projectPath: project.path,
             syncStatus: project.syncStatus,
         } as MessagesToStartupFlowProvider);
 
-        // Set loading state
         setIsLoading(true);
-        setHasPartialData(false); // Reset partial data state when deleting
     };
 
     useEffect(() => {
@@ -98,42 +91,31 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             const message = event.data;
             if (message.command === "projectsListFromGitLab") {
                 setProjectsList(message.projects);
-                // Track if we have partial data
-                setHasPartialData(message.isPartial || false);
-                // Only stop loading if this is the complete list (not partial)
-                if (!message.isPartial) {
-                    setIsLoading(false);
-                }
+                setIsLoading(false);
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
-                    // Explicitly request a fresh project list
                     vscode.postMessage({
                         command: "getProjectsListFromGitLab",
                     } as MessagesToStartupFlowProvider);
                 } else {
-                    // Handle different error cases
                     if (message.error !== "Deletion cancelled by user") {
                         console.error(`Failed to delete project: ${message.error}`);
                     }
-
-                    // Always stop loading on any error or cancellation
                     setIsLoading(false);
                 }
-            } else if (message.command === "aggregatedProgressData") {
+            } else if (
+                message.command === "aggregatedProgressData" ||
+                message.command === "progressData"
+            ) {
                 setProgressData(message.data);
                 setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {
                 setSyncStatus(message.status);
-            } else if (message.command === "progressData") {
-                setProgressData(message.data);
-                setIsLoadingProgress(false);
             }
         };
 
         window.addEventListener("message", messageHandler);
-        return () => {
-            window.removeEventListener("message", messageHandler);
-        };
+        return () => window.removeEventListener("message", messageHandler);
     }, []);
 
     return (
@@ -216,7 +198,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 }
                 vscode={vscode}
                 progressData={progressData}
-                hasPartialData={hasPartialData}
             />
         </div>
     );

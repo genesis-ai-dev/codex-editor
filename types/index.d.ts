@@ -388,7 +388,7 @@ export type MessagesFromStartupFlowProvider =
     | {
         command: "projectsListFromGitLab";
         projects: Array<ProjectWithSyncStatus>;
-        isPartial?: boolean;
+        error?: string;
     }
     | {
         command: "checkWorkspaceState";
