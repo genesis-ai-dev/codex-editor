@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.6.1",
+    "version": "0.6.2",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -33,9 +33,9 @@
                 {
                     "type": "webview",
                     "id": "codex-editor.mainMenu",
-                    "name": "Main Menu",
+                    "name": "Project Settings",
                     "icon": "$(list-tree)",
-                    "contextualTitle": "Codex Main Menu"
+                    "contextualTitle": "Codex Project Settings"
                 }
             ],
             "search-passages-view": [
@@ -65,15 +65,6 @@
                     "contextualTitle": "Comments"
                 }
             ],
-            "project-manager": [
-                {
-                    "type": "webview",
-                    "id": "project-manager-sidebar",
-                    "name": "Project Manager",
-                    "icon": "$(tools)",
-                    "contextualTitle": "Project Manager"
-                }
-            ],
             "explorer": [
                 {
                     "id": "codex-project-manager.welcomeView",
@@ -98,11 +89,6 @@
                     "id": "codex-files-view",
                     "title": "Navigation",
                     "icon": "$(compass)"
-                },
-                {
-                    "id": "project-manager",
-                    "title": "Project Manager",
-                    "icon": "$(tools)"
                 },
                 {
                     "id": "search-passages-view",
@@ -757,6 +743,12 @@
                         "minimum": 5,
                         "maximum": 200,
                         "description": "Number of cells to display per page when a chapter has many cells. Helps with performance for large chapters."
+                    },
+                    "codex-editor-extension.useOnlyValidatedExamples": {
+                        "title": "Use Only Validated Examples",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, AI will only use translation pairs that have been validated by users as examples for few-shot prompting. This ensures higher quality examples but may reduce the number of available examples."
                     }
                 }
             }

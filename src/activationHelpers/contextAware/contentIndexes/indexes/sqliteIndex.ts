@@ -14,7 +14,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7; // Incremented to add unique constraint for target cells
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -277,6 +277,13 @@ export class SQLiteIndexManager {
                 )
             `);
 
+            // Create a unique constraint for target cells to prevent duplicates
+            this.db!.run(`
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_target_cells 
+                ON cells (cell_id) 
+                WHERE cell_type = 'target'
+            `);
+
             // Translation pairs table
             this.db!.run(`
                 CREATE TABLE IF NOT EXISTS translation_pairs (
@@ -463,15 +470,39 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("Migrate database schema", stepStart);
                 debug(`Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
 
-                // Schema version 6: content_hash -> raw_content_hash and hash calculation change
-                // This is a breaking change that requires full database recreation
-                debug("Schema version 6 requires full database recreation due to hash column changes");
+                if (currentVersion < 6) {
+                    // Schema version 6: content_hash -> raw_content_hash and hash calculation change
+                    // This is a breaking change that requires full database recreation
+                    debug("Schema version 6 requires full database recreation due to hash column changes");
 
-                // Show user notification about the one-time migration
-                const vscode = await import('vscode');
-                vscode.window.showInformationMessage("Codex: Upgrading database schema to version 6. This is a one-time operation that will improve sync performance...");
+                    // Show user notification about the one-time migration
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage("Codex: Upgrading database schema to version 6. This is a one-time operation that will improve sync performance...");
 
-                await this.recreateDatabase();
+                    await this.recreateDatabase();
+                } else if (currentVersion < 7) {
+                    // Schema version 7: Add unique constraint for target cells
+                    debug("Schema version 7: Adding unique constraint for target cells");
+
+                    // Show user notification about the migration
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage("Codex: Upgrading database to prevent duplicate target cells. This may take a moment...");
+
+                    // First, clean up any existing duplicates
+                    const duplicationResult = await this.deduplicateTargetCells();
+                    debug(`[SQLiteIndex] Deduplication complete: ${duplicationResult.duplicatesRemoved} duplicates removed from ${duplicationResult.cellsAffected} cells`);
+
+                    // Then add the new unique constraint
+                    await this.runInTransaction(() => {
+                        this.db!.run(`
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_target_cells 
+                            ON cells (cell_id) 
+                            WHERE cell_type = 'target'
+                        `);
+                    });
+
+                    debug("Schema version 7: Unique constraint for target cells added successfully");
+                }
 
                 // Update schema version after successful migration
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
@@ -713,14 +744,23 @@ export class SQLiteIndexManager {
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
-        const checkStmt = this.db.prepare(`
-            SELECT id, raw_content_hash FROM cells 
+        // For target cells, check globally (ignore file_id due to unique constraint)
+        // For source cells, maintain per-file uniqueness
+        const checkStmt = this.db.prepare(cellType === 'target' ? `
+            SELECT id, raw_content_hash, file_id FROM cells 
+            WHERE cell_id = ? AND cell_type = ?
+        ` : `
+            SELECT id, raw_content_hash, file_id FROM cells 
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; raw_content_hash: string; } | null = null;
+        let existingCell: { id: number; raw_content_hash: string; file_id?: number; } | null = null;
         try {
-            checkStmt.bind([cellId, fileId, cellType]);
+            if (cellType === 'target') {
+                checkStmt.bind([cellId, cellType]);
+            } else {
+                checkStmt.bind([cellId, fileId, cellType]);
+            }
             if (checkStmt.step()) {
                 existingCell = checkStmt.getAsObject() as any;
             }
@@ -735,8 +775,25 @@ export class SQLiteIndexManager {
             return { id: existingCell.id, isNew: false, contentChanged: false };
         }
 
+        // For target cells, update the file_id to the current file when updating
+        const actualFileId = (cellType === 'target' && existingCell) ? fileId : fileId;
+
         // Upsert the cell - store sanitized content in content column, original in raw_content
-        const upsertStmt = this.db.prepare(`
+        // Use different conflict resolution for target vs source cells
+        const upsertStmt = this.db.prepare(cellType === 'target' ? `
+            INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cell_id) WHERE cell_type = 'target' DO UPDATE SET
+                file_id = excluded.file_id,
+                content = excluded.content,
+                raw_content_hash = excluded.raw_content_hash,
+                line_number = excluded.line_number,
+                word_count = excluded.word_count,
+                metadata = excluded.metadata,
+                raw_content = excluded.raw_content,
+                updated_at = strftime('%s', 'now') * 1000
+            RETURNING id
+        ` : `
             INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
@@ -753,7 +810,7 @@ export class SQLiteIndexManager {
         try {
             upsertStmt.bind([
                 cellId,
-                fileId,
+                actualFileId,
                 cellType,
                 sanitizedContent, // Store sanitized content in content column
                 rawContentHash,
@@ -794,14 +851,23 @@ export class SQLiteIndexManager {
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
-        const checkStmt = this.db.prepare(`
-            SELECT id, raw_content_hash FROM cells 
+        // For target cells, check globally (ignore file_id due to unique constraint)
+        // For source cells, maintain per-file uniqueness
+        const checkStmt = this.db.prepare(cellType === 'target' ? `
+            SELECT id, raw_content_hash, file_id FROM cells 
+            WHERE cell_id = ? AND cell_type = ?
+        ` : `
+            SELECT id, raw_content_hash, file_id FROM cells 
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; raw_content_hash: string; } | null = null;
+        let existingCell: { id: number; raw_content_hash: string; file_id?: number; } | null = null;
         try {
-            checkStmt.bind([cellId, fileId, cellType]);
+            if (cellType === 'target') {
+                checkStmt.bind([cellId, cellType]);
+            } else {
+                checkStmt.bind([cellId, fileId, cellType]);
+            }
             if (checkStmt.step()) {
                 existingCell = checkStmt.getAsObject() as any;
             }
@@ -816,8 +882,25 @@ export class SQLiteIndexManager {
             return { id: existingCell.id, isNew: false, contentChanged: false };
         }
 
+        // For target cells, update the file_id to the current file when updating
+        const actualFileId = (cellType === 'target' && existingCell) ? fileId : fileId;
+
         // Upsert the cell - store sanitized content in content column, original in raw_content
-        const upsertStmt = this.db.prepare(`
+        // Use different conflict resolution for target vs source cells
+        const upsertStmt = this.db.prepare(cellType === 'target' ? `
+            INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cell_id) WHERE cell_type = 'target' DO UPDATE SET
+                file_id = excluded.file_id,
+                content = excluded.content,
+                raw_content_hash = excluded.raw_content_hash,
+                line_number = excluded.line_number,
+                word_count = excluded.word_count,
+                metadata = excluded.metadata,
+                raw_content = excluded.raw_content,
+                updated_at = strftime('%s', 'now') * 1000
+            RETURNING id
+        ` : `
             INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
@@ -834,7 +917,7 @@ export class SQLiteIndexManager {
         try {
             upsertStmt.bind([
                 cellId,
-                fileId,
+                actualFileId,
                 cellType,
                 sanitizedContent, // Store sanitized content in content column
                 rawContentHash,
@@ -2614,5 +2697,356 @@ export class SQLiteIndexManager {
         }
 
         return results;
+    }
+
+    /**
+     * Search for complete translation pairs filtered by validation status
+     * @param query - Search query string
+     * @param limit - Maximum results to return (default: 30)
+     * @param returnRawContent - If true, return raw content with HTML; if false, return sanitized content (default: false)
+     * @param onlyValidated - If true, only return pairs where target content has been validated by at least one user (default: false)
+     * @returns Array of search results with validation filtering applied
+     */
+    async searchCompleteTranslationPairsWithValidation(
+        query: string,
+        limit: number = 30,
+        returnRawContent: boolean = false,
+        onlyValidated: boolean = false
+    ): Promise<any[]> {
+        console.log(`[searchCompleteTranslationPairsWithValidation] Searching for ${onlyValidated ? 'validated-only' : 'all'} translation pairs`);
+        // If validation filtering is not required, use the existing method
+        if (!onlyValidated) {
+            return this.searchCompleteTranslationPairs(query, limit, returnRawContent);
+        }
+
+        if (!this.db) throw new Error("Database not initialized");
+
+        console.log(`[searchCompleteTranslationPairsWithValidation] Searching for ${onlyValidated ? 'validated-only' : 'all'} translation pairs`);
+
+        // Handle empty query by returning recent complete validated pairs
+        if (!query || query.trim() === '') {
+            const sql = `
+                SELECT DISTINCT
+                    source_cell.cell_id,
+                    source_cell.content as source_content,
+                    source_cell.raw_content as raw_source_content,
+                    target_cell.content as target_content,
+                    target_cell.raw_content as raw_target_content,
+                    source_file.file_path as uri,
+                    source_cell.line_number as line,
+                    0 as score
+                FROM cells source_cell
+                JOIN cells target_cell ON source_cell.cell_id = target_cell.cell_id 
+                JOIN files source_file ON source_cell.file_id = source_file.id
+                WHERE source_cell.cell_type = 'source' 
+                    AND target_cell.cell_type = 'target'
+                    AND source_cell.content IS NOT NULL 
+                    AND source_cell.content != ''
+                    AND target_cell.content IS NOT NULL 
+                    AND target_cell.content != ''
+                    ${onlyValidated ? "AND target_cell.metadata IS NOT NULL AND JSON_EXTRACT(target_cell.metadata, '$.edits') IS NOT NULL" : ""}
+                ORDER BY source_cell.id DESC
+                LIMIT ?
+            `;
+
+            const stmt = this.db.prepare(sql);
+            const results = [];
+
+            try {
+                stmt.bind([limit]);
+                while (stmt.step()) {
+                    const row = stmt.getAsObject();
+
+                    // Additional validation check if needed
+                    let isValidated = true;
+                    if (onlyValidated) {
+                        isValidated = await this.isTargetCellValidated(row.cell_id as string);
+                        console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isValidated ? 'validated' : 'not validated'}`);
+                    }
+
+                    if (isValidated) {
+                        results.push({
+                            cellId: row.cell_id,
+                            cell_id: row.cell_id,
+                            sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                            targetContent: returnRawContent && row.raw_target_content ? row.raw_target_content : row.target_content,
+                            content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                            uri: row.uri,
+                            line: row.line,
+                            score: row.score,
+                            cell_type: 'source' // For compatibility
+                        });
+                    }
+                }
+            } finally {
+                stmt.free();
+            }
+
+            return results;
+        }
+
+        // Clean query for FTS5 search
+        const cleanQuery = query
+            .trim()
+            .replace(/[^\w\s\u0370-\u03FF\u1F00-\u1FFF]/g, ' ') // Keep Greek characters and basic word chars
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
+
+        if (!cleanQuery) {
+            return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated);
+        }
+
+        console.log(`[searchCompleteTranslationPairsWithValidation] Using FTS5 search with validation filter: "${cleanQuery}"`);
+
+        // FTS5 query with validation filtering
+        const sql = `
+            SELECT 
+                c.cell_id,
+                c.content as source_content,
+                c.raw_content as raw_source_content,
+                c.line_number as line,
+                f.file_path as uri,
+                bm25(cells_fts) as score
+            FROM cells_fts
+            JOIN cells c ON cells_fts.cell_id = c.cell_id
+            JOIN files f ON c.file_id = f.id
+            WHERE cells_fts MATCH ?
+                AND c.cell_type = 'source'
+                AND c.content IS NOT NULL 
+                AND c.content != ''
+                AND EXISTS (
+                    SELECT 1 FROM cells target_cells 
+                    WHERE target_cells.cell_id = c.cell_id 
+                        AND target_cells.cell_type = 'target'
+                        AND target_cells.content IS NOT NULL 
+                        AND target_cells.content != ''
+                )
+            ORDER BY score DESC
+            LIMIT ?
+        `;
+
+        const stmt = this.db.prepare(sql);
+        const results = [];
+
+        try {
+            stmt.bind([cleanQuery, limit * 3]); // Get more results to account for validation filtering
+
+            while (stmt.step()) {
+                const row = stmt.getAsObject();
+
+                // Check if target content is validated (only if onlyValidated is true)
+                let isValidated = true;
+                if (onlyValidated) {
+                    isValidated = await this.isTargetCellValidated(row.cell_id as string);
+                    console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isValidated ? 'validated' : 'not validated'}`);
+                }
+
+                if (isValidated) {
+                    // Get the target content for this cell
+                    const targetStmt = this.db.prepare(`
+                        SELECT content, raw_content 
+                        FROM cells 
+                        WHERE cell_id = ? AND cell_type = 'target' AND content IS NOT NULL AND content != ''
+                        LIMIT 1
+                    `);
+
+                    let targetContent = '';
+                    let rawTargetContent = '';
+                    try {
+                        targetStmt.bind([row.cell_id]);
+                        if (targetStmt.step()) {
+                            const targetRow = targetStmt.getAsObject();
+                            targetContent = targetRow.content as string;
+                            rawTargetContent = targetRow.raw_content as string;
+                        }
+                    } finally {
+                        targetStmt.free();
+                    }
+
+                    if (targetContent) { // Only include if we found target content
+                        results.push({
+                            cellId: row.cell_id,
+                            cell_id: row.cell_id,
+                            sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                            targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                            content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                            uri: row.uri,
+                            line: row.line,
+                            score: row.score,
+                            cell_type: 'source' // For compatibility
+                        });
+                    }
+
+                    // Stop when we have enough results
+                    if (results.length >= limit) break;
+                }
+            }
+        } catch (error) {
+            console.error(`[searchCompleteTranslationPairsWithValidation] FTS5 query failed: ${error}`);
+            // Fallback to non-validated search if validation filtering fails
+            return this.searchCompleteTranslationPairs(query, limit, returnRawContent);
+        } finally {
+            stmt.free();
+        }
+
+        console.log(`[searchCompleteTranslationPairsWithValidation] Found ${results.length} ${onlyValidated ? 'validated' : 'all'} translation pairs`);
+        return results;
+    }
+
+    /**
+     * Check if a target cell has been validated by at least one user
+     * @param cellId - The cell ID to check
+     * @returns True if the target cell has been validated, false otherwise
+     */
+    private async isTargetCellValidated(cellId: string): Promise<boolean> {
+        if (!this.db) return false;
+
+        // Get the target cell's metadata
+        const stmt = this.db.prepare(`
+            SELECT metadata FROM cells 
+            WHERE cell_id = ? AND cell_type = 'target' 
+            LIMIT 1
+        `);
+
+        try {
+            stmt.bind([cellId]);
+            if (stmt.step()) {
+                const row = stmt.getAsObject();
+                const metadata = row.metadata ? JSON.parse(row.metadata as string) : null;
+
+                if (metadata?.edits && Array.isArray(metadata.edits) && metadata.edits.length > 0) {
+                    // Get the latest edit
+                    const latestEdit = metadata.edits[metadata.edits.length - 1];
+
+                    if (latestEdit.validatedBy && Array.isArray(latestEdit.validatedBy)) {
+                        // Check if there are any active validations (isDeleted: false)
+                        return latestEdit.validatedBy.some((entry: any) =>
+                            entry &&
+                            typeof entry === 'object' &&
+                            entry.username &&
+                            entry.isDeleted === false
+                        );
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`[isTargetCellValidated] Error checking validation for ${cellId}:`, error);
+        } finally {
+            stmt.free();
+        }
+
+        return false;
+    }
+
+    /**
+     * Cleanup duplicate target cells that might exist before the unique constraint was enforced
+     * This method should be called after upgrading the schema
+     */
+    async deduplicateTargetCells(): Promise<{
+        duplicatesRemoved: number;
+        cellsAffected: number;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        debug("[SQLiteIndex] Starting target cell deduplication...");
+
+        let duplicatesRemoved = 0;
+        let cellIds = new Set<string>();
+
+        await this.runInTransaction(() => {
+            // Find all target cells with duplicates (same cell_id, different internal ids)
+            const findDuplicatesStmt = this.db!.prepare(`
+                SELECT cell_id, COUNT(*) as count, GROUP_CONCAT(id) as ids
+                FROM cells 
+                WHERE cell_type = 'target'
+                GROUP BY cell_id
+                HAVING COUNT(*) > 1
+            `);
+
+            const duplicateGroups: Array<{ cell_id: string; ids: string; }> = [];
+            try {
+                while (findDuplicatesStmt.step()) {
+                    const row = findDuplicatesStmt.getAsObject();
+                    duplicateGroups.push({
+                        cell_id: row.cell_id as string,
+                        ids: row.ids as string
+                    });
+                }
+            } finally {
+                findDuplicatesStmt.free();
+            }
+
+            debug(`[SQLiteIndex] Found ${duplicateGroups.length} target cells with duplicates`);
+
+            // For each group of duplicates, keep the most recent one and delete the others
+            for (const group of duplicateGroups) {
+                const ids = group.ids.split(',').map(id => parseInt(id));
+                cellIds.add(group.cell_id);
+
+                // Get details of all duplicates, ordered by updated_at DESC
+                const getDetailsStmt = this.db!.prepare(`
+                    SELECT id, updated_at, created_at, metadata
+                    FROM cells 
+                    WHERE id IN (${ids.map(() => '?').join(',')})
+                    ORDER BY updated_at DESC, created_at DESC
+                `);
+
+                const duplicates: Array<{ id: number; }> = [];
+                try {
+                    getDetailsStmt.bind(ids);
+                    while (getDetailsStmt.step()) {
+                        duplicates.push(getDetailsStmt.getAsObject() as any);
+                    }
+                } finally {
+                    getDetailsStmt.free();
+                }
+
+                // Keep the first (most recent) and delete the rest
+                const toDelete = duplicates.slice(1);
+                for (const duplicate of toDelete) {
+                    // Delete from FTS first
+                    this.db!.run(`DELETE FROM cells_fts WHERE cell_id = ?`, [group.cell_id]);
+
+                    // Delete the duplicate cell
+                    this.db!.run(`DELETE FROM cells WHERE id = ?`, [duplicate.id]);
+                    duplicatesRemoved++;
+
+                    debug(`[SQLiteIndex] Removed duplicate target cell: ${group.cell_id} (internal id: ${duplicate.id})`);
+                }
+
+                // Re-add the kept cell to FTS (in case it was deleted above)
+                if (duplicates.length > 0) {
+                    const keptCell = duplicates[0];
+                    const cellDataStmt = this.db!.prepare(`
+                        SELECT cell_id, content, raw_content, cell_type 
+                        FROM cells WHERE id = ?
+                    `);
+                    try {
+                        cellDataStmt.bind([keptCell.id]);
+                        if (cellDataStmt.step()) {
+                            const cellData = cellDataStmt.getAsObject();
+                            this.db!.run(`
+                                INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                                VALUES (?, ?, ?, ?)
+                            `, [
+                                cellData.cell_id,
+                                cellData.content,
+                                cellData.raw_content || cellData.content,
+                                cellData.cell_type
+                            ]);
+                        }
+                    } finally {
+                        cellDataStmt.free();
+                    }
+                }
+            }
+        });
+
+        debug(`[SQLiteIndex] Target cell deduplication completed: ${duplicatesRemoved} duplicates removed from ${cellIds.size} cells`);
+
+        return {
+            duplicatesRemoved,
+            cellsAffected: cellIds.size
+        };
     }
 }

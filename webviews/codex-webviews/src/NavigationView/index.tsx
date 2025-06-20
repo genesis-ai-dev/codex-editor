@@ -29,6 +29,9 @@ interface CodexItem {
     corpusMarker?: string;
     progress?: number;
     sortOrder?: string;
+    isProjectDictionary?: boolean;
+    wordCount?: number;
+    isEnabled?: boolean;
 }
 
 interface State {
@@ -38,6 +41,7 @@ interface State {
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     openMenu: string | null;
+    hasReceivedInitialData: boolean;
 }
 
 // Redesigned styles following Jobs/DHH principles: clean, purposeful, delightful
@@ -45,10 +49,27 @@ const styles = {
     container: {
         padding: "12px",
         height: "100vh",
-        overflow: "auto",
+        overflow: "hidden",
         display: "flex",
         flexDirection: "column" as const,
         backgroundColor: "var(--vscode-sideBar-background)",
+    },
+    scrollableContent: {
+        flex: 1,
+        overflow: "auto",
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "2px",
+    },
+    bottomSection: {
+        marginTop: "auto",
+        paddingTop: "16px",
+        borderTop: "2px solid var(--vscode-sideBarSectionHeader-border)",
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "12px",
+        backgroundColor: "var(--vscode-sideBar-background)",
+        position: "relative" as const,
     },
     searchContainer: {
         marginBottom: "16px",
@@ -81,7 +102,6 @@ const styles = {
     itemsContainer: {
         display: "flex",
         flexDirection: "column" as const,
-        gap: "2px",
     },
     // Main clickable item container - the entire thing is now clickable
     itemContainer: {
@@ -258,6 +278,122 @@ const styles = {
             color: "var(--vscode-menu-selectionForeground)",
         },
     },
+    dictionaryContainer: {
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "8px",
+        padding: "16px",
+        backgroundColor: "var(--vscode-sideBarSectionHeader-background)",
+        borderRadius: "8px",
+        border: "1px solid var(--vscode-sideBarSectionHeader-border)",
+        transition: "all 0.2s ease",
+        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+        "&:hover": {
+            backgroundColor: "var(--vscode-list-hoverBackground)",
+            boxShadow: "0 2px 6px rgba(0, 0, 0, 0.12)",
+        },
+    },
+    dictionaryHeader: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
+    },
+    dictionaryIconSection: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+    },
+    dictionaryIcon: {
+        fontSize: "18px",
+        color: "var(--vscode-symbolIcon-keywordForeground)",
+        width: "18px",
+        height: "18px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+    },
+    dictionaryInfo: {
+        display: "flex",
+        flexDirection: "column" as const,
+        gap: "2px",
+    },
+    dictionaryTitle: {
+        fontSize: "14px",
+        fontWeight: "600",
+        color: "var(--vscode-foreground)",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+    },
+    dictionaryStats: {
+        fontSize: "12px",
+        color: "var(--vscode-descriptionForeground)",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+    },
+    dictionaryToggle: {
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        fontSize: "12px",
+        color: "var(--vscode-descriptionForeground)",
+    },
+    toggleButton: {
+        padding: "6px 10px",
+        borderRadius: "6px",
+        border: "1px solid var(--vscode-button-border)",
+        backgroundColor: "var(--vscode-button-secondaryBackground)",
+        color: "var(--vscode-button-secondaryForeground)",
+        cursor: "pointer",
+        fontSize: "12px",
+        fontWeight: "600",
+        transition: "all 0.15s ease",
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        minWidth: "50px",
+        justifyContent: "center",
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
+            transform: "scale(1.05)",
+        },
+        "&:active": {
+            transform: "scale(0.98)",
+        },
+    },
+    addFilesButton: {
+        padding: "16px 20px",
+        borderRadius: "8px",
+        border: "2px solid var(--vscode-button-background)",
+        backgroundColor: "var(--vscode-button-background)",
+        color: "var(--vscode-button-foreground)",
+        cursor: "pointer",
+        fontSize: "14px",
+        fontWeight: "600",
+        transition: "all 0.2s ease",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "10px",
+        boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+        position: "relative" as const,
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-hoverBackground)",
+            transform: "translateY(-1px)",
+            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)",
+        },
+        "&:active": {
+            transform: "translateY(0px)",
+            boxShadow: "0 1px 2px rgba(0, 0, 0, 0.1)",
+        },
+    },
+    addFilesIcon: {
+        fontSize: "16px",
+        fontWeight: "bold",
+    },
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -328,6 +464,7 @@ function NavigationView() {
         searchQuery: "",
         bibleBookMap: undefined,
         openMenu: null,
+        hasReceivedInitialData: false,
     });
 
     // Initialize Bible book map on component mount
@@ -407,6 +544,7 @@ function NavigationView() {
                             ...prevState,
                             codexItems: processedCodexItems,
                             dictionaryItems: message.dictionaryItems || [],
+                            hasReceivedInitialData: true,
                         };
                     });
                     break;
@@ -473,6 +611,18 @@ function NavigationView() {
             uri: item.uri,
             label: item.label,
             type: item.type,
+        });
+    };
+
+    const handleToggleDictionary = () => {
+        vscode.postMessage({
+            command: "toggleDictionary",
+        });
+    };
+
+    const handleAddFiles = () => {
+        vscode.postMessage({
+            command: "openSourceUpload",
         });
     };
 
@@ -566,6 +716,7 @@ function NavigationView() {
         const displayLabel = formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
         const isMenuOpen = state.openMenu === itemId;
+        const isProjectDict = item.isProjectDictionary;
 
         // Debug logging (can be removed later)
         if (!displayLabel || displayLabel.trim() === "") {
@@ -586,6 +737,65 @@ function NavigationView() {
             }
         };
 
+        // Special rendering for project dictionary
+        if (isProjectDict) {
+            return (
+                <div key={item.label + item.uri}>
+                    <div style={styles.dictionaryContainer} onClick={handleItemClick}>
+                        <div style={styles.dictionaryHeader}>
+                            <div style={styles.dictionaryIconSection}>
+                                <div style={styles.dictionaryInfo}>
+                                    <div style={styles.dictionaryTitle}>
+                                        <i
+                                            className="codicon codicon-book"
+                                            style={styles.dictionaryIcon}
+                                        />
+                                        Dictionary
+                                    </div>
+                                    <div style={styles.dictionaryStats}>
+                                        <i className="codicon codicon-list-ordered" />
+                                        <span>{item.wordCount || 0}</span>
+                                        <span>•</span>
+                                        <i
+                                            className={`codicon codicon-${
+                                                item.isEnabled ? "check" : "circle-slash"
+                                            }`}
+                                        />
+                                        <span>{item.isEnabled ? "ON" : "OFF"}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={styles.dictionaryToggle}>
+                                <button
+                                    style={{
+                                        ...styles.toggleButton,
+                                        backgroundColor: item.isEnabled
+                                            ? "var(--vscode-button-background)"
+                                            : "var(--vscode-button-secondaryBackground)",
+                                        color: item.isEnabled
+                                            ? "var(--vscode-button-foreground)"
+                                            : "var(--vscode-button-secondaryForeground)",
+                                    }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleDictionary();
+                                    }}
+                                    title={`${item.isEnabled ? "Disable" : "Enable"} spellcheck`}
+                                >
+                                    <i
+                                        className={`codicon codicon-${
+                                            item.isEnabled ? "check" : "circle-slash"
+                                        }`}
+                                    />
+                                    {item.isEnabled ? "ON" : "OFF"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div key={item.label + item.uri}>
                 <div
@@ -595,7 +805,7 @@ function NavigationView() {
                     }}
                     onClick={handleItemClick}
                     onMouseEnter={(e) => {
-                        if (!isGroup) {
+                        if (!isGroup && !isProjectDict) {
                             const menuButton = e.currentTarget.querySelector(
                                 ".menu-button"
                             ) as HTMLElement;
@@ -606,7 +816,7 @@ function NavigationView() {
                         }
                     }}
                     onMouseLeave={(e) => {
-                        if (!isGroup && !isMenuOpen) {
+                        if (!isGroup && !isProjectDict && !isMenuOpen) {
                             const menuButton = e.currentTarget.querySelector(
                                 ".menu-button"
                             ) as HTMLElement;
@@ -683,9 +893,12 @@ function NavigationView() {
     const filteredDictionaryItems = filterItems(state.dictionaryItems);
     const hasResults = filteredCodexItems.length > 0 || filteredDictionaryItems.length > 0;
 
+    // Separate project dictionary from other dictionaries
+    const projectDictionary = filteredDictionaryItems.find((item) => item.isProjectDictionary);
+    const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
+
     return (
         <div style={styles.container}>
-            <WebviewHeader title="Files & Navigation" vscode={vscode} />
             <div style={styles.searchContainer}>
                 <div style={styles.searchWrapper}>
                     <i className="codicon codicon-search" style={styles.searchIcon} />
@@ -706,17 +919,42 @@ function NavigationView() {
                     <i className="codicon codicon-refresh" />
                 </Button>
             </div>
-            <div style={styles.itemsContainer}>
-                {hasResults ? (
-                    <>
-                        {filteredCodexItems.map(renderItem)}
-                        {filteredDictionaryItems.map(renderItem)}
-                    </>
-                ) : state.codexItems.length === 0 && state.dictionaryItems.length === 0 ? (
-                    <div style={styles.noResults}>Loading files...</div>
-                ) : (
-                    <div style={styles.noResults}>No matching files found</div>
-                )}
+
+            <div style={styles.scrollableContent}>
+                <div style={styles.itemsContainer}>
+                    {(() => {
+                        if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
+                            return (
+                                <>
+                                    {filteredCodexItems.map(renderItem)}
+                                    {otherDictionaries.map(renderItem)}
+                                </>
+                            );
+                        }
+                        
+                        if (!state.hasReceivedInitialData) {
+                            return <div style={styles.noResults}>Loading files...</div>;
+                        }
+
+                        return <div style={styles.noResults}>No files added yet</div>;
+                    })()}
+                </div>
+            </div>
+
+            <div style={styles.bottomSection}>
+                {/* Add Files Button */}
+                <button
+                    style={styles.addFilesButton}
+                    onClick={handleAddFiles}
+                    title="Add files to translate"
+                >
+                    <i className="codicon codicon-add" style={styles.addFilesIcon} />
+                    <i className="codicon codicon-file-text" />
+                    Add Files
+                </button>
+
+                {/* Project Dictionary */}
+                {projectDictionary && renderItem(projectDictionary)}
             </div>
         </div>
     );

@@ -194,7 +194,7 @@ export class WelcomeViewProvider {
                     await vscode.commands.executeCommand(
                         "workbench.action.toggleSidebarVisibility"
                     );
-                    await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+                    await vscode.commands.executeCommand("codex-editor.navigation.focus");
                     this._isMenuVisible = true;
                     break;
 
@@ -569,18 +569,8 @@ export class WelcomeViewProvider {
                 
                 // Update UI based on menu state
                 function updateMenuButtonUI() {
-                    const buttonText = document.getElementById('menu-button-text');
                     const buttonDesc = document.getElementById('menu-button-desc');
                     
-                    if (buttonText && buttonDesc) {
-                        if (isMenuVisible) {
-                            buttonText.textContent = 'Close Main Menu';
-                            buttonDesc.textContent = 'Hide tools and project options';
-                        } else {
-                            buttonText.textContent = 'Open Main Menu';
-                            buttonDesc.textContent = 'View tools and project options';
-                        }
-                    }
                     
                     // Update debug panel if it exists
                     const menuStateEl = document.getElementById('menu-state');
@@ -753,13 +743,6 @@ export class WelcomeViewProvider {
             </p>
             
             <div class="actions">
-                <div class="action-card" id="menuToggleButton">
-                    <div class="icon-container">
-                        <i class="codicon codicon-menu"></i>
-                    </div>
-                    <div class="card-title" id="menu-button-text">Open Main Menu</div>
-                    <div class="card-description" id="menu-button-desc">View tools and project options</div>
-                </div>
                 
                 <div class="action-card" id="createNewProject" style="display:none;">
                     <div class="icon-container">

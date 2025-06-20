@@ -540,7 +540,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     togglePrimarySidebar: async () => {
         vscode.window.showInformationMessage("togglePrimarySidebar");
         await vscode.commands.executeCommand("workbench.action.toggleSidebarVisibility");
-        await vscode.commands.executeCommand("codex-editor.mainMenu.focus");
+        await vscode.commands.executeCommand("codex-editor.navigation.focus");
     },
 
     toggleSecondarySidebar: async () => {

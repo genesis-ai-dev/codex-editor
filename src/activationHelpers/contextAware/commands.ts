@@ -1,3 +1,4 @@
+import { NavigationWebviewProvider } from './../../providers/navigationWebview/navigationWebviewProvider';
 import { getWorkSpaceUri } from "./../../utils/index";
 import * as vscode from "vscode";
 import { CodexKernel } from "../../controller";
@@ -34,7 +35,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         async () => {
             try {
                 // Focus the main menu view
-                await vscode.commands.executeCommand(`${MainMenuProvider.viewType}.focus`, true);
+                await vscode.commands.executeCommand(`${NavigationWebviewProvider.viewType}.focus`, true);
             } catch (error) {
                 console.error("Error focusing main menu view:", error);
                 vscode.window.showErrorMessage(`Error focusing main menu view: ${error}`);

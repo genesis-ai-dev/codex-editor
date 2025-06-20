@@ -40,8 +40,6 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
             command: "getProjectsListFromGitLab",
         } as MessagesToStartupFlowProvider);
         setIsLoading(true);
-        // Note: Don't fetch progress data on refresh to keep it fast
-        // Progress will update automatically when projects change
     };
 
     const fetchProgressData = () => {
@@ -60,15 +58,14 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
     const handleDeleteProject = (project: ProjectWithSyncStatus) => {
         if (!project.path) return;
 
-        // Show confirmation dialog via VSCode
         vscode.postMessage({
             command: "project.delete",
             projectPath: project.path,
             syncStatus: project.syncStatus,
         } as MessagesToStartupFlowProvider);
 
-        // Set loading state
-        setIsLoading(true);
+        // Don't set loading state here - wait for confirmation
+        // setIsLoading(true); will be called in message handler if deletion is confirmed
     };
 
     useEffect(() => {
@@ -98,21 +95,21 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                 setIsLoading(false);
             } else if (message.command === "project.deleteResponse") {
                 if (message.success) {
-
-                    // Explicitly request a fresh project list
+                    // Set loading state only after deletion is confirmed
+                    setIsLoading(true);
                     vscode.postMessage({
                         command: "getProjectsListFromGitLab",
                     } as MessagesToStartupFlowProvider);
                 } else {
-                    // Handle different error cases
                     if (message.error !== "Deletion cancelled by user") {
                         console.error(`Failed to delete project: ${message.error}`);
                     }
-
-                    // Always stop loading on any error or cancellation
-                    setIsLoading(false);
+                    // No need to set loading false since we never set it true for cancelled deletions
                 }
-            } else if (message.command === "aggregatedProgressData") {
+            } else if (
+                message.command === "aggregatedProgressData" ||
+                message.command === "progressData"
+            ) {
                 setProgressData(message.data);
                 setIsLoadingProgress(false);
             } else if (message.command === "projectsSyncStatus") {
@@ -121,9 +118,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
         };
 
         window.addEventListener("message", messageHandler);
-        return () => {
-            window.removeEventListener("message", messageHandler);
-        };
+        return () => window.removeEventListener("message", messageHandler);
     }, []);
 
     return (
@@ -183,7 +178,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         className="create-button"
                     >
                         <i className="codicon codicon-plus"></i>
-                        Create Empty Project
+                        Create New Project
                     </VSCodeButton>
                 </div>
 

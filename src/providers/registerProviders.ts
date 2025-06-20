@@ -25,16 +25,16 @@ export function registerProviders(context: vscode.ExtensionContext) {
     disposables.push(
         vscode.window.registerWebviewViewProvider("codex-editor.navigation", navigationProvider),
         GlobalProvider.getInstance().registerProvider("codex-editor.navigation", navigationProvider as any),
-        
+
         vscode.window.registerWebviewViewProvider("codex-editor.mainMenu", mainMenuProvider),
         GlobalProvider.getInstance().registerProvider("codex-editor.mainMenu", mainMenuProvider as any),
-        
+
         vscode.window.registerWebviewViewProvider("comments-sidebar", commentsProvider),
         GlobalProvider.getInstance().registerProvider("comments-sidebar", commentsProvider as any),
-        
+
         vscode.window.registerWebviewViewProvider("search-passages-sidebar", parallelProvider),
         GlobalProvider.getInstance().registerProvider("search-passages-sidebar", parallelProvider as any),
-        
+
         // Register search passages command
         vscode.commands.registerCommand("parallelPassages.pinCellById", async (cellId: string) => {
             await parallelProvider.pinCellById(cellId);

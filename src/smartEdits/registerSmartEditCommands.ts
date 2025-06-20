@@ -25,9 +25,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                     return suggestions;
                 } catch (error) {
                     console.error("Error getting smart edits:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to get smart edits. Please check the console for more details."
-                    );
                     return [];
                 }
             }
@@ -43,9 +40,6 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
                     return suggestions;
                 } catch (error) {
                     console.error("Error getting saved suggestions:", error);
-                    vscode.window.showErrorMessage(
-                        "Failed to get smart edits. Please check the console for more details."
-                    );
                     return [];
                 }
             }
@@ -68,7 +62,7 @@ export const registerSmartEditCommands = (context: vscode.ExtensionContext) => {
             }
         )
     );
-    
+
 
     // Add new commands for SmartBacktranslation
     context.subscriptions.push(

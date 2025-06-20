@@ -272,35 +272,35 @@ const CodexCellEditor: React.FC = () => {
                                      (isNewHighlight || chapterNumber === chapterWhenHighlighted);
 
             if (shouldAutoNavigate) {
-                // Get all cells for the target chapter
-                const allCellsForTargetChapter = translationUnits.filter((verse) => {
-                    const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
-                    return verseChapter === newChapterNumber.toString();
-                });
+            // Get all cells for the target chapter
+            const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
+                return verseChapter === newChapterNumber.toString();
+            });
 
-                // Find the index of the highlighted cell within the chapter
-                const cellIndexInChapter = allCellsForTargetChapter.findIndex(
-                    (verse) => verse.cellMarkers[0] === cellId
-                );
+            // Find the index of the highlighted cell within the chapter
+            const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                (verse) => verse.cellMarkers[0] === cellId
+            );
 
-                // Calculate which subsection this cell belongs to
-                let targetSubsectionIndex = 0;
-                if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
-                    targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
-                }
+            // Calculate which subsection this cell belongs to
+            let targetSubsectionIndex = 0;
+            if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
+                targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
+            }
 
-                // If chapter is changing, update chapter and subsection
-                if (newChapterNumber !== chapterNumber) {
-                    setChapterNumber(newChapterNumber);
+            // If chapter is changing, update chapter and subsection
+            if (newChapterNumber !== chapterNumber) {
+                setChapterNumber(newChapterNumber);
+                setCurrentSubsectionIndex(targetSubsectionIndex);
+            } else {
+                // Same chapter, but check if we need to change subsection
+                // Check if chapter has multiple pages (subsections)
+                if (
+                    allCellsForTargetChapter.length > cellsPerPage &&
+                    targetSubsectionIndex !== currentSubsectionIndex
+                ) {
                     setCurrentSubsectionIndex(targetSubsectionIndex);
-                } else {
-                    // Same chapter, but check if we need to change subsection
-                    // Check if chapter has multiple pages (subsections)
-                    if (
-                        allCellsForTargetChapter.length > cellsPerPage &&
-                        targetSubsectionIndex !== currentSubsectionIndex
-                    ) {
-                        setCurrentSubsectionIndex(targetSubsectionIndex);
                     }
                 }
             }

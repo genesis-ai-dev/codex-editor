@@ -98,7 +98,8 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
                 console.warn("[Dictionary DB] Could not delete corrupted database file:", deleteError);
             }
         } else {
-
+            console.error("Error reading dictionary file:", error);
+            return;
         }
 
         // Create new database

@@ -15,6 +15,7 @@ export async function llmCompletion(
     returnHTML: boolean = true
 ): Promise<string> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
+    console.log("[llmCompletion] completionConfig.useOnlyValidatedExamples:", completionConfig.useOnlyValidatedExamples);
 
     if (!currentCellId) {
         throw new Error("Current cell has no ID in llmCompletion().");
@@ -63,10 +64,11 @@ export async function llmCompletion(
         const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
             "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
             sourceContent || "empty",
-            initialCandidateCount // Request more candidates for filtering
+            initialCandidateCount, // Request more candidates for filtering
+            completionConfig.useOnlyValidatedExamples // Pass validation setting
         );
 
-        console.log(`[llmCompletion] Found ${similarSourceCells.length} complete translation pairs as candidates`);
+        console.log(`[llmCompletion] Found ${similarSourceCells.length} complete translation pairs as candidates (${completionConfig.useOnlyValidatedExamples ? 'validated-only' : 'all'})`);
 
         if (!similarSourceCells || similarSourceCells.length === 0) {
             console.warn(`[llmCompletion] No complete translation pairs found for source content: "${sourceContent?.substring(0, 100)}..."`);
@@ -204,10 +206,9 @@ export async function llmCompletion(
             systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
             systemMessage += `\n\n${userMessageInstructions}`;
 
-            // FIXME: now that we are tracking validations on cells, perhaps we should use a validatedTranslationPairsIndex
-            // and only use validated translation pairs in the few-shot examples and preceding translation pairs
-            // perhaps on importing a file, we should have a checkbox as to whether the AI should learn from the
-            // file contents.
+            // Note: Validation filtering is now implemented via the useOnlyValidatedExamples setting
+            // This controls whether only validated translation pairs are used in few-shot examples
+            // The setting can be toggled in the copilot settings UI
 
             const userMessage = [
                 "## Instructions",

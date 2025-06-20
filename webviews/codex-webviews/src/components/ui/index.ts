@@ -3,3 +3,8 @@ export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
 export { Badge, badgeVariants } from "./badge";
 export { Progress } from "./progress";
 export { Input } from "./input";
+export { Switch } from "./switch";
+export { Alert, AlertDescription } from "./alert";
+export { Separator } from "./separator";
+export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
+export { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";

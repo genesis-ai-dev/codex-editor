@@ -10,7 +10,6 @@ import * as vscode from "vscode";
 import { PreflightCheck, PreflightState } from "./preflight";
 import { findAllCodexProjects } from "../../../src/projectManager/utils/projectUtils";
 import { AuthState, FrontierAPI } from "webviews/codex-webviews/src/StartupFlow/types";
-import { CustomWebviewProvider } from "../../projectManager/projectManagerViewProvider";
 import {
     createNewProject,
     createNewWorkspaceAndProject,
@@ -325,7 +324,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {
-        // First check if webview is still available
         if (!safeIsVisible(webviewPanel, "StartupFlow")) {
             debugLog("WebviewPanel is no longer available, skipping sendList");
             return;
@@ -333,41 +331,28 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
         const startTime = Date.now();
 
-
         try {
-            // Run all expensive operations in parallel for better performance
-            const [progressData, remoteProjects, localProjects] = await Promise.allSettled([
-                // Fetch progress data
-                this.fetchProgressData(),
-                // Fetch remote projects if authenticated
+            const [localProjectsResult, remoteProjectsResult] = await Promise.allSettled([
+                this.fetchLocalProjects(),
                 this.fetchRemoteProjects(),
-                // Fetch local projects
-                this.fetchLocalProjects()
             ]);
 
-            const parallelTime = Date.now() - startTime;
-            debugLog(`Parallel operations completed in ${parallelTime}ms`);
-
-            // Extract results, handling any failures gracefully
-            const progressResult = progressData.status === 'fulfilled' ? progressData.value : undefined;
-            const remoteResult = remoteProjects.status === 'fulfilled' ? remoteProjects.value : [];
-            const localResult = localProjects.status === 'fulfilled' ? localProjects.value : [];
-
-            // Log any failures for debugging
-            if (progressData.status === 'rejected') {
-                console.warn("Error fetching progress data:", progressData.reason);
+            const localProjects =
+                localProjectsResult.status === "fulfilled" ? localProjectsResult.value : [];
+            if (localProjectsResult.status === "rejected") {
+                console.error("Error fetching local projects:", localProjectsResult.reason);
             }
-            if (remoteProjects.status === 'rejected') {
-                console.error("Error fetching remote projects:", remoteProjects.reason);
-            }
-            if (localProjects.status === 'rejected') {
-                console.error("Error fetching local projects:", localProjects.reason);
+
+            const remoteProjects =
+                remoteProjectsResult.status === "fulfilled" ? remoteProjectsResult.value : [];
+            if (remoteProjectsResult.status === "rejected") {
+                console.error("Error fetching remote projects:", remoteProjectsResult.reason);
             }
 
             const projectList: ProjectWithSyncStatus[] = [];
 
             // Process remote projects
-            for (const project of remoteResult) {
+            for (const project of remoteProjects) {
                 projectList.push({
                     name: project.name,
                     path: "",
@@ -381,8 +366,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 });
             }
 
-            // Process local projects
-            for (const project of localResult) {
+            // Process local projects and check for matches
+            for (const project of localProjects) {
                 if (!project.gitOriginUrl) {
                     projectList.push({
                         ...project,
@@ -391,19 +376,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     continue;
                 }
 
-                // Check if this local project matches a remote one
                 const matchInRemoteIndex = projectList.findIndex(
                     (p) => p.gitOriginUrl === project.gitOriginUrl
                 );
 
                 if (matchInRemoteIndex !== -1) {
-                    // Update the remote entry with local data
                     projectList[matchInRemoteIndex] = {
                         ...project,
                         syncStatus: "downloadedAndSynced",
                     };
                 } else {
-                    // Add as local-only project
                     projectList.push({
                         ...project,
                         syncStatus: "localOnlyNotSynced",
@@ -411,24 +393,59 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 }
             }
 
-            const totalTime = Date.now() - startTime;
-            debugLog(`Projects list completed in ${totalTime}ms - Found ${projectList.length} projects (${localResult.length} local, ${remoteResult.length} remote)`);
+            safePostMessageToPanel(
+                webviewPanel,
+                {
+                    command: "projectsListFromGitLab",
+                    projects: projectList,
+                } as MessagesFromStartupFlowProvider,
+                "StartupFlow"
+            );
 
-            // Send the compiled list to the webview along with progress data
-            safePostMessageToPanel(webviewPanel, {
-                command: "projectsListFromGitLab",
-                projects: projectList,
-                progressData: progressResult,
-            } as MessagesFromStartupFlowProvider, "StartupFlow");
+            const mergeTime = Date.now() - startTime;
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects`);
+
+            this.fetchProgressDataAsync(webviewPanel);
+
         } catch (error) {
             console.error("Failed to fetch and process projects:", error);
+            safePostMessageToPanel(
+                webviewPanel,
+                {
+                    command: "projectsListFromGitLab",
+                    projects: [],
+                    error: error instanceof Error ? error.message : "Failed to fetch projects",
+                } as MessagesFromStartupFlowProvider,
+                "StartupFlow"
+            );
+        }
+    }
 
-            // Send error response only if webview is still available
-            safePostMessageToPanel(webviewPanel, {
-                command: "projectsListFromGitLab",
-                projects: [],
-                error: error instanceof Error ? error.message : "Failed to fetch projects",
-            } as MessagesFromStartupFlowProvider, "StartupFlow");
+    /**
+     * Fetch progress data asynchronously and send when ready
+     */
+    private async fetchProgressDataAsync(webviewPanel: vscode.WebviewPanel) {
+        try {
+            debugLog("Fetching progress data asynchronously...");
+            const progressStartTime = Date.now();
+
+            const progressData = await this.fetchProgressData();
+
+            const progressTime = Date.now() - progressStartTime;
+            debugLog(`Progress data fetched in ${progressTime}ms`);
+
+            // Only send if webview is still available
+            if (safeIsVisible(webviewPanel, "StartupFlow")) {
+                safePostMessageToPanel(webviewPanel, {
+                    command: "progressData",
+                    data: progressData,
+                } as MessagesFromStartupFlowProvider, "StartupFlow");
+
+                debugLog("Progress data sent to webview");
+            }
+        } catch (error) {
+            console.warn("Error fetching progress data:", error);
+            // Don't send error for progress data as it's not critical
         }
     }
 
@@ -1757,7 +1774,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             // Always refresh the projects list
             await this.sendList(this.webviewPanel!);
         }
+
     }
 
 
 }
+

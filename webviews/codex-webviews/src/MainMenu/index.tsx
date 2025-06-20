@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "../components/ui/button";
-import { Card, CardContent } from "../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { Separator } from "../components/ui/separator";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { SyncSettings } from "../components/SyncSettings";
 import { cn } from "../lib/utils";
 import "../tailwind.css";
 
@@ -25,15 +28,43 @@ interface MenuSection {
     buttons: MenuButton[];
 }
 
+interface ProjectManagerState {
+    projectOverview: any | null;
+    webviewReady: boolean;
+    watchedFolders: string[];
+    projects: any[] | null;
+    isScanning: boolean;
+    canInitializeProject: boolean;
+    workspaceIsOpen: boolean;
+    repoHasRemote: boolean;
+    isInitializing: boolean;
+}
+
 interface State {
-    menuConfig: MenuSection[];
     activeViewId: string | null;
+    projectState: ProjectManagerState;
+    autoSyncEnabled: boolean;
+    syncDelayMinutes: number;
+    progressData: any;
 }
 
 function MainMenu() {
     const [state, setState] = useState<State>({
-        menuConfig: [],
         activeViewId: null,
+        projectState: {
+            projectOverview: null,
+            webviewReady: false,
+            watchedFolders: [],
+            projects: null,
+            isScanning: false,
+            canInitializeProject: false,
+            workspaceIsOpen: false,
+            repoHasRemote: false,
+            isInitializing: false,
+        },
+        autoSyncEnabled: true,
+        syncDelayMinutes: 5,
+        progressData: null,
     });
 
     useEffect(() => {
@@ -41,16 +72,30 @@ function MainMenu() {
             const message = event.data;
 
             switch (message.command) {
-                case "updateMenu":
-                    setState((prevState) => ({
-                        ...prevState,
-                        menuConfig: message.menuConfig,
-                    }));
-                    break;
                 case "setActiveView":
                     setState((prevState) => ({
                         ...prevState,
                         activeViewId: message.viewId,
+                    }));
+                    break;
+                case "stateUpdate":
+                    setState((prevState) => ({
+                        ...prevState,
+                        projectState: message.data,
+                    }));
+                    break;
+                case "syncSettingsUpdate":
+                    setState((prevState) => ({
+                        ...prevState,
+                        autoSyncEnabled: message.data.autoSyncEnabled ?? prevState.autoSyncEnabled,
+                        syncDelayMinutes:
+                            message.data.syncDelayMinutes ?? prevState.syncDelayMinutes,
+                    }));
+                    break;
+                case "progressData":
+                    setState((prevState) => ({
+                        ...prevState,
+                        progressData: message.data,
                     }));
                     break;
             }
@@ -61,6 +106,10 @@ function MainMenu() {
         // Use the globally available vscode object
         try {
             vscode.postMessage({ command: "webviewReady" });
+            // Request sync settings
+            vscode.postMessage({ command: "getSyncSettings" });
+            // Request progress data
+            vscode.postMessage({ command: "getProjectProgress" });
         } catch (error) {
             console.error("Could not send webviewReady message:", error);
         }
@@ -95,90 +144,544 @@ function MainMenu() {
         }
     };
 
-    const handleButtonClick = (button: MenuButton) => {
-        if (button.viewId) {
-            focusView(button.viewId);
-        } else if (button.command) {
-            executeCommand(button.command);
+    const handleProjectAction = (command: string, data?: any) => {
+        try {
+            vscode.postMessage({
+                command,
+                data,
+            });
+        } catch (error) {
+            console.error("Could not execute project action:", command, error);
         }
     };
 
+    const handleToggleAutoSync = (enabled: boolean) => {
+        setState((prevState) => ({
+            ...prevState,
+            autoSyncEnabled: enabled,
+        }));
+        handleProjectAction("updateSyncSettings", {
+            autoSyncEnabled: enabled,
+            syncDelayMinutes: state.syncDelayMinutes,
+        });
+    };
+
+    const handleChangeSyncDelay = (minutes: number) => {
+        setState((prevState) => ({
+            ...prevState,
+            syncDelayMinutes: minutes,
+        }));
+        handleProjectAction("updateSyncSettings", {
+            autoSyncEnabled: state.autoSyncEnabled,
+            syncDelayMinutes: minutes,
+        });
+    };
+
+    const handleTriggerSync = () => {
+        handleProjectAction("triggerSync");
+    };
+
+    const getLanguageDisplay = (languageObj: any): string => {
+        if (!languageObj) return "Missing";
+        if (typeof languageObj === "string") return languageObj;
+        if (languageObj.name && typeof languageObj.name === "object") {
+            const name = languageObj.name.en || Object.values(languageObj.name)[0];
+            return languageObj.tag ? `${name} (${languageObj.tag})` : name;
+        }
+        return "Unknown";
+    };
+
+    const { projectState } = state;
+
+    // Show scanning indicator
+    if (projectState.isScanning) {
+        return (
+            <div className="container mx-auto p-6 h-screen flex items-center justify-center">
+                <div className="flex items-center gap-3">
+                    <i className="codicon codicon-loading codicon-modifier-spin text-lg" />
+                    <span>Scanning projects...</span>
+                </div>
+            </div>
+        );
+    }
+    console.log("projectState", projectState);
     return (
         <div className="container mx-auto p-6 h-screen overflow-auto flex flex-col gap-6 max-w-4xl">
-            {state.menuConfig.map((section, index) => (
-                <div key={section.title} className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-border pb-2">
-                        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                            {section.title}
-                        </h2>
-                        <Badge variant="outline" className="text-xs">
-                            {section.buttons.length}
-                        </Badge>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                        {section.buttons.map((button) => (
-                            <Tooltip key={button.id}>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant={
-                                            button.viewId && state.activeViewId === button.viewId
-                                                ? "default"
-                                                : "outline"
-                                        }
-                                        onClick={() => handleButtonClick(button)}
-                                        className={cn(
-                                            "group relative p-3 h-auto text-left justify-start",
-                                            button.viewId &&
-                                                state.activeViewId === button.viewId &&
-                                                "shadow-sm"
-                                        )}
-                                    >
-                                        {button.viewId && state.activeViewId === button.viewId && (
-                                            <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-sm" />
-                                        )}
-
-                                        <div className="flex items-center gap-3">
-                                            <div
-                                                className={cn(
-                                                    "flex items-center justify-center w-8 h-8 rounded-md transition-colors",
-                                                    button.viewId &&
-                                                        state.activeViewId === button.viewId
-                                                        ? "bg-primary-foreground text-primary"
-                                                        : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary"
-                                                )}
-                                            >
-                                                <i
-                                                    className={`codicon codicon-${button.icon} text-sm`}
-                                                />
-                                            </div>
-
-                                            <div className="flex-1 min-w-0">
-                                                <h3
-                                                    className={cn(
-                                                        "font-medium text-sm leading-tight",
-                                                        button.viewId &&
-                                                            state.activeViewId === button.viewId
-                                                            ? "text-primary-foreground"
-                                                            : "text-foreground group-hover:text-primary"
+            {/* Project Overview Section */}
+            {projectState.workspaceIsOpen && (
+                <div className="space-y-4">
+                    {projectState.isInitializing ? (
+                        <Card>
+                            <CardContent className="flex items-center justify-center p-8">
+                                <div className="flex items-center gap-3">
+                                    <i className="codicon codicon-loading codicon-modifier-spin text-lg" />
+                                    <span>Initializing Project...</span>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ) : projectState.projectOverview ? (
+                        <div className="space-y-4">
+                            {/* Project Details */}
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <i className="codicon codicon-folder-opened" />
+                                        {projectState.projectOverview.projectName ||
+                                            "Unnamed Project"}
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                Source Language
+                                            </label>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm">
+                                                    {getLanguageDisplay(
+                                                        projectState.projectOverview.sourceLanguage
                                                     )}
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        handleProjectAction(
+                                                            "changeSourceLanguage",
+                                                            projectState.projectOverview
+                                                                .sourceLanguage
+                                                        )
+                                                    }
                                                 >
-                                                    {button.label}
-                                                </h3>
+                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                </Button>
                                             </div>
                                         </div>
-                                    </Button>
-                                </TooltipTrigger>
-                                {button.description && (
-                                    <TooltipContent>
-                                        <p>{button.description}</p>
-                                    </TooltipContent>
-                                )}
-                            </Tooltip>
-                        ))}
-                    </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                Target Language
+                                            </label>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm">
+                                                    {getLanguageDisplay(
+                                                        projectState.projectOverview.targetLanguage
+                                                    )}
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        handleProjectAction(
+                                                            "changeTargetLanguage",
+                                                            projectState.projectOverview
+                                                                .targetLanguage
+                                                        )
+                                                    }
+                                                >
+                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                Required Validations
+                                            </label>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm">
+                                                    {String(
+                                                        projectState.projectOverview
+                                                            .validationCount || 1
+                                                    )}
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        handleProjectAction("setValidationCount")
+                                                    }
+                                                >
+                                                    <i className="codicon codicon-edit h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-1">
+                                            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                                                Project Documents
+                                            </label>
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-sm">
+                                                    {projectState.projectOverview.sourceTexts
+                                                        ?.length || 0}{" "}
+                                                    texts
+                                                </span>
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        handleProjectAction("openSourceUpload")
+                                                    }
+                                                >
+                                                    <i className="codicon codicon-add h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <Separator />
+
+                                    <div
+                                        className="flex items-center justify-between p-3 rounded-lg border"
+                                        style={{
+                                            backgroundColor: "var(--muted)",
+                                            borderColor: "var(--border)",
+                                        }}
+                                    >
+                                        <div className="space-y-1">
+                                            <label
+                                                className="text-sm font-semibold flex items-center gap-2"
+                                                style={{ color: "var(--foreground)" }}
+                                            >
+                                                <i
+                                                    className="codicon codicon-book"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                />
+                                                Spellcheck
+                                            </label>
+                                            <p
+                                                className="text-xs"
+                                                style={{ color: "var(--muted-foreground)" }}
+                                            >
+                                                <i
+                                                    className={`codicon codicon-${
+                                                        projectState.projectOverview
+                                                            .spellcheckIsEnabled
+                                                            ? "check"
+                                                            : "circle-slash"
+                                                    } mr-1`}
+                                                />
+                                                {projectState.projectOverview.spellcheckIsEnabled
+                                                    ? "Dictionary checking enabled"
+                                                    : "Dictionary checking disabled"}
+                                            </p>
+                                        </div>
+                                        <Button
+                                            size="default"
+                                            variant={
+                                                projectState.projectOverview.spellcheckIsEnabled
+                                                    ? "default"
+                                                    : "outline"
+                                            }
+                                            onClick={() => handleProjectAction("toggleSpellcheck")}
+                                            className={`px-4 py-2 font-semibold transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-105 ${
+                                                projectState.projectOverview.spellcheckIsEnabled
+                                                    ? "button-primary"
+                                                    : "button-outline border-2"
+                                            }`}
+                                        >
+                                            <i
+                                                className={`codicon codicon-${
+                                                    projectState.projectOverview.spellcheckIsEnabled
+                                                        ? "check"
+                                                        : "circle-slash"
+                                                } mr-2 h-4 w-4`}
+                                            />
+                                            {projectState.projectOverview.spellcheckIsEnabled
+                                                ? "ON"
+                                                : "OFF"}
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Sync Settings - only show if project has remote */}
+                            {projectState.repoHasRemote && (
+                                <SyncSettings
+                                    autoSyncEnabled={state.autoSyncEnabled}
+                                    syncDelayMinutes={state.syncDelayMinutes}
+                                    onToggleAutoSync={handleToggleAutoSync}
+                                    onChangeSyncDelay={handleChangeSyncDelay}
+                                    onTriggerSync={handleTriggerSync}
+                                />
+                            )}
+
+                            {/* Publish Card - only show if project doesn't have remote */}
+                            {!projectState.repoHasRemote && (
+                                <Card
+                                    className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                                    style={{
+                                        borderColor: "var(--ring)",
+                                        backgroundColor: "var(--card)",
+                                    }}
+                                >
+                                    <CardHeader className="pb-4">
+                                        <CardTitle
+                                            className="flex items-center gap-3 text-lg font-bold"
+                                            style={{ color: "var(--foreground)" }}
+                                        >
+                                            <i
+                                                className="codicon codicon-cloud-upload text-2xl"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            Publish Project
+                                        </CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="space-y-4">
+                                            <div
+                                                className="flex items-start gap-3 p-3 rounded-lg border"
+                                                style={{
+                                                    backgroundColor: "var(--muted)",
+                                                    borderColor: "var(--border)",
+                                                }}
+                                            >
+                                                <i
+                                                    className="codicon codicon-info text-lg mt-0.5"
+                                                    style={{ color: "var(--ring)" }}
+                                                />
+                                                <p
+                                                    className="text-sm leading-relaxed"
+                                                    style={{ color: "var(--foreground)" }}
+                                                >
+                                                    Publish your project to the cloud to enable{" "}
+                                                    <strong>syncing across devices</strong> and{" "}
+                                                    <strong>team collaboration</strong>.
+                                                </p>
+                                            </div>
+                                            <Button
+                                                onClick={() =>
+                                                    handleProjectAction("publishProject")
+                                                }
+                                                className="button-primary w-full h-12 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                                            >
+                                                <i className="codicon codicon-cloud-upload mr-3 h-5 w-5" />
+                                                Publish to Cloud
+                                                <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            {/* Project Actions */}
+                            <Card
+                                className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                                style={{
+                                    borderColor: "var(--ring)",
+                                    backgroundColor: "var(--card)",
+                                    boxShadow:
+                                        "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+                                }}
+                            >
+                                <CardHeader className="pb-4 mb-3">
+                                    <CardTitle
+                                        className="text-base font-semibold flex items-center gap-2"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        <i
+                                            className="codicon codicon-tools text-lg"
+                                            style={{ color: "var(--ring)" }}
+                                        />
+                                        Project Tools
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <Button
+                                            variant="outline"
+                                            size="default"
+                                            onClick={() => handleProjectAction("openEditAnalysis")}
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className="codicon codicon-graph mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">AI Metrics</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Analysis & insights
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
+                                            onClick={() => executeCommand("openCellLabelImporter")}
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className="codicon codicon-symbol-array mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Import Labels</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Cell label import
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
+                                            onClick={() =>
+                                                handleProjectAction("openBookNameEditor")
+                                            }
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className="codicon codicon-book mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Book Names</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Configure books
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
+                                            onClick={() => handleProjectAction("openAISettings")}
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className="codicon codicon-settings mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">
+                                                    Copilot Settings
+                                                </div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    AI configuration
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
+                                            onClick={() => handleProjectAction("openExportView")}
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className="codicon codicon-export mr-3 h-5 w-5"
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Export Project</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Download files
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
+                                            onClick={() => executeCommand("closeProject")}
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className="codicon codicon-close mr-3 h-5 w-5"
+                                                style={{ color: "var(--destructive)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">Close Project</div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Exit workspace
+                                                </div>
+                                            </div>
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    ) : projectState.canInitializeProject ? (
+                        <Card
+                            className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                            style={{
+                                borderColor: "var(--ring)",
+                                backgroundColor: "var(--card)",
+                            }}
+                        >
+                            <CardContent className="flex flex-col items-center justify-center p-8 text-center space-y-6">
+                                <i
+                                    className="codicon codicon-folder-opened text-5xl"
+                                    style={{ color: "var(--ring)" }}
+                                />
+                                <div className="space-y-3">
+                                    <h3
+                                        className="text-xl font-bold"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        Initialize Project
+                                    </h3>
+                                    <div
+                                        className="flex items-center gap-2 p-3 rounded-lg border"
+                                        style={{
+                                            backgroundColor: "var(--muted)",
+                                            borderColor: "var(--border)",
+                                        }}
+                                    >
+                                        <i
+                                            className="codicon codicon-lightbulb"
+                                            style={{ color: "var(--ring)" }}
+                                        />
+                                        <p
+                                            className="text-sm"
+                                            style={{ color: "var(--foreground)" }}
+                                        >
+                                            This workspace doesn't have a project yet. Initialize it
+                                            to get started with translation.
+                                        </p>
+                                    </div>
+                                </div>
+                                <Button
+                                    onClick={() => handleProjectAction("initializeProject")}
+                                    className="button-primary h-12 px-8 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
+                                >
+                                    <i className="codicon codicon-add mr-3 h-5 w-5" />
+                                    Initialize Project
+                                    <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <Alert>
+                            <i className="codicon codicon-info h-4 w-4" />
+                            <AlertDescription>
+                                No project found in current workspace
+                            </AlertDescription>
+                        </Alert>
+                    )}
                 </div>
-            ))}
+            )}
 
             <div className="mt-auto pt-6 text-center border-t border-border">
                 <Badge variant="secondary" className="text-xs opacity-70">
