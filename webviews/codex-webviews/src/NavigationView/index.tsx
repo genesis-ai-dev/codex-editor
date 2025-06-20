@@ -41,6 +41,7 @@ interface State {
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     openMenu: string | null;
+    hasReceivedInitialData: boolean;
 }
 
 // Redesigned styles following Jobs/DHH principles: clean, purposeful, delightful
@@ -463,6 +464,7 @@ function NavigationView() {
         searchQuery: "",
         bibleBookMap: undefined,
         openMenu: null,
+        hasReceivedInitialData: false,
     });
 
     // Initialize Bible book map on component mount
@@ -542,6 +544,7 @@ function NavigationView() {
                             ...prevState,
                             codexItems: processedCodexItems,
                             dictionaryItems: message.dictionaryItems || [],
+                            hasReceivedInitialData: true,
                         };
                     });
                     break;
@@ -919,16 +922,22 @@ function NavigationView() {
 
             <div style={styles.scrollableContent}>
                 <div style={styles.itemsContainer}>
-                    {filteredCodexItems.length > 0 || otherDictionaries.length > 0 ? (
-                        <>
-                            {filteredCodexItems.map(renderItem)}
-                            {otherDictionaries.map(renderItem)}
-                        </>
-                    ) : state.codexItems.length === 0 && state.dictionaryItems.length === 0 ? (
-                        <div style={styles.noResults}>Loading files...</div>
-                    ) : (
-                        <div style={styles.noResults}>No matching files found</div>
-                    )}
+                    {(() => {
+                        if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
+                            return (
+                                <>
+                                    {filteredCodexItems.map(renderItem)}
+                                    {otherDictionaries.map(renderItem)}
+                                </>
+                            );
+                        }
+                        
+                        if (!state.hasReceivedInitialData) {
+                            return <div style={styles.noResults}>Loading files...</div>;
+                        }
+
+                        return <div style={styles.noResults}>No files added yet</div>;
+                    })()}
                 </div>
             </div>
 
