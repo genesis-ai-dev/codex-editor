@@ -536,13 +536,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // Create a unique footnote ID for this marker
             const footnoteId = `fn${footnoteCount}`;
 
-            // Insert the footnote marker
-            quill.insertText(selection.index, " ", {});
             // Insert the marker with the content directly in the data-footnote attribute
-            quill.insertText(selection.index + 1, footnoteId, { footnote: footnoteContent });
+            quill.insertText(selection.index, footnoteId, { footnote: footnoteContent });
 
             // Move cursor past the footnote
-            quill.setSelection(selection.index + footnoteId.length + 1);
+            quill.setSelection(selection.index + footnoteId.length);
 
             // Increment footnote counter for next use
             setFootnoteCount((prev) => prev + 1);
