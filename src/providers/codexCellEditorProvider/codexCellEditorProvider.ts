@@ -1450,9 +1450,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             request.shouldValidate
                         );
 
-                        // Note: Reindexing will be triggered after individual validation
-                        // or after batch validation completes to ensure validation status is indexed
-
                         // Send completion notification
                         this.webviewPanels.forEach((panel, docUri) => {
                             if (docUri === request.document.uri.toString()) {
@@ -1469,15 +1466,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Remove the processed request from the queue and resolve
                         this.translationQueue.shift();
                         request.resolve(true);
-
-                        // Trigger reindexing after individual validation to ensure validation status is indexed
-                        try {
-                            debug(`Triggering reindexing for validation status update of cell ${request.cellId}`);
-                            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
-                            debug(`Successfully triggered reindexing after validation of cell ${request.cellId}`);
-                        } catch (error) {
-                            console.error(`Error triggering reindexing after validation of cell ${request.cellId}:`, error);
-                        }
                     } catch (error) {
                         debug(`Error processing validation for cell ${request.cellId}:`, error);
 
@@ -1849,8 +1837,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     validation.shouldValidate
                                 );
 
-                                // Note: Reindexing will be triggered once after the entire batch completes
-
                                 // Get validated entries for UI update
                                 const validatedEntries = document.getCellValidatedBy(
                                     validation.cellId
@@ -1916,28 +1902,6 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     if (!cancelTokenSource.token.isCancellationRequested) {
                         // Clear all pending validations
                         this.pendingValidations.clear();
-
-                        // Trigger reindexing after all validations are complete to ensure validation status is indexed
-                        try {
-                            debug(`Triggering reindexing after completing batch validation of ${totalValidations} cells`);
-
-                            // Show user notification for batch operations since reindexing may take a moment
-                            const reindexProgress = vscode.window.withProgress(
-                                {
-                                    location: vscode.ProgressLocation.Notification,
-                                    title: "Updating search index for validation changes...",
-                                    cancellable: false,
-                                },
-                                async () => {
-                                    await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
-                                }
-                            );
-
-                            await reindexProgress;
-                            debug("Successfully triggered reindexing after batch validation");
-                        } catch (error) {
-                            console.error("Error triggering reindexing after batch validation:", error);
-                        }
 
                         // Notify webviews that pending state should be cleared
                         this.webviewPanels.forEach((panel) => {

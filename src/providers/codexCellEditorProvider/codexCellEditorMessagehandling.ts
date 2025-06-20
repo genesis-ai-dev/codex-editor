@@ -514,9 +514,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 document,
                 typedEvent.content.validate
             );
-
-            // Note: Reindexing is handled in the validation queue processing
-            debug(`Validation queued for cell ${typedEvent.content.cellId}`);
         }
     },
 
