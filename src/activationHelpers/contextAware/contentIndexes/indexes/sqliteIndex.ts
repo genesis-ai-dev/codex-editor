@@ -14,7 +14,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7; // Incremented to add unique constraint for target cells
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -277,6 +277,13 @@ export class SQLiteIndexManager {
                 )
             `);
 
+            // Create a unique constraint for target cells to prevent duplicates
+            this.db!.run(`
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_target_cells 
+                ON cells (cell_id) 
+                WHERE cell_type = 'target'
+            `);
+
             // Translation pairs table
             this.db!.run(`
                 CREATE TABLE IF NOT EXISTS translation_pairs (
@@ -463,15 +470,39 @@ export class SQLiteIndexManager {
                 stepStart = this.trackProgress("Migrate database schema", stepStart);
                 debug(`Migrating database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
 
-                // Schema version 6: content_hash -> raw_content_hash and hash calculation change
-                // This is a breaking change that requires full database recreation
-                debug("Schema version 6 requires full database recreation due to hash column changes");
+                if (currentVersion < 6) {
+                    // Schema version 6: content_hash -> raw_content_hash and hash calculation change
+                    // This is a breaking change that requires full database recreation
+                    debug("Schema version 6 requires full database recreation due to hash column changes");
 
-                // Show user notification about the one-time migration
-                const vscode = await import('vscode');
-                vscode.window.showInformationMessage("Codex: Upgrading database schema to version 6. This is a one-time operation that will improve sync performance...");
+                    // Show user notification about the one-time migration
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage("Codex: Upgrading database schema to version 6. This is a one-time operation that will improve sync performance...");
 
-                await this.recreateDatabase();
+                    await this.recreateDatabase();
+                } else if (currentVersion < 7) {
+                    // Schema version 7: Add unique constraint for target cells
+                    debug("Schema version 7: Adding unique constraint for target cells");
+
+                    // Show user notification about the migration
+                    const vscode = await import('vscode');
+                    vscode.window.showInformationMessage("Codex: Upgrading database to prevent duplicate target cells. This may take a moment...");
+
+                    // First, clean up any existing duplicates
+                    const duplicationResult = await this.deduplicateTargetCells();
+                    debug(`[SQLiteIndex] Deduplication complete: ${duplicationResult.duplicatesRemoved} duplicates removed from ${duplicationResult.cellsAffected} cells`);
+
+                    // Then add the new unique constraint
+                    await this.runInTransaction(() => {
+                        this.db!.run(`
+                            CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_target_cells 
+                            ON cells (cell_id) 
+                            WHERE cell_type = 'target'
+                        `);
+                    });
+
+                    debug("Schema version 7: Unique constraint for target cells added successfully");
+                }
 
                 // Update schema version after successful migration
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
@@ -713,14 +744,23 @@ export class SQLiteIndexManager {
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
-        const checkStmt = this.db.prepare(`
-            SELECT id, raw_content_hash FROM cells 
+        // For target cells, check globally (ignore file_id due to unique constraint)
+        // For source cells, maintain per-file uniqueness
+        const checkStmt = this.db.prepare(cellType === 'target' ? `
+            SELECT id, raw_content_hash, file_id FROM cells 
+            WHERE cell_id = ? AND cell_type = ?
+        ` : `
+            SELECT id, raw_content_hash, file_id FROM cells 
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; raw_content_hash: string; } | null = null;
+        let existingCell: { id: number; raw_content_hash: string; file_id?: number; } | null = null;
         try {
-            checkStmt.bind([cellId, fileId, cellType]);
+            if (cellType === 'target') {
+                checkStmt.bind([cellId, cellType]);
+            } else {
+                checkStmt.bind([cellId, fileId, cellType]);
+            }
             if (checkStmt.step()) {
                 existingCell = checkStmt.getAsObject() as any;
             }
@@ -735,8 +775,25 @@ export class SQLiteIndexManager {
             return { id: existingCell.id, isNew: false, contentChanged: false };
         }
 
+        // For target cells, update the file_id to the current file when updating
+        const actualFileId = (cellType === 'target' && existingCell) ? fileId : fileId;
+
         // Upsert the cell - store sanitized content in content column, original in raw_content
-        const upsertStmt = this.db.prepare(`
+        // Use different conflict resolution for target vs source cells
+        const upsertStmt = this.db.prepare(cellType === 'target' ? `
+            INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cell_id) WHERE cell_type = 'target' DO UPDATE SET
+                file_id = excluded.file_id,
+                content = excluded.content,
+                raw_content_hash = excluded.raw_content_hash,
+                line_number = excluded.line_number,
+                word_count = excluded.word_count,
+                metadata = excluded.metadata,
+                raw_content = excluded.raw_content,
+                updated_at = strftime('%s', 'now') * 1000
+            RETURNING id
+        ` : `
             INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
@@ -753,7 +810,7 @@ export class SQLiteIndexManager {
         try {
             upsertStmt.bind([
                 cellId,
-                fileId,
+                actualFileId,
                 cellType,
                 sanitizedContent, // Store sanitized content in content column
                 rawContentHash,
@@ -794,14 +851,23 @@ export class SQLiteIndexManager {
         const wordCount = sanitizedContent.split(/\s+/).filter((w) => w.length > 0).length;
 
         // Check if cell exists and if content changed
-        const checkStmt = this.db.prepare(`
-            SELECT id, raw_content_hash FROM cells 
+        // For target cells, check globally (ignore file_id due to unique constraint)
+        // For source cells, maintain per-file uniqueness
+        const checkStmt = this.db.prepare(cellType === 'target' ? `
+            SELECT id, raw_content_hash, file_id FROM cells 
+            WHERE cell_id = ? AND cell_type = ?
+        ` : `
+            SELECT id, raw_content_hash, file_id FROM cells 
             WHERE cell_id = ? AND file_id = ? AND cell_type = ?
         `);
 
-        let existingCell: { id: number; raw_content_hash: string; } | null = null;
+        let existingCell: { id: number; raw_content_hash: string; file_id?: number; } | null = null;
         try {
-            checkStmt.bind([cellId, fileId, cellType]);
+            if (cellType === 'target') {
+                checkStmt.bind([cellId, cellType]);
+            } else {
+                checkStmt.bind([cellId, fileId, cellType]);
+            }
             if (checkStmt.step()) {
                 existingCell = checkStmt.getAsObject() as any;
             }
@@ -816,8 +882,25 @@ export class SQLiteIndexManager {
             return { id: existingCell.id, isNew: false, contentChanged: false };
         }
 
+        // For target cells, update the file_id to the current file when updating
+        const actualFileId = (cellType === 'target' && existingCell) ? fileId : fileId;
+
         // Upsert the cell - store sanitized content in content column, original in raw_content
-        const upsertStmt = this.db.prepare(`
+        // Use different conflict resolution for target vs source cells
+        const upsertStmt = this.db.prepare(cellType === 'target' ? `
+            INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cell_id) WHERE cell_type = 'target' DO UPDATE SET
+                file_id = excluded.file_id,
+                content = excluded.content,
+                raw_content_hash = excluded.raw_content_hash,
+                line_number = excluded.line_number,
+                word_count = excluded.word_count,
+                metadata = excluded.metadata,
+                raw_content = excluded.raw_content,
+                updated_at = strftime('%s', 'now') * 1000
+            RETURNING id
+        ` : `
             INSERT INTO cells (cell_id, file_id, cell_type, content, raw_content_hash, line_number, word_count, metadata, raw_content)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(cell_id, file_id, cell_type) DO UPDATE SET
@@ -834,7 +917,7 @@ export class SQLiteIndexManager {
         try {
             upsertStmt.bind([
                 cellId,
-                fileId,
+                actualFileId,
                 cellType,
                 sanitizedContent, // Store sanitized content in content column
                 rawContentHash,
@@ -2853,5 +2936,117 @@ export class SQLiteIndexManager {
         }
 
         return false;
+    }
+
+    /**
+     * Cleanup duplicate target cells that might exist before the unique constraint was enforced
+     * This method should be called after upgrading the schema
+     */
+    async deduplicateTargetCells(): Promise<{
+        duplicatesRemoved: number;
+        cellsAffected: number;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        debug("[SQLiteIndex] Starting target cell deduplication...");
+
+        let duplicatesRemoved = 0;
+        let cellIds = new Set<string>();
+
+        await this.runInTransaction(() => {
+            // Find all target cells with duplicates (same cell_id, different internal ids)
+            const findDuplicatesStmt = this.db!.prepare(`
+                SELECT cell_id, COUNT(*) as count, GROUP_CONCAT(id) as ids
+                FROM cells 
+                WHERE cell_type = 'target'
+                GROUP BY cell_id
+                HAVING COUNT(*) > 1
+            `);
+
+            const duplicateGroups: Array<{ cell_id: string; ids: string; }> = [];
+            try {
+                while (findDuplicatesStmt.step()) {
+                    const row = findDuplicatesStmt.getAsObject();
+                    duplicateGroups.push({
+                        cell_id: row.cell_id as string,
+                        ids: row.ids as string
+                    });
+                }
+            } finally {
+                findDuplicatesStmt.free();
+            }
+
+            debug(`[SQLiteIndex] Found ${duplicateGroups.length} target cells with duplicates`);
+
+            // For each group of duplicates, keep the most recent one and delete the others
+            for (const group of duplicateGroups) {
+                const ids = group.ids.split(',').map(id => parseInt(id));
+                cellIds.add(group.cell_id);
+
+                // Get details of all duplicates, ordered by updated_at DESC
+                const getDetailsStmt = this.db!.prepare(`
+                    SELECT id, updated_at, created_at, metadata
+                    FROM cells 
+                    WHERE id IN (${ids.map(() => '?').join(',')})
+                    ORDER BY updated_at DESC, created_at DESC
+                `);
+
+                const duplicates: Array<{ id: number; }> = [];
+                try {
+                    getDetailsStmt.bind(ids);
+                    while (getDetailsStmt.step()) {
+                        duplicates.push(getDetailsStmt.getAsObject() as any);
+                    }
+                } finally {
+                    getDetailsStmt.free();
+                }
+
+                // Keep the first (most recent) and delete the rest
+                const toDelete = duplicates.slice(1);
+                for (const duplicate of toDelete) {
+                    // Delete from FTS first
+                    this.db!.run(`DELETE FROM cells_fts WHERE cell_id = ?`, [group.cell_id]);
+
+                    // Delete the duplicate cell
+                    this.db!.run(`DELETE FROM cells WHERE id = ?`, [duplicate.id]);
+                    duplicatesRemoved++;
+
+                    debug(`[SQLiteIndex] Removed duplicate target cell: ${group.cell_id} (internal id: ${duplicate.id})`);
+                }
+
+                // Re-add the kept cell to FTS (in case it was deleted above)
+                if (duplicates.length > 0) {
+                    const keptCell = duplicates[0];
+                    const cellDataStmt = this.db!.prepare(`
+                        SELECT cell_id, content, raw_content, cell_type 
+                        FROM cells WHERE id = ?
+                    `);
+                    try {
+                        cellDataStmt.bind([keptCell.id]);
+                        if (cellDataStmt.step()) {
+                            const cellData = cellDataStmt.getAsObject();
+                            this.db!.run(`
+                                INSERT OR REPLACE INTO cells_fts(cell_id, content, raw_content, content_type) 
+                                VALUES (?, ?, ?, ?)
+                            `, [
+                                cellData.cell_id,
+                                cellData.content,
+                                cellData.raw_content || cellData.content,
+                                cellData.cell_type
+                            ]);
+                        }
+                    } finally {
+                        cellDataStmt.free();
+                    }
+                }
+            }
+        });
+
+        debug(`[SQLiteIndex] Target cell deduplication completed: ${duplicatesRemoved} duplicates removed from ${cellIds.size} cells`);
+
+        return {
+            duplicatesRemoved,
+            cellsAffected: cellIds.size
+        };
     }
 }
