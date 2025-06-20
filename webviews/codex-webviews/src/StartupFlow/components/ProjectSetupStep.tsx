@@ -178,7 +178,7 @@ export const ProjectSetupStep: React.FC<ProjectSetupStepProps> = ({
                         className="create-button"
                     >
                         <i className="codicon codicon-plus"></i>
-                        Create Empty Project
+                        Create New Project
                     </VSCodeButton>
                 </div>
 
