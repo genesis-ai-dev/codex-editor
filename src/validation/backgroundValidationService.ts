@@ -385,9 +385,9 @@ export class BackgroundValidationService {
 
                         // Get cell count from database for stats
                         const cellCountStmt = this.sqliteIndex.database.prepare(`
-                            SELECT COUNT(c.id) as cell_count
+                            SELECT COUNT(c.cell_id) as cell_count
                             FROM files f
-                            LEFT JOIN cells c ON c.file_id = f.id
+                            LEFT JOIN cells c ON (c.s_file_id = f.id OR c.t_file_id = f.id)
                             WHERE f.file_path = ?
                         `);
 
@@ -629,8 +629,10 @@ ${result.issues.length > 20 ? `... and ${result.issues.length - 20} more issues`
         // Check for cells without files
         const orphanCellsStmt = this.sqliteIndex.database.prepare(`
             SELECT COUNT(*) as count FROM cells c 
-            LEFT JOIN files f ON c.file_id = f.id 
-            WHERE f.id IS NULL
+            LEFT JOIN files s_file ON c.s_file_id = s_file.id 
+            LEFT JOIN files t_file ON c.t_file_id = t_file.id
+            WHERE c.s_file_id IS NOT NULL AND s_file.id IS NULL
+            OR c.t_file_id IS NOT NULL AND t_file.id IS NULL
         `);
 
         try {

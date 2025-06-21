@@ -1068,6 +1068,66 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        const debugSchemaCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.debugSchema",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const schemaInfo = await (translationPairsIndex as any).getDetailedSchemaInfo();
+
+                        let message = `Schema Version: ${schemaInfo.currentVersion}\n`;
+                        message += `Cells Table Exists: ${schemaInfo.cellsTableExists}\n`;
+                        message += `Has New Structure: ${schemaInfo.hasNewStructure}\n`;
+                        message += `Schema Info Rows: ${schemaInfo.schemaInfoRows.length}\n`;
+
+                        if (schemaInfo.schemaInfoRows.length > 1) {
+                            message += `⚠️ Multiple schema_info rows detected!\n`;
+                            schemaInfo.schemaInfoRows.forEach((row: any, i: number) => {
+                                message += `  Row ${i + 1}: ${JSON.stringify(row)}\n`;
+                            });
+                        }
+
+                        message += `\nCells Columns (${schemaInfo.cellsColumns.length}): ${schemaInfo.cellsColumns.slice(0, 10).join(', ')}`;
+                        if (schemaInfo.cellsColumns.length > 10) {
+                            message += '...';
+                        }
+
+                        const actions = ["OK"];
+                        if (schemaInfo.currentVersion !== 8 || !schemaInfo.hasNewStructure) {
+                            actions.unshift("Force Migration to v8");
+                        }
+                        if (schemaInfo.schemaInfoRows.length > 1) {
+                            actions.unshift("Clean Schema Info");
+                        }
+
+                        const choice = await vscode.window.showInformationMessage(message, ...actions);
+
+                        if (choice === "Force Migration to v8") {
+                            const confirm = await vscode.window.showWarningMessage(
+                                "This will force migrate the database to schema version 8. Continue?",
+                                "Yes, Migrate",
+                                "Cancel"
+                            );
+
+                            if (confirm === "Yes, Migrate") {
+                                await (translationPairsIndex as any).forceRecreateDatabase();
+                                vscode.window.showInformationMessage("Database recreated with schema v8. Please reload the extension.");
+                            }
+                        } else if (choice === "Clean Schema Info") {
+                            await (translationPairsIndex as any).setSchemaVersion(schemaInfo.currentVersion);
+                            vscode.window.showInformationMessage("Schema info cleaned up.");
+                        }
+
+                    } else {
+                        vscode.window.showErrorMessage("Schema debugging only available for SQLite index");
+                    }
+                } catch (error) {
+                    console.error("Error debugging schema:", error);
+                    vscode.window.showErrorMessage("Failed to debug schema. Check the logs for details.");
+                }
+            }
+        );
+
         const refreshIndexCommand = vscode.commands.registerCommand(
             "codex-editor-extension.refreshIndex",
             async () => {
@@ -1154,6 +1214,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 forceCompleteRebuildCommand,
                 checkIndexStatusCommand,
                 forceSchemaResetCommand,
+                debugSchemaCommand,
                 refreshIndexCommand,
                 syncStatusCommand
             ]
