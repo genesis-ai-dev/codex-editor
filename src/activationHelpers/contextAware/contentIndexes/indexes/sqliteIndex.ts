@@ -277,7 +277,6 @@ export class SQLiteIndexManager {
                     s_last_edit_timestamp INTEGER,
                     s_last_edit_type TEXT,
                     s_has_edits BOOLEAN DEFAULT FALSE,
-                    s_metadata_json TEXT,
                     
                     -- Target columns  
                     t_file_id INTEGER,
@@ -297,7 +296,6 @@ export class SQLiteIndexManager {
                     t_validation_count INTEGER DEFAULT 0,
                     t_is_validated BOOLEAN DEFAULT FALSE,
                     t_last_validation_timestamp INTEGER,
-                    t_metadata_json TEXT,
                     
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
@@ -366,7 +364,7 @@ export class SQLiteIndexManager {
 
             this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS update_cells_s_timestamp 
-                AFTER UPDATE OF s_content, s_raw_content, s_metadata_json ON cells
+                AFTER UPDATE OF s_content, s_raw_content ON cells
                 BEGIN
                     UPDATE cells SET s_updated_at = strftime('%s', 'now') * 1000 
                     WHERE cell_id = NEW.cell_id;
@@ -375,7 +373,7 @@ export class SQLiteIndexManager {
 
             this.db!.run(`
                 CREATE TRIGGER IF NOT EXISTS update_cells_t_timestamp 
-                AFTER UPDATE OF t_content, t_raw_content, t_metadata_json ON cells
+                AFTER UPDATE OF t_content, t_raw_content ON cells
                 BEGIN
                     UPDATE cells SET t_updated_at = strftime('%s', 'now') * 1000 
                     WHERE cell_id = NEW.cell_id;
@@ -817,7 +815,6 @@ export class SQLiteIndexManager {
             `${prefix}word_count`,
             `${prefix}raw_content`,
             `${prefix}updated_at`,
-            `${prefix}metadata_json`,
             `${prefix}edit_count`,
             `${prefix}last_edit_timestamp`,
             `${prefix}last_edit_type`,
@@ -832,7 +829,6 @@ export class SQLiteIndexManager {
             wordCount,
             actualRawContent,
             currentTimestamp,
-            metadata ? JSON.stringify(metadata) : null,
             extractedMetadata.editCount,
             extractedMetadata.lastEditTimestamp,
             extractedMetadata.lastEditType,
@@ -933,7 +929,6 @@ export class SQLiteIndexManager {
             `${prefix}word_count`,
             `${prefix}raw_content`,
             `${prefix}updated_at`,
-            `${prefix}metadata_json`,
             `${prefix}edit_count`,
             `${prefix}last_edit_timestamp`,
             `${prefix}last_edit_type`,
@@ -948,7 +943,6 @@ export class SQLiteIndexManager {
             wordCount,
             actualRawContent,
             currentTimestamp,
-            metadata ? JSON.stringify(metadata) : null,
             extractedMetadata.editCount,
             extractedMetadata.lastEditTimestamp,
             extractedMetadata.lastEditType,
@@ -1139,11 +1133,9 @@ export class SQLiteIndexManager {
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
-                c.s_metadata_json,
                 c.t_content,
                 c.t_raw_content,
                 c.t_line_number,
-                c.t_metadata_json,
                 s_file.file_path as s_file_path,
                 t_file.file_path as t_file_path,
                 bm25(cells_fts) as score
@@ -1175,13 +1167,13 @@ export class SQLiteIndexManager {
                     rawContent = row.s_raw_content;
                     line = row.s_line_number;
                     uri = row.s_file_path;
-                    metadata = row.s_metadata_json ? JSON.parse(row.s_metadata_json as string) : {};
+                    metadata = {}; // Metadata now in dedicated columns
                 } else {
                     content = row.t_content;
                     rawContent = row.t_raw_content;
                     line = row.t_line_number;
                     uri = row.t_file_path;
-                    metadata = row.t_metadata_json ? JSON.parse(row.t_metadata_json as string) : {};
+                    metadata = {}; // Metadata now in dedicated columns
                 }
 
                 // Verify both columns contain data - no fallbacks
@@ -1256,12 +1248,21 @@ export class SQLiteIndexManager {
                 -- Source columns
                 c.s_content,
                 c.s_raw_content,
-                c.s_metadata_json,
+                c.s_edit_count,
+                c.s_last_edit_timestamp,
+                c.s_last_edit_type,
+                c.s_has_edits,
                 s_file.file_path as s_file_path,
                 -- Target columns
                 c.t_content,
                 c.t_raw_content,
-                c.t_metadata_json,
+                c.t_edit_count,
+                c.t_last_edit_timestamp,
+                c.t_last_edit_type,
+                c.t_has_edits,
+                c.t_validation_count,
+                c.t_is_validated,
+                c.t_last_validation_timestamp,
                 t_file.file_path as t_file_path
             FROM cells c
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
@@ -1274,14 +1275,27 @@ export class SQLiteIndexManager {
             if (stmt.step()) {
                 const row = stmt.getAsObject();
 
-                // Parse metadata
-                const sourceMetadata = row.s_metadata_json ? JSON.parse(row.s_metadata_json as string) : {};
-                const targetMetadata = row.t_metadata_json ? JSON.parse(row.t_metadata_json as string) : {};
+                // Construct metadata from dedicated columns
+                const sourceMetadata = {
+                    editCount: row.s_edit_count || 0,
+                    lastEditTimestamp: row.s_last_edit_timestamp || null,
+                    lastEditType: row.s_last_edit_type || null,
+                    hasEdits: Boolean(row.s_has_edits)
+                };
+                const targetMetadata = {
+                    editCount: row.t_edit_count || 0,
+                    lastEditTimestamp: row.t_last_edit_timestamp || null,
+                    lastEditType: row.t_last_edit_type || null,
+                    hasEdits: Boolean(row.t_has_edits),
+                    validationCount: row.t_validation_count || 0,
+                    isValidated: Boolean(row.t_is_validated),
+                    lastValidationTimestamp: row.t_last_validation_timestamp || null
+                };
 
                 return {
                     cellId: cellId,
                     content: row.s_raw_content || row.s_content || "", // Prefer source raw content
-                    versions: sourceMetadata.versions || [],
+                    versions: [], // Versions now tracked in dedicated columns
                     sourceContent: row.s_content,
                     targetContent: row.t_content,
                     sourceRawContent: row.s_raw_content,
@@ -1310,14 +1324,23 @@ export class SQLiteIndexManager {
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
-                c.s_metadata_json,
+                c.s_edit_count,
+                c.s_last_edit_timestamp,
+                c.s_last_edit_type,
+                c.s_has_edits,
                 s_file.file_path as s_file_path,
                 s_file.file_type as s_file_type,
                 -- Target columns
                 c.t_content,
                 c.t_raw_content,
                 c.t_line_number,
-                c.t_metadata_json,
+                c.t_edit_count,
+                c.t_last_edit_timestamp,
+                c.t_last_edit_type,
+                c.t_has_edits,
+                c.t_validation_count,
+                c.t_is_validated,
+                c.t_last_validation_timestamp,
                 t_file.file_path as t_file_path,
                 t_file.file_type as t_file_type
             FROM cells c
@@ -1331,9 +1354,22 @@ export class SQLiteIndexManager {
             if (stmt.step()) {
                 const row = stmt.getAsObject();
 
-                // Parse metadata
-                const sourceMetadata = row.s_metadata_json ? JSON.parse(row.s_metadata_json as string) : {};
-                const targetMetadata = row.t_metadata_json ? JSON.parse(row.t_metadata_json as string) : {};
+                // Construct metadata from dedicated columns
+                const sourceMetadata = {
+                    editCount: row.s_edit_count || 0,
+                    lastEditTimestamp: row.s_last_edit_timestamp || null,
+                    lastEditType: row.s_last_edit_type || null,
+                    hasEdits: Boolean(row.s_has_edits)
+                };
+                const targetMetadata = {
+                    editCount: row.t_edit_count || 0,
+                    lastEditTimestamp: row.t_last_edit_timestamp || null,
+                    lastEditType: row.t_last_edit_type || null,
+                    hasEdits: Boolean(row.t_has_edits),
+                    validationCount: row.t_validation_count || 0,
+                    isValidated: Boolean(row.t_is_validated),
+                    lastValidationTimestamp: row.t_last_validation_timestamp || null
+                };
 
                 // Return data based on requested cell type
                 if (cellType === "source" && row.s_content) {
@@ -2537,7 +2573,7 @@ export class SQLiteIndexManager {
                     s_content = NULL,
                     s_raw_content = NULL,
                     s_line_number = NULL,
-                    s_metadata_json = NULL,
+
                     s_word_count = NULL,
                     s_raw_content_hash = NULL,
                     s_content_hash = NULL,
@@ -2923,7 +2959,7 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL 
                     AND c.t_content != ''
-                    ${onlyValidated ? "AND c.t_metadata_json IS NOT NULL AND JSON_EXTRACT(c.t_metadata_json, '$.edits') IS NOT NULL" : ""}
+                    ${onlyValidated ? "AND c.t_is_validated = 1" : ""}
                 ORDER BY c.cell_id DESC
                 LIMIT ?
             `;
@@ -3076,9 +3112,9 @@ export class SQLiteIndexManager {
     private async isTargetCellValidated(cellId: string): Promise<boolean> {
         if (!this.db) return false;
 
-        // Get the target cell's metadata
+        // Get the target cell's validation status from dedicated columns
         const stmt = this.db.prepare(`
-            SELECT t_metadata_json as metadata FROM cells 
+            SELECT t_is_validated FROM cells 
             WHERE cell_id = ? AND t_content IS NOT NULL
             LIMIT 1
         `);
@@ -3087,22 +3123,7 @@ export class SQLiteIndexManager {
             stmt.bind([cellId]);
             if (stmt.step()) {
                 const row = stmt.getAsObject();
-                const metadata = row.metadata ? JSON.parse(row.metadata as string) : null;
-
-                if (metadata?.edits && Array.isArray(metadata.edits) && metadata.edits.length > 0) {
-                    // Get the latest edit
-                    const latestEdit = metadata.edits[metadata.edits.length - 1];
-
-                    if (latestEdit.validatedBy && Array.isArray(latestEdit.validatedBy)) {
-                        // Check if there are any active validations (isDeleted: false)
-                        return latestEdit.validatedBy.some((entry: any) =>
-                            entry &&
-                            typeof entry === 'object' &&
-                            entry.username &&
-                            entry.isDeleted === false
-                        );
-                    }
-                }
+                return Boolean(row.t_is_validated);
             }
         } catch (error) {
             console.error(`[isTargetCellValidated] Error checking validation for ${cellId}:`, error);
