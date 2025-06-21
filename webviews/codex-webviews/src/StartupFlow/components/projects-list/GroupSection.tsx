@@ -80,12 +80,6 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
 
     const totalProjectCount = getTotalProjectCount(group);
 
-    const hasSubgroupsWithProjects = Object.values(group.subgroups).some((subgroup) => {
-        if (!subgroup) return false;
-        const filteredSubgroupProjects = filterProjects(subgroup.projects || []);
-        return filteredSubgroupProjects.length > 0;
-    });
-
     if ((filter !== "all" || searchQuery) && totalProjectCount === 0) {
         return null;
     }
@@ -180,8 +174,18 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                 ))}
                             </div>
                         )}
-                        {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) =>
-                            subgroup ? (
+                        {Object.entries(group.subgroups || {}).map(([subgroupName, subgroup]) => {
+                            if (!subgroup) return null;
+                            
+                            // Check if this subgroup has any projects that match the current filter
+                            const subgroupTotalCount = getTotalProjectCount(subgroup);
+                            
+                            // Only render the container div if the subgroup has matching projects
+                            if ((filter !== "all" || searchQuery) && subgroupTotalCount === 0) {
+                                return null;
+                            }
+                            
+                            return (
                                 <div key={subgroupName} className="mt-2 px-3 pb-2">
                                     <GroupSection
                                         group={subgroup}
@@ -203,8 +207,8 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         filterProjects={filterProjects}
                                     />
                                 </div>
-                            ) : null
-                        )}
+                            );
+                        })}
                     </CardContent>
                 )}
             </Card>
