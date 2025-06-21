@@ -272,12 +272,6 @@ export class SQLiteIndexManager {
                     s_created_at INTEGER,
                     s_updated_at INTEGER,
                     
-                    -- Source metadata (extracted frequently accessed fields)
-                    s_edit_count INTEGER DEFAULT 0,
-                    s_last_edit_timestamp INTEGER,
-                    s_last_edit_type TEXT,
-                    s_has_edits BOOLEAN DEFAULT FALSE,
-                    
                     -- Target columns  
                     t_file_id INTEGER,
                     t_content TEXT,
@@ -288,14 +282,11 @@ export class SQLiteIndexManager {
                     t_created_at INTEGER,
                     t_updated_at INTEGER,
                     
-                    -- Target metadata (extracted frequently accessed fields)
-                    t_edit_count INTEGER DEFAULT 0,
-                    t_last_edit_timestamp INTEGER,
-                    t_last_edit_type TEXT,
-                    t_has_edits BOOLEAN DEFAULT FALSE,
+                    -- Target metadata (optimized fields only)
+                    t_current_edit_timestamp INTEGER,
                     t_validation_count INTEGER DEFAULT 0,
+                    t_validated_by TEXT,
                     t_is_validated BOOLEAN DEFAULT FALSE,
-                    t_last_validation_timestamp INTEGER,
                     
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
@@ -375,7 +366,9 @@ export class SQLiteIndexManager {
                 CREATE TRIGGER IF NOT EXISTS update_cells_t_timestamp 
                 AFTER UPDATE OF t_content, t_raw_content ON cells
                 BEGIN
-                    UPDATE cells SET t_updated_at = strftime('%s', 'now') * 1000 
+                    UPDATE cells SET 
+                        t_updated_at = strftime('%s', 'now') * 1000,
+                        t_current_edit_timestamp = strftime('%s', 'now') * 1000
                     WHERE cell_id = NEW.cell_id;
                 END
             `);
@@ -464,11 +457,9 @@ export class SQLiteIndexManager {
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_content_hash ON cells(t_raw_content_hash)");
 
             // Performance indexes for extracted metadata
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_s_has_edits ON cells(s_has_edits)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_has_edits ON cells(t_has_edits)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_is_validated ON cells(t_is_validated)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_s_last_edit_timestamp ON cells(s_last_edit_timestamp)");
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_last_edit_timestamp ON cells(t_last_edit_timestamp)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count)");
 
             // Keep word index (will need updating for new structure)
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_words_word ON words(word)");
@@ -814,11 +805,7 @@ export class SQLiteIndexManager {
             `${prefix}line_number`,
             `${prefix}word_count`,
             `${prefix}raw_content`,
-            `${prefix}updated_at`,
-            `${prefix}edit_count`,
-            `${prefix}last_edit_timestamp`,
-            `${prefix}last_edit_type`,
-            `${prefix}has_edits`
+            `${prefix}updated_at`
         ];
 
         const values = [
@@ -828,20 +815,17 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            currentTimestamp,
-            extractedMetadata.editCount,
-            extractedMetadata.lastEditTimestamp,
-            extractedMetadata.lastEditType,
-            extractedMetadata.hasEdits
+            currentTimestamp
         ];
 
-        // Add validation-specific columns for target cells
+        // Add target-specific metadata columns
         if (cellType === 'target') {
-            columns.push('t_validation_count', 't_is_validated', 't_last_validation_timestamp');
+            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_validated');
             values.push(
+                extractedMetadata.currentEditTimestamp || currentTimestamp,
                 extractedMetadata.validationCount || 0,
-                extractedMetadata.isValidated || false,
-                extractedMetadata.lastValidationTimestamp || null
+                extractedMetadata.validatedBy || null,
+                extractedMetadata.isValidated ? 1 : 0
             );
         }
 
@@ -928,11 +912,7 @@ export class SQLiteIndexManager {
             `${prefix}line_number`,
             `${prefix}word_count`,
             `${prefix}raw_content`,
-            `${prefix}updated_at`,
-            `${prefix}edit_count`,
-            `${prefix}last_edit_timestamp`,
-            `${prefix}last_edit_type`,
-            `${prefix}has_edits`
+            `${prefix}updated_at`
         ];
 
         const values = [
@@ -942,20 +922,17 @@ export class SQLiteIndexManager {
             lineNumber || null,
             wordCount,
             actualRawContent,
-            currentTimestamp,
-            extractedMetadata.editCount,
-            extractedMetadata.lastEditTimestamp,
-            extractedMetadata.lastEditType,
-            extractedMetadata.hasEdits
+            currentTimestamp
         ];
 
-        // Add validation-specific columns for target cells
+        // Add target-specific metadata columns
         if (cellType === 'target') {
-            columns.push('t_validation_count', 't_is_validated', 't_last_validation_timestamp');
+            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_validated');
             values.push(
+                extractedMetadata.currentEditTimestamp || currentTimestamp,
                 extractedMetadata.validationCount || 0,
-                extractedMetadata.isValidated || false,
-                extractedMetadata.lastValidationTimestamp || null
+                extractedMetadata.validatedBy || null,
+                extractedMetadata.isValidated ? 1 : 0
             );
         }
 
@@ -1248,21 +1225,14 @@ export class SQLiteIndexManager {
                 -- Source columns
                 c.s_content,
                 c.s_raw_content,
-                c.s_edit_count,
-                c.s_last_edit_timestamp,
-                c.s_last_edit_type,
-                c.s_has_edits,
                 s_file.file_path as s_file_path,
                 -- Target columns
                 c.t_content,
                 c.t_raw_content,
-                c.t_edit_count,
-                c.t_last_edit_timestamp,
-                c.t_last_edit_type,
-                c.t_has_edits,
+                c.t_current_edit_timestamp,
                 c.t_validation_count,
+                c.t_validated_by,
                 c.t_is_validated,
-                c.t_last_validation_timestamp,
                 t_file.file_path as t_file_path
             FROM cells c
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
@@ -1276,20 +1246,12 @@ export class SQLiteIndexManager {
                 const row = stmt.getAsObject();
 
                 // Construct metadata from dedicated columns
-                const sourceMetadata = {
-                    editCount: row.s_edit_count || 0,
-                    lastEditTimestamp: row.s_last_edit_timestamp || null,
-                    lastEditType: row.s_last_edit_type || null,
-                    hasEdits: Boolean(row.s_has_edits)
-                };
+                const sourceMetadata = {};
                 const targetMetadata = {
-                    editCount: row.t_edit_count || 0,
-                    lastEditTimestamp: row.t_last_edit_timestamp || null,
-                    lastEditType: row.t_last_edit_type || null,
-                    hasEdits: Boolean(row.t_has_edits),
+                    currentEditTimestamp: row.t_current_edit_timestamp || null,
                     validationCount: row.t_validation_count || 0,
-                    isValidated: Boolean(row.t_is_validated),
-                    lastValidationTimestamp: row.t_last_validation_timestamp || null
+                    validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
+                    isValidated: Boolean(row.t_is_validated)
                 };
 
                 return {
@@ -1324,23 +1286,16 @@ export class SQLiteIndexManager {
                 c.s_content,
                 c.s_raw_content,
                 c.s_line_number,
-                c.s_edit_count,
-                c.s_last_edit_timestamp,
-                c.s_last_edit_type,
-                c.s_has_edits,
                 s_file.file_path as s_file_path,
                 s_file.file_type as s_file_type,
                 -- Target columns
                 c.t_content,
                 c.t_raw_content,
                 c.t_line_number,
-                c.t_edit_count,
-                c.t_last_edit_timestamp,
-                c.t_last_edit_type,
-                c.t_has_edits,
+                c.t_current_edit_timestamp,
                 c.t_validation_count,
+                c.t_validated_by,
                 c.t_is_validated,
-                c.t_last_validation_timestamp,
                 t_file.file_path as t_file_path,
                 t_file.file_type as t_file_type
             FROM cells c
@@ -1355,20 +1310,12 @@ export class SQLiteIndexManager {
                 const row = stmt.getAsObject();
 
                 // Construct metadata from dedicated columns
-                const sourceMetadata = {
-                    editCount: row.s_edit_count || 0,
-                    lastEditTimestamp: row.s_last_edit_timestamp || null,
-                    lastEditType: row.s_last_edit_type || null,
-                    hasEdits: Boolean(row.s_has_edits)
-                };
+                const sourceMetadata = {};
                 const targetMetadata = {
-                    editCount: row.t_edit_count || 0,
-                    lastEditTimestamp: row.t_last_edit_timestamp || null,
-                    lastEditType: row.t_last_edit_type || null,
-                    hasEdits: Boolean(row.t_has_edits),
+                    currentEditTimestamp: row.t_current_edit_timestamp || null,
                     validationCount: row.t_validation_count || 0,
-                    isValidated: Boolean(row.t_is_validated),
-                    lastValidationTimestamp: row.t_last_validation_timestamp || null
+                    validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
+                    isValidated: Boolean(row.t_is_validated)
                 };
 
                 // Return data based on requested cell type
@@ -2577,9 +2524,7 @@ export class SQLiteIndexManager {
                     s_word_count = NULL,
                     s_raw_content_hash = NULL,
                     s_content_hash = NULL,
-                    s_edit_count = 0,
-                    s_last_edit_timestamp = NULL,
-                    s_has_edits = 0,
+
                     s_updated_at = datetime('now')
                 WHERE cell_id = ? AND s_file_id = ?
             `);
@@ -3142,51 +3087,44 @@ export class SQLiteIndexManager {
      * Extract frequently accessed metadata fields for dedicated columns
      */
     private extractMetadataFields(metadata: any, cellType: "source" | "target"): {
-        editCount: number;
-        lastEditTimestamp: number | null;
-        lastEditType: string | null;
-        hasEdits: boolean;
+        currentEditTimestamp?: number | null;
         validationCount?: number;
+        validatedBy?: string;
         isValidated?: boolean;
-        lastValidationTimestamp?: number | null;
     } {
-        const result = {
-            editCount: 0,
-            lastEditTimestamp: null as number | null,
-            lastEditType: null as string | null,
-            hasEdits: false,
-            validationCount: 0,
-            isValidated: false,
-            lastValidationTimestamp: null as number | null
-        };
+        const result: {
+            currentEditTimestamp?: number | null;
+            validationCount?: number;
+            validatedBy?: string;
+            isValidated?: boolean;
+        } = {};
 
-        if (!metadata || typeof metadata !== 'object') {
+        if (!metadata || typeof metadata !== 'object' || cellType !== 'target') {
             return result;
         }
 
-        // Extract edit information
+        // Extract edit information for target cells only
         const edits = metadata.edits || [];
-        result.editCount = edits.length;
-        result.hasEdits = edits.length > 0;
 
         if (edits.length > 0) {
             const lastEdit = edits[edits.length - 1];
-            result.lastEditTimestamp = lastEdit.timestamp || null;
-            result.lastEditType = lastEdit.editType || null;
+            result.currentEditTimestamp = lastEdit.timestamp || null;
 
-            // Extract validation information for target cells
-            if (cellType === 'target' && lastEdit.validatedBy) {
+            // Extract validation information
+            if (lastEdit.validatedBy) {
                 const activeValidations = lastEdit.validatedBy.filter((v: any) =>
                     v && typeof v === 'object' && !v.isDeleted
                 );
                 result.validationCount = activeValidations.length;
                 result.isValidated = activeValidations.length > 0;
 
-                if (activeValidations.length > 0) {
-                    result.lastValidationTimestamp = Math.max(...activeValidations.map((v: any) =>
-                        v.updatedTimestamp || v.timestamp || 0
-                    ));
-                }
+                // Store comma-separated list of usernames
+                const usernames = activeValidations.map((v: any) => v.username).filter(Boolean);
+                result.validatedBy = usernames.length > 0 ? usernames.join(',') : undefined;
+            } else {
+                result.validationCount = 0;
+                result.isValidated = false;
+                result.validatedBy = undefined;
             }
         }
 
