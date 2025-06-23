@@ -11,6 +11,7 @@ import { registerProjectManager } from "./projectManager";
 import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
+    migration_chatSystemMessageSetting,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
@@ -397,6 +398,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Execute post-activation tasks
         const postActivationStart = globalThis.performance.now();
         await executeCommandsAfter(context);
+        await migration_chatSystemMessageSetting();
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();

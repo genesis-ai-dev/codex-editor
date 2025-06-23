@@ -37,6 +37,53 @@ export const migration_changeDraftFolderToFilesFolder = async () => {
         }
     }
 };
+
+export const migration_chatSystemMessageSetting = async () => {
+    try {
+        const codexConfig = vscode.workspace.getConfiguration("codex-editor-extension");
+        const oldConfig = vscode.workspace.getConfiguration("translators-copilot");
+
+        // Check if the new setting already has a value (excluding default)
+        const newSettingInspection = codexConfig.inspect("chatSystemMessage");
+        const hasNewValue = newSettingInspection?.workspaceValue !== undefined ||
+            newSettingInspection?.workspaceFolderValue !== undefined ||
+            newSettingInspection?.globalValue !== undefined;
+
+        if (hasNewValue) {
+            console.log('New chatSystemMessage setting already has a value. Skipping migration.');
+            return;
+        }
+
+        // Check if the old setting has a value (excluding default)
+        const oldSettingInspection = oldConfig.inspect("chatSystemMessage");
+        const oldValue = oldSettingInspection?.workspaceValue ||
+            oldSettingInspection?.workspaceFolderValue ||
+            oldSettingInspection?.globalValue;
+
+        if (oldValue) {
+            console.log('Migrating chatSystemMessage from translators-copilot to codex-editor-extension namespace...');
+
+            // Migrate to workspace scope to match the old setting's scope
+            const targetScope = oldSettingInspection?.workspaceValue ? vscode.ConfigurationTarget.Workspace :
+                oldSettingInspection?.workspaceFolderValue ? vscode.ConfigurationTarget.WorkspaceFolder :
+                    vscode.ConfigurationTarget.Global;
+
+            await codexConfig.update(
+                "chatSystemMessage",
+                oldValue,
+                targetScope
+            );
+
+            console.log(`Successfully migrated chatSystemMessage setting to ${targetScope === vscode.ConfigurationTarget.Workspace ? 'workspace' :
+                targetScope === vscode.ConfigurationTarget.WorkspaceFolder ? 'workspace folder' : 'global'} scope.`);
+        } else {
+            console.log('No chatSystemMessage setting found in translators-copilot namespace. No migration needed.');
+        }
+    } catch (error) {
+        console.error('Error during chatSystemMessage migration:', error);
+    }
+};
+
 export async function temporaryMigrationScript_checkMatthewNotebook() {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders) {
