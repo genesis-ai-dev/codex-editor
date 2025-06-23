@@ -375,6 +375,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 parseProjectUrl={parseProjectUrl}
                                 getStatusIcon={getStatusIcon}
                                 filterProjects={filterProjects}
+                                isProgressDataLoaded={!!progressData}
                             />
                         ) : null
                     )}
@@ -412,6 +413,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                             statusChangedProjects={statusChangedProjects}
                                             parseProjectUrl={parseProjectUrl}
                                             getStatusIcon={getStatusIcon}
+                                            isProgressDataLoaded={!!progressData}
                                         />
                                     ))}
                                 </div>

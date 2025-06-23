@@ -28,6 +28,7 @@ interface ProjectCardProps {
         title: string;
         className: string;
     };
+    isProgressDataLoaded?: boolean;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -42,6 +43,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     statusChangedProjects,
     parseProjectUrl,
     getStatusIcon,
+    isProgressDataLoaded = false,
 }) => {
     const renderProjectActions = (project: ProjectWithSyncStatus) => {
         const isLocal = ["downloadedAndSynced", "localOnlyNotSynced"].includes(project.syncStatus);
@@ -152,12 +154,12 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                 />
                             </div>
                         </div>
-                    ) : (
+                    ) : !isProgressDataLoaded ? (
                         <div className="flex items-center gap-1">
                             <Skeleton className="h-3 w-5" />
                             <Skeleton className="h-1.5 w-12" />
                         </div>
-                    )}
+                    ) : null}
                     {renderProjectActions(project)}
                     {(displayUrl || onDeleteProject) && (
                         <Button

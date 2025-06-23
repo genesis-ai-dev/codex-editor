@@ -41,6 +41,7 @@ interface GroupSectionProps {
         className: string;
     };
     filterProjects: (projects: ProjectWithSyncStatus[]) => ProjectWithSyncStatus[];
+    isProgressDataLoaded?: boolean;
 }
 
 const INDENTATION_SIZE_REM = 1.25;
@@ -63,6 +64,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
     parseProjectUrl,
     getStatusIcon,
     filterProjects,
+    isProgressDataLoaded = false,
 }) => {
     if (!group || typeof group !== "object") return null;
 
@@ -170,6 +172,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         statusChangedProjects={statusChangedProjects}
                                         parseProjectUrl={parseProjectUrl}
                                         getStatusIcon={getStatusIcon}
+                                        isProgressDataLoaded={isProgressDataLoaded}
                                     />
                                 ))}
                             </div>
@@ -205,6 +208,7 @@ export const GroupSection: React.FC<GroupSectionProps> = ({
                                         parseProjectUrl={parseProjectUrl}
                                         getStatusIcon={getStatusIcon}
                                         filterProjects={filterProjects}
+                                        isProgressDataLoaded={isProgressDataLoaded}
                                     />
                                 </div>
                             );
