@@ -263,6 +263,60 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 },
                 [StartupFlowStates.OPEN_OR_CREATE_PROJECT]: {
                     on: {
+                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
+                            {
+                                target: StartupFlowStates.LOGIN_REGISTER,
+                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
+                                actions: assign({
+                                    authState: ({ event }) => ({
+                                        isAuthenticated:
+                                            "data" in event ? !!event.data.isAuthenticated : false,
+                                        isAuthExtensionInstalled:
+                                            "data" in event
+                                                ? !!event.data.isAuthExtensionInstalled
+                                                : false,
+                                        isLoading: "data" in event ? !!event.data.isLoading : false,
+                                        error: "data" in event ? event.data.error : undefined,
+                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                        workspaceState: {
+                                            isWorkspaceOpen:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                    : false,
+                                            isProjectInitialized:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isProjectInitialized
+                                                    : false,
+                                        },
+                                    }),
+                                }),
+                            },
+                            {
+                                actions: assign({
+                                    authState: ({ event }) => ({
+                                        isAuthenticated:
+                                            "data" in event ? !!event.data.isAuthenticated : false,
+                                        isAuthExtensionInstalled:
+                                            "data" in event
+                                                ? !!event.data.isAuthExtensionInstalled
+                                                : false,
+                                        isLoading: "data" in event ? !!event.data.isLoading : false,
+                                        error: "data" in event ? event.data.error : undefined,
+                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                        workspaceState: {
+                                            isWorkspaceOpen:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                    : false,
+                                            isProjectInitialized:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isProjectInitialized
+                                                    : false,
+                                        },
+                                    }),
+                                }),
+                            },
+                        ],
                         [StartupFlowEvents.BACK_TO_LOGIN]: StartupFlowStates.LOGIN_REGISTER,
                         [StartupFlowEvents.PROJECT_CREATE_EMPTY]:
                             StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT,
@@ -276,6 +330,60 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 },
                 [StartupFlowStates.PROMPT_USER_TO_INITIALIZE_PROJECT]: {
                     on: {
+                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
+                            {
+                                target: StartupFlowStates.LOGIN_REGISTER,
+                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
+                                actions: assign({
+                                    authState: ({ event }) => ({
+                                        isAuthenticated:
+                                            "data" in event ? !!event.data.isAuthenticated : false,
+                                        isAuthExtensionInstalled:
+                                            "data" in event
+                                                ? !!event.data.isAuthExtensionInstalled
+                                                : false,
+                                        isLoading: "data" in event ? !!event.data.isLoading : false,
+                                        error: "data" in event ? event.data.error : undefined,
+                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                        workspaceState: {
+                                            isWorkspaceOpen:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                    : false,
+                                            isProjectInitialized:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isProjectInitialized
+                                                    : false,
+                                        },
+                                    }),
+                                }),
+                            },
+                            {
+                                actions: assign({
+                                    authState: ({ event }) => ({
+                                        isAuthenticated:
+                                            "data" in event ? !!event.data.isAuthenticated : false,
+                                        isAuthExtensionInstalled:
+                                            "data" in event
+                                                ? !!event.data.isAuthExtensionInstalled
+                                                : false,
+                                        isLoading: "data" in event ? !!event.data.isLoading : false,
+                                        error: "data" in event ? event.data.error : undefined,
+                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                        workspaceState: {
+                                            isWorkspaceOpen:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                    : false,
+                                            isProjectInitialized:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isProjectInitialized
+                                                    : false,
+                                        },
+                                    }),
+                                }),
+                            },
+                        ],
                         [StartupFlowEvents.INITIALIZE_PROJECT]:
                             StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA,
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
@@ -288,6 +396,60 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 },
                 [StartupFlowStates.PROMPT_USER_TO_ADD_CRITICAL_DATA]: {
                     on: {
+                        [StartupFlowEvents.UPDATE_AUTH_STATE]: [
+                            {
+                                target: StartupFlowStates.LOGIN_REGISTER,
+                                guard: ({ event }) => !("data" in event ? event.data.isAuthenticated : true),
+                                actions: assign({
+                                    authState: ({ event }) => ({
+                                        isAuthenticated:
+                                            "data" in event ? !!event.data.isAuthenticated : false,
+                                        isAuthExtensionInstalled:
+                                            "data" in event
+                                                ? !!event.data.isAuthExtensionInstalled
+                                                : false,
+                                        isLoading: "data" in event ? !!event.data.isLoading : false,
+                                        error: "data" in event ? event.data.error : undefined,
+                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                        workspaceState: {
+                                            isWorkspaceOpen:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                    : false,
+                                            isProjectInitialized:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isProjectInitialized
+                                                    : false,
+                                        },
+                                    }),
+                                }),
+                            },
+                            {
+                                actions: assign({
+                                    authState: ({ event }) => ({
+                                        isAuthenticated:
+                                            "data" in event ? !!event.data.isAuthenticated : false,
+                                        isAuthExtensionInstalled:
+                                            "data" in event
+                                                ? !!event.data.isAuthExtensionInstalled
+                                                : false,
+                                        isLoading: "data" in event ? !!event.data.isLoading : false,
+                                        error: "data" in event ? event.data.error : undefined,
+                                        gitlabInfo: "data" in event ? event.data.gitlabInfo : undefined,
+                                        workspaceState: {
+                                            isWorkspaceOpen:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isWorkspaceOpen
+                                                    : false,
+                                            isProjectInitialized:
+                                                "data" in event
+                                                    ? !!event.data.workspaceState?.isProjectInitialized
+                                                    : false,
+                                        },
+                                    }),
+                                }),
+                            },
+                        ],
                         [StartupFlowEvents.VALIDATE_PROJECT_IS_OPEN]:
                             StartupFlowStates.ALREADY_WORKING,
                     },
