@@ -197,6 +197,8 @@ function getWebviewContent(
                 }
                 textarea {
                     flex: 1;
+                    min-height: 300px;
+                    width: 100%;
                     margin: 16px 0;
                     padding: 12px;
                     background-color: var(--vscode-input-background);
@@ -205,7 +207,8 @@ function getWebviewContent(
                     border-radius: 4px;
                     font-family: var(--vscode-editor-font-family);
                     font-size: var(--vscode-editor-font-size);
-                    resize: none;
+                    resize: vertical;
+                    box-sizing: border-box;
                 }
                 textarea:focus {
                     outline: none;
