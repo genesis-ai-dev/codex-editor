@@ -409,7 +409,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
             }
             return text;
         });
-        return text.trim().split("\n");
+        return text.split("\n");
     }
 
     async transformToNotebooks(): Promise<void> {
