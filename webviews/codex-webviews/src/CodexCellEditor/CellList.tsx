@@ -19,6 +19,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
     translationUnits: QuillCellContent[];
+    fullDocumentTranslationUnits: QuillCellContent[]; // Full document for global line numbering
     contentBeingUpdated: EditorCellContent;
     setContentBeingUpdated: (content: EditorCellContent) => void;
     handleCloseEditor: () => void;
@@ -48,6 +49,7 @@ function debug(message: string, ...args: any[]): void {
 
 const CellList: React.FC<CellListProps> = ({
     translationUnits,
+    fullDocumentTranslationUnits,
     contentBeingUpdated,
     setContentBeingUpdated,
     handleCloseEditor,
@@ -312,9 +314,9 @@ const CellList: React.FC<CellListProps> = ({
         }
     }, [cellsInAutocompleteQueue]);
 
-    // Helper function to generate appropriate cell label
+    // Helper function to generate appropriate cell label using global line numbers
     const generateCellLabel = useCallback(
-        (cell: QuillCellContent, index: number): string => {
+        (cell: QuillCellContent, currentCellsArray: QuillCellContent[]): string => {
             // If cell already has a label, use it
             if (cell.cellLabel) {
                 return cell.cellLabel;
@@ -334,48 +336,52 @@ const CellList: React.FC<CellListProps> = ({
                 // Get the parent cell ID (e.g., "1TH 1:6")
                 const parentCellId = cellIdParts.slice(0, 2).join(":");
 
-                // Find the parent cell
-                const parentCell = translationUnits.find(
-                    (unit) => unit.cellMarkers[0] === parentCellId
+                // Find the parent cell in the full document
+                const parentCell = fullDocumentTranslationUnits.find(
+                    (unit: QuillCellContent) => unit.cellMarkers[0] === parentCellId
                 );
 
                 if (parentCell) {
-                    // Get parent's label
+                    // Get parent's label using global line numbers
                     const parentLabel =
                         parentCell.cellLabel ||
                         (parentCell.cellType !== CodexCellTypes.PARATEXT
-                            ? getVisibleCellNumber(parentCell, translationUnits)
+                            ? getGlobalVisibleCellNumber(parentCell, fullDocumentTranslationUnits)
                             : "");
 
                     // Find all siblings (cells with the same parent)
-                    const siblings = translationUnits.filter((unit) => {
-                        const unitId = unit.cellMarkers[0];
-                        const unitIdParts = unitId.split(":");
-                        return (
-                            unitIdParts.length > 2 &&
-                            unitIdParts.slice(0, 2).join(":") === parentCellId
-                        );
-                    });
+                    const siblings = fullDocumentTranslationUnits.filter(
+                        (unit: QuillCellContent) => {
+                            const unitId = unit.cellMarkers[0];
+                            const unitIdParts = unitId.split(":");
+                            return (
+                                unitIdParts.length > 2 &&
+                                unitIdParts.slice(0, 2).join(":") === parentCellId
+                            );
+                        }
+                    );
 
                     // Find this cell's index among its siblings
                     const childIndex =
-                        siblings.findIndex((sibling) => sibling.cellMarkers[0] === cellId) + 1;
+                        siblings.findIndex(
+                            (sibling: QuillCellContent) => sibling.cellMarkers[0] === cellId
+                        ) + 1;
 
                     // Return label in format "parentLabel.childIndex"
                     return `${parentLabel}.${childIndex}`;
                 }
             }
 
-            // Get visible cell number (skipping paratext cells)
-            return getVisibleCellNumber(cell, translationUnits).toString();
+            // Get global visible cell number (skipping paratext cells)
+            return getGlobalVisibleCellNumber(cell, fullDocumentTranslationUnits).toString();
         },
-        [translationUnits]
+        [fullDocumentTranslationUnits]
     );
 
-    // Helper function to get the visible cell number (skipping paratext cells)
-    const getVisibleCellNumber = useCallback(
-        (cell: QuillCellContent, cells: QuillCellContent[]): number => {
-            const cellIndex = cells.findIndex(
+    // Helper function to get the global visible cell number (skipping paratext cells)
+    const getGlobalVisibleCellNumber = useCallback(
+        (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
+            const cellIndex = allCells.findIndex(
                 (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
             );
 
@@ -384,8 +390,8 @@ const CellList: React.FC<CellListProps> = ({
             // Count non-paratext cells up to and including this one
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
-                const cellIdParts = cells[i].cellMarkers[0].split(":");
-                if (cells[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+                const cellIdParts = allCells[i].cellMarkers[0].split(":");
+                if (allCells[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
                     visibleCellCount++;
                 }
             }
@@ -409,8 +415,8 @@ const CellList: React.FC<CellListProps> = ({
                 {group.map((cell, index) => {
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
-                    // Note: generateCellLabel adds 1 internally to convert to one-based indexing
-                    const generatedCellLabel = generateCellLabel(group[index], startIndex + index);
+                    // Use the current translationUnits array for context, but generate global labels
+                    const generatedCellLabel = generateCellLabel(cell, translationUnits);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
                     const translationState = getCellTranslationState(cellIdForTranslation);
@@ -542,8 +548,8 @@ const CellList: React.FC<CellListProps> = ({
                     currentGroup = [];
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
-                // Note: generateCellLabel adds 1 internally to convert to one-based indexing
-                const generatedCellLabel = generateCellLabel(translationUnits[i], i);
+                // Use global line numbering
+                const generatedCellLabel = generateCellLabel(translationUnits[i], translationUnits);
 
                 result.push(
                     <span
@@ -584,8 +590,11 @@ const CellList: React.FC<CellListProps> = ({
                     translationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
                     i === 0
                 ) {
-                    // Note: generateCellLabel adds 1 internally to convert to one-based indexing
-                    const generatedCellLabel = generateCellLabel(translationUnits[i], i);
+                    // Use global line numbering
+                    const generatedCellLabel = generateCellLabel(
+                        translationUnits[i],
+                        translationUnits
+                    );
                     const cellIdForTranslation = cellMarkers[0];
                     const isInProcess = isCellInTranslationProcess(cellIdForTranslation);
                     const translationState = getCellTranslationState(cellIdForTranslation);

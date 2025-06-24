@@ -10,6 +10,7 @@ import {
     EditorReceiveMessages,
     CellIdGlobalState,
 } from "../../../../types";
+import { CodexCellTypes } from "../../../../types/enums";
 import { ChapterNavigationHeader } from "./ChapterNavigationHeader";
 import CellList from "./CellList";
 import { useVSCodeMessageHandler } from "./hooks/useVSCodeMessageHandler";
@@ -531,7 +532,25 @@ const CodexCellEditor: React.FC = () => {
         return sectionSet.size;
     };
 
-    // Add function to get subsections for a chapter
+    // Helper function to get global line number for a cell (skips paratext and child cells)
+    const getGlobalLineNumber = (cell: QuillCellContent, allUnits: QuillCellContent[]): number => {
+        const cellIndex = allUnits.findIndex((unit) => unit.cellMarkers[0] === cell.cellMarkers[0]);
+
+        if (cellIndex === -1) return 0;
+
+        // Count non-paratext, non-child cells up to and including this one
+        let lineNumber = 0;
+        for (let i = 0; i <= cellIndex; i++) {
+            const cellIdParts = allUnits[i].cellMarkers[0].split(":");
+            if (allUnits[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+                lineNumber++;
+            }
+        }
+
+        return lineNumber;
+    };
+
+    // Add function to get subsections for a chapter based on actual line numbers
     const getSubsectionsForChapter = (chapterNum: number) => {
         // Filter cells for the specific chapter
         const cellsForChapter = translationUnits.filter((verse) => {
@@ -541,24 +560,54 @@ const CodexCellEditor: React.FC = () => {
             return sectionCellNumber === chapterNum.toString();
         });
 
-        // If no cells or cells fit in one page, no subsections needed
-        if (cellsForChapter.length === 0 || cellsForChapter.length <= cellsPerPage) {
+        if (cellsForChapter.length === 0) {
             return [];
         }
 
-        // Calculate number of pages
-        const totalPages = Math.ceil(cellsForChapter.length / cellsPerPage);
+        // Filter out only the cells that count for line numbering (non-paratext, non-child)
+        const lineNumberCells = cellsForChapter.filter((cell) => {
+            const cellIdParts = cell.cellMarkers[0].split(":");
+            return cell.cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3;
+        });
+
+        // If line-number cells fit in one page, no subsections needed
+        if (lineNumberCells.length <= cellsPerPage) {
+            return [];
+        }
+
+        // Calculate number of pages based on line-numbered cells
+        const totalPages = Math.ceil(lineNumberCells.length / cellsPerPage);
         const subsections: Subsection[] = [];
 
         for (let i = 0; i < totalPages; i++) {
-            const startIndex = i * cellsPerPage + 1;
-            const endIndex = Math.min((i + 1) * cellsPerPage, cellsForChapter.length);
+            const startLineIndex = i * cellsPerPage;
+            const endLineIndex = Math.min((i + 1) * cellsPerPage, lineNumberCells.length);
+
+            // Get the actual line numbers for the label
+            const startLineNumber =
+                startLineIndex > 0
+                    ? getGlobalLineNumber(lineNumberCells[startLineIndex], translationUnits)
+                    : 1;
+            const endLineNumber = getGlobalLineNumber(
+                lineNumberCells[endLineIndex - 1],
+                translationUnits
+            );
+
+            // Find the actual cell indices in the full chapter (including paratext/child cells)
+            const startCellIndex = cellsForChapter.findIndex(
+                (cell) => cell.cellMarkers[0] === lineNumberCells[startLineIndex].cellMarkers[0]
+            );
+            const endCellIndex =
+                cellsForChapter.findIndex(
+                    (cell) =>
+                        cell.cellMarkers[0] === lineNumberCells[endLineIndex - 1].cellMarkers[0]
+                ) + 1;
 
             subsections.push({
                 id: `page-${i}`,
-                label: `${startIndex}-${endIndex}`,
-                startIndex: i * cellsPerPage,
-                endIndex: Math.min((i + 1) * cellsPerPage, cellsForChapter.length),
+                label: `${startLineNumber}-${endLineNumber}`,
+                startIndex: startCellIndex,
+                endIndex: endCellIndex,
             });
         }
 
@@ -1648,6 +1697,7 @@ const CodexCellEditor: React.FC = () => {
                         <CellList
                             spellCheckResponse={spellCheckResponse}
                             translationUnits={translationUnitsForSection}
+                            fullDocumentTranslationUnits={translationUnits}
                             contentBeingUpdated={contentBeingUpdated}
                             setContentBeingUpdated={handleSetContentBeingUpdated}
                             handleCloseEditor={handleCloseEditor}
