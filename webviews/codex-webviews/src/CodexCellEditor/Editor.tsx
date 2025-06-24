@@ -601,18 +601,28 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         const selection = quill.getSelection(true);
 
         if (selection) {
-            // Get the text so far
-            const text = quill.getText();
-            const cursorPosition = selection.index;
+            let selectedText = "";
+            let cursorPosition = selection.index;
 
-            // Find the start of the word before the cursor
-            let wordStart = cursorPosition;
-            while (wordStart > 0 && !/\s/.test(text.charAt(wordStart - 1))) {
-                wordStart--;
+            // Check if there's selected text
+            if (selection.length > 0) {
+                // Get the selected text
+                selectedText = quill.getText(selection.index, selection.length);
+                // For selected text, we'll insert the footnote at the end of the selection
+                cursorPosition = selection.index + selection.length;
+            } else {
+                // No selection, find the word to the left of cursor
+                const text = quill.getText();
+
+                // Find the start of the word before the cursor
+                let wordStart = cursorPosition;
+                while (wordStart > 0 && !/\s/.test(text.charAt(wordStart - 1))) {
+                    wordStart--;
+                }
+
+                // Extract the word
+                selectedText = text.substring(wordStart, cursorPosition);
             }
-
-            // Extract the word
-            const word = text.substring(wordStart, cursorPosition);
 
             // Store original content before switching to footnote editing
             setOriginalCellContent(quill.root.innerHTML);
@@ -622,20 +632,22 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             setCursorPositionForFootnote(cursorPosition);
             setEditingFootnoteId(`fn${footnoteCount}`);
 
-            // Prepare footnote content
-            let footnoteContent = "";
-            if (word.trim()) {
-                setFootnoteWord(word);
-                footnoteContent = `<i>${word}</i>: `;
-            } else {
-                setFootnoteWord("");
-                footnoteContent = "";
+            // Prepare footnote content using Quill API to avoid formatting issues
+            setFootnoteWord(selectedText);
+
+            // Clear the editor and build content properly
+            quill.setText("");
+
+            if (selectedText.trim()) {
+                // Insert the word in italics followed by colon and space
+                quill.insertText(0, selectedText, { italic: true });
+                quill.insertText(selectedText.length, ": ");
+                // Set cursor after the colon and space
+                quill.setSelection(selectedText.length + 2);
             }
 
-            setEditingFootnoteContent(footnoteContent);
-
-            // Switch main editor to footnote content
-            quill.root.innerHTML = footnoteContent;
+            // Store the current content
+            setEditingFootnoteContent(quill.root.innerHTML);
 
             setIsEditingFootnoteInline(true);
         }
