@@ -630,8 +630,6 @@ const CodexCellEditor: React.FC = () => {
             content: content,
         } as EditorPostMessages);
         checkAlertCodes();
-
-
     };
 
     // State for current user - initialize with a default test username to ensure logic works
