@@ -401,7 +401,7 @@ export const GitLabProjectsList: React.FC<GitLabProjectsListProps> = ({
                                 <div className="border-t border-muted">
                                     {filteredUngroupedProjects.map((project) => (
                                         <ProjectCard
-                                            key={project.name}
+                                            key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}
                                             project={project}
                                             onCloneProject={onCloneProject}
                                             onOpenProject={onOpenProject}

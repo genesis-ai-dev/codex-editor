@@ -93,7 +93,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
         return (
             <div
-                key={project.name}
+                key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}
                 className={cn(
                     "flex items-center justify-between py-2 px-3 hover:bg-muted/30 transition-colors duration-200 border-b last:border-b-0",
                     isNewlyAdded && "bg-blue-50/50",
@@ -268,7 +268,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     };
 
     return (
-        <div key={project.name}>
+        <div key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}>
             {renderProjectCard()}
             {renderProjectDetails()}
         </div>
