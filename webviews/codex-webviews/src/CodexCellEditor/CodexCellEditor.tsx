@@ -171,6 +171,7 @@ const CodexCellEditor: React.FC = () => {
     // Add these new state variables
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
+    const [isSaving, setIsSaving] = useState(false);
     const [editorPosition, setEditorPosition] = useState<
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
@@ -204,7 +205,7 @@ const CodexCellEditor: React.FC = () => {
             if (message.type === "highlightCell") {
                 // Set the highlighted cell ID (null clears the highlight)
                 setHighlightedCellId(message.cellId);
-                
+
                 // Reset manual navigation tracking when highlight is cleared
                 if (!message.cellId) {
                     setHasManuallyNavigatedAway(false);
@@ -257,7 +258,7 @@ const CodexCellEditor: React.FC = () => {
 
             // Check if this is a new highlight (different chapter than last highlighted)
             const isNewHighlight = newChapterNumber !== lastHighlightedChapter;
-            
+
             if (isNewHighlight) {
                 // Reset the manual navigation flag for new highlights
                 setHasManuallyNavigatedAway(false);
@@ -268,39 +269,40 @@ const CodexCellEditor: React.FC = () => {
             // Only auto-navigate if:
             // 1. User hasn't manually navigated away, OR this is a new highlight
             // 2. We're still on the same chapter as when the highlight was originally set (prevents conflicts)
-            const shouldAutoNavigate = (!hasManuallyNavigatedAway || isNewHighlight) && 
-                                     (isNewHighlight || chapterNumber === chapterWhenHighlighted);
+            const shouldAutoNavigate =
+                (!hasManuallyNavigatedAway || isNewHighlight) &&
+                (isNewHighlight || chapterNumber === chapterWhenHighlighted);
 
             if (shouldAutoNavigate) {
-            // Get all cells for the target chapter
-            const allCellsForTargetChapter = translationUnits.filter((verse) => {
-                const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
-                return verseChapter === newChapterNumber.toString();
-            });
+                // Get all cells for the target chapter
+                const allCellsForTargetChapter = translationUnits.filter((verse) => {
+                    const verseChapter = verse?.cellMarkers?.[0]?.split(" ")?.[1]?.split(":")[0];
+                    return verseChapter === newChapterNumber.toString();
+                });
 
-            // Find the index of the highlighted cell within the chapter
-            const cellIndexInChapter = allCellsForTargetChapter.findIndex(
-                (verse) => verse.cellMarkers[0] === cellId
-            );
+                // Find the index of the highlighted cell within the chapter
+                const cellIndexInChapter = allCellsForTargetChapter.findIndex(
+                    (verse) => verse.cellMarkers[0] === cellId
+                );
 
-            // Calculate which subsection this cell belongs to
-            let targetSubsectionIndex = 0;
-            if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
-                targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
-            }
+                // Calculate which subsection this cell belongs to
+                let targetSubsectionIndex = 0;
+                if (cellIndexInChapter >= 0 && cellsPerPage > 0) {
+                    targetSubsectionIndex = Math.floor(cellIndexInChapter / cellsPerPage);
+                }
 
-            // If chapter is changing, update chapter and subsection
-            if (newChapterNumber !== chapterNumber) {
-                setChapterNumber(newChapterNumber);
-                setCurrentSubsectionIndex(targetSubsectionIndex);
-            } else {
-                // Same chapter, but check if we need to change subsection
-                // Check if chapter has multiple pages (subsections)
-                if (
-                    allCellsForTargetChapter.length > cellsPerPage &&
-                    targetSubsectionIndex !== currentSubsectionIndex
-                ) {
+                // If chapter is changing, update chapter and subsection
+                if (newChapterNumber !== chapterNumber) {
+                    setChapterNumber(newChapterNumber);
                     setCurrentSubsectionIndex(targetSubsectionIndex);
+                } else {
+                    // Same chapter, but check if we need to change subsection
+                    // Check if chapter has multiple pages (subsections)
+                    if (
+                        allCellsForTargetChapter.length > cellsPerPage &&
+                        targetSubsectionIndex !== currentSubsectionIndex
+                    ) {
+                        setCurrentSubsectionIndex(targetSubsectionIndex);
                     }
                 }
             }
@@ -376,6 +378,13 @@ const CodexCellEditor: React.FC = () => {
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
+
+            // If we're currently saving, this content update likely means the save completed
+            if (isSaving) {
+                debug("editor", "Content updated during save - save completed");
+                setIsSaving(false);
+                handleCloseEditor();
+            }
         },
         setSpellCheckResponse: setSpellCheckResponse,
         jumpToCell: (cellId) => {
@@ -612,18 +621,17 @@ const CodexCellEditor: React.FC = () => {
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
         debug("editor", "Saving HTML content:", { cellId: content.cellMarkers?.[0], content });
+
+        // Show saving spinner
+        setIsSaving(true);
+
         vscode.postMessage({
             command: "saveHtml",
             content: content,
         } as EditorPostMessages);
         checkAlertCodes();
 
-        // Trigger reindexing after saving content
-        // vscode.postMessage({
-        //     command: "triggerReindexing",
-        // } as EditorPostMessages);
 
-        handleCloseEditor();
     };
 
     // State for current user - initialize with a default test username to ensure logic works
@@ -1668,6 +1676,7 @@ const CodexCellEditor: React.FC = () => {
                                     : []
                             }
                             audioAttachments={audioAttachments}
+                            isSaving={isSaving}
                         />
                     </div>
                 </div>

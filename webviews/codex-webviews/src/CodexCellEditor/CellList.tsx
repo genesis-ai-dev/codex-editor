@@ -36,6 +36,7 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
+    isSaving?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -65,6 +66,7 @@ const CellList: React.FC<CellListProps> = ({
     currentProcessingCellId,
     cellsInAutocompleteQueue = [],
     audioAttachments,
+    isSaving = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -565,6 +567,7 @@ const CellList: React.FC<CellListProps> = ({
                             handleSaveHtml={handleSaveHtml}
                             textDirection={textDirection}
                             openCellById={openCellById}
+                            isSaving={isSaving}
                         />
                     </span>
                 );

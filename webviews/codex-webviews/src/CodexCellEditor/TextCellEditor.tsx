@@ -35,6 +35,7 @@ import { Badge } from "../components/ui/badge";
 import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import "./TextCellEditor-overrides.css";
 
 const USE_AUDIO_TAB = true;
 
@@ -103,6 +104,7 @@ interface CellEditorProps {
     openCellById: (cellId: string) => void;
     editHistory: EditHistory[];
     cell: QuillCellContent;
+    isSaving?: boolean;
 }
 
 const DEBUG_ENABLED = false;
@@ -174,6 +176,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cellIsChild,
     openCellById,
     cell,
+    isSaving = false,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -1188,9 +1191,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     }}
                                     variant="default"
                                     size="icon"
-                                    title="Save changes"
+                                    title={isSaving ? "Saving..." : "Save changes"}
+                                    disabled={isSaving}
                                 >
-                                    <Check className="h-4 w-4" />
+                                    {isSaving ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Check className="h-4 w-4" />
+                                    )}
                                 </Button>
                                 <Button
                                     onClick={handleCloseEditor}

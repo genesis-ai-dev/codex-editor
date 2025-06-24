@@ -107,6 +107,16 @@ export interface EditorHandles {
     updateContent: (content: string) => void;
 }
 
+// Function to check if Quill editor is empty
+function isQuillEmpty(quill: Quill | null) {
+    if (!quill) return true;
+    const delta = quill.getContents();
+    const text = delta.ops?.reduce((text, op) => {
+        return text + (op.insert ? op.insert : "");
+    }, "");
+    return text?.trim().length === 0;
+}
+
 // Wrap the Editor component in forwardRef instead of default export
 const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
@@ -256,10 +266,52 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 });
             }
 
-            // Add a custom quill clipboard handler for pasting in
-            quill.clipboard.addMatcher(Node.ELEMENT_NODE, (node: Node, delta) => {
+            // Add paste event listener to handle paste operations
+            quill.root.addEventListener("paste", () => {
+                // Set unsaved changes immediately when paste is detected
                 setUnsavedChanges(true);
-                return delta;
+
+                // Use setTimeout to ensure the paste operation completes, then process content
+                setTimeout(() => {
+                    if (quillRef.current && props.onChange) {
+                        const content = quillRef.current.root.innerHTML;
+                        debug("Paste content processing", {
+                            content,
+                            isEmpty: isQuillEmpty(quillRef.current),
+                        });
+
+                        // Process the content using the same logic as text-change
+                        const cleanedContents = getCleanedHtml(content);
+
+                        const arrayOfParagraphs = cleanedContents
+                            .trim()
+                            .split("</p>")
+                            .map((p) => p.trim())
+                            .filter((p) => p !== "");
+
+                        const finalParagraphs = arrayOfParagraphs.map((p) =>
+                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
+                        );
+
+                        const firstParagraph = finalParagraphs[0] || "";
+                        const restOfParagraphs = finalParagraphs.slice(1) || [];
+                        const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
+                        const contentIsEmpty = isQuillEmpty(quillRef.current);
+
+                        const finalContent = contentIsEmpty
+                            ? ""
+                            : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join(
+                                  ""
+                              );
+
+                        debug("Paste finalContent", { finalContent, contentIsEmpty });
+
+                        // Call onChange to update contentBeingUpdated
+                        props.onChange({
+                            html: finalContent,
+                        });
+                    }
+                }, 50); // Slightly longer timeout to ensure paste is complete
             });
 
             quillRef.current = quill;
@@ -296,8 +348,23 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 // Normal cell content editing logic
                 const initialQuillContent = "<p><br></p>";
                 let isDirty = false;
+
+                // More robust dirty checking
                 if (quillInitialContent !== initialQuillContent) {
                     isDirty = content !== quillInitialContent;
+                } else {
+                    // If we started with empty content, any non-empty content is dirty
+                    isDirty = !isQuillEmpty(quill) && content !== initialQuillContent;
+                }
+
+                // Additional check: if content is significantly different from initial, it's dirty
+                if (
+                    !isDirty &&
+                    content &&
+                    content !== "<p><br></p>" &&
+                    content !== quillInitialContent
+                ) {
+                    isDirty = true;
                 }
 
                 debug("isDirty", {
@@ -305,10 +372,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     content,
                     initialContentRefCurrent: initialContentRef.current,
                     quillInitialContent,
+                    isQuillEmpty: isQuillEmpty(quill),
                 });
 
                 if (isDirty) {
-                    setUnsavedChanges(isDirty);
+                    setUnsavedChanges(true);
                     if (props.onChange) {
                         const cleanedContents = getCleanedHtml(content);
 
@@ -434,18 +502,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             }
         }
     }, [revertedValue]);
-
-    // Function to check if Quill editor is empty
-    function isQuillEmpty(quill: Quill | null) {
-        if (!quill) return true;
-        const delta = quill.getContents();
-        debug("delta", delta);
-        const text = delta.ops?.reduce((text, op) => {
-            return text + (op.insert ? op.insert : "");
-        }, "");
-        debug("text", text);
-        return text?.trim().length === 0;
-    }
 
     const llmCompletion = async () => {
         window.vscodeApi.postMessage({
