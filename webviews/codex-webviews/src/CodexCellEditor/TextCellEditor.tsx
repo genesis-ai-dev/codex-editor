@@ -1474,75 +1474,59 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 <Badge variant="outline" className="font-mono">
                                                     {index + 1}
                                                 </Badge>
-                                                <FootnoteDeleteButton
-                                                    onConfirm={() => {
-                                                        // Create DOM parser to edit the HTML directly
-                                                        const parser = new DOMParser();
-                                                        const doc = parser.parseFromString(
-                                                            editorContent,
-                                                            "text/html"
-                                                        );
+                                                <div className="flex gap-1">
+                                                    <Button
+                                                        onClick={() => {
+                                                            editorHandlesRef.current?.editFootnote(
+                                                                footnote.id,
+                                                                footnote.content
+                                                            );
+                                                        }}
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6"
+                                                        title="Edit Footnote"
+                                                    >
+                                                        <Pencil className="h-4 w-4" />
+                                                    </Button>
+                                                    <FootnoteDeleteButton
+                                                        onConfirm={() => {
+                                                            // Create DOM parser to edit the HTML directly
+                                                            const parser = new DOMParser();
+                                                            const doc = parser.parseFromString(
+                                                                editorContent,
+                                                                "text/html"
+                                                            );
 
-                                                        // Find and remove footnote markers
-                                                        doc.querySelectorAll(
-                                                            "sup.footnote-marker"
-                                                        ).forEach((el) => {
-                                                            if (el.textContent === footnote.id) {
-                                                                el.remove();
-                                                            }
-                                                        });
+                                                            // Find and remove footnote markers
+                                                            doc.querySelectorAll(
+                                                                "sup.footnote-marker"
+                                                            ).forEach((el) => {
+                                                                if (
+                                                                    el.textContent === footnote.id
+                                                                ) {
+                                                                    el.remove();
+                                                                }
+                                                            });
 
-                                                        // Update editor content
-                                                        const updatedContent = doc.body.innerHTML;
-                                                        handleContentUpdate(updatedContent);
+                                                            // Update editor content
+                                                            const updatedContent =
+                                                                doc.body.innerHTML;
+                                                            handleContentUpdate(updatedContent);
 
-                                                        // Force parse footnotes again
-                                                        setTimeout(parseFootnotesFromContent, 50);
-                                                    }}
-                                                />
+                                                            // Force parse footnotes again
+                                                            setTimeout(
+                                                                parseFootnotesFromContent,
+                                                                50
+                                                            );
+                                                        }}
+                                                    />
+                                                </div>
                                             </div>
                                             <div
                                                 className="text-sm p-2 rounded bg-muted"
-                                                contentEditable
-                                                suppressContentEditableWarning
                                                 dangerouslySetInnerHTML={{
                                                     __html: footnote.content,
-                                                }}
-                                                onBlur={(e) => {
-                                                    const updatedContent =
-                                                        e.currentTarget.innerHTML;
-
-                                                    // Create DOM parser to edit the HTML directly
-                                                    const parser = new DOMParser();
-                                                    const doc = parser.parseFromString(
-                                                        editorContent,
-                                                        "text/html"
-                                                    );
-
-                                                    // Find and update footnote content attributes
-                                                    doc.querySelectorAll(
-                                                        "sup.footnote-marker"
-                                                    ).forEach((el) => {
-                                                        if (el.textContent === footnote.id) {
-                                                            el.setAttribute(
-                                                                "data-footnote",
-                                                                updatedContent
-                                                            );
-                                                        }
-                                                    });
-
-                                                    // Update editor content
-                                                    const newHtml = doc.body.innerHTML;
-                                                    handleContentUpdate(newHtml);
-
-                                                    // Update footnotes array for immediate UI feedback
-                                                    setFootnotes(
-                                                        footnotes.map((fn) =>
-                                                            fn.id === footnote.id
-                                                                ? { ...fn, content: updatedContent }
-                                                                : fn
-                                                        )
-                                                    );
                                                 }}
                                             />
                                         </Card>

@@ -103,6 +103,7 @@ export interface EditorHandles {
     openLibrary: () => void;
     showEditHistory: () => void;
     addFootnote: () => void;
+    editFootnote: (footnoteId: string, content: string) => void;
     updateContent: (content: string) => void;
 }
 
@@ -127,13 +128,37 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [showHistoryModal, setShowHistoryModal] = useState(false);
     const [editHistoryForCell, setEditHistoryForCell] = useState<EditHistory[]>(props.editHistory);
 
-    const [showFootnoteModal, setShowFootnoteModal] = useState(false);
-    const [footnoteContent, setFootnoteContent] = useState("");
-    const [footnoteWord, setFootnoteWord] = useState("");
     const [footnoteCount, setFootnoteCount] = useState(1);
     const [characterCount, setCharacterCount] = useState(0);
 
+    // Inline footnote editing states (for both creating and editing)
+    const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
+    const [editingFootnoteId, setEditingFootnoteId] = useState("");
+    const [editingFootnoteContent, setEditingFootnoteContent] = useState("");
+    const [isCreatingNewFootnote, setIsCreatingNewFootnote] = useState(false);
+    const [footnoteWord, setFootnoteWord] = useState("");
+    const [cursorPositionForFootnote, setCursorPositionForFootnote] = useState(0);
+    const [originalCellContent, setOriginalCellContent] = useState("");
+
     console.log({ editHistory, editHistoryForCell });
+
+    // Handle keyboard events for inline footnote editing
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape" && isEditingFootnoteInline) {
+                setIsEditingFootnoteInline(false);
+                setIsCreatingNewFootnote(false);
+            }
+        };
+
+        if (isEditingFootnoteInline) {
+            document.addEventListener("keydown", handleKeyDown);
+        }
+
+        return () => {
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [isEditingFootnoteInline]);
 
     // Initialize Quill editor
     useEffect(() => {
@@ -254,7 +279,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     isFirstLoad = false;
                     return;
                 }
-                const initialQuillContent = "<p><br></p>";
+
                 const content = quill.root.innerHTML;
 
                 // Update character count
@@ -262,6 +287,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 const charCount = textContent.trim().length;
                 setCharacterCount(charCount);
 
+                // If we're editing a footnote, just update the footnote content state
+                if (isEditingFootnoteInline) {
+                    setEditingFootnoteContent(content);
+                    return;
+                }
+
+                // Normal cell content editing logic
+                const initialQuillContent = "<p><br></p>";
                 let isDirty = false;
                 if (quillInitialContent !== initialQuillContent) {
                     isDirty = content !== quillInitialContent;
@@ -272,8 +305,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     content,
                     initialContentRefCurrent: initialContentRef.current,
                     quillInitialContent,
-                    // initialContentConvertedByQuill,
                 });
+
                 if (isDirty) {
                     setUnsavedChanges(isDirty);
                     if (props.onChange) {
@@ -489,6 +522,21 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             .join("");
     };
 
+    // Cancel footnote editing and restore original content
+    const cancelFootnoteEditing = () => {
+        if (!quillRef.current) return;
+
+        // Restore original cell content to the main editor
+        quillRef.current.root.innerHTML = originalCellContent;
+
+        // Reset all footnote editing state
+        setIsEditingFootnoteInline(false);
+        setIsCreatingNewFootnote(false);
+        setEditingFootnoteId("");
+        setEditingFootnoteContent("");
+        setOriginalCellContent("");
+    };
+
     // Handle adding a footnote
     const handleAddFootnote = () => {
         if (!quillRef.current) return;
@@ -510,46 +558,104 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // Extract the word
             const word = text.substring(wordStart, cursorPosition);
 
-            // Only proceed if we have a word
+            // Store original content before switching to footnote editing
+            setOriginalCellContent(quill.root.innerHTML);
+
+            // Set up for creating a new footnote
+            setIsCreatingNewFootnote(true);
+            setCursorPositionForFootnote(cursorPosition);
+            setEditingFootnoteId(`fn${footnoteCount}`);
+
+            // Prepare footnote content
+            let footnoteContent = "";
             if (word.trim()) {
                 setFootnoteWord(word);
-                // Use HTML for the word in italics
-                setFootnoteContent(`<i>${word}</i>: `);
-                setShowFootnoteModal(true);
+                footnoteContent = `<i>${word}</i>: `;
             } else {
-                // If no word detected, just show empty modal
                 setFootnoteWord("");
-                setFootnoteContent("");
-                setShowFootnoteModal(true);
+                footnoteContent = "";
             }
+
+            setEditingFootnoteContent(footnoteContent);
+
+            // Switch main editor to footnote content
+            quill.root.innerHTML = footnoteContent;
+
+            setIsEditingFootnoteInline(true);
         }
     };
 
-    // Insert the footnote marker at the current selection
-    const insertFootnoteMarker = () => {
+    // Save footnote content (for both creating new and editing existing)
+    const saveFootnoteContent = () => {
         if (!quillRef.current) return;
 
         const quill = quillRef.current;
-        const selection = quill.getSelection(true);
 
-        if (selection) {
-            // Create a unique footnote ID for this marker
-            const footnoteId = `fn${footnoteCount}`;
+        // Get the current footnote content from the main editor
+        const currentFootnoteContent = quill.root.innerHTML;
 
-            // Insert the marker with the content directly in the data-footnote attribute
-            quill.insertText(selection.index, footnoteId, { footnote: footnoteContent });
+        if (isCreatingNewFootnote) {
+            // Restore original content first
+            quill.root.innerHTML = originalCellContent;
 
-            // Move cursor past the footnote
-            quill.setSelection(selection.index + footnoteId.length);
-
-            // Increment footnote counter for next use
+            // Creating a new footnote - insert at the saved cursor position
+            quill.insertText(cursorPositionForFootnote, editingFootnoteId, {
+                footnote: currentFootnoteContent,
+            });
+            quill.setSelection(cursorPositionForFootnote + editingFootnoteId.length);
             setFootnoteCount((prev) => prev + 1);
+        } else {
+            // Editing existing footnote - restore original content first
+            quill.root.innerHTML = originalCellContent;
 
-            // Trigger change event to save content
-            setUnsavedChanges(true);
+            // Now update the footnote in the restored content
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(quill.root.innerHTML, "text/html");
 
-            // No need to store footnote separately, it's already in the HTML
+            // Find and update footnote content attributes
+            doc.querySelectorAll("sup.footnote-marker").forEach((el) => {
+                if (el.textContent === editingFootnoteId) {
+                    el.setAttribute("data-footnote", currentFootnoteContent);
+                }
+            });
+
+            const newHtml = doc.body.innerHTML;
+            quill.root.innerHTML = newHtml;
         }
+
+        // Trigger change event to save content
+        setUnsavedChanges(true);
+
+        // Trigger the onChange callback to notify the parent
+        if (props.onChange) {
+            props.onChange({ html: quill.root.innerHTML });
+        }
+
+        // Reset editing state
+        setIsEditingFootnoteInline(false);
+        setIsCreatingNewFootnote(false);
+        setEditingFootnoteId("");
+        setEditingFootnoteContent("");
+        setOriginalCellContent("");
+    };
+
+    // Handle editing an existing footnote
+    const handleEditFootnote = (footnoteId: string, content: string) => {
+        if (!quillRef.current) return;
+
+        const quill = quillRef.current;
+
+        // Store original content before switching to footnote editing
+        setOriginalCellContent(quill.root.innerHTML);
+
+        setEditingFootnoteId(footnoteId);
+        setEditingFootnoteContent(content);
+        setIsCreatingNewFootnote(false);
+
+        // Switch main editor to footnote content
+        quill.root.innerHTML = content;
+
+        setIsEditingFootnoteInline(true);
     };
 
     // Expose imperative methods
@@ -576,6 +682,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         },
         addFootnote: () => {
             handleAddFootnote();
+        },
+        editFootnote: (footnoteId: string, content: string) => {
+            handleEditFootnote(footnoteId, content);
         },
         updateContent: (content: string) => {
             if (quillRef.current) {
@@ -650,6 +759,86 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         }`}
                     ></i>
                 </VSCodeButton>
+                {isEditingFootnoteInline && (
+                    /* Reference content display when editing footnote */
+                    <div
+                        style={{
+                            border: "1px solid var(--vscode-input-border)",
+                            borderRadius: "2px",
+                            padding: "12px",
+                            backgroundColor: "var(--vscode-editor-background)",
+                            color: "var(--vscode-editor-foreground)",
+                            minHeight: "80px",
+                            marginBottom: "12px",
+                        }}
+                    >
+                        <div
+                            style={{
+                                fontSize: "0.9em",
+                                color: "var(--vscode-descriptionForeground)",
+                                marginBottom: "8px",
+                                fontStyle: "italic",
+                                borderBottom: "1px solid var(--vscode-widget-border)",
+                                paddingBottom: "4px",
+                            }}
+                        >
+                            Cell Content (for reference):
+                        </div>
+                        <div dangerouslySetInnerHTML={{ __html: originalCellContent }} />
+                    </div>
+                )}
+
+                {/* Footnote editing header when in footnote mode */}
+                {isEditingFootnoteInline && (
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "8px",
+                            padding: "8px 12px",
+                            backgroundColor: "var(--vscode-list-hoverBackground)",
+                            borderRadius: "4px",
+                        }}
+                    >
+                        <h4 style={{ margin: 0, color: "var(--vscode-editor-foreground)" }}>
+                            {isCreatingNewFootnote
+                                ? `Creating Footnote: ${editingFootnoteId}`
+                                : `Editing Footnote: ${editingFootnoteId}`}
+                        </h4>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                            <button
+                                onClick={cancelFootnoteEditing}
+                                style={{
+                                    padding: "4px 8px",
+                                    border: "1px solid var(--vscode-button-border)",
+                                    backgroundColor: "var(--vscode-button-secondaryBackground)",
+                                    color: "var(--vscode-button-secondaryForeground)",
+                                    borderRadius: "2px",
+                                    cursor: "pointer",
+                                    fontSize: "0.9em",
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={saveFootnoteContent}
+                                style={{
+                                    padding: "4px 8px",
+                                    border: "1px solid var(--vscode-button-border)",
+                                    backgroundColor: "var(--vscode-button-background)",
+                                    color: "var(--vscode-button-foreground)",
+                                    borderRadius: "2px",
+                                    cursor: "pointer",
+                                    fontSize: "0.9em",
+                                }}
+                            >
+                                {isCreatingNewFootnote ? "Add Footnote" : "Save Changes"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 <div ref={editorRef} className="quill-editor-container"></div>
                 <div
                     style={{
@@ -872,86 +1061,6 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         {wordsToAdd.length > 0 && (
                             <button onClick={handleAddWords}>Add Words</button>
                         )}
-                    </div>
-                </div>
-            )}
-            {showFootnoteModal && (
-                <div
-                    style={{
-                        position: "fixed",
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        backgroundColor: "var(--vscode-editor-background)",
-                        padding: "20px",
-                        border: "1px solid var(--vscode-editor-foreground)",
-                        borderRadius: "4px",
-                        zIndex: 1000,
-                        width: "400px",
-                        maxWidth: "90vw",
-                    }}
-                >
-                    <div
-                        style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            marginBottom: "16px",
-                        }}
-                    >
-                        <h3>Add Footnote</h3>
-                        <button
-                            onClick={() => setShowFootnoteModal(false)}
-                            style={{
-                                background: "none",
-                                border: "none",
-                                cursor: "pointer",
-                                color: "var(--vscode-editor-foreground)",
-                                width: "fit-content",
-                                flexShrink: 0,
-                            }}
-                        >
-                            <i className="codicon codicon-close"></i>
-                        </button>
-                    </div>
-                    <div style={{ marginBottom: "16px" }}>
-                        <label style={{ display: "block", marginBottom: "8px" }}>
-                            Footnote Content:
-                        </label>
-                        <textarea
-                            value={footnoteContent}
-                            onChange={(e) => setFootnoteContent(e.target.value)}
-                            style={{
-                                width: "100%",
-                                minHeight: "100px",
-                                padding: "8px",
-                                backgroundColor: "var(--vscode-input-background)",
-                                color: "var(--vscode-input-foreground)",
-                                border: "1px solid var(--vscode-input-border)",
-                                borderRadius: "2px",
-                                resize: "vertical",
-                            }}
-                            autoFocus
-                            placeholder="Enter footnote content..."
-                        />
-                    </div>
-                    <div
-                        style={{
-                            display: "flex",
-                            gap: "10px",
-                            justifyContent: "flex-end",
-                            marginTop: "20px",
-                        }}
-                    >
-                        <button onClick={() => setShowFootnoteModal(false)}>Cancel</button>
-                        <button
-                            onClick={() => {
-                                insertFootnoteMarker();
-                                setShowFootnoteModal(false);
-                            }}
-                        >
-                            Add Footnote
-                        </button>
                     </div>
                 </div>
             )}
