@@ -2017,14 +2017,13 @@ export class SQLiteIndexManager {
             const currentSchemaVersion = CURRENT_SCHEMA_VERSION;
             debug(`Validating schema integrity for version ${currentSchemaVersion}`);
 
-            // Core tables that should exist in any modern schema version
+            // Core tables that should exist after createSchema() (schema_info is created later by setSchemaVersion)
             const requiredCoreTables = [
                 'sync_metadata',
                 'files',
                 'cells',
                 'words',
-                'cells_fts',
-                'schema_info'
+                'cells_fts'
             ];
 
             // Expected structure for current schema version (no migration paths)
@@ -2107,16 +2106,16 @@ export class SQLiteIndexManager {
                 return false;
             }
 
-            // Test that triggers are working by attempting a basic operation
+            // Test that basic database operations work
             try {
                 this.db.run("BEGIN");
-                // Test schema_info table functionality
-                const testStmt = this.db.prepare("SELECT COUNT(*) FROM schema_info");
+                // Test basic table functionality
+                const testStmt = this.db.prepare("SELECT COUNT(*) FROM files");
                 testStmt.step();
                 testStmt.free();
                 this.db.run("ROLLBACK");
             } catch (error) {
-                debug(`Schema validation failed: Schema_info table test failed - ${error}`);
+                debug(`Schema validation failed: Basic table operations failed - ${error}`);
                 return false;
             }
 

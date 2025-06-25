@@ -390,7 +390,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (finalCount > 0) {
                     vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
                 } else {
-                    vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex files.");
+                    vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
                 }
             } catch (error) {
                 console.error("[Index] Error during rebuild:", error);
