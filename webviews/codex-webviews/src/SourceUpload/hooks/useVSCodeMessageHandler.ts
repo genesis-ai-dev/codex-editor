@@ -45,6 +45,11 @@ const getBibleDownloadStages = (): BibleDownloadStages => ({
         description: "Committing changes",
         status: "pending",
     },
+    indexing: {
+        label: "Indexing",
+        description: "Building search index",
+        status: "pending",
+    },
 });
 
 export function useVSCodeMessageHandler() {
@@ -65,7 +70,7 @@ export function useVSCodeMessageHandler() {
                                     ...acc,
                                     [key]: {
                                         ...getBibleDownloadStages()[
-                                            key as keyof BibleDownloadStages
+                                        key as keyof BibleDownloadStages
                                         ],
                                         status,
                                     },
@@ -81,22 +86,28 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "bibleDownloadComplete":
-                    setWorkflow((prev) => ({
-                        ...prev,
-                        step: "complete",
-                        processingStages: Object.entries(getBibleDownloadStages()).reduce(
-                            (acc, [key, stage]) => ({
-                                ...acc,
-                                [key]: { ...stage, status: "complete" },
-                            }),
-                            {}
-                        ),
-                        bibleDownload: {
-                            ...prev.bibleDownload!,
-                            status: "complete",
-                        },
-                    }));
+                    console.log("[useVSCodeMessageHandler] Received bibleDownloadComplete message");
+                    setWorkflow((prev) => {
+                        console.log("[useVSCodeMessageHandler] Current step:", prev.step, "-> complete");
+                        return {
+                            ...prev,
+                            step: "complete",
+                            processingStages: Object.entries(getBibleDownloadStages()).reduce(
+                                (acc, [key, stage]) => ({
+                                    ...acc,
+                                    [key]: { ...stage, status: "complete" },
+                                }),
+                                {}
+                            ),
+                            bibleDownload: {
+                                ...prev.bibleDownload!,
+                                status: "complete",
+                            },
+                        };
+                    });
                     break;
+
+
 
                 case "availableCodexFiles":
                     if (message.files) {

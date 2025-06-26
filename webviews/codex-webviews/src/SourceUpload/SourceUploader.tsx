@@ -125,6 +125,11 @@ const getBibleProcessingStages = (status: ProcessingStatus = "pending") => ({
         description: "Committing changes",
         status,
     },
+    indexing: {
+        label: "Indexing",
+        description: "Building search index",
+        status,
+    },
 });
 
 const readFileAsText = (file: File): Promise<string> => {

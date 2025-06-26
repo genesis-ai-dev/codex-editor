@@ -202,6 +202,13 @@ export class SQLiteIndexManager {
             this.db = new this.sql!.Database();
 
             await this.createSchema();
+
+            // Validate schema before setting version to ensure reliability
+            if (!this.validateSchemaIntegrity()) {
+                throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+            }
+
+            this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
             await this.saveDatabase();
         }
 
@@ -485,33 +492,29 @@ export class SQLiteIndexManager {
             debug(`Current schema version: ${currentVersion}`);
 
             if (currentVersion === 0) {
-                // New database - create with latest schema
+                // Scenario 1: No schema exists - create fresh schema
                 stepStart = this.trackProgress("Initialize new database schema", stepStart);
                 debug("Setting up new database with latest schema");
                 await this.createSchema();
+
+                // Validate schema before setting version to ensure reliability
+                if (!this.validateSchemaIntegrity()) {
+                    throw new Error(`Schema validation failed after creation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+                }
+
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
                 this.trackProgress("New database schema initialized", stepStart);
                 debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
-            } else if (currentVersion > CURRENT_SCHEMA_VERSION) {
-                // Database schema is ahead of code - recreate to avoid compatibility issues
-                stepStart = this.trackProgress("Handle future schema version", stepStart);
-                debug(`[SQLiteIndex] Database schema version ${currentVersion} is ahead of code version ${CURRENT_SCHEMA_VERSION}`);
-                debug("[SQLiteIndex] Recreating database to ensure compatibility");
+            } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
+                // Scenario 2: Wrong version (ahead, behind, or any mismatch) - recreate everything
+                stepStart = this.trackProgress("Handle schema version mismatch", stepStart);
+                debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
+                debug("Recreating database with current schema - this ensures maximum reliability");
 
-                await this.recreateDatabase();
-                this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-
-                this.trackProgress("Future schema compatibility resolved", stepStart);
-                debug(`Database recreated with compatible schema version ${CURRENT_SCHEMA_VERSION}`);
-            } else if (currentVersion < CURRENT_SCHEMA_VERSION) {
-                // Any schema version behind current requires complete database recreation
-                stepStart = this.trackProgress("Upgrade database schema", stepStart);
-                debug(`Upgrading database from version ${currentVersion} to ${CURRENT_SCHEMA_VERSION}`);
-
-                // Show user notification about the upgrade
+                // Show user notification about the recreation
                 const vscode = await import('vscode');
                 vscode.window.showInformationMessage(
-                    `Codex: Upgrading database to version ${CURRENT_SCHEMA_VERSION}. This will delete the existing database and trigger a complete reindex. This may take a few minutes...`
+                    `Codex: Database schema mismatch (${currentVersion} → ${CURRENT_SCHEMA_VERSION}). Recreating database to ensure compatibility. This may take a few minutes...`
                 );
 
                 // Delete the database file and recreate from scratch
@@ -520,9 +523,10 @@ export class SQLiteIndexManager {
                 // Recreate the database with the latest schema
                 await this.recreateDatabase();
 
-                this.trackProgress("Database upgrade complete", stepStart);
-                debug(`Database upgraded to schema version ${CURRENT_SCHEMA_VERSION}`);
+                this.trackProgress("Database schema recreation complete", stepStart);
+                debug(`Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else {
+                // Scenario 3: Correct version - load normally
                 stepStart = this.trackProgress("Verify database schema", stepStart);
                 debug(`Schema is up to date (version ${currentVersion})`);
 
@@ -545,6 +549,12 @@ export class SQLiteIndexManager {
                 // Force recreate the database
                 this.db = new this.sql!.Database();
                 await this.createSchema();
+
+                // Validate schema before setting version to ensure reliability
+                if (!this.validateSchemaIntegrity()) {
+                    throw new Error(`Schema validation failed after corruption recovery for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+                }
+
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
 
                 this.trackProgress("Database corruption recovery complete", stepStart);
@@ -597,6 +607,11 @@ export class SQLiteIndexManager {
         // Yield control after schema creation
         await new Promise(resolve => setImmediate(resolve));
 
+        // Validate schema before setting version to ensure reliability
+        if (!this.validateSchemaIntegrity()) {
+            throw new Error(`Schema validation failed after recreation for version ${CURRENT_SCHEMA_VERSION} - database may be corrupted`);
+        }
+
         this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
     }
 
@@ -634,20 +649,20 @@ export class SQLiteIndexManager {
                 checkTable.free();
             }
 
-            if (!hasTable) return 1; // Assume version 1 if no schema_info table but other tables exist
+            if (!hasTable) return -1; // Unknown version if no schema_info table but other tables exist
 
             const stmt = this.db.prepare("SELECT version FROM schema_info WHERE id = 1 LIMIT 1");
             try {
                 if (stmt.step()) {
                     const result = stmt.getAsObject();
-                    return (result.version as number) || 1;
+                    return (result.version as number) || -1;
                 }
-                return 1;
+                return -1; // No version found
             } finally {
                 stmt.free();
             }
         } catch {
-            return 1; // Fallback to version 1
+            return -1; // Fallback to unknown version
         }
     }
 
@@ -1988,6 +2003,131 @@ export class SQLiteIndexManager {
         return { version, tables, cellsColumns, ftsColumns };
     }
 
+    /**
+ * Validate that the database schema was created correctly with all expected components
+ * This validation is version-agnostic and works with whatever the current schema version is
+ */
+    private validateSchemaIntegrity(): boolean {
+        if (!this.db) {
+            debug("Schema validation failed: No database connection");
+            return false;
+        }
+
+        try {
+            const currentSchemaVersion = CURRENT_SCHEMA_VERSION;
+            debug(`Validating schema integrity for version ${currentSchemaVersion}`);
+
+            // Core tables that should exist after createSchema() (schema_info is created later by setSchemaVersion)
+            const requiredCoreTables = [
+                'sync_metadata',
+                'files',
+                'cells',
+                'words',
+                'cells_fts'
+            ];
+
+            // Expected structure for current schema version (no migration paths)
+            // Since we recreate for any version mismatch, we only validate current schema
+            const expectedCellsColumns = [
+                'cell_id',
+                's_file_id', 's_content', 's_raw_content_hash', 's_line_number', 's_word_count', 's_raw_content', 's_created_at', 's_updated_at',
+                't_file_id', 't_content', 't_raw_content_hash', 't_line_number', 't_word_count', 't_raw_content', 't_created_at', 't_updated_at',
+                't_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_validated'
+            ];
+
+            const expectedIndexes = [
+                'idx_sync_metadata_path',
+                'idx_files_path',
+                'idx_cells_s_file_id',
+                'idx_cells_t_file_id'
+            ];
+
+            // Check tables exist
+            const tablesStmt = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'");
+            const actualTables: string[] = [];
+            try {
+                while (tablesStmt.step()) {
+                    actualTables.push(tablesStmt.getAsObject().name as string);
+                }
+            } finally {
+                tablesStmt.free();
+            }
+
+            for (const expectedTable of requiredCoreTables) {
+                if (!actualTables.includes(expectedTable)) {
+                    debug(`Schema validation failed: Missing table '${expectedTable}'`);
+                    return false;
+                }
+            }
+
+            // Check cells table has correct v8 structure
+            const cellsColumnsStmt = this.db.prepare("PRAGMA table_info(cells)");
+            const actualCellsColumns: string[] = [];
+            try {
+                while (cellsColumnsStmt.step()) {
+                    actualCellsColumns.push(cellsColumnsStmt.getAsObject().name as string);
+                }
+            } finally {
+                cellsColumnsStmt.free();
+            }
+
+            for (const expectedColumn of expectedCellsColumns) {
+                if (!actualCellsColumns.includes(expectedColumn)) {
+                    debug(`Schema validation failed: Missing column '${expectedColumn}' in cells table`);
+                    return false;
+                }
+            }
+
+            // Check essential indexes exist
+            const indexesStmt = this.db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'");
+            const actualIndexes: string[] = [];
+            try {
+                while (indexesStmt.step()) {
+                    actualIndexes.push(indexesStmt.getAsObject().name as string);
+                }
+            } finally {
+                indexesStmt.free();
+            }
+
+            for (const expectedIndex of expectedIndexes) {
+                if (!actualIndexes.includes(expectedIndex)) {
+                    debug(`Schema validation failed: Missing index '${expectedIndex}'`);
+                    return false;
+                }
+            }
+
+            // Verify FTS table is properly set up
+            try {
+                const ftsTestStmt = this.db.prepare("SELECT * FROM cells_fts LIMIT 0");
+                ftsTestStmt.step(); // This will fail if FTS table is malformed
+                ftsTestStmt.free();
+            } catch (error) {
+                debug(`Schema validation failed: FTS table malformed - ${error}`);
+                return false;
+            }
+
+            // Test that basic database operations work
+            try {
+                this.db.run("BEGIN");
+                // Test basic table functionality
+                const testStmt = this.db.prepare("SELECT COUNT(*) FROM files");
+                testStmt.step();
+                testStmt.free();
+                this.db.run("ROLLBACK");
+            } catch (error) {
+                debug(`Schema validation failed: Basic table operations failed - ${error}`);
+                return false;
+            }
+
+            debug(`Schema validation passed: All expected components for version ${currentSchemaVersion} are present and functional`);
+            return true;
+
+        } catch (error) {
+            debug(`Schema validation failed with exception: ${error}`);
+            return false;
+        }
+    }
+
     private debouncedSave = debounce(async () => {
         try {
             await this.saveDatabase();
@@ -3196,4 +3336,6 @@ export class SQLiteIndexManager {
             hasNewStructure
         };
     }
+
+
 }

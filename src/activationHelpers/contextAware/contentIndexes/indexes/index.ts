@@ -234,7 +234,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 forceSync: isForced,
                 progressCallback: (message, progress) => {
                     debug(`[Index] Sync progress: ${message} (${progress}%)`);
-                    // Use existing status bar methods
+                    // Use existing status bar methods for progress tracking
                 }
             });
 
@@ -375,10 +375,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy || currentDocCount === 0;
 
-        if (isCritical) {
-            vscode.window.showInformationMessage(`Codex: Search index needs rebuilding (${rebuildReason})...`);
-        }
-
         // Make rebuild non-blocking
         setImmediate(async () => {
             try {
@@ -390,7 +386,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 if (finalCount > 0) {
                     vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
                 } else {
-                    vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex files.");
+                    vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
                 }
             } catch (error) {
                 console.error("[Index] Error during rebuild:", error);

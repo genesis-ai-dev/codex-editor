@@ -976,12 +976,69 @@ export class SourceUploadProvider
                 }
             );
 
+            // Send indexing start progress to webview (don't send bibleDownloadComplete yet)
             this.safeSendMessage(webviewPanel, {
-                command: "bibleDownloadComplete",
+                command: "bibleDownloadProgress",
+                progress: {
+                    message: "Building search index...",
+                    increment: 100, // Keep at 100% for progress bar
+                    status: {
+                        validation: "complete",
+                        download: "complete",
+                        splitting: "complete",
+                        notebooks: "complete",
+                        metadata: "complete",
+                        commit: "complete",
+                        indexing: "active",
+                    },
+                },
             } as SourceUploadResponseMessages);
 
             // Trigger reindex after successful download
-            await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
+            try {
+                await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
+                console.log("[SourceUploadProvider] Reindex completed successfully");
+            } catch (indexError) {
+                console.warn("[SourceUploadProvider] Reindex failed, but continuing:", indexError);
+                // Don't fail the entire process if indexing fails
+            }
+
+            // Send indexing complete progress to webview
+            this.safeSendMessage(webviewPanel, {
+                command: "bibleDownloadProgress",
+                progress: {
+                    message: "Bible import and indexing complete!",
+                    increment: 100, // Keep at 100%
+                    status: {
+                        validation: "complete",
+                        download: "complete",
+                        splitting: "complete",
+                        notebooks: "complete",
+                        metadata: "complete",
+                        commit: "complete",
+                        indexing: "complete",
+                    },
+                },
+            } as SourceUploadResponseMessages);
+
+            // Now send the final completion message to advance to step 6
+            console.log("[SourceUploadProvider] Sending bibleDownloadComplete message");
+            console.log("[SourceUploadProvider] Webview panel visible:", webviewPanel.visible);
+
+            // Try to send the completion message, but don't rely on visibility
+            try {
+                webviewPanel.webview.postMessage({
+                    command: "bibleDownloadComplete",
+                } as SourceUploadResponseMessages);
+                console.log("[SourceUploadProvider] Completion message sent directly");
+            } catch (error) {
+                console.warn("[SourceUploadProvider] Failed to send completion message:", error);
+                // Fallback to safe method
+                const completionSent = this.safeSendMessage(webviewPanel, {
+                    command: "bibleDownloadComplete",
+                } as SourceUploadResponseMessages);
+                console.log("[SourceUploadProvider] Fallback completion message sent:", completionSent);
+            }
         } catch (error) {
             await this.currentDownloadBibleTransaction?.rollback();
             throw error;
