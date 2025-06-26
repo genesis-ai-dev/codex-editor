@@ -550,7 +550,18 @@ const CodexCellEditor: React.FC = () => {
         return lineNumber;
     };
 
-    // Add function to get subsections for a chapter based on actual line numbers
+
+    // Helper function to check if a paratext cell belongs to a chapter/section
+    const isParatextForChapter = (cell: QuillCellContent, chapterNum: number): boolean => {
+        if (cell.cellType !== CodexCellTypes.PARATEXT) return false;
+
+        const cellId = cell.cellMarkers[0];
+        const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
+        const sectionCellNumber = sectionCellIdParts?.[0];
+        return sectionCellNumber === chapterNum.toString();
+    };
+
+    // Add function to get subsections for a chapter based on parent cells
     const getSubsectionsForChapter = (chapterNum: number) => {
         // Filter cells for the specific chapter
         const cellsForChapter = translationUnits.filter((verse) => {
@@ -564,44 +575,106 @@ const CodexCellEditor: React.FC = () => {
             return [];
         }
 
-        // Filter out only the cells that count for line numbering (non-paratext, non-child)
-        const lineNumberCells = cellsForChapter.filter((cell) => {
+        // Filter out only the parent cells (non-paratext, non-child) for pagination counting
+        const parentCells = cellsForChapter.filter((cell) => {
             const cellIdParts = cell.cellMarkers[0].split(":");
             return cell.cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3;
         });
 
-        // If line-number cells fit in one page, no subsections needed
-        if (lineNumberCells.length <= cellsPerPage) {
+        // If parent cells fit in one page, no subsections needed
+        if (parentCells.length <= cellsPerPage) {
             return [];
         }
 
-        // Calculate number of pages based on line-numbered cells
-        const totalPages = Math.ceil(lineNumberCells.length / cellsPerPage);
+        // Calculate number of pages based on parent cells
+        const totalPages = Math.ceil(parentCells.length / cellsPerPage);
         const subsections: Subsection[] = [];
 
         for (let i = 0; i < totalPages; i++) {
-            const startLineIndex = i * cellsPerPage;
-            const endLineIndex = Math.min((i + 1) * cellsPerPage, lineNumberCells.length);
+            const startParentIndex = i * cellsPerPage;
+            const endParentIndex = Math.min((i + 1) * cellsPerPage, parentCells.length);
+
+            // Get the range of parent cells for this page
+            const pageParentCells = parentCells.slice(startParentIndex, endParentIndex);
+            const firstParentCell = pageParentCells[0];
+            const lastParentCell = pageParentCells[pageParentCells.length - 1];
 
             // Get the actual line numbers for the label
-            const startLineNumber =
-                startLineIndex > 0
-                    ? getGlobalLineNumber(lineNumberCells[startLineIndex], translationUnits)
-                    : 1;
-            const endLineNumber = getGlobalLineNumber(
-                lineNumberCells[endLineIndex - 1],
-                translationUnits
+            const startLineNumber = getGlobalLineNumber(firstParentCell, translationUnits);
+            const endLineNumber = getGlobalLineNumber(lastParentCell, translationUnits);
+
+            // Find the positions of the first and last parent cells in the full chapter
+            const firstParentPosition = cellsForChapter.findIndex(
+                (cell) => cell.cellMarkers[0] === firstParentCell.cellMarkers[0]
+            );
+            const lastParentPosition = cellsForChapter.findIndex(
+                (cell) => cell.cellMarkers[0] === lastParentCell.cellMarkers[0]
             );
 
-            // Find the actual cell indices in the full chapter (including paratext/child cells)
-            const startCellIndex = cellsForChapter.findIndex(
-                (cell) => cell.cellMarkers[0] === lineNumberCells[startLineIndex].cellMarkers[0]
-            );
-            const endCellIndex =
-                cellsForChapter.findIndex(
-                    (cell) =>
-                        cell.cellMarkers[0] === lineNumberCells[endLineIndex - 1].cellMarkers[0]
-                ) + 1;
+            // Get the parent cell IDs for this page for quick lookup
+            const parentCellIds = new Set(pageParentCells.map((cell) => cell.cellMarkers[0]));
+
+            // Find the actual start and end indices by expanding to include related cells
+            let startCellIndex = firstParentPosition;
+            let endCellIndex = lastParentPosition + 1;
+
+            // Expand backward to include any paratext or child cells that should be with the first parent
+            while (startCellIndex > 0) {
+                const prevCell = cellsForChapter[startCellIndex - 1];
+                const prevCellId = prevCell.cellMarkers[0];
+
+                // Include if it's paratext for this chapter and positioned before our first parent
+                if (isParatextForChapter(prevCell, chapterNum)) {
+                    startCellIndex--;
+                    continue;
+                }
+
+                // Include if it's a child cell of any parent on this page
+                const prevCellIdParts = prevCellId.split(":");
+                if (prevCellIdParts.length > 2) {
+                    const parentId = prevCellIdParts.slice(0, 2).join(":");
+                    if (parentCellIds.has(parentId)) {
+                        startCellIndex--;
+                        continue;
+                    }
+                }
+
+                // Stop expanding if we hit a parent cell that's not on this page
+                if (prevCell.cellType !== CodexCellTypes.PARATEXT && prevCellIdParts.length < 3) {
+                    break;
+                }
+
+                break;
+            }
+
+            // Expand forward to include any paratext or child cells that should be with the last parent
+            while (endCellIndex < cellsForChapter.length) {
+                const nextCell = cellsForChapter[endCellIndex];
+                const nextCellId = nextCell.cellMarkers[0];
+
+                // Include if it's paratext for this chapter and positioned after our last parent
+                if (isParatextForChapter(nextCell, chapterNum)) {
+                    endCellIndex++;
+                    continue;
+                }
+
+                // Include if it's a child cell of any parent on this page
+                const nextCellIdParts = nextCellId.split(":");
+                if (nextCellIdParts.length > 2) {
+                    const parentId = nextCellIdParts.slice(0, 2).join(":");
+                    if (parentCellIds.has(parentId)) {
+                        endCellIndex++;
+                        continue;
+                    }
+                }
+
+                // Stop expanding if we hit a parent cell that's not on this page
+                if (nextCell.cellType !== CodexCellTypes.PARATEXT && nextCellIdParts.length < 3) {
+                    break;
+                }
+
+                break;
+            }
 
             subsections.push({
                 id: `page-${i}`,
