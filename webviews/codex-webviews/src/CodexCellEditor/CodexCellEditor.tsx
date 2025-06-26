@@ -550,7 +550,6 @@ const CodexCellEditor: React.FC = () => {
         return lineNumber;
     };
 
-
     // Helper function to check if a paratext cell belongs to a chapter/section
     const isParatextForChapter = (cell: QuillCellContent, chapterNum: number): boolean => {
         if (cell.cellType !== CodexCellTypes.PARATEXT) return false;
