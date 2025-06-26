@@ -53,6 +53,11 @@ const getBibleDownloadStages = (): BibleDownloadStages => ({
         description: "Committing changes",
         status: "pending",
     },
+    indexing: {
+        label: "Indexing",
+        description: "Building search index",
+        status: "pending",
+    },
 });
 
 export const ProcessingStages: React.FC<ProcessingStagesProps> = ({ stages, importType, progress, step, error, onRetry }) => {

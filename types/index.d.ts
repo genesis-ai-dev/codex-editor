@@ -1593,6 +1593,7 @@ export interface BibleDownloadStages {
     notebooks: ProcessingStage;
     metadata: ProcessingStage;
     commit: ProcessingStage;
+    indexing: ProcessingStage;
 }
 
 export interface ProcessingStage {

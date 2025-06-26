@@ -33,6 +33,7 @@ export interface BibleDownloadStages extends ProcessingStages {
     notebooks: ProcessingStage;
     metadata: ProcessingStage;
     commit: ProcessingStage;
+    indexing: ProcessingStage;
 }
 
 // Add Bible download specific state
@@ -76,8 +77,8 @@ export interface WorkflowState {
     fileHeaders?: string[];
     fileContent?: string;
     dataPreview?: string[][];
-    translationAssociations: Array<{ file: File; codexId: string }>;
-    availableCodexFiles?: Array<{ id: string; name: string; path: string }>;
+    translationAssociations: Array<{ file: File; codexId: string; }>;
+    availableCodexFiles?: Array<{ id: string; name: string; path: string; }>;
     error?: string;
     preview?: PreviewContent;
     previews: Array<{
