@@ -491,6 +491,23 @@ export class SQLiteIndexManager {
             const currentVersion = this.getSchemaVersion();
             debug(`Current schema version: ${currentVersion}`);
 
+            // Check if database is empty (has no actual data) even if tables exist
+            const isEmpty = this.isDatabaseEmpty();
+            if (isEmpty && currentVersion !== 0) {
+                debug("Database exists but is empty - treating as new database");
+                stepStart = this.trackProgress("Delete empty database and recreate", stepStart);
+
+                // Delete the database file and start fresh (like scenario 1)
+                await this.deleteDatabaseFile();
+
+                // Recreate the database with the latest schema
+                await this.recreateDatabase();
+
+                this.trackProgress("Empty database recreation complete", stepStart);
+                debug(`Empty database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
+                return;
+            }
+
             if (currentVersion === 0) {
                 // Scenario 1: No schema exists - create fresh schema
                 stepStart = this.trackProgress("Initialize new database schema", stepStart);
@@ -663,6 +680,55 @@ export class SQLiteIndexManager {
             }
         } catch {
             return -1; // Fallback to unknown version
+        }
+    }
+
+    private isDatabaseEmpty(): boolean {
+        if (!this.db) return true;
+
+        try {
+            // Check if any core data tables have actual data
+            const checkTables = ['files', 'cells', 'sync_metadata'];
+
+            for (const tableName of checkTables) {
+                // First check if table exists
+                const checkTableExists = this.db.prepare(`
+                    SELECT COUNT(*) as count FROM sqlite_master 
+                    WHERE type='table' AND name=?
+                `);
+
+                let tableExists = false;
+                try {
+                    checkTableExists.bind([tableName]);
+                    if (checkTableExists.step()) {
+                        tableExists = (checkTableExists.getAsObject().count as number) > 0;
+                    }
+                } finally {
+                    checkTableExists.free();
+                }
+
+                if (!tableExists) continue; // Skip non-existent tables
+
+                // Check if table has any data
+                const checkData = this.db.prepare(`SELECT COUNT(*) as count FROM ${tableName} LIMIT 1`);
+                try {
+                    if (checkData.step()) {
+                        const count = checkData.getAsObject().count as number;
+                        if (count > 0) {
+                            debug(`Database not empty: found ${count} rows in ${tableName}`);
+                            return false; // Found data, not empty
+                        }
+                    }
+                } finally {
+                    checkData.free();
+                }
+            }
+
+            debug("Database appears to be empty (no data in core tables)");
+            return true; // No data found in any core tables
+        } catch (error) {
+            debug(`Error checking if database is empty: ${error}`);
+            return false; // Assume not empty if we can't check
         }
     }
 
@@ -1789,10 +1855,10 @@ export class SQLiteIndexManager {
                  SUM(CASE WHEN t_content != t_raw_content THEN 1 ELSE 0 END)) as cells_with_different_content,
                 (AVG(LENGTH(COALESCE(s_content, ''))) + AVG(LENGTH(COALESCE(t_content, '')))) / 2 as avg_content_length,
                 (AVG(LENGTH(COALESCE(s_raw_content, ''))) + AVG(LENGTH(COALESCE(t_raw_content, '')))) / 2 as avg_raw_content_length,
-                (SUM(CASE WHEN s_content IS NULL OR s_content = '' THEN 1 ELSE 0 END) + 
-                 SUM(CASE WHEN t_content IS NULL OR t_content = '' THEN 1 ELSE 0 END)) as cells_with_missing_content,
-                (SUM(CASE WHEN s_raw_content IS NULL OR s_raw_content = '' THEN 1 ELSE 0 END) + 
-                 SUM(CASE WHEN t_raw_content IS NULL OR t_raw_content = '' THEN 1 ELSE 0 END)) as cells_with_missing_raw_content
+                -- Only count missing SOURCE content as problematic (target cells can be legitimately blank)
+                SUM(CASE WHEN s_content IS NULL OR s_content = '' THEN 1 ELSE 0 END) as cells_with_missing_content,
+                -- Only count missing SOURCE raw content as problematic (target cells can be legitimately blank)
+                SUM(CASE WHEN s_raw_content IS NULL OR s_raw_content = '' THEN 1 ELSE 0 END) as cells_with_missing_raw_content
             FROM cells
         `);
 
@@ -1902,13 +1968,13 @@ export class SQLiteIndexManager {
         const issues: string[] = [];
         const problematicCells: Array<{ cellId: string, issue: string; }> = [];
 
-        // Check for cells with missing content
+        // Check for cells with missing source content (target content can be legitimately blank)
         const checkStmt = this.db.prepare(`
             SELECT cell_id, s_content, s_raw_content, t_content, t_raw_content
             FROM cells 
             WHERE (s_content IS NOT NULL AND s_content != '' AND (s_raw_content IS NULL OR s_raw_content = ''))
             OR (t_content IS NOT NULL AND t_content != '' AND (t_raw_content IS NULL OR t_raw_content = ''))
-            OR (s_content IS NULL AND t_content IS NULL)
+            OR (s_content IS NULL OR s_content = '')
         `);
 
         try {
@@ -1922,16 +1988,16 @@ export class SQLiteIndexManager {
                     problematicCells.push({ cellId, issue: 'missing source raw_content' });
                 }
 
-                // Check target content consistency
+                // Check target content consistency (only if target has content)
                 if (row.t_content && row.t_content !== '' && (!row.t_raw_content || row.t_raw_content === '')) {
                     issues.push(`Cell ${cellId} has target content but missing target raw_content`);
                     problematicCells.push({ cellId, issue: 'missing target raw_content' });
                 }
 
-                // Check for completely empty cells
-                if ((!row.s_content || row.s_content === '') && (!row.t_content || row.t_content === '')) {
-                    issues.push(`Cell ${cellId} has no content in either source or target`);
-                    problematicCells.push({ cellId, issue: 'completely empty cell' });
+                // Check for missing source content (this is always problematic - source cells should have content)
+                if (!row.s_content || row.s_content === '') {
+                    issues.push(`Cell ${cellId} has no source content (source cells must have content)`);
+                    problematicCells.push({ cellId, issue: 'missing source content' });
                 }
             }
         } finally {

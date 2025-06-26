@@ -437,6 +437,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         // Break down language server initialization
         const totalLsStart = globalThis.performance.now();
 
+        startRealtimeStep("Initialize Language Server");
         const lsStart = globalThis.performance.now();
         client = await registerLanguageServer(context);
         const lsDuration = globalThis.performance.now() - lsStart;
@@ -459,6 +460,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
             const optimizeDuration = globalThis.performance.now() - optimizeStart;
             console.log(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
         }
+        finishRealtimeStep();
         const totalLsDuration = globalThis.performance.now() - totalLsStart;
         console.log(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
 
@@ -472,7 +474,9 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
+        startRealtimeStep("Initialize Search Database");
         await createIndexWithContext(context);
+        finishRealtimeStep();
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown

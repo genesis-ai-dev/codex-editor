@@ -196,7 +196,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
      * Smart rebuild using file-level synchronization
      */
     async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
-        debug(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
+        console.log(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
 
         // Check consecutive rebuilds protection
         const rebuildCheck = isRebuildAllowed(reason, isForced);
@@ -220,7 +220,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             // For forced rebuilds, clear everything first
             if (isForced) {
-                debug("[Index] Forced rebuild - clearing existing indexes...");
+                console.log("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
@@ -228,17 +228,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Perform intelligent file synchronization
-            debug("[Index] Starting file-level synchronization...");
+            console.log("[Index] Starting file-level synchronization...");
 
             const syncResult: FileSyncResult = await fileSyncManager.syncFiles({
                 forceSync: isForced,
                 progressCallback: (message, progress) => {
-                    debug(`[Index] Sync progress: ${message} (${progress}%)`);
+                    console.log(`[Index] Sync progress: ${message} (${progress}%)`);
                     // Use existing status bar methods for progress tracking
                 }
             });
 
-            debug(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
+            console.log(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
 
             if (syncResult.errors.length > 0) {
                 console.warn(`[Index] Sync completed with ${syncResult.errors.length} errors:`);
@@ -248,7 +248,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Update other indexes that depend on the file data
-            debug("[Index] Updating complementary indexes...");
+            console.log("[Index] Updating complementary indexes...");
 
             try {
                 // Update words and files indexes
@@ -259,14 +259,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 // Update complete drafts
                 await updateCompleteDrafts(targetFiles);
 
-                debug("[Index] Complementary indexes updated successfully");
+                console.log("[Index] Complementary indexes updated successfully");
             } catch (error) {
                 console.warn("[Index] Error updating complementary indexes:", error);
                 // Don't fail the entire rebuild for complementary index errors
             }
 
             const finalDocCount = translationPairsIndex.documentCount;
-            debug(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
+            console.log(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
 
             statusBarHandler.updateIndexCounts(
                 finalDocCount,
@@ -325,11 +325,11 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 try {
                     const stats = await translationPairsIndex.getContentStats();
 
-                    // Only fail if almost all cells are completely broken
+                    // Only fail if almost all cells are missing source content (target cells can be legitimately blank)
                     if (stats.totalCells > 0) {
-                        const missingContentRatio = stats.cellsWithMissingContent / stats.totalCells;
-                        if (missingContentRatio > 0.9) { // 90%+ missing content
-                            return { isHealthy: false, criticalIssue: `critical data corruption: ${Math.round(missingContentRatio * 100)}% of cells missing content` };
+                        const missingSourceContentRatio = stats.cellsWithMissingContent / stats.totalCells;
+                        if (missingSourceContentRatio > 0.9) { // 90%+ missing source content
+                            return { isHealthy: false, criticalIssue: `critical data corruption: ${Math.round(missingSourceContentRatio * 100)}% of cells missing source content` };
                         }
                     }
                 } catch (error) {
@@ -370,30 +370,30 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     if (needsRebuild) {
-        debug(`[Index] Rebuild needed: ${rebuildReason}`);
+        console.log(`[Index] Rebuild needed: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy || currentDocCount === 0;
 
-        // Make rebuild non-blocking
-        setImmediate(async () => {
-            try {
-                await smartRebuildIndexes(rebuildReason, isCritical);
+        // Perform rebuild synchronously during extension activation to ensure splash screen waits
+        console.log(`[Index] Starting ${isCritical ? 'critical' : 'normal'} rebuild...`);
+        try {
+            await smartRebuildIndexes(rebuildReason, isCritical);
 
-                const finalCount = translationPairsIndex.documentCount;
-                debug(`[Index] Rebuild completed with ${finalCount} documents`);
+            const finalCount = translationPairsIndex.documentCount;
+            console.log(`[Index] Rebuild completed with ${finalCount} documents`);
 
-                if (finalCount > 0) {
-                    vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
-                } else {
-                    vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
-                }
-            } catch (error) {
-                console.error("[Index] Error during rebuild:", error);
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+            if (finalCount > 0) {
+                console.log(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
+            } else {
+                console.warn("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
             }
-        });
+        } catch (error) {
+            console.error("[Index] Error during rebuild:", error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+            throw error; // Re-throw to ensure activation fails if indexing fails
+        }
     } else {
         // Database is healthy and up to date
         debug(`[Index] Index is healthy and up to date with ${currentDocCount} documents`);
@@ -888,8 +888,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                         let message = `Data Integrity Check:\n`;
                         message += `Total cells: ${integrityResult.totalCells}\n`;
-                        message += `Cells with missing content: ${stats.cellsWithMissingContent}\n`;
-                        message += `Cells with missing raw_content: ${stats.cellsWithMissingRawContent}\n`;
+                        message += `Cells with missing source content: ${stats.cellsWithMissingContent}\n`;
+                        message += `Cells with missing source raw_content: ${stats.cellsWithMissingRawContent}\n`;
                         message += `Cells with different content: ${stats.cellsWithDifferentContent}\n`;
                         message += `Status: ${integrityResult.isValid ? '✅ VALID' : '❌ ISSUES FOUND'}\n`;
 
@@ -978,7 +978,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                         statusMessage += `\nCell Statistics:\n`;
                         statusMessage += `• Total cells: ${stats.totalCells}\n`;
-                        statusMessage += `• Cells with content: ${stats.totalCells - stats.cellsWithMissingContent}\n`;
+                        statusMessage += `• Cells with source content: ${stats.totalCells - stats.cellsWithMissingContent}\n`;
                         statusMessage += `• Cells with raw content: ${stats.cellsWithRawContent}\n`;
 
                         statusMessage += `\nTranslation Pairs:\n`;
