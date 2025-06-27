@@ -9,6 +9,7 @@
 # !servers/**
 
 !webviews/codex-webviews/dist/**
+!webviews/codex-webviews/src/assets/**
 !webviews/editable-react-table/dist/**
 
 !src/assets/reset.css
