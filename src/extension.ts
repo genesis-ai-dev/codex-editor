@@ -45,6 +45,7 @@ import {
 } from "./providers/SplashScreen/register";
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
+import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 
 import path from "path";
 import fs from "fs";
@@ -404,12 +405,11 @@ export async function activate(context: vscode.ExtensionContext) {
         await migrateSourceFiles();
         trackTiming("Post-activation Tasks", postActivationStart);
 
+        // Register update commands and check for updates (non-blocking)
+        registerUpdateCommands(context);
+
         // Don't close splash screen yet - we still have sync operations to show
         // The splash screen will be closed after all operations complete
-
-
-        // Instead of calling showWelcomeViewIfNeeded directly, it will be called by the splash screen callback
-        // showWelcomeViewIfNeeded();
     } catch (error) {
         console.error("Error during extension activation:", error);
         vscode.window.showErrorMessage(`Failed to activate Codex Editor: ${error}`);
@@ -624,6 +624,11 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
     });
 
     await vscode.commands.executeCommand("workbench.action.evenEditorWidths");
+
+    // Check for updates in the background after everything else is ready
+    checkForUpdatesOnStartup(context).catch(error => {
+        console.error('[Extension] Error during startup update check:', error);
+    });
 }
 
 export function deactivate() {
@@ -662,7 +667,3 @@ export function getNotebookMetadataManager(): NotebookMetadataManager {
 export function getAuthApi(): FrontierAPI | undefined {
     return authApi;
 }
-
-
-
-
