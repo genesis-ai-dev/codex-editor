@@ -401,13 +401,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
         getCleanedHtml(contentBeingUpdated.cellContent).replace(/\s/g, "") !== "";
 
     const handleContentUpdate = (newContent: string) => {
+        // Clean spell check markup before updating content
+        const cleanedContent = getCleanedHtml(newContent);
+
         setContentBeingUpdated({
             cellMarkers,
-            cellContent: newContent,
+            cellContent: cleanedContent,
             cellChanged: true,
             cellLabel: editableLabel,
         });
-        setEditorContent(newContent);
+        setEditorContent(cleanedContent);
     };
 
     // Add effect to fetch source text
@@ -624,7 +627,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
         try {
             const parser = new DOMParser();
-            const doc = parser.parseFromString(editorContent, "text/html");
+            // Clean spell check markup before parsing
+            const cleanedContent = getCleanedHtml(editorContent);
+            const doc = parser.parseFromString(cleanedContent, "text/html");
             const footnoteElements = doc.querySelectorAll("sup.footnote-marker");
 
             if (footnoteElements.length === 0) {
@@ -637,7 +642,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             footnoteElements.forEach((element) => {
                 const id = element.textContent || "";
-                const content = element.getAttribute("data-footnote") || "";
+                const rawContent = element.getAttribute("data-footnote") || "";
+                // Clean spell check markup from footnote content as well
+                const content = getCleanedHtml(rawContent);
                 const position = allElements.indexOf(element);
 
                 if (id && content) {
@@ -1267,13 +1274,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             spellCheckResponse={spellCheckResponse}
                             editHistory={editHistory}
                             onChange={({ html }) => {
-                                setEditorContent(html);
+                                // Clean spell check markup before processing
+                                const cleanedHtml = getCleanedHtml(html);
+                                setEditorContent(cleanedHtml);
 
-                                debug("html", { html, cellMarkers, editableLabel });
+                                debug("html", { html: cleanedHtml, cellMarkers, editableLabel });
 
                                 setContentBeingUpdated({
                                     cellMarkers,
-                                    cellContent: html,
+                                    cellContent: cleanedHtml,
                                     cellChanged: true,
                                     cellLabel: editableLabel,
                                 });
@@ -1503,8 +1512,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                         onConfirm={() => {
                                                             // Create DOM parser to edit the HTML directly
                                                             const parser = new DOMParser();
+                                                            // Clean spell check markup before parsing
+                                                            const cleanedContent =
+                                                                getCleanedHtml(editorContent);
                                                             const doc = parser.parseFromString(
-                                                                editorContent,
+                                                                cleanedContent,
                                                                 "text/html"
                                                             );
 
@@ -1519,7 +1531,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 }
                                                             });
 
-                                                            // Update editor content
+                                                            // Update editor content with cleaned content
                                                             const updatedContent =
                                                                 doc.body.innerHTML;
                                                             handleContentUpdate(updatedContent);
@@ -1536,7 +1548,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             <div
                                                 className="text-sm p-2 rounded bg-muted"
                                                 dangerouslySetInnerHTML={{
-                                                    __html: footnote.content,
+                                                    // Clean spell check markup from footnote content before displaying
+                                                    __html: getCleanedHtml(footnote.content),
                                                 }}
                                             />
                                         </Card>
