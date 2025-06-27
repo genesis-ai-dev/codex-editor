@@ -197,7 +197,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
-    const editorRef = useRef<HTMLDivElement>(null);
+    const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
 
     // Audio-related state
@@ -1192,7 +1192,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     variant="default"
                                     size="icon"
                                     title={isSaving ? "Saving..." : "Save changes"}
-                                    disabled={isSaving}
+                                    disabled={isSaving || isEditingFootnoteInline}
                                 >
                                     {isSaving ? (
                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -1280,6 +1280,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             }}
                             textDirection={textDirection}
                             ref={editorHandlesRef}
+                            setIsEditingFootnoteInline={setIsEditingFootnoteInline}
+                            isEditingFootnoteInline={isEditingFootnoteInline}
                         />
                     </div>
                 </div>

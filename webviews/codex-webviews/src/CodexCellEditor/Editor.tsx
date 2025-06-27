@@ -48,6 +48,8 @@ export interface EditorProps {
     onChange?: (changes: EditorContentChanged) => void;
     spellCheckResponse?: SpellCheckResponse | null;
     textDirection: "ltr" | "rtl";
+    setIsEditingFootnoteInline: (isEditing: boolean) => void;
+    isEditingFootnoteInline: boolean;
 }
 
 // Fix the imports with correct typing
@@ -119,6 +121,7 @@ function isQuillEmpty(quill: Quill | null) {
 
 // Wrap the Editor component in forwardRef instead of default export
 const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
+    const { setIsEditingFootnoteInline, isEditingFootnoteInline } = props;
     const [isToolbarExpanded, setIsToolbarExpanded] = useState(false);
     const [isToolbarVisible, setIsToolbarVisible] = useState(false);
     const [showModal, setShowModal] = useState(false);
@@ -142,15 +145,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     const [characterCount, setCharacterCount] = useState(0);
 
     // Inline footnote editing states (for both creating and editing)
-    const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
     const [editingFootnoteId, setEditingFootnoteId] = useState("");
     const [editingFootnoteContent, setEditingFootnoteContent] = useState("");
     const [isCreatingNewFootnote, setIsCreatingNewFootnote] = useState(false);
     const [footnoteWord, setFootnoteWord] = useState("");
     const [cursorPositionForFootnote, setCursorPositionForFootnote] = useState(0);
     const [originalCellContent, setOriginalCellContent] = useState("");
-
-    console.log({ editHistory, editHistoryForCell });
 
     // Handle keyboard events for inline footnote editing
     useEffect(() => {
