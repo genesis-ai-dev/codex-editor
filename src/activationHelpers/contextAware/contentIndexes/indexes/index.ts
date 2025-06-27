@@ -306,26 +306,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     async function validateIndexHealthConservatively(): Promise<{ isHealthy: boolean; criticalIssue?: string; }> {
         const documentCount = translationPairsIndex.documentCount;
 
-        // Check if database has proper schema structure before considering it "empty"
+        // Check if database is empty - regardless of schema, recreation is faster than sync
         if (documentCount === 0) {
-            // For SQLite, check if database has proper schema but just no data
-            if (translationPairsIndex instanceof SQLiteIndexManager) {
-                try {
-                    const schemaInfo = await translationPairsIndex.getDetailedSchemaInfo();
-
-                    // If we have proper schema with expected structure, this is just an empty-but-valid database
-                    if (schemaInfo.cellsTableExists && schemaInfo.hasNewStructure && schemaInfo.currentVersion === CURRENT_SCHEMA_VERSION) {
-                        debug("[Index] Database has proper schema but no data - treating as healthy (just needs sync)");
-                        return { isHealthy: true }; // Healthy, just needs normal sync to populate data
-                    }
-                } catch (error) {
-                    debug("[Index] Error checking schema structure:", error);
-                    // Fall through to treat as critical issue
-                }
-            }
-
-            // If we can't verify schema or it's missing/broken, this is truly critical
-            return { isHealthy: false, criticalIssue: "completely empty database" };
+            debug("[Index] Database is empty - recreation is faster than sync (20s vs 30+s)");
+            return { isHealthy: false, criticalIssue: "empty database - recreation faster than sync" };
         }
 
         // Check if we have some files but almost no cells (extremely broken)
