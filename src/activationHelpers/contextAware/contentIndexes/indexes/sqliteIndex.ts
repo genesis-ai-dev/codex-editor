@@ -14,7 +14,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 8; // Major restructure: combine source/target rows, extract metadata columns
+export const CURRENT_SCHEMA_VERSION = 8; // Major restructure: combine source/target rows, extract metadata columns
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;

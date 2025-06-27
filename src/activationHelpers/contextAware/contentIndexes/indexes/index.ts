@@ -21,7 +21,7 @@ import {
     searchAllCells,
     searchTranslationPairs,
 } from "./search";
-import { SQLiteIndexManager } from "./sqliteIndex";
+import { SQLiteIndexManager, CURRENT_SCHEMA_VERSION } from "./sqliteIndex";
 
 import {
     initializeWordsIndex,
@@ -306,8 +306,25 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     async function validateIndexHealthConservatively(): Promise<{ isHealthy: boolean; criticalIssue?: string; }> {
         const documentCount = translationPairsIndex.documentCount;
 
-        // Only fail for truly critical issues that require immediate rebuild
+        // Check if database has proper schema structure before considering it "empty"
         if (documentCount === 0) {
+            // For SQLite, check if database has proper schema but just no data
+            if (translationPairsIndex instanceof SQLiteIndexManager) {
+                try {
+                    const schemaInfo = await translationPairsIndex.getDetailedSchemaInfo();
+
+                    // If we have proper schema with expected structure, this is just an empty-but-valid database
+                    if (schemaInfo.cellsTableExists && schemaInfo.hasNewStructure && schemaInfo.currentVersion === CURRENT_SCHEMA_VERSION) {
+                        debug("[Index] Database has proper schema but no data - treating as healthy (just needs sync)");
+                        return { isHealthy: true }; // Healthy, just needs normal sync to populate data
+                    }
+                } catch (error) {
+                    debug("[Index] Error checking schema structure:", error);
+                    // Fall through to treat as critical issue
+                }
+            }
+
+            // If we can't verify schema or it's missing/broken, this is truly critical
             return { isHealthy: false, criticalIssue: "completely empty database" };
         }
 
@@ -357,11 +374,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     if (!healthCheck.isHealthy) {
         needsRebuild = true;
         rebuildReason = healthCheck.criticalIssue || 'health check failed';
-    } else if (currentDocCount === 0) {
-        needsRebuild = true;
-        rebuildReason = 'empty database detected';
     } else {
-        // Check for file changes only if health check passes
+        // Health check passed - database is structurally sound
+        // Check for file changes to determine if sync is needed
         const changeCheck = await checkIfRebuildNeeded();
         if (changeCheck.needsRebuild) {
             needsRebuild = true;
@@ -373,7 +388,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         console.log(`[Index] Rebuild needed: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
-        const isCritical = !healthCheck.isHealthy || currentDocCount === 0;
+        const isCritical = !healthCheck.isHealthy;
 
         // Perform rebuild synchronously during extension activation to ensure splash screen waits
         console.log(`[Index] Starting ${isCritical ? 'critical' : 'normal'} rebuild...`);
