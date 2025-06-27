@@ -233,9 +233,16 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 });
 
                 // Style toolbar formats
+                const qlHeaderStyleLabel = toolbar.querySelectorAll(".ql-headerStyleLabel");
+                qlHeaderStyleLabel.forEach((format) => {
+                    format.setAttribute("style", "max-width: fit-content !important;");
+                });
                 const formats = toolbar.querySelectorAll(".ql-formats");
                 formats.forEach((format) => {
-                    format.setAttribute("style", "margin-right: 6px !important;");
+                    format.setAttribute(
+                        "style",
+                        "margin-right: 6px !important; display: flex; flex-flow: row nowrap;"
+                    );
                 });
 
                 // Style SVG icons
@@ -792,9 +799,15 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 }
                 .ql-editor {
                     white-space: normal !important;
+                    background-color: var(--vscode-editor-background) !important;
+                    color: var(--vscode-editor-foreground) !important;
                 }
                 .quill-toolbar-icon {
                     font-size: 16px !important;
+                }
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0.5; }
                 }
             `;
             document.head.appendChild(style);
@@ -810,104 +823,134 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
     return (
         <>
-            <div
-                className={`relative transition-all duration-300 ease-in-out ${
-                    isToolbarVisible ? "toolbar-visible" : "toolbar-hidden"
-                }`}
-            >
-                <VSCodeButton
-                    appearance="icon"
-                    onClick={() => setIsToolbarVisible(!isToolbarVisible)}
-                    title={isToolbarVisible ? "Hide Formatting Toolbar" : "Show Formatting Toolbar"}
-                    className="mb-1 hover:opacity-80 transition-opacity duration-200"
+            {/* Footnote editing header when in footnote mode */}
+            {isEditingFootnoteInline && (
+                <div
+                    style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "8px",
+                        padding: "8px 12px",
+                        backgroundColor: "var(--vscode-list-hoverBackground)",
+                        borderRadius: "4px",
+                    }}
                 >
-                    <i
-                        className={`codicon ${
-                            isToolbarVisible ? "codicon-chevron-up" : "codicon-tools"
-                        }`}
-                    ></i>
-                </VSCodeButton>
-                {isEditingFootnoteInline && (
-                    /* Reference content display when editing footnote */
-                    <div
-                        style={{
-                            border: "1px solid var(--vscode-input-border)",
-                            borderRadius: "2px",
-                            padding: "12px",
-                            backgroundColor: "var(--vscode-editor-background)",
-                            color: "var(--vscode-editor-foreground)",
-                            minHeight: "80px",
-                            marginBottom: "12px",
-                        }}
-                    >
-                        <div
+                    <h4 style={{ margin: 0, color: "var(--vscode-editor-foreground)" }}>
+                        {isCreatingNewFootnote
+                            ? `Creating Footnote: ${editingFootnoteId}`
+                            : `Editing Footnote: ${editingFootnoteId}`}
+                    </h4>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                        <button
+                            onClick={cancelFootnoteEditing}
                             style={{
+                                padding: "4px 8px",
+                                border: "1px solid var(--vscode-button-border)",
+                                backgroundColor: "var(--vscode-button-secondaryBackground)",
+                                color: "var(--vscode-button-secondaryForeground)",
+                                borderRadius: "2px",
+                                cursor: "pointer",
                                 fontSize: "0.9em",
-                                color: "var(--vscode-descriptionForeground)",
-                                marginBottom: "8px",
-                                fontStyle: "italic",
-                                borderBottom: "1px solid var(--vscode-widget-border)",
-                                paddingBottom: "4px",
                             }}
                         >
-                            Cell Content (for reference):
-                        </div>
-                        <div dangerouslySetInnerHTML={{ __html: originalCellContent }} />
+                            Cancel
+                        </button>
+                        <button
+                            onClick={saveFootnoteContent}
+                            style={{
+                                padding: "4px 8px",
+                                border: "1px solid var(--vscode-button-border)",
+                                backgroundColor: "var(--vscode-button-background)",
+                                color: "var(--vscode-button-foreground)",
+                                borderRadius: "2px",
+                                cursor: "pointer",
+                                fontSize: "0.9em",
+                            }}
+                        >
+                            {isCreatingNewFootnote ? "Add Footnote" : "Save Changes"}
+                        </button>
                     </div>
-                )}
+                </div>
+            )}
 
-                {/* Footnote editing header when in footnote mode */}
-                {isEditingFootnoteInline && (
+            {isEditingFootnoteInline && (
+                /* Reference content display when editing footnote */
+                <div
+                    style={{
+                        border: "1px dashed var(--vscode-descriptionForeground)",
+                        borderRadius: "4px",
+                        padding: "12px",
+                        backgroundColor: "var(--vscode-editor-inactiveSelectionBackground)",
+                        color: "var(--vscode-descriptionForeground)",
+                        minHeight: "60px",
+                        marginBottom: "12px",
+                        opacity: 0.8,
+                    }}
+                >
                     <div
                         style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
+                            fontSize: "0.85em",
+                            color: "var(--vscode-descriptionForeground)",
                             marginBottom: "8px",
-                            padding: "8px 12px",
-                            backgroundColor: "var(--vscode-list-hoverBackground)",
-                            borderRadius: "4px",
+                            fontStyle: "italic",
+                            fontWeight: "bold",
+                            textTransform: "uppercase",
+                            letterSpacing: "0.5px",
                         }}
                     >
-                        <h4 style={{ margin: 0, color: "var(--vscode-editor-foreground)" }}>
-                            {isCreatingNewFootnote
-                                ? `Creating Footnote: ${editingFootnoteId}`
-                                : `Editing Footnote: ${editingFootnoteId}`}
-                        </h4>
-                        <div style={{ display: "flex", gap: "8px" }}>
-                            <button
-                                onClick={cancelFootnoteEditing}
-                                style={{
-                                    padding: "4px 8px",
-                                    border: "1px solid var(--vscode-button-border)",
-                                    backgroundColor: "var(--vscode-button-secondaryBackground)",
-                                    color: "var(--vscode-button-secondaryForeground)",
-                                    borderRadius: "2px",
-                                    cursor: "pointer",
-                                    fontSize: "0.9em",
-                                }}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={saveFootnoteContent}
-                                style={{
-                                    padding: "4px 8px",
-                                    border: "1px solid var(--vscode-button-border)",
-                                    backgroundColor: "var(--vscode-button-background)",
-                                    color: "var(--vscode-button-foreground)",
-                                    borderRadius: "2px",
-                                    cursor: "pointer",
-                                    fontSize: "0.9em",
-                                }}
-                            >
-                                {isCreatingNewFootnote ? "Add Footnote" : "Save Changes"}
-                            </button>
-                        </div>
+                        📄 Cell Content (Read-Only Reference)
                     </div>
+                    <div
+                        style={{
+                            fontSize: "0.9em",
+                            lineHeight: "1.4",
+                            pointerEvents: "none",
+                            userSelect: "none",
+                        }}
+                        dangerouslySetInnerHTML={{ __html: originalCellContent }}
+                    />
+                </div>
+            )}
+            <div
+                className={`relative transition-all duration-300 ease-in-out ${
+                    isToolbarVisible || isEditingFootnoteInline
+                        ? "toolbar-visible"
+                        : "toolbar-hidden"
+                }`}
+            >
+                {!isEditingFootnoteInline && (
+                    <VSCodeButton
+                        appearance="icon"
+                        onClick={() => setIsToolbarVisible(!isToolbarVisible)}
+                        title={
+                            isToolbarVisible ? "Hide Formatting Toolbar" : "Show Formatting Toolbar"
+                        }
+                        className="mb-1 hover:opacity-80 transition-opacity duration-200"
+                    >
+                        <i
+                            className={`codicon ${
+                                isToolbarVisible ? "codicon-chevron-up" : "codicon-tools"
+                            }`}
+                        ></i>
+                    </VSCodeButton>
                 )}
 
-                <div ref={editorRef} className="quill-editor-container"></div>
+                <div
+                    ref={editorRef}
+                    className="quill-editor-container"
+                    style={
+                        isEditingFootnoteInline
+                            ? {
+                                  border: "2px solid var(--vscode-focusBorder)",
+                                  borderRadius: "4px",
+                                  backgroundColor: "var(--vscode-editor-background)",
+                                  padding: "4px",
+                                  minHeight: "120px",
+                              }
+                            : {}
+                    }
+                ></div>
                 <div
                     style={{
                         display: "flex",
