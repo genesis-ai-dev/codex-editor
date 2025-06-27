@@ -196,7 +196,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
      * Smart rebuild using file-level synchronization
      */
     async function smartRebuildIndexes(reason: string, isForced: boolean = false): Promise<void> {
-        console.log(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
+        debug(`[Index] Starting smart rebuild: ${reason} (forced: ${isForced})`);
 
         // Check consecutive rebuilds protection
         const rebuildCheck = isRebuildAllowed(reason, isForced);
@@ -220,7 +220,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
             // For forced rebuilds, clear everything first
             if (isForced) {
-                console.log("[Index] Forced rebuild - clearing existing indexes...");
+                debug("[Index] Forced rebuild - clearing existing indexes...");
                 await translationPairsIndex.removeAll();
                 await sourceTextIndex.removeAll();
                 wordsIndex.clear();
@@ -228,17 +228,17 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Perform intelligent file synchronization
-            console.log("[Index] Starting file-level synchronization...");
+            debug("[Index] Starting file-level synchronization...");
 
             const syncResult: FileSyncResult = await fileSyncManager.syncFiles({
                 forceSync: isForced,
                 progressCallback: (message, progress) => {
-                    console.log(`[Index] Sync progress: ${message} (${progress}%)`);
+                    debug(`[Index] Sync progress: ${message} (${progress}%)`);
                     // Use existing status bar methods for progress tracking
                 }
             });
 
-            console.log(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
+            debug(`[Index] Sync completed: ${syncResult.syncedFiles}/${syncResult.totalFiles} files processed in ${syncResult.duration.toFixed(2)}ms`);
 
             if (syncResult.errors.length > 0) {
                 console.warn(`[Index] Sync completed with ${syncResult.errors.length} errors:`);
@@ -248,7 +248,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
 
             // Update other indexes that depend on the file data
-            console.log("[Index] Updating complementary indexes...");
+            debug("[Index] Updating complementary indexes...");
 
             try {
                 // Update words and files indexes
@@ -259,14 +259,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 // Update complete drafts
                 await updateCompleteDrafts(targetFiles);
 
-                console.log("[Index] Complementary indexes updated successfully");
+                debug("[Index] Complementary indexes updated successfully");
             } catch (error) {
                 console.warn("[Index] Error updating complementary indexes:", error);
                 // Don't fail the entire rebuild for complementary index errors
             }
 
             const finalDocCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
+            debug(`[Index] Smart sync rebuild complete - indexed ${finalDocCount} documents`);
 
             statusBarHandler.updateIndexCounts(
                 finalDocCount,
@@ -385,29 +385,28 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
     }
 
     if (needsRebuild) {
-        console.log(`[Index] Rebuild needed: ${rebuildReason}`);
+        debug(`[Index] Rebuild needed: ${rebuildReason}`);
 
         // Check if this is a critical issue that should rebuild automatically
         const isCritical = !healthCheck.isHealthy;
 
         // Perform rebuild synchronously during extension activation to ensure splash screen waits
-        console.log(`[Index] Starting ${isCritical ? 'critical' : 'normal'} rebuild...`);
+        debug(`[Index] Starting ${isCritical ? 'critical' : 'normal'} rebuild...`);
         try {
             await smartRebuildIndexes(rebuildReason, isCritical);
 
             const finalCount = translationPairsIndex.documentCount;
-            console.log(`[Index] Rebuild completed with ${finalCount} documents`);
+            debug(`[Index] Rebuild completed with ${finalCount} documents`);
 
             if (finalCount > 0) {
-                console.log(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
+                vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
             } else {
-                console.warn("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
+                vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
             }
         } catch (error) {
             console.error("[Index] Error during rebuild:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
-            throw error; // Re-throw to ensure activation fails if indexing fails
+            vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
         }
     } else {
         // Database is healthy and up to date
