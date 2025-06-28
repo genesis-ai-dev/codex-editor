@@ -516,7 +516,7 @@ export class SQLiteIndexManager {
                 // Show user notification about the recreation
                 const vscode = await import('vscode');
                 vscode.window.showInformationMessage(
-                    `Codex: Database schema mismatch (${currentVersion} → ${CURRENT_SCHEMA_VERSION}). Recreating database to ensure compatibility. This may take a few minutes...`
+                    `AI updating to latest version. This may take a few moments...`
                 );
 
                 // Delete the database file and recreate from scratch
@@ -2364,13 +2364,13 @@ export class SQLiteIndexManager {
         // Show user confirmation
         const vscode = await import('vscode');
         const confirm = await vscode.window.showWarningMessage(
-            "This will delete the search index database and trigger a complete reindex. This may take several minutes. Continue?",
+            "This will reset the AI's knowledge and start fresh. This may take a few moments. Continue?",
             { modal: true },
-            "Yes, Delete and Reindex"
+            "Yes, Reset AI"
         );
 
-        if (confirm === "Yes, Delete and Reindex") {
-            vscode.window.showInformationMessage("Codex: Deleting database and starting reindex...");
+        if (confirm === "Yes, Reset AI") {
+            vscode.window.showInformationMessage("AI preparing to learn from scratch...");
 
             // Close current database connection
             await this.close();
@@ -2378,7 +2378,7 @@ export class SQLiteIndexManager {
             // Delete the database file
             await this.deleteDatabaseFile();
 
-            vscode.window.showInformationMessage("Codex: Database deleted. Please reload the extension to trigger reindex.");
+            vscode.window.showInformationMessage("AI reset complete. Please reload the extension to continue.");
         }
     }
 

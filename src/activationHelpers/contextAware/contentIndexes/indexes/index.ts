@@ -41,6 +41,38 @@ import { registerBackgroundValidation } from "../../../../validation/backgroundV
 
 type WordFrequencyMap = Map<string, WordOccurrence[]>;
 
+/**
+ * Show AI learning progress notification - the core UX for index rebuilds
+ * @param cancellable Whether the operation can be cancelled
+ * @returns Promise that resolves when the notification is dismissed or operation completes
+ */
+async function showAILearningProgress<T>(
+    operation: (progress: vscode.Progress<{ message?: string; increment?: number; }>) => Promise<T>,
+    cancellable: boolean = false
+): Promise<T | undefined> {
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "AI learning from your latest changes...",
+            cancellable
+        },
+        async (progress, token) => {
+            if (cancellable && token) {
+                token.onCancellationRequested(() => {
+                    debug("AI learning cancelled by user");
+                });
+            }
+
+            try {
+                return await operation(progress);
+            } catch (error) {
+                debug(`AI learning error: ${error}`);
+                throw error;
+            }
+        }
+    );
+}
+
 async function isDocumentAlreadyOpen(uri: vscode.Uri): Promise<boolean> {
     const openTextDocuments = vscode.workspace.textDocuments;
     return openTextDocuments.some((doc) => doc.uri.toString() === uri.toString());
@@ -377,20 +409,20 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         // Perform rebuild synchronously during extension activation to ensure splash screen waits
         debug(`[Index] Starting ${isCritical ? 'critical' : 'normal'} rebuild...`);
         try {
-            await smartRebuildIndexes(rebuildReason, isCritical);
+            await showAILearningProgress(async (progress) => {
+                await smartRebuildIndexes(rebuildReason, isCritical);
+                const finalCount = translationPairsIndex.documentCount;
+                debug(`[Index] Rebuild completed with ${finalCount} documents`);
 
-            const finalCount = translationPairsIndex.documentCount;
-            debug(`[Index] Rebuild completed with ${finalCount} documents`);
-
-            if (finalCount > 0) {
-                vscode.window.showInformationMessage(`Codex: Search index rebuilt successfully! Indexed ${finalCount} documents.`);
-            } else {
-                vscode.window.showWarningMessage("Codex: Index rebuild completed but no documents were indexed. Please check your .codex and .source files.");
-            }
+                // No need for completion messages - the progress notification handles it
+                if (finalCount === 0) {
+                    debug("[Index] Warning: No documents were indexed. Check .codex and .source files.");
+                }
+            });
         } catch (error) {
             console.error("[Index] Error during rebuild:", error);
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`Codex: Failed to rebuild search index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+            // Don't show technical error messages to users
+            debug(`[Index] Failed to rebuild: ${error instanceof Error ? error.message : String(error)}`);
         }
     } else {
         // Database is healthy and up to date
@@ -527,9 +559,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
         const forceReindexCommand = vscode.commands.registerCommand(
             "codex-editor-extension.forceReindex",
             async () => {
-                vscode.window.showInformationMessage("Force re-indexing started");
-                await smartRebuildIndexes("manual force reindex command", true);
-                vscode.window.showInformationMessage("Force re-indexing completed");
+                await showAILearningProgress(async (progress) => {
+                    await smartRebuildIndexes("manual force reindex command", true);
+                });
             }
         );
 
@@ -910,7 +942,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     }
                 } catch (error) {
                     console.error("Error verifying data integrity:", error);
-                    vscode.window.showErrorMessage("Failed to verify data integrity");
+                    // Don't show technical errors to users
+                    debug("Failed to verify data integrity");
                 }
             }
         );
@@ -926,7 +959,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     }
                 } catch (error) {
                     console.error("Error during database deletion:", error);
-                    vscode.window.showErrorMessage("Failed to delete database. Check the logs for details.");
+                    // Don't show technical errors to users
+                    debug("Failed to delete database. Check the logs for details.");
                 }
             }
         );
@@ -936,24 +970,24 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async () => {
                 try {
                     const choice = await vscode.window.showWarningMessage(
-                        "This will completely rebuild the search index from scratch. This may take several minutes. Continue?",
+                        "This will refresh the AI's understanding of your codebase. This may take a few moments. Continue?",
                         { modal: true },
-                        "Yes, Rebuild Index"
+                        "Yes, Let AI Learn"
                     );
 
-                    if (choice === "Yes, Rebuild Index") {
-                        vscode.window.showInformationMessage("Codex: Starting complete index rebuild...");
+                    if (choice === "Yes, Let AI Learn") {
+                        await showAILearningProgress(async (progress) => {
+                            // Force a complete rebuild
+                            await smartRebuildIndexes("manual complete rebuild command", true);
 
-                        // Force a complete rebuild
-                        await smartRebuildIndexes("manual complete rebuild command", true);
-
-                        const finalCount = translationPairsIndex.documentCount;
-                        vscode.window.showInformationMessage(`Codex: Index rebuild completed! Indexed ${finalCount} documents.`);
+                            const finalCount = translationPairsIndex.documentCount;
+                            debug(`[Index] Rebuild completed with ${finalCount} documents`);
+                        });
                     }
                 } catch (error) {
                     console.error("Error during complete rebuild:", error);
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    vscode.window.showErrorMessage(`Codex: Failed to rebuild index. Error: ${errorMessage.substring(0, 100)}${errorMessage.length > 100 ? '...' : ''}`);
+                    // Don't show technical errors to users
+                    debug(`[Index] Failed to rebuild: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
         );
@@ -1031,7 +1065,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 } catch (error) {
                     console.error("Error checking index status:", error);
                     const errorMessage = error instanceof Error ? error.message : String(error);
-                    vscode.window.showErrorMessage(`Codex: Failed to check index status. Error: ${errorMessage}`);
+                    // Don't show technical errors to users
+                    debug(`[Index] Failed to check index status. Error: ${errorMessage}`);
                 }
             }
         );
@@ -1042,7 +1077,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 try {
                     if (translationPairsIndex instanceof SQLiteIndexManager) {
                         const choice = await vscode.window.showWarningMessage(
-                            "This will reset the schema version to force migration on next restart. Continue?",
+                            "This will reset the AI configuration. You'll need to reload the extension. Continue?",
                             "Yes, Reset",
                             "Cancel"
                         );
@@ -1050,14 +1085,15 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         if (choice === "Yes, Reset") {
                             // Reset schema version to force migration
                             await (translationPairsIndex as any).setSchemaVersion(2);
-                            vscode.window.showInformationMessage("Schema version reset. Please reload the extension to trigger migration.");
+                            vscode.window.showInformationMessage("AI configuration reset. Please reload the extension to continue.");
                         }
                     } else {
                         vscode.window.showErrorMessage("Schema reset only available for SQLite index");
                     }
                 } catch (error) {
                     console.error("Error resetting schema:", error);
-                    vscode.window.showErrorMessage("Failed to reset schema. Check the logs for details.");
+                    // Don't show technical errors to users
+                    debug("Failed to reset schema. Check the logs for details.");
                 }
             }
         );
@@ -1098,18 +1134,18 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                         if (choice === "Force Migration to v8") {
                             const confirm = await vscode.window.showWarningMessage(
-                                "This will force migrate the database to schema version 8. Continue?",
-                                "Yes, Migrate",
+                                "This will update the AI configuration to the latest version. Continue?",
+                                "Yes, Update",
                                 "Cancel"
                             );
 
-                            if (confirm === "Yes, Migrate") {
+                            if (confirm === "Yes, Update") {
                                 await (translationPairsIndex as any).forceRecreateDatabase();
-                                vscode.window.showInformationMessage("Database recreated with schema v8. Please reload the extension.");
+                                vscode.window.showInformationMessage("AI configuration updated. Please reload the extension.");
                             }
                         } else if (choice === "Clean Schema Info") {
                             await (translationPairsIndex as any).setSchemaVersion(schemaInfo.currentVersion);
-                            vscode.window.showInformationMessage("Schema info cleaned up.");
+                            vscode.window.showInformationMessage("AI configuration optimized.");
                         }
 
                     } else {
@@ -1117,7 +1153,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     }
                 } catch (error) {
                     console.error("Error debugging schema:", error);
-                    vscode.window.showErrorMessage("Failed to debug schema. Check the logs for details.");
+                    // Don't show technical errors to users
+                    debug("Failed to debug schema. Check the logs for details.");
                 }
             }
         );
@@ -1127,15 +1164,14 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             async () => {
                 try {
                     debug("[Index] Manual refresh requested");
-                    await smartRebuildIndexes("manual refresh", true);
-                    vscode.window.showInformationMessage(
-                        `Codex: Index refreshed successfully! Indexed ${translationPairsIndex.documentCount} documents.`
-                    );
+                    await showAILearningProgress(async (progress) => {
+                        await smartRebuildIndexes("manual refresh", true);
+                        debug(`[Index] Refresh completed with ${translationPairsIndex.documentCount} documents`);
+                    });
                 } catch (error) {
                     console.error("Error refreshing index:", error);
-                    vscode.window.showErrorMessage(
-                        `Codex: Failed to refresh index. Error: ${error instanceof Error ? error.message : String(error)}`
-                    );
+                    // Don't show technical errors to users
+                    debug(`[Index] Failed to refresh: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
         );
@@ -1154,14 +1190,10 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                     const { summary } = syncStatus;
                     const statusMessage = syncStatus.needsSync
-                        ? `Files need sync: ${summary.newFiles} new, ${summary.changedFiles} changed, ${summary.unchangedFiles} unchanged`
-                        : `All ${summary.totalFiles} files are synchronized`;
+                        ? `AI has ${summary.newFiles + summary.changedFiles} files to learn from`
+                        : `AI is up to date with all ${summary.totalFiles} files`;
 
-                    const statsMessage = `Index: ${stats.indexStats.totalCells} cells, ${stats.indexStats.totalWords} words in ${stats.syncStats.totalFiles} files`;
-
-                    vscode.window.showInformationMessage(
-                        `Codex Sync Status: ${statusMessage}. ${statsMessage}`
-                    );
+                    vscode.window.showInformationMessage(statusMessage);
 
                     // Log detailed information
                     debug("[Index] Sync Status Details:");
@@ -1170,9 +1202,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     }
                 } catch (error) {
                     console.error("Error checking sync status:", error);
-                    vscode.window.showErrorMessage(
-                        `Codex: Failed to check sync status. Error: ${error instanceof Error ? error.message : String(error)}`
-                    );
+                    // Don't show technical errors to users
+                    debug(`[Index] Failed to check sync status: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
         );
