@@ -357,8 +357,10 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
 
         // Find and parse book names XML
         let bookNames: Record<string, string> = {};
+        let bookNamesXmlContent: string | null = null;
         const bookNamesFile = extractedFiles.find(f => f.isBookNames);
         if (bookNamesFile) {
+            bookNamesXmlContent = bookNamesFile.content;
             bookNames = parseBookNamesXml(bookNamesFile.content);
             projectMetadata.hasBookNames = true;
             onProgress?.(createProgress('Book Names', `Loaded ${Object.keys(bookNames).length} book names`, 30));
@@ -488,6 +490,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 languageCode: projectMetadata.languageIsoCode || projectMetadata.languageCode,
                 projectAbbreviation: projectMetadata.abbreviation,
                 notebookPairCount: notebookPairs.length,
+                bookNamesXmlContent, // Include the XML content for import
             },
         };
 

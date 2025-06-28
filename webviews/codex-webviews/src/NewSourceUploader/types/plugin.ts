@@ -81,4 +81,10 @@ export interface NotificationMessage {
     message: string;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | NotificationMessage; 
+export interface ImportBookNamesMessage {
+    command: 'importBookNames';
+    xmlContent: string;
+    nameType?: 'long' | 'short' | 'abbr';
+}
+
+export type ProviderMessage = WriteNotebooksMessage | NotificationMessage | ImportBookNamesMessage; 

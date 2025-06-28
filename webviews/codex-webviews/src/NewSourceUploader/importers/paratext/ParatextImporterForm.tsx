@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { ImporterComponentProps } from "../../types/plugin";
+import { ImporterComponentProps, ImportBookNamesMessage } from "../../types/plugin";
 import { NotebookPair, ImportProgress } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import {
@@ -24,12 +24,16 @@ import {
     MapPin,
     Languages,
     Info,
+    ArrowRight,
 } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { paratextImporter } from "./parser";
 
 // Use the real parser functions from the Paratext importer
 const { validateFile, parseFile } = paratextImporter;
+
+// Get the VSCode API
+const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
 
 export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
     onComplete,
@@ -43,6 +47,8 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
     const [result, setResult] = useState<NotebookPair | null>(null);
     const [validation, setValidation] = useState<any>(null);
     const [projectInfo, setProjectInfo] = useState<any>(null);
+    const [notebookPairs, setNotebookPairs] = useState<NotebookPair[]>([]);
+    const [bookNamesImported, setBookNamesImported] = useState(false);
 
     const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
@@ -101,6 +107,7 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
                 (importResult.notebookPair ? [importResult.notebookPair] : []);
 
             setResult(notebookPairs[0]); // Display first pair for UI purposes
+            setNotebookPairs(notebookPairs); // Store all pairs
             setProjectInfo({
                 ...importResult.metadata,
                 notebookPairCount: notebookPairs.length,
@@ -111,10 +118,17 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
             });
             setIsDirty(false);
 
-            // Automatically complete after showing success briefly
-            setTimeout(() => {
-                onComplete(notebookPairs); // Pass all notebook pairs
-            }, 2000);
+            // Import book names if available
+            if (importResult.metadata?.bookNamesXmlContent && !bookNamesImported) {
+                // Send message to import book names
+                const message: ImportBookNamesMessage = {
+                    command: "importBookNames",
+                    xmlContent: importResult.metadata.bookNamesXmlContent,
+                    nameType: "long", // Use long names by default for Arabic
+                };
+                vscode.postMessage(message);
+                setBookNamesImported(true);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
         } finally {
@@ -127,6 +141,12 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
             return;
         }
         onCancel();
+    };
+
+    const handleComplete = () => {
+        if (notebookPairs.length > 0) {
+            onComplete(notebookPairs);
+        }
     };
 
     const totalProgress =
@@ -340,6 +360,12 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
                                                 pair
                                             </div>
                                         )}
+                                        {bookNamesImported && (
+                                            <div className="text-xs text-green-600 mt-2 flex items-center gap-1">
+                                                <CheckCircle className="h-3 w-3" />
+                                                Book names automatically imported from project
+                                            </div>
+                                        )}
                                     </div>
                                 </AlertDescription>
                             </Alert>
@@ -507,6 +533,25 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
                                     </CardContent>
                                 </Card>
                             )}
+
+                            {/* Action buttons */}
+                            <div className="flex gap-3 justify-end">
+                                <Button
+                                    variant="outline"
+                                    onClick={handleCancel}
+                                    className="flex items-center gap-2"
+                                >
+                                    <ArrowLeft className="h-4 w-4" />
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleComplete}
+                                    className="flex items-center gap-2"
+                                >
+                                    <ArrowRight className="h-4 w-4" />
+                                    Complete Import
+                                </Button>
+                            </div>
                         </div>
                     )}
                 </CardContent>

@@ -6,6 +6,7 @@ import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourc
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
+import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
@@ -43,6 +44,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         type: "success",
                         message: "Notebooks created successfully!"
                     });
+                } else if (message.command === "importBookNames") {
+                    // Handle book names import
+                    const { xmlContent, nameType } = message;
+                    if (xmlContent) {
+                        const success = await importBookNamesFromXmlContent(xmlContent, nameType || 'long');
+                        if (success) {
+                            webviewPanel.webview.postMessage({
+                                command: "notification",
+                                type: "success",
+                                message: "Book names imported successfully!"
+                            });
+                        } else {
+                            webviewPanel.webview.postMessage({
+                                command: "notification",
+                                type: "warning",
+                                message: "Failed to import some book names"
+                            });
+                        }
+                    }
                 }
             } catch (error) {
                 console.error("Error handling message:", error);

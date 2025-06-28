@@ -241,7 +241,7 @@ export async function openBookNameEditor() {
     });
 }
 
-function getWebviewContent(books: any[], options: { importSource?: string } = {}) {
+function getWebviewContent(books: any[], options: { importSource?: string; } = {}) {
     // Escape HTML utility
     const escapeHtml = (unsafe: string) =>
         unsafe
@@ -351,4 +351,107 @@ function getWebviewContent(books: any[], options: { importSource?: string } = {}
     </script>
 </body>
 </html>`;
+}
+
+export async function importBookNamesFromXmlContent(
+    xmlContent: string,
+    nameType: 'long' | 'short' | 'abbr' = 'long'
+): Promise<boolean> {
+    try {
+        // Dynamic import for fs and path
+        const fs = await import("fs");
+        const path = await import("path");
+
+        // Get workspace folder
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            console.error("No workspace folder is open.");
+            return false;
+        }
+        const workspaceRoot = workspaceFolders[0].uri.fsPath;
+        const localizedPath = path.join(workspaceRoot, "localized-books.json");
+
+        // Parse XML to JSON
+        const parser = new xml2js.Parser({
+            explicitArray: false,
+            mergeAttrs: true,
+        });
+
+        return new Promise((resolve) => {
+            parser.parseString(xmlContent, async (err: any, result: any) => {
+                if (err) {
+                    console.error(`Failed to parse XML: ${err.message}`);
+                    resolve(false);
+                    return;
+                }
+
+                try {
+                    // Extract book data from XML
+                    const books = Array.isArray(result.BookNames.book)
+                        ? result.BookNames.book
+                        : [result.BookNames.book];
+
+                    // Create mapping from XML based on selected name type
+                    const xmlBooks: Record<string, any> = {};
+                    books.forEach((book: any) => {
+                        const abbr = book.code;
+                        const name = book[nameType];
+
+                        if (abbr && name) {
+                            xmlBooks[abbr] = name;
+                        }
+                    });
+
+                    // Get the extension for default books
+                    const extension = vscode.extensions.getExtension("project-accelerate.codex-editor-extension");
+                    if (!extension) {
+                        console.error("Could not find the Codex Editor extension.");
+                        resolve(false);
+                        return;
+                    }
+                    const extensionPath = extension.extensionPath;
+                    const defaultBooksPath = path.join(
+                        extensionPath,
+                        "webviews/codex-webviews/src/assets/bible-books-lookup.json"
+                    );
+
+                    // Load default books
+                    const raw = fs.readFileSync(defaultBooksPath, "utf8");
+                    const defaultBooks = JSON.parse(raw);
+
+                    // Create localized books array
+                    const toSave = defaultBooks
+                        .map((book: any) => {
+                            const customName = xmlBooks[book.abbr];
+                            if (customName && customName !== book.name) {
+                                return {
+                                    abbr: book.abbr,
+                                    name: customName,
+                                    ord: book.ord,
+                                    testament: book.testament,
+                                };
+                            }
+                            return null;
+                        })
+                        .filter(Boolean);
+
+                    // Save to localized-books.json
+                    if (toSave.length > 0) {
+                        fs.writeFileSync(localizedPath, JSON.stringify(toSave, null, 2));
+                        vscode.window.showInformationMessage(
+                            `Imported ${toSave.length} book names from Paratext project`
+                        );
+                    }
+
+                    resolve(true);
+                } catch (error: any) {
+                    console.error(`Error processing XML data: ${error.message}`);
+                    resolve(false);
+                }
+            });
+        });
+    } catch (error: any) {
+        console.error(`Error importing XML: ${error.message}`);
+        return false;
+    }
 }
