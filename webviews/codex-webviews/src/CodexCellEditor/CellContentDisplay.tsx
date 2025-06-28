@@ -496,7 +496,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 dangerouslySetInnerHTML={{
                     __html: HACKY_removeContiguousSpans(cell.cellContent || ""),
                 }}
-                onClick={() => handleCellClick(cellIds[0])}
+                onClick={() => {
+                    hideTooltip();
+                    handleCellClick(cellIds[0]);
+                }}
             />
         );
     };

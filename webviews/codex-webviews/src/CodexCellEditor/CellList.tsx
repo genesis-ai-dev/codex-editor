@@ -574,6 +574,7 @@ const CellList: React.FC<CellListProps> = ({
                             textDirection={textDirection}
                             openCellById={openCellById}
                             isSaving={isSaving}
+                            
                         />
                     </span>
                 );

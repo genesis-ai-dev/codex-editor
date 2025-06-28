@@ -14,7 +14,7 @@ const debug = (message: string, ...args: any[]) => {
 };
 
 // Schema version for migrations
-const CURRENT_SCHEMA_VERSION = 8; // Major restructure: combine source/target rows, extract metadata columns
+export const CURRENT_SCHEMA_VERSION = 8; // Major restructure: combine source/target rows, extract metadata columns
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -491,22 +491,7 @@ export class SQLiteIndexManager {
             const currentVersion = this.getSchemaVersion();
             debug(`Current schema version: ${currentVersion}`);
 
-            // Check if database is empty (has no actual data) even if tables exist
-            const isEmpty = this.isDatabaseEmpty();
-            if (isEmpty && currentVersion !== 0) {
-                debug("Database exists but is empty - treating as new database");
-                stepStart = this.trackProgress("Delete empty database and recreate", stepStart);
 
-                // Delete the database file and start fresh (like scenario 1)
-                await this.deleteDatabaseFile();
-
-                // Recreate the database with the latest schema
-                await this.recreateDatabase();
-
-                this.trackProgress("Empty database recreation complete", stepStart);
-                debug(`Empty database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
-                return;
-            }
 
             if (currentVersion === 0) {
                 // Scenario 1: No schema exists - create fresh schema
@@ -683,54 +668,6 @@ export class SQLiteIndexManager {
         }
     }
 
-    private isDatabaseEmpty(): boolean {
-        if (!this.db) return true;
-
-        try {
-            // Check if any core data tables have actual data
-            const checkTables = ['files', 'cells', 'sync_metadata'];
-
-            for (const tableName of checkTables) {
-                // First check if table exists
-                const checkTableExists = this.db.prepare(`
-                    SELECT COUNT(*) as count FROM sqlite_master 
-                    WHERE type='table' AND name=?
-                `);
-
-                let tableExists = false;
-                try {
-                    checkTableExists.bind([tableName]);
-                    if (checkTableExists.step()) {
-                        tableExists = (checkTableExists.getAsObject().count as number) > 0;
-                    }
-                } finally {
-                    checkTableExists.free();
-                }
-
-                if (!tableExists) continue; // Skip non-existent tables
-
-                // Check if table has any data
-                const checkData = this.db.prepare(`SELECT COUNT(*) as count FROM ${tableName} LIMIT 1`);
-                try {
-                    if (checkData.step()) {
-                        const count = checkData.getAsObject().count as number;
-                        if (count > 0) {
-                            debug(`Database not empty: found ${count} rows in ${tableName}`);
-                            return false; // Found data, not empty
-                        }
-                    }
-                } finally {
-                    checkData.free();
-                }
-            }
-
-            debug("Database appears to be empty (no data in core tables)");
-            return true; // No data found in any core tables
-        } catch (error) {
-            debug(`Error checking if database is empty: ${error}`);
-            return false; // Assume not empty if we can't check
-        }
-    }
 
     setSchemaVersion(version: number): void {
         if (!this.db) return;
