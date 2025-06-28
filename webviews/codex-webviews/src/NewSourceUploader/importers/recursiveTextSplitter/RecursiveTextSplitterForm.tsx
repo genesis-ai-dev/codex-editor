@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { ImporterComponentProps } from "../../types/plugin";
 import { NotebookPair, ImportProgress, ProcessedCell } from "../../types/common";
 import { Button } from "../../../components/ui/button";
+import { parseJsonIntelligently, mightBeJson } from "./jsonParser";
 import {
     Card,
     CardContent,
@@ -292,10 +293,24 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
         [fileContent]
     );
 
+    // Check if this is JSON content
+    const isJsonContent = useMemo(() => {
+        return file && (file.name.toLowerCase().endsWith(".json") || mightBeJson(fileContent));
+    }, [file, fileContent]);
+
+    // Get JSON preview cells if applicable
+    const jsonPreviewCells = useMemo(() => {
+        if (!isJsonContent || !fileContent) return null;
+        const cleanFileName = file?.name.replace(/\.[^/.]+$/, "").replace(/\s+/g, "") || "json";
+        return parseJsonIntelligently(fileContent, cleanFileName);
+    }, [isJsonContent, fileContent, file]);
+
     const processedChunks = useMemo(() => {
         if (!fileContent || chunkSize <= 0) return [];
+        // Don't process chunks for JSON files in preview
+        if (isJsonContent && jsonPreviewCells) return [];
         return splitTextSmart(fileContent, separators, chunkSize, chunkOverlap);
-    }, [fileContent, separators, chunkSize, chunkOverlap]);
+    }, [fileContent, separators, chunkSize, chunkOverlap, isJsonContent, jsonPreviewCells]);
 
     // Ensure empty string separator is last
     useEffect(() => {
@@ -361,43 +376,114 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                 ]);
             };
 
-            onProgress({
-                stage: "Processing",
-                message: "Analyzing and creating sections...",
-                progress: 30,
-            });
-
-            const chunks = splitTextSmart(fileContent, separators, chunkSize, chunkOverlap);
-
-            onProgress({
-                stage: "Creating",
-                message: `Creating ${chunks.length} cells...`,
-                progress: 70,
-            });
-            // Create notebook cells
             const cleanFileName = file.name.replace(/\.[^/.]+$/, "").replace(/\s+/g, "");
-            const sourceCells = chunks.map((chunk: Chunk, index: number) => ({
-                id: `${cleanFileName} 1:${index + 1}`,
-                content: chunk.text,
-                metadata: {
-                    type: "text" as const,
-                    chunkIndex: index,
-                    chunkSize: chunk.text.length,
-                    startOffset: chunk.start,
-                    endOffset: chunk.end,
-                },
-                images: [],
-            }));
+            let sourceCells: ProcessedCell[];
+            let codexCells: ProcessedCell[];
 
-            const codexCells: ProcessedCell[] = chunks.map((chunk: Chunk, index: number) => ({
-                id: `${cleanFileName} 1:${index + 1}`,
-                content: "", // Empty for user translation
-                metadata: {
-                    type: "text" as const,
-                    chunkIndex: index,
-                },
-                images: [],
-            }));
+            // Check if this is JSON content
+            const isJsonFile =
+                file.name.toLowerCase().endsWith(".json") || mightBeJson(fileContent);
+
+            if (isJsonFile) {
+                onProgress({
+                    stage: "Processing",
+                    message: "Parsing JSON structure...",
+                    progress: 30,
+                });
+
+                const jsonCells = parseJsonIntelligently(fileContent, cleanFileName);
+
+                if (jsonCells) {
+                    // Successfully parsed as JSON
+                    sourceCells = jsonCells;
+
+                    onProgress({
+                        stage: "Creating",
+                        message: `Creating ${jsonCells.length} sections from JSON...`,
+                        progress: 70,
+                    });
+
+                    // Create empty codex cells matching the source
+                    codexCells = jsonCells.map((cell) => ({
+                        ...cell,
+                        content: "", // Empty for user translation
+                        metadata: {
+                            ...cell.metadata,
+                            sourceId: cell.id,
+                        },
+                    }));
+                } else {
+                    // Failed to parse as JSON, fall back to text splitting
+                    onProgress({
+                        stage: "Processing",
+                        message: "Invalid JSON, using smart text analysis...",
+                        progress: 30,
+                    });
+
+                    const chunks = splitTextSmart(fileContent, separators, chunkSize, chunkOverlap);
+
+                    sourceCells = chunks.map((chunk: Chunk, index: number) => ({
+                        id: `${cleanFileName} 1:${index + 1}`,
+                        content: chunk.text,
+                        metadata: {
+                            type: "text" as const,
+                            chunkIndex: index,
+                            chunkSize: chunk.text.length,
+                            startOffset: chunk.start,
+                            endOffset: chunk.end,
+                        },
+                        images: [],
+                    }));
+
+                    codexCells = chunks.map((chunk: Chunk, index: number) => ({
+                        id: `${cleanFileName} 1:${index + 1}`,
+                        content: "", // Empty for user translation
+                        metadata: {
+                            type: "text" as const,
+                            chunkIndex: index,
+                        },
+                        images: [],
+                    }));
+                }
+            } else {
+                // Regular text file
+                onProgress({
+                    stage: "Processing",
+                    message: "Analyzing and creating sections...",
+                    progress: 30,
+                });
+
+                const chunks = splitTextSmart(fileContent, separators, chunkSize, chunkOverlap);
+
+                onProgress({
+                    stage: "Creating",
+                    message: `Creating ${chunks.length} sections...`,
+                    progress: 70,
+                });
+
+                sourceCells = chunks.map((chunk: Chunk, index: number) => ({
+                    id: `${cleanFileName} 1:${index + 1}`,
+                    content: chunk.text,
+                    metadata: {
+                        type: "text" as const,
+                        chunkIndex: index,
+                        chunkSize: chunk.text.length,
+                        startOffset: chunk.start,
+                        endOffset: chunk.end,
+                    },
+                    images: [],
+                }));
+
+                codexCells = chunks.map((chunk: Chunk, index: number) => ({
+                    id: `${cleanFileName} 1:${index + 1}`,
+                    content: "", // Empty for user translation
+                    metadata: {
+                        type: "text" as const,
+                        chunkIndex: index,
+                    },
+                    images: [],
+                }));
+            }
 
             const notebookPair: NotebookPair = {
                 source: {
@@ -537,7 +623,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
                                 <input
                                     type="file"
-                                    accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.log,.xml,.html,.css,.js,.ts,.py,.java,.cpp,.c,.h,text/*"
+                                    accept=".txt,.text,.md,.markdown,.csv,.tsv,.json,.log,.xml,.html,.css,.js,.ts,.py,.java,.cpp,.c,.h,.yml,.yaml,.ini,.conf,.config,.sh,.bash,.zsh,.fish,.ps1,.bat,.cmd,.r,.R,.sql,.rb,.php,.swift,.kt,.scala,.go,.rs,.m,.mm,.tex,.bib,text/*,application/json"
                                     onChange={handleFileSelect}
                                     className="hidden"
                                     id="text-file-input"
@@ -563,15 +649,22 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                             <p className="text-sm text-muted-foreground">
                                                 {(file.size / 1024).toFixed(1)} KB •{" "}
                                                 {fileContent.length} characters
+                                                {isJsonContent && " • JSON detected"}
                                             </p>
                                         </div>
                                     </div>
+                                    {isJsonContent && jsonPreviewCells && (
+                                        <Badge variant="secondary" className="text-xs">
+                                            {jsonPreviewCells.length} section
+                                            {jsonPreviewCells.length > 1 ? "s" : ""}
+                                        </Badge>
+                                    )}
                                 </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    {file && (
+                    {file && !isJsonContent && (
                         <Card>
                             <CardHeader>
                                 <CardTitle className="text-sm flex items-center gap-2">
@@ -729,7 +822,11 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     {file && (
                         <Button
                             onClick={handleImport}
-                            disabled={isProcessing || processedChunks.length === 0}
+                            disabled={Boolean(
+                                isProcessing ||
+                                    (!isJsonContent && processedChunks.length === 0) ||
+                                    (isJsonContent && !jsonPreviewCells)
+                            )}
                             className="w-full flex items-center gap-2"
                         >
                             {isProcessing ? (
@@ -737,7 +834,11 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             ) : (
                                 <>
                                     <Sparkles className="h-4 w-4" />
-                                    Import with {processedChunks.length} Sections
+                                    {isJsonContent && jsonPreviewCells
+                                        ? `Import ${jsonPreviewCells.length} JSON Section${
+                                              jsonPreviewCells.length > 1 ? "s" : ""
+                                          }`
+                                        : `Import with ${processedChunks.length} Sections`}
                                 </>
                             )}
                         </Button>
@@ -769,61 +870,115 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             <CardHeader>
                                 <CardTitle>Generated Sections</CardTitle>
                                 <CardDescription>
-                                    Total Sections:{" "}
-                                    <span className="font-semibold">{processedChunks.length}</span>
-                                    {processedChunks.length > 0 && (
+                                    {isJsonContent && jsonPreviewCells ? (
                                         <>
-                                            {" • "}Average Size:{" "}
+                                            JSON Structure:{" "}
                                             <span className="font-semibold">
-                                                {Math.round(
-                                                    processedChunks.reduce(
-                                                        (sum: number, chunk: Chunk) =>
-                                                            sum + chunk.text.length,
-                                                        0
-                                                    ) / processedChunks.length
-                                                )}
+                                                {jsonPreviewCells.length}
                                             </span>{" "}
-                                            chars
+                                            section{jsonPreviewCells.length > 1 ? "s" : ""} detected
+                                        </>
+                                    ) : (
+                                        <>
+                                            Total Sections:{" "}
+                                            <span className="font-semibold">
+                                                {processedChunks.length}
+                                            </span>
+                                            {processedChunks.length > 0 && (
+                                                <>
+                                                    {" • "}Average Size:{" "}
+                                                    <span className="font-semibold">
+                                                        {Math.round(
+                                                            processedChunks.reduce(
+                                                                (sum: number, chunk: Chunk) =>
+                                                                    sum + chunk.text.length,
+                                                                0
+                                                            ) / processedChunks.length
+                                                        )}
+                                                    </span>{" "}
+                                                    chars
+                                                </>
+                                            )}
                                         </>
                                     )}
                                 </CardDescription>
                             </CardHeader>
                             <CardContent>
                                 <ScrollArea className="h-[calc(100vh-12rem)]">
-                                    {processedChunks.length === 0 && (
+                                    {!isJsonContent && processedChunks.length === 0 && (
                                         <p className="text-muted-foreground text-center py-8">
                                             No sections generated. Select a file to get started.
                                         </p>
                                     )}
                                     <div className="space-y-3">
-                                        {processedChunks.slice(0, 50).map((chunk, index) => (
-                                            <div
-                                                key={index}
-                                                className={`p-3 border rounded-md text-sm ${chunkColors[
-                                                    index % chunkColors.length
-                                                ]?.replace(
-                                                    "/70",
-                                                    "/30"
-                                                )} transition-all hover:shadow-md`}
-                                            >
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className="font-medium text-xs text-muted-foreground">
-                                                        Section {index + 1}
-                                                    </span>
-                                                    <Badge variant="outline" className="text-xs">
-                                                        {chunk.text.length} chars
-                                                    </Badge>
-                                                </div>
-                                                <pre className="whitespace-pre-wrap break-words text-xs leading-normal">
-                                                    {chunk.text.length > 200
-                                                        ? chunk.text.substring(0, 200) + "..."
-                                                        : chunk.text}
-                                                </pre>
-                                            </div>
-                                        ))}
-                                        {processedChunks.length > 50 && (
+                                        {isJsonContent && jsonPreviewCells
+                                            ? // JSON preview
+                                              jsonPreviewCells.slice(0, 50).map((cell, index) => (
+                                                  <div
+                                                      key={index}
+                                                      className="p-3 border rounded-md text-sm bg-blue-50/30 dark:bg-blue-900/30 transition-all hover:shadow-md"
+                                                  >
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="font-medium text-xs text-muted-foreground">
+                                                              {cell.id}
+                                                          </span>
+                                                          <Badge
+                                                              variant="outline"
+                                                              className="text-xs"
+                                                          >
+                                                              {cell.metadata?.type || "json"}
+                                                          </Badge>
+                                                      </div>
+                                                      {cell.metadata?.title && (
+                                                          <h4 className="font-semibold mb-1">
+                                                              {cell.metadata.title}
+                                                          </h4>
+                                                      )}
+                                                      <pre className="whitespace-pre-wrap break-words text-xs leading-normal">
+                                                          {cell.content.length > 200
+                                                              ? cell.content.substring(0, 200) +
+                                                                "..."
+                                                              : cell.content}
+                                                      </pre>
+                                                  </div>
+                                              ))
+                                            : // Regular text preview
+                                              processedChunks.slice(0, 50).map((chunk, index) => (
+                                                  <div
+                                                      key={index}
+                                                      className={`p-3 border rounded-md text-sm ${chunkColors[
+                                                          index % chunkColors.length
+                                                      ]?.replace(
+                                                          "/70",
+                                                          "/30"
+                                                      )} transition-all hover:shadow-md`}
+                                                  >
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="font-medium text-xs text-muted-foreground">
+                                                              Section {index + 1}
+                                                          </span>
+                                                          <Badge
+                                                              variant="outline"
+                                                              className="text-xs"
+                                                          >
+                                                              {chunk.text.length} chars
+                                                          </Badge>
+                                                      </div>
+                                                      <pre className="whitespace-pre-wrap break-words text-xs leading-normal">
+                                                          {chunk.text.length > 200
+                                                              ? chunk.text.substring(0, 200) + "..."
+                                                              : chunk.text}
+                                                      </pre>
+                                                  </div>
+                                              ))}
+                                        {(isJsonContent
+                                            ? jsonPreviewCells?.length || 0
+                                            : processedChunks.length) > 50 && (
                                             <div className="text-center text-sm text-muted-foreground py-4">
-                                                ... showing first 50 of {processedChunks.length}{" "}
+                                                ... showing first 50 of{" "}
+                                                {isJsonContent
+                                                    ? jsonPreviewCells?.length
+                                                    : processedChunks.length}{" "}
                                                 sections
                                             </div>
                                         )}

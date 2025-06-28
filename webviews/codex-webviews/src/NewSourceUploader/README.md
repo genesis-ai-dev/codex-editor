@@ -332,6 +332,33 @@ const notebookPair = {
 
 The provider automatically adds `.source` and `.codex` extensions when writing files.
 
+## Smart Import JSON Parsing
+
+When Smart Import detects a JSON file, it intelligently parses the structure:
+
+### **Array of Objects**
+
+Each object becomes its own section with incremented section IDs:
+
+```json
+[
+    { "title": "Chapter 1", "content": "..." }, // → "MyDoc 1:1"
+    { "title": "Chapter 2", "content": "..." } // → "MyDoc 2:1"
+]
+```
+
+### **Field Recognition**
+
+Smart Import recognizes common field patterns:
+
+-   **Title fields**: `title`, `name`, `heading`, `label`, `id`
+-   **Content fields**: `content`, `text`, `body`, `description`, `lyrics`, `message`, `value`
+-   Other fields are stored as metadata
+
+### **Nested Structures**
+
+Complex objects are formatted for readability, with nested data properly indented.
+
 ## Cell ID Format Specification
 
 All cell IDs must follow this standardized format to ensure compatibility across the system:
@@ -412,7 +439,11 @@ describe("YourFileTypeImporter", () => {
 -   **eBible Download**: Download Bible text from eBible repository (with Macula Hebrew/Greek support) ✅ **IMPLEMENTED**
 -   **USFM**: Biblical markup parsing with usfm-grammar, chapter/verse structure ✅ **IMPLEMENTED**
 -   **Paratext Project**: Both folder-based projects (.SFM files, Settings.xml, BookNames.xml) and ZIP archives ✅ **IMPLEMENTED**
--   **Smart Import**: Universal text importer with intelligent structure-aware section detection (replaces plain text) ✅ **IMPLEMENTED**
+-   **Smart Import**: Universal text importer with intelligent features ✅ **IMPLEMENTED**
+    -   **Structure-aware splitting**: Respects paragraphs, sentences, and document boundaries
+    -   **JSON parsing**: Automatically detects and parses JSON files into logical sections
+    -   **Flexible sizing**: Allows sections to vary in size for better semantic grouping
+    -   **40+ file formats**: Supports text, code, config, and data files
 -   **Subtitles (VTT/SRT)**: Timestamp-based cells, media synchronization ✅ **IMPLEMENTED**
 -   **Open Bible Stories**: JSON/Markdown story format ✅ **IMPLEMENTED**
 -   **PDF**: Text extraction, page-based segmentation (Future)
