@@ -1304,7 +1304,11 @@ type ProjectManagerMessageFromWebview =
     | { command: "navigateToMainMenu"; }
     | { command: "getProjectProgress"; }
     | { command: "showProgressDashboard"; }
-    | { command: "project.delete"; data: { path: string; }; };
+    | { command: "project.delete"; data: { path: string; }; }
+    | { command: "checkForUpdates"; }
+    | { command: "downloadUpdate"; }
+    | { command: "installUpdate"; }
+    | { command: "openExternal"; url: string; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;
@@ -1316,6 +1320,10 @@ interface ProjectManagerState {
     workspaceIsOpen: boolean;
     repoHasRemote: boolean;
     isInitializing: boolean;
+    updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
+    updateVersion: string | null;
+    isCheckingForUpdates: boolean;
+    appVersion: string | null;
 }
 type ProjectManagerMessageToWebview =
     | {
@@ -1338,6 +1346,14 @@ type ProjectManagerMessageToWebview =
     | {
         command: "progressData";
         data: any; // Type for progress data
+    }
+    | {
+        command: "updateStateChanged";
+        data: {
+            updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
+            updateVersion: string | null;
+            isCheckingForUpdates: boolean;
+        };
     };
 
 // Ensure the Project type is correctly defined
@@ -1674,6 +1690,7 @@ export type MainMenuPostMessages =
     | { command: "focusView"; viewId: string; }
     | { command: "executeCommand"; commandName: string; }
     | { command: "webviewReady"; }
+    | { command: "openExternal"; url: string; }
     // Project Manager integration
     | ProjectManagerMessageFromWebview;
 

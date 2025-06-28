@@ -19,6 +19,7 @@ import git from "isomorphic-git";
 import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
+import { manualUpdateCheck } from "../../utils/updateChecker";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -39,6 +40,10 @@ class ProjectManagerStore {
         workspaceIsOpen: false,
         repoHasRemote: false,
         isInitializing: false,
+        updateState: null,
+        updateVersion: null,
+        isCheckingForUpdates: false,
+        appVersion: null,
     };
 
     private initialized = false;
@@ -415,6 +420,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.store.setView(webviewView);
         this.store.initialize();
         this.sendProjectStateToWebview();
+
+        // Check update state on initialization
+        this.updateCurrentState();
+
+        // Get app version
+        this.updateAppVersion();
     }
 
     protected onWebviewReady(): void {
@@ -443,6 +454,16 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     await vscode.commands.executeCommand(`${message.viewId}.focus`);
                 } catch (error) {
                     console.error("Error focusing view:", message.viewId, error);
+                }
+                break;
+            case "openExternal":
+                try {
+                    if (message.url) {
+                        await vscode.env.openExternal(vscode.Uri.parse(message.url));
+                    }
+                } catch (error) {
+                    console.error("Error opening external URL:", error);
+                    vscode.window.showErrorMessage(`Failed to open URL: ${error}`);
                 }
                 break;
         }
@@ -614,6 +635,29 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 }
                 break;
             }
+            case "checkForUpdates": {
+                await this.handleUpdateCheck();
+                break;
+            }
+            case "downloadUpdate": {
+                await this.handleDownloadUpdate();
+                break;
+            }
+            case "installUpdate": {
+                await this.handleInstallUpdate();
+                break;
+            }
+            case "openExternal": {
+                try {
+                    if (message.url) {
+                        await vscode.env.openExternal(vscode.Uri.parse(message.url));
+                    }
+                } catch (error) {
+                    console.error("Error opening external URL:", error);
+                    vscode.window.showErrorMessage(`Failed to open URL: ${error}`);
+                }
+                break;
+            }
             case "showProgressDashboard": {
                 // Open the progress dashboard
                 try {
@@ -760,6 +804,108 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 command: "stateUpdate",
                 data: state,
             } as ProjectManagerMessageToWebview, "MainMenu");
+        }
+    }
+
+    private async handleUpdateCheck(): Promise<void> {
+        try {
+            this.store.setState({ isCheckingForUpdates: true });
+            await this.updateCurrentState();
+
+            // If no update was found after checking, run manual check
+            const currentState = this.store.getState();
+            if (!currentState.updateState || currentState.updateState === 'idle') {
+                await manualUpdateCheck(this._context);
+            }
+        } catch (error) {
+            console.error("Error checking for updates:", error);
+            vscode.window.showErrorMessage(`Update check failed: ${(error as Error).message}`);
+        } finally {
+            this.store.setState({ isCheckingForUpdates: false });
+        }
+    }
+
+    private async handleDownloadUpdate(): Promise<void> {
+        try {
+            await vscode.commands.executeCommand('update.downloadUpdate');
+            await this.updateCurrentState();
+        } catch (error) {
+            console.error("Error downloading update:", error);
+            vscode.window.showErrorMessage(`Download failed: ${(error as Error).message}`);
+        }
+    }
+
+    private async handleInstallUpdate(): Promise<void> {
+        try {
+            const currentState = this.store.getState();
+            if (currentState.updateState === 'ready') {
+                await vscode.commands.executeCommand('update.restartToUpdate');
+            } else if (currentState.updateState === 'downloaded') {
+                await vscode.commands.executeCommand('update.installUpdate');
+            }
+        } catch (error) {
+            console.error("Error installing update:", error);
+            vscode.window.showErrorMessage(`Install failed: ${(error as Error).message}`);
+        }
+    }
+
+    private async updateCurrentState(): Promise<void> {
+        try {
+            const updateState = await vscode.commands.executeCommand('_update.state') as any;
+
+            if (updateState) {
+                let mappedState: ProjectManagerState['updateState'] = null;
+                let version: string | null = null;
+
+                switch (updateState.type) {
+                    case 'ready':
+                    case 'downloaded':
+                    case 'available for download':
+                    case 'downloading':
+                    case 'updating':
+                    case 'checking for updates':
+                    case 'idle':
+                    case 'disabled':
+                        mappedState = updateState.type;
+                        version = updateState.update?.version || null;
+                        break;
+                    default:
+                        mappedState = 'idle';
+                }
+
+                this.store.setState({
+                    updateState: mappedState,
+                    updateVersion: version,
+                });
+
+                // Send update state to webview
+                if (this._view) {
+                    safePostMessageToView(this._view, {
+                        command: "updateStateChanged",
+                        data: {
+                            updateState: mappedState,
+                            updateVersion: version,
+                            isCheckingForUpdates: false,
+                        },
+                    } as ProjectManagerMessageToWebview, "MainMenu");
+                }
+            }
+        } catch (error) {
+            console.error("Error updating current state:", error);
+        }
+    }
+
+    private updateAppVersion(): void {
+        try {
+            // Get the current extension
+            const extension = vscode.extensions.getExtension('project-accelerate.codex-editor-extension');
+            const appVersion = extension?.packageJSON?.version || null;
+
+            this.store.setState({
+                appVersion,
+            });
+        } catch (error) {
+            console.error("Error getting app version:", error);
         }
     }
 

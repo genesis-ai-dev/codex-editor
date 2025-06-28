@@ -10,6 +10,9 @@ import { SyncSettings } from "../components/SyncSettings";
 import { cn } from "../lib/utils";
 import "../tailwind.css";
 
+const SHOULD_SHOW_RELEASE_NOTES_LINK = true;
+const RELEASE_NOTES_URL = "https://docs.codexeditor.app/docs/releases/latest/";
+
 // Declare the acquireVsCodeApi function and acquire the VS Code API
 declare function acquireVsCodeApi(): any;
 const vscode = acquireVsCodeApi();
@@ -38,6 +41,19 @@ interface ProjectManagerState {
     workspaceIsOpen: boolean;
     repoHasRemote: boolean;
     isInitializing: boolean;
+    updateState:
+        | "ready"
+        | "downloaded"
+        | "available for download"
+        | "downloading"
+        | "updating"
+        | "checking for updates"
+        | "idle"
+        | "disabled"
+        | null;
+    updateVersion: string | null;
+    isCheckingForUpdates: boolean;
+    appVersion: string | null;
 }
 
 interface State {
@@ -61,6 +77,10 @@ function MainMenu() {
             workspaceIsOpen: false,
             repoHasRemote: false,
             isInitializing: false,
+            updateState: null,
+            updateVersion: null,
+            isCheckingForUpdates: false,
+            appVersion: null,
         },
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
@@ -96,6 +116,17 @@ function MainMenu() {
                     setState((prevState) => ({
                         ...prevState,
                         progressData: message.data,
+                    }));
+                    break;
+                case "updateStateChanged":
+                    setState((prevState) => ({
+                        ...prevState,
+                        projectState: {
+                            ...prevState.projectState,
+                            updateState: message.data.updateState,
+                            updateVersion: message.data.updateVersion,
+                            isCheckingForUpdates: message.data.isCheckingForUpdates,
+                        },
                     }));
                     break;
             }
@@ -192,6 +223,7 @@ function MainMenu() {
     };
 
     const { projectState } = state;
+    console.log({ projectState });
 
     // Show scanning indicator
     if (projectState.isScanning) {
@@ -205,8 +237,147 @@ function MainMenu() {
         );
     }
     console.log("projectState", projectState);
+
+    const getUpdateMessage = () => {
+        switch (projectState.updateState) {
+            case "ready":
+                return {
+                    title: "Update ready to install",
+                    primaryAction: "Restart Now",
+                    primaryCommand: "installUpdate",
+                    icon: "codicon-debug-restart",
+                    variant: "default" as const,
+                    isPrimary: true,
+                };
+            case "downloaded":
+                return {
+                    title: "Update downloaded",
+                    primaryAction: "Install Now",
+                    primaryCommand: "installUpdate",
+                    icon: "codicon-package",
+                    variant: "default" as const,
+                    isPrimary: true,
+                };
+            case "available for download":
+                return {
+                    title: "Update available",
+                    primaryAction: "Download Now",
+                    primaryCommand: "downloadUpdate",
+                    icon: "codicon-arrow-circle-down",
+                    variant: "outline" as const,
+                    isPrimary: false,
+                };
+            default:
+                return null;
+        }
+    };
+
+    const updateInfo = getUpdateMessage();
+    const showUpdateNotification =
+        updateInfo && !["idle", "disabled", null].includes(projectState.updateState);
+
     return (
         <div className="container mx-auto p-6 h-screen overflow-auto flex flex-col gap-6 max-w-4xl">
+            {/* Update Notification */}
+            {showUpdateNotification && (
+                <Card
+                    className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                    style={{
+                        borderColor: "var(--ring)",
+                        backgroundColor: "var(--card)",
+                    }}
+                >
+                    <CardContent className="p-4">
+                        <div className="flex items-start gap-4">
+                            <div className="flex-shrink-0">
+                                <i
+                                    className={`${updateInfo.icon} text-xl`}
+                                    style={{ color: "var(--ring)" }}
+                                />
+                            </div>
+                            <div className="flex-1 space-y-1">
+                                <div className="flex items-center justify-between">
+                                    <h3
+                                        className="font-semibold text-sm"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        {updateInfo.title}
+                                    </h3>
+                                    <div className="flex items-center gap-2 ml-4">
+                                        {SHOULD_SHOW_RELEASE_NOTES_LINK && (
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                onClick={() => {
+                                                    // Open external URL in default browser
+                                                    vscode.postMessage({
+                                                        command: "openExternal",
+                                                        url: RELEASE_NOTES_URL,
+                                                    });
+                                                }}
+                                                disabled={projectState.isCheckingForUpdates}
+                                                className="text-xs px-2 py-1 h-7"
+                                            >
+                                                Release Notes
+                                            </Button>
+                                        )}
+                                        <Button
+                                            size="sm"
+                                            variant={updateInfo.variant}
+                                            onClick={() =>
+                                                handleProjectAction(updateInfo.primaryCommand)
+                                            }
+                                            disabled={
+                                                projectState.isCheckingForUpdates ||
+                                                projectState.updateState === "downloading" ||
+                                                projectState.updateState === "updating"
+                                            }
+                                            className={`text-xs px-3 py-1 h-7 ${
+                                                updateInfo?.isPrimary
+                                                    ? "button-primary"
+                                                    : "button-outline"
+                                            }`}
+                                        >
+                                            {projectState.isCheckingForUpdates ? (
+                                                <>
+                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                                    Checking...
+                                                </>
+                                            ) : projectState.updateState === "downloading" ? (
+                                                <>
+                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                                    Downloading...
+                                                </>
+                                            ) : projectState.updateState === "updating" ? (
+                                                <>
+                                                    <i className="codicon codicon-loading codicon-modifier-spin mr-1 text-xs" />
+                                                    Installing...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i
+                                                        className={`${updateInfo.icon} mr-1 text-xs`}
+                                                    />
+                                                    {updateInfo.primaryAction}
+                                                </>
+                                            )}
+                                        </Button>
+                                    </div>
+                                </div>
+                                {projectState.updateVersion && (
+                                    <p
+                                        className="text-xs"
+                                        style={{ color: "var(--muted-foreground)" }}
+                                    >
+                                        Version {projectState.updateVersion}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Project Overview Section */}
             {projectState.workspaceIsOpen && (
                 <div className="space-y-4">
@@ -601,6 +772,36 @@ function MainMenu() {
                                         <Button
                                             variant="outline"
                                             size="default"
+                                            onClick={() => handleProjectAction("checkForUpdates")}
+                                            disabled={projectState.isCheckingForUpdates}
+                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                        >
+                                            <i
+                                                className={`codicon ${
+                                                    projectState.isCheckingForUpdates
+                                                        ? "codicon-loading codicon-modifier-spin"
+                                                        : "codicon-extensions"
+                                                } mr-3 h-5 w-5`}
+                                                style={{ color: "var(--ring)" }}
+                                            />
+                                            <div className="text-left">
+                                                <div className="font-semibold">
+                                                    {projectState.isCheckingForUpdates
+                                                        ? "Checking..."
+                                                        : "Check for Updates"}
+                                                </div>
+                                                <div
+                                                    className="text-xs"
+                                                    style={{ color: "var(--muted-foreground)" }}
+                                                >
+                                                    Check for app updates
+                                                </div>
+                                            </div>
+                                        </Button>
+
+                                        <Button
+                                            variant="outline"
+                                            size="default"
                                             onClick={() => executeCommand("closeProject")}
                                             className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
                                         >
@@ -685,7 +886,8 @@ function MainMenu() {
 
             <div className="mt-auto pt-6 text-center border-t border-border">
                 <Badge variant="secondary" className="text-xs opacity-70">
-                    Codex Translation Editor v0.3.12
+                    Codex Translation Editor - Patch Version:{" "}
+                    {projectState.appVersion ? `v${projectState.appVersion}` : "unknown"}
                 </Badge>
             </div>
         </div>

@@ -70,7 +70,6 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             Auto-sync
                         </label>
                         <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                            <i className="codicon codicon-cloud-upload mr-1" />
                             Automatically sync changes to cloud
                         </p>
                     </div>
@@ -97,7 +96,6 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                 Sync Interval
                             </label>
                             <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                                <i className="codicon codicon-watch mr-1" />
                                 How often to sync changes
                             </p>
                         </div>
