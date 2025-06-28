@@ -160,16 +160,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         },
     };
     private metadataWatcher?: vscode.FileSystemWatcher;
-
+    private _preflightPromise?: Promise<PreflightState>;
 
     constructor(private readonly context: vscode.ExtensionContext) {
-        // Then initialize preflight state
-        this.initializePreflightState().then(() => {
-            // Initialize state machine first
-            this.initializeStateMachine();
-            // Finally initialize`   Frontier API
-            this.initializeFrontierApi();
-        });
+        // Initialize components in parallel without waiting
+        this.initializeComponentsAsync();
 
         // Add disposal of webview panel when extension is deactivated
         this.context.subscriptions.push(
@@ -180,8 +175,44 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 },
             })
         );
+    }
 
+    /**
+     * Initialize components asynchronously to avoid blocking constructor
+     */
+    private async initializeComponentsAsync() {
+        try {
+            // Run preflight check once and cache the result
+            this._preflightPromise = this.runPreflightCheck();
+            this.preflightState = await this._preflightPromise;
 
+            // Initialize state machine
+            this.initializeStateMachine();
+
+            // Initialize Frontier API (but don't fetch project lists yet)
+            await this.initializeFrontierApi();
+        } catch (error) {
+            console.error("Error during startup flow initialization:", error);
+        }
+    }
+
+    /**
+     * Get cached preflight state or run check if not available
+     */
+    private async getCachedPreflightState(): Promise<PreflightState> {
+        if (this._preflightPromise) {
+            return this._preflightPromise;
+        }
+        this._preflightPromise = this.runPreflightCheck();
+        return this._preflightPromise;
+    }
+
+    /**
+     * Run the actual preflight check - only called once and cached
+     */
+    private async runPreflightCheck(): Promise<PreflightState> {
+        const preflightCheck = new PreflightCheck();
+        return await preflightCheck.preflight();
     }
 
     private initializeStateMachine() {
@@ -480,191 +511,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
     }
 
-    private async initializePreflightState() {
-        const preflightCheck = new PreflightCheck();
-        this.preflightState = await preflightCheck.preflight();
-    }
-
-    private async sendList(webviewPanel: vscode.WebviewPanel) {
-        if (!safeIsVisible(webviewPanel, "StartupFlow")) {
-            debugLog("WebviewPanel is no longer available, skipping sendList");
-            return;
-        }
-
-        const startTime = Date.now();
-
-        try {
-            const [localProjectsResult, remoteProjectsResult] = await Promise.allSettled([
-                this.fetchLocalProjects(),
-                this.fetchRemoteProjects(),
-            ]);
-
-            const localProjects =
-                localProjectsResult.status === "fulfilled" ? localProjectsResult.value : [];
-            if (localProjectsResult.status === "rejected") {
-                console.error("Error fetching local projects:", localProjectsResult.reason);
-            }
-
-            const remoteProjects =
-                remoteProjectsResult.status === "fulfilled" ? remoteProjectsResult.value : [];
-            if (remoteProjectsResult.status === "rejected") {
-                console.error("Error fetching remote projects:", remoteProjectsResult.reason);
-            }
-
-            const projectList: ProjectWithSyncStatus[] = [];
-
-            // Process remote projects
-            for (const project of remoteProjects) {
-                projectList.push({
-                    name: project.name,
-                    path: "",
-                    lastOpened: project.lastActivity ? new Date(project.lastActivity) : undefined,
-                    lastModified: new Date(project.lastActivity),
-                    version: "🚫",
-                    hasVersionMismatch: false,
-                    gitOriginUrl: project.url,
-                    description: project.description || "...",
-                    syncStatus: "cloudOnlyNotSynced",
-                });
-            }
-
-            // Process local projects and check for matches
-            for (const project of localProjects) {
-                if (!project.gitOriginUrl) {
-                    projectList.push({
-                        ...project,
-                        syncStatus: "localOnlyNotSynced",
-                    });
-                    continue;
-                }
-
-                const matchInRemoteIndex = projectList.findIndex(
-                    (p) => p.gitOriginUrl === project.gitOriginUrl
-                );
-
-                if (matchInRemoteIndex !== -1) {
-                    projectList[matchInRemoteIndex] = {
-                        ...project,
-                        syncStatus: "downloadedAndSynced",
-                    };
-                } else {
-                    projectList.push({
-                        ...project,
-                        syncStatus: "localOnlyNotSynced",
-                    });
-                }
-            }
-
-            safePostMessageToPanel(
-                webviewPanel,
-                {
-                    command: "projectsListFromGitLab",
-                    projects: projectList,
-                } as MessagesFromStartupFlowProvider,
-                "StartupFlow"
-            );
-
-            const mergeTime = Date.now() - startTime;
-            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects`);
-
-            this.fetchProgressDataAsync(webviewPanel);
-
-        } catch (error) {
-            console.error("Failed to fetch and process projects:", error);
-            safePostMessageToPanel(
-                webviewPanel,
-                {
-                    command: "projectsListFromGitLab",
-                    projects: [],
-                    error: error instanceof Error ? error.message : "Failed to fetch projects",
-                } as MessagesFromStartupFlowProvider,
-                "StartupFlow"
-            );
-        }
-    }
-
-    /**
-     * Fetch progress data asynchronously and send when ready
-     */
-    private async fetchProgressDataAsync(webviewPanel: vscode.WebviewPanel) {
-        try {
-            debugLog("Fetching progress data asynchronously...");
-            const progressStartTime = Date.now();
-
-            const progressData = await this.fetchProgressData();
-
-            const progressTime = Date.now() - progressStartTime;
-            debugLog(`Progress data fetched in ${progressTime}ms`);
-
-            // Only send if webview is still available
-            if (safeIsVisible(webviewPanel, "StartupFlow")) {
-                safePostMessageToPanel(webviewPanel, {
-                    command: "progressData",
-                    data: progressData,
-                } as MessagesFromStartupFlowProvider, "StartupFlow");
-
-                debugLog("Progress data sent to webview");
-            }
-        } catch (error) {
-            console.warn("Error fetching progress data:", error);
-            // Don't send error for progress data as it's not critical
-        }
-    }
-
-    /**
-     * Fetch progress data with error handling
-     */
-    private async fetchProgressData(): Promise<any> {
-        try {
-            const progressData = await vscode.commands.executeCommand(
-                "frontier.getAggregatedProgress"
-            );
-            return progressData;
-        } catch (error) {
-            console.warn("Error fetching progress data:", error);
-            return undefined;
-        }
-    }
-
-    /**
-     * Fetch remote projects with error handling and cleanup
-     */
-    private async fetchRemoteProjects(): Promise<GitLabProject[]> {
-        if (!this.frontierApi) {
-            return [];
-        }
-
-        try {
-            const remoteProjects = await this.frontierApi.listProjects(false);
-
-            // Clean up project names - remove unique IDs
-            remoteProjects.forEach((project) => {
-                if (project.name[project.name.length - 23] === "-") {
-                    project.name = project.name.slice(0, -23);
-                }
-            });
-
-
-            return remoteProjects;
-        } catch (error) {
-            console.error("Error fetching remote projects:", error);
-            return [];
-        }
-    }
-
-    /**
-     * Fetch local projects with error handling
-     */
-    private async fetchLocalProjects(): Promise<LocalProject[]> {
-        try {
-            const localProjects = await findAllCodexProjects();
-            return localProjects;
-        } catch (error) {
-            console.error("Error finding local Codex projects:", error);
-            return [];
-        }
-    }
-
     private async initializeFrontierApi() {
         try {
             this.frontierApi = getAuthApi();
@@ -694,13 +540,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     });
                 });
                 disposable && this.disposables.push(disposable);
-                if (this.webviewPanel) {
-                    try {
-                        await this.sendList(this.webviewPanel);
-                    } catch (error) {
-                        console.warn("Failed to send list during Frontier API initialization:", error);
-                    }
-                }
+                // Remove expensive sendList call from initialization - defer until needed
             } else {
                 this.updateAuthState({
                     isAuthExtensionInstalled: false,
@@ -1282,8 +1122,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             })
         );
 
-        const preflightCheck = new PreflightCheck();
-
         // Set up webview options first
         webviewPanel.webview.options = {
             enableScripts: true,
@@ -1322,20 +1160,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             }
         });
 
-        // Fetch initial progress data after webview is ready
-        safePostMessageToPanel(webviewPanel, { command: "webview.loading" });
-
-        try {
-            // Initialize standard panels and functionality
-            // ... existing initialization code ...
-
-            // Fetch initial progress data
-            await this.fetchAndSendProgressData();
-        } catch (error) {
-            console.error("Error during startup flow initialization:", error);
-        } finally {
-            safePostMessageToPanel(webviewPanel, { command: "webview.ready" });
-        }
+        // Signal webview is ready faster by deferring expensive operations
+        safePostMessageToPanel(webviewPanel, { command: "webview.ready" });
     }
 
     private getHtmlForWebview(webview: vscode.Webview): string {
@@ -1443,9 +1269,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "webview.ready": {
-                const preflightCheck = new PreflightCheck();
-                const preflightState = await preflightCheck.preflight();
-                debugLog("Sending initial preflight state:", preflightState);
+                // Use cached preflight state instead of creating new PreflightCheck
+                const preflightState = await this.getCachedPreflightState();
+                debugLog("Sending cached preflight state:", preflightState);
                 this.stateMachine.send({
                     type: StartupFlowEvents.UPDATE_AUTH_STATE,
                     data: preflightState.authState,
@@ -1939,6 +1765,183 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
     }
 
+    private async sendList(webviewPanel: vscode.WebviewPanel) {
+        if (!safeIsVisible(webviewPanel, "StartupFlow")) {
+            debugLog("WebviewPanel is no longer available, skipping sendList");
+            return;
+        }
 
+        const startTime = Date.now();
+
+        try {
+            const [localProjectsResult, remoteProjectsResult] = await Promise.allSettled([
+                this.fetchLocalProjects(),
+                this.fetchRemoteProjects(),
+            ]);
+
+            const localProjects =
+                localProjectsResult.status === "fulfilled" ? localProjectsResult.value : [];
+            if (localProjectsResult.status === "rejected") {
+                console.error("Error fetching local projects:", localProjectsResult.reason);
+            }
+
+            const remoteProjects =
+                remoteProjectsResult.status === "fulfilled" ? remoteProjectsResult.value : [];
+            if (remoteProjectsResult.status === "rejected") {
+                console.error("Error fetching remote projects:", remoteProjectsResult.reason);
+            }
+
+            const projectList: ProjectWithSyncStatus[] = [];
+
+            // Process remote projects
+            for (const project of remoteProjects) {
+                projectList.push({
+                    name: project.name,
+                    path: "",
+                    lastOpened: project.lastActivity ? new Date(project.lastActivity) : undefined,
+                    lastModified: new Date(project.lastActivity),
+                    version: "🚫",
+                    hasVersionMismatch: false,
+                    gitOriginUrl: project.url,
+                    description: project.description || "...",
+                    syncStatus: "cloudOnlyNotSynced",
+                });
+            }
+
+            // Process local projects and check for matches
+            for (const project of localProjects) {
+                if (!project.gitOriginUrl) {
+                    projectList.push({
+                        ...project,
+                        syncStatus: "localOnlyNotSynced",
+                    });
+                    continue;
+                }
+
+                const matchInRemoteIndex = projectList.findIndex(
+                    (p) => p.gitOriginUrl === project.gitOriginUrl
+                );
+
+                if (matchInRemoteIndex !== -1) {
+                    projectList[matchInRemoteIndex] = {
+                        ...project,
+                        syncStatus: "downloadedAndSynced",
+                    };
+                } else {
+                    projectList.push({
+                        ...project,
+                        syncStatus: "localOnlyNotSynced",
+                    });
+                }
+            }
+
+            safePostMessageToPanel(
+                webviewPanel,
+                {
+                    command: "projectsListFromGitLab",
+                    projects: projectList,
+                } as MessagesFromStartupFlowProvider,
+                "StartupFlow"
+            );
+
+            const mergeTime = Date.now() - startTime;
+            debugLog(`Complete project list sent in ${mergeTime}ms - Total: ${projectList.length} projects`);
+
+            this.fetchProgressDataAsync(webviewPanel);
+
+        } catch (error) {
+            console.error("Failed to fetch and process projects:", error);
+            safePostMessageToPanel(
+                webviewPanel,
+                {
+                    command: "projectsListFromGitLab",
+                    projects: [],
+                    error: error instanceof Error ? error.message : "Failed to fetch projects",
+                } as MessagesFromStartupFlowProvider,
+                "StartupFlow"
+            );
+        }
+    }
+
+    /**
+     * Fetch progress data asynchronously and send when ready
+     */
+    private async fetchProgressDataAsync(webviewPanel: vscode.WebviewPanel) {
+        try {
+            debugLog("Fetching progress data asynchronously...");
+            const progressStartTime = Date.now();
+
+            const progressData = await this.fetchProgressData();
+
+            const progressTime = Date.now() - progressStartTime;
+            debugLog(`Progress data fetched in ${progressTime}ms`);
+
+            // Only send if webview is still available
+            if (safeIsVisible(webviewPanel, "StartupFlow")) {
+                safePostMessageToPanel(webviewPanel, {
+                    command: "progressData",
+                    data: progressData,
+                } as MessagesFromStartupFlowProvider, "StartupFlow");
+
+                debugLog("Progress data sent to webview");
+            }
+        } catch (error) {
+            console.warn("Error fetching progress data:", error);
+            // Don't send error for progress data as it's not critical
+        }
+    }
+
+    /**
+     * Fetch progress data with error handling
+     */
+    private async fetchProgressData(): Promise<any> {
+        try {
+            const progressData = await vscode.commands.executeCommand(
+                "frontier.getAggregatedProgress"
+            );
+            return progressData;
+        } catch (error) {
+            console.warn("Error fetching progress data:", error);
+            return undefined;
+        }
+    }
+
+    /**
+     * Fetch remote projects with error handling and cleanup
+     */
+    private async fetchRemoteProjects(): Promise<GitLabProject[]> {
+        if (!this.frontierApi) {
+            return [];
+        }
+
+        try {
+            const remoteProjects = await this.frontierApi.listProjects(false);
+
+            // Clean up project names - remove unique IDs
+            remoteProjects.forEach((project) => {
+                if (project.name[project.name.length - 23] === "-") {
+                    project.name = project.name.slice(0, -23);
+                }
+            });
+
+            return remoteProjects;
+        } catch (error) {
+            console.error("Error fetching remote projects:", error);
+            return [];
+        }
+    }
+
+    /**
+     * Fetch local projects with error handling
+     */
+    private async fetchLocalProjects(): Promise<LocalProject[]> {
+        try {
+            const localProjects = await findAllCodexProjects();
+            return localProjects;
+        } catch (error) {
+            console.error("Error finding local Codex projects:", error);
+            return [];
+        }
+    }
 }
 

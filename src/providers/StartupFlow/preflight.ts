@@ -88,7 +88,7 @@ export class PreflightCheck {
     }
 
     public subscribeToAuthChanges(
-        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
+        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any; }) => void
     ): void {
         debugLog("Setting up auth changes subscription");
         if (this.frontierApi) {
@@ -162,6 +162,8 @@ export class PreflightCheck {
         debugLog("Workspace folders:", workspaceFolders);
 
         if (workspaceFolders?.length) {
+            const workspacePath = workspaceFolders[0].uri.fsPath;
+
             try {
                 debugLog("Checking for metadata.json");
                 const metadataUri = vscode.Uri.joinPath(workspaceFolders[0].uri, "metadata.json");
@@ -193,34 +195,45 @@ export class PreflightCheck {
                     isProjectSetup: state.workspaceState.isProjectSetup,
                 });
 
-                // Check git repository status
-                const workspacePath = workspaceFolders[0].uri.fsPath;
+                // Optimize git operations - run in parallel and with shorter timeouts
                 debugLog("Checking git status for workspace:", workspacePath);
                 try {
-                    // Check if it's a git repository
-                    await git.resolveRef({
-                        fs,
-                        dir: workspacePath,
-                        ref: "HEAD",
-                    });
-                    state.gitState.isGitRepo = true;
-                    debugLog("Valid git repository found");
+                    // Use Promise.race with timeout to avoid hanging on slow git operations
+                    const gitCheckPromise = Promise.all([
+                        git.resolveRef({
+                            fs,
+                            dir: workspacePath,
+                            ref: "HEAD",
+                        }),
+                        git.listRemotes({
+                            fs,
+                            dir: workspacePath,
+                        })
+                    ]);
 
-                    // Check for remotes
-                    const remotes = await git.listRemotes({
-                        fs,
-                        dir: workspacePath,
-                    });
+                    // Add 2 second timeout for git operations
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error("Git operation timeout")), 2000)
+                    );
+
+                    const [headRef, remotes] = await Promise.race([gitCheckPromise, timeoutPromise]) as [any, any[]];
+
+                    state.gitState.isGitRepo = true;
                     state.gitState.hasRemote = remotes.length > 0;
-                    debugLog("Git remotes:", remotes);
+                    debugLog("Git operations completed:", { isRepo: true, remotesCount: remotes.length });
                 } catch (error) {
-                    debugLog("Git check error:", error);
-                    console.error("Git check error:", error);
-                    state.gitState.error = "Failed to check git repository status";
+                    debugLog("Git check error (expected for non-git repos):", error);
+                    state.gitState.isGitRepo = false;
+                    state.gitState.hasRemote = false;
+                    // Don't set error for non-git repos as it's expected
+                    if (error instanceof Error && !error.message.includes("timeout")) {
+                        debugLog("Non-timeout git error:", error.message);
+                    }
                 }
             } catch (error) {
                 debugLog("Error checking metadata:", error);
                 state.workspaceState.hasMetadata = false;
+                // Skip git check if no metadata - likely not a project folder
             }
         }
 
