@@ -17,6 +17,7 @@ import * as path from "path";
 import * as grammar from "usfm-grammar";
 import { ParsedUSFM } from "usfm-grammar";
 import { generateChildCellId } from "../providers/codexCellEditorProvider/utils/cellUtils";
+import { createStandardizedFilename, getUsfmCodeFromBookName, extractUsfmCodeFromFilename } from "../utils/bookNameUtils";
 
 interface AlignedCell {
     notebookCell: CustomNotebookCellData | null;
@@ -214,7 +215,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
     }
 
     async execute(
-        progress?: vscode.Progress<{ message?: string; increment?: number }>,
+        progress?: vscode.Progress<{ message?: string; increment?: number; }>,
         token?: vscode.CancellationToken
     ): Promise<void> {
         if (this.importedContent.length === 0) {
@@ -485,35 +486,54 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
     private async findFileInWorkspace(fileName: string): Promise<vscode.Uri | undefined> {
         console.log("Searching for file:", fileName);
 
-        // Add .source extension if it's missing and we're looking for a source file
+        // First try to find the file as-is (for backwards compatibility)
         const sourceFileName = fileName.endsWith(".source") ? fileName : `${fileName}.source`;
+        const codexFileName = fileName.endsWith(".codex") ? fileName : `${fileName}.codex`;
 
-        // Try to find source file in .project/sourceTexts/
+        // Try exact filename matches first
         const sourcePattern = `**/.project/sourceTexts/${sourceFileName}`;
-        console.log("Searching for source file with pattern:", sourcePattern);
         const sourceFiles = await vscode.workspace.findFiles(sourcePattern);
-        console.log(
-            "Source files found:",
-            sourceFiles.map((f) => f.fsPath)
-        );
         if (sourceFiles.length > 0) {
             return sourceFiles[0];
         }
 
-        // Try to find codex file in files/target/
-        const codexFileName = fileName.endsWith(".codex") ? fileName : `${fileName}.codex`;
         const codexPattern = `**/files/target/${codexFileName}`;
-        console.log("Searching for codex file with pattern:", codexPattern);
         const codexFiles = await vscode.workspace.findFiles(codexPattern);
-        console.log(
-            "Codex files found:",
-            codexFiles.map((f) => f.fsPath)
-        );
         if (codexFiles.length > 0) {
             return codexFiles[0];
         }
 
-        // Fallback to searching anywhere in the workspace with both extensions
+        // If direct search fails, try to extract book name and convert to USFM code
+        try {
+            // Remove extensions to get base name
+            const baseName = fileName.replace(/\.(source|codex)$/, '');
+
+            // Try to get USFM code from the book name
+            const usfmCode = await getUsfmCodeFromBookName(baseName);
+
+            if (usfmCode) {
+                console.log(`Found USFM code ${usfmCode} for book name ${baseName}`);
+
+                // Try to find files with USFM code naming
+                const usfmSourcePattern = `**/.project/sourceTexts/${usfmCode}.source`;
+                const usfmSourceFiles = await vscode.workspace.findFiles(usfmSourcePattern);
+                if (usfmSourceFiles.length > 0) {
+                    console.log("Found source file with USFM code:", usfmSourceFiles[0].fsPath);
+                    return usfmSourceFiles[0];
+                }
+
+                const usfmCodexPattern = `**/files/target/${usfmCode}.codex`;
+                const usfmCodexFiles = await vscode.workspace.findFiles(usfmCodexPattern);
+                if (usfmCodexFiles.length > 0) {
+                    console.log("Found codex file with USFM code:", usfmCodexFiles[0].fsPath);
+                    return usfmCodexFiles[0];
+                }
+            }
+        } catch (error) {
+            console.warn("Error trying to find file by USFM code:", error);
+        }
+
+        // Final fallback to searching anywhere in the workspace
         console.log("Falling back to workspace-wide search for:", fileName);
         const files = await vscode.workspace.findFiles(`**/${fileName}*`);
         console.log(

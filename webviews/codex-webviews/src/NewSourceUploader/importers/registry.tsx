@@ -21,6 +21,7 @@ import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
 import { obsImporterPlugin } from "./obs/index.tsx";
 import { recursiveTextSplitterPlugin } from "./recursiveTextSplitter/index.tsx";
+import { paratextImporterPlugin } from "./paratext/index.tsx";
 
 // Import placeholder components - these will be created for each importer
 // For now, we'll create a temporary placeholder component
@@ -40,20 +41,12 @@ export const importerPlugins: ImporterPlugin[] = [
     docxImporterPlugin,
     markdownImporterPlugin,
     usfmImporterPlugin,
+    paratextImporterPlugin,
     plaintextImporterPlugin,
     recursiveTextSplitterPlugin,
     ebibleDownloadImporterPlugin,
     subtitlesImporterPlugin,
     obsImporterPlugin,
-    {
-        id: "paratext",
-        name: "Paratext Projects",
-        description: "Import Paratext translation projects",
-        icon: Database,
-        component: createPlaceholderComponent("Paratext"),
-        supportedExtensions: ["sfm", "xml", "zip"],
-        enabled: false, // Disabled until form is created
-    },
 ];
 
 /**

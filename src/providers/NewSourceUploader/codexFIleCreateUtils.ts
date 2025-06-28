@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { NotebookPreview } from "@types";
 import { CodexCellTypes } from "../../../types/enums";
+import { createStandardizedFilename } from "../../utils/bookNameUtils";
 
 export function checkCancellation(token?: vscode.CancellationToken): void {
     if (token?.isCancellationRequested) {
@@ -71,18 +72,22 @@ export async function createNoteBookPair({
             throw new Error("Notebook name is required");
         }
 
-        // Create final URIs (notebook names should be base names without extensions)
+        // Create standardized filenames using USFM codes
+        const sourceFilename = await createStandardizedFilename(sourceNotebook.name, ".source");
+        const codexFilename = await createStandardizedFilename(codexNotebook.name, ".codex");
+
+        // Create final URIs with standardized filenames
         const sourceUri = vscode.Uri.joinPath(
             workspaceFolder.uri,
             ".project",
             "sourceTexts",
-            `${sourceNotebook.name}.source`
+            sourceFilename
         );
         const codexUri = vscode.Uri.joinPath(
             workspaceFolder.uri,
             "files",
             "target",
-            `${codexNotebook.name}.codex`
+            codexFilename
         );
 
         // Update metadata with final paths

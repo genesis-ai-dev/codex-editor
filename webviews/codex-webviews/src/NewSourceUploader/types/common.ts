@@ -39,8 +39,8 @@ export interface ImportProgress {
 
 export interface ImportResult {
     success: boolean;
-    notebookPair?: NotebookPair;
-    notebookPairs?: NotebookPair[]; // For multi-file imports like repository downloads
+    notebookPair?: NotebookPair; // For backwards compatibility with single-file importers
+    notebookPairs?: NotebookPair[]; // Primary field for multi-file imports like Paratext projects
     error?: string;
     warnings?: string[];
     metadata?: Record<string, any>;

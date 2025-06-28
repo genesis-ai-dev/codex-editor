@@ -8,8 +8,10 @@ import {
     createProgress,
     createStandardCellId,
     createProcessedCell,
-    createNotebookPair,
 } from '../../utils/workflowHelpers';
+import {
+    createNotebookPair,
+} from '../common/usfmUtils';
 
 // This is a special importer that doesn't use files but downloads from eBible repository
 const SUPPORTED_EXTENSIONS: string[] = []; // No file extensions since this is download-based
@@ -51,14 +53,14 @@ const downloadEbibleCorpus = async (
     onProgress?: ProgressCallback
 ): Promise<ImportResult> => {
     try {
-        onProgress?.(createProgress('Validation', 'Validating download parameters...', 'processing', 5));
+        onProgress?.(createProgress('Validation', 'Validating download parameters...', 5));
 
         // Validate metadata
         if (!metadata.languageCode || !metadata.translationId) {
             throw new Error('Missing language code or translation ID');
         }
 
-        onProgress?.(createProgress('Download', 'Downloading eBible corpus...', 'processing', 15));
+        onProgress?.(createProgress('Download', 'Downloading eBible corpus...', 15));
 
         // Download verse content
         const verses = await downloadVerseContent(metadata, onProgress);
@@ -67,17 +69,17 @@ const downloadEbibleCorpus = async (
             throw new Error('No verses found in downloaded content');
         }
 
-        onProgress?.(createProgress('Processing', 'Processing verses into books...', 'processing', 70));
+        onProgress?.(createProgress('Processing', 'Processing verses into books...', 70));
 
         // Group verses by book
         const bookGroups = groupVersesByBook(verses);
 
-        onProgress?.(createProgress('Creating Notebooks', 'Creating notebook pairs...', 'processing', 85));
+        onProgress?.(createProgress('Creating Notebooks', 'Creating notebook pairs...', 85));
 
         // Create notebook pairs for each book
         const notebookPairs = createBookNotebooks(bookGroups, metadata);
 
-        onProgress?.(createProgress('Complete', 'eBible download complete', 'complete', 100));
+        onProgress?.(createProgress('Complete', 'eBible download complete', 100));
 
         // For now, return the first book as the main result
         // In a real implementation, you might want to handle multiple books differently
@@ -98,7 +100,7 @@ const downloadEbibleCorpus = async (
         };
 
     } catch (error) {
-        onProgress?.(createProgress('Error', 'eBible download failed', 'error', 0));
+        onProgress?.(createProgress('Error', 'eBible download failed', 0));
 
         return {
             success: false,
@@ -128,7 +130,7 @@ const downloadVerseContent = async (
         ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/0eed6f47ff555201874d5416bbfebba4ed743d4f/corpus/${languageCode}-${translationId}.txt`;
     }
 
-    onProgress?.(createProgress('Download', `Fetching from ${ebibleUrl}...`, 'processing', 25));
+    onProgress?.(createProgress('Download', `Fetching from ${ebibleUrl}...`, 25));
 
     let response: Response;
     try {
@@ -151,7 +153,7 @@ const downloadVerseContent = async (
         throw new Error('Received empty response from the server.');
     }
 
-    onProgress?.(createProgress('Parsing', 'Parsing downloaded content...', 'processing', 50));
+    onProgress?.(createProgress('Parsing', 'Parsing downloaded content...', 50));
 
     const lines = text.trim().split('\n');
 
@@ -276,7 +278,7 @@ const createBookNotebooks = (
 ): Record<string, any> => {
     const notebookPairs: Record<string, any> = {};
 
-    for (const [bookName, verses] of Object.entries(bookGroups)) {
+    for (const [bookCode, verses] of Object.entries(bookGroups)) {
         // Create cells for this book
         const cells = verses.map((verse) => {
             return createProcessedCell(verse.vref, verse.text, {
@@ -289,13 +291,14 @@ const createBookNotebooks = (
             });
         });
 
-        // Create notebook pair for this book
+        // Use USFM book code for filename instead of full book name
+        // bookCode should already be the 3-letter USFM code (e.g., "GEN", "EXO")
         const notebookPair = createNotebookPair(
-            `${metadata.languageCode}-${metadata.translationId}-${bookName}`,
+            bookCode, // Use USFM code directly for filename
             cells,
             'ebibleCorpus',
             {
-                bookName,
+                bookName: bookCode, // Store the USFM code as bookName for filename consistency
                 languageCode: metadata.languageCode,
                 translationId: metadata.translationId,
                 verseCount: verses.length,
@@ -303,7 +306,7 @@ const createBookNotebooks = (
             }
         );
 
-        notebookPairs[bookName] = notebookPair;
+        notebookPairs[bookCode] = notebookPair;
     }
 
     return notebookPairs;
@@ -322,6 +325,7 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
 export const ebibleDownloadImporter: ImporterPlugin = {
     name: 'eBible Corpus Downloader',
     supportedExtensions: SUPPORTED_EXTENSIONS,
+    supportedMimeTypes: [], // No mime types since this is download-based
     description: 'Download Bible text from the eBible corpus repository',
     validateFile,
     parseFile,
