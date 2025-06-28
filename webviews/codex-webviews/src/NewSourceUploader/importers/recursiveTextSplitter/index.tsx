@@ -1,13 +1,13 @@
 import { ImporterPlugin } from "../../types/plugin";
-import { Scissors } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { RecursiveTextSplitterForm } from "./RecursiveTextSplitterForm.tsx";
 
-export const recursiveTextSplitterPlugin: ImporterPlugin = {
-    id: "recursive-text-splitter",
-    name: "Recursive Text Splitter",
+export const smartImportPlugin: ImporterPlugin = {
+    id: "smart-import",
+    name: "Smart Import",
     description:
-        "Split any text document using intelligent recursive splitting with configurable separators",
-    icon: Scissors,
+        "Intelligently imports any text file, automatically detecting structure and creating meaningful sections",
+    icon: Sparkles,
     component: RecursiveTextSplitterForm,
     supportedExtensions: [
         "txt",
@@ -28,7 +28,33 @@ export const recursiveTextSplitterPlugin: ImporterPlugin = {
         "cpp",
         "c",
         "h",
+        "yml",
+        "yaml",
+        "ini",
+        "conf",
+        "config",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "ps1",
+        "bat",
+        "cmd",
+        "r",
+        "R",
+        "sql",
+        "rb",
+        "php",
+        "swift",
+        "kt",
+        "scala",
+        "go",
+        "rs",
+        "m",
+        "mm",
+        "tex",
+        "bib",
     ],
-    tags: ["Text Processing", "AI-Ready", "Configurable"],
+    tags: ["Universal", "Intelligent", "Flexible"],
     enabled: true,
 };

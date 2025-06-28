@@ -44,7 +44,28 @@ interface ImporterComponentProps {
     onCancel: () => void;
     existingFiles?: ExistingFile[]; // List of existing source files in the project
 }
+
+interface ExistingFile {
+    name: string; // Filename without extension
+    path: string; // Full path to the file
+    type: string; // Content type (e.g., 'bible', 'ebibleCorpus', 'paratext', 'unknown')
+    cellCount: number; // Number of cells in the notebook
+    metadata?: {
+        // Optional notebook metadata
+        id?: string;
+        originalName?: string;
+        corpusMarker?: string;
+        sourceCreatedAt?: string;
+    };
+}
 ```
+
+The `existingFiles` prop enables plugins to:
+
+-   **Warn about duplicates**: Alert users when importing content that may already exist (e.g., multiple Bible translations)
+-   **Enable translation workflows**: Allow importing translations for existing source files
+-   **Provide project context**: Show what content is already in the project
+-   **Support incremental imports**: Add new content to existing projects intelligently
 
 ### 3. **No Shared State**
 
@@ -391,7 +412,7 @@ describe("YourFileTypeImporter", () => {
 -   **eBible Download**: Download Bible text from eBible repository (with Macula Hebrew/Greek support) ✅ **IMPLEMENTED**
 -   **USFM**: Biblical markup parsing with usfm-grammar, chapter/verse structure ✅ **IMPLEMENTED**
 -   **Paratext Project**: Both folder-based projects (.SFM files, Settings.xml, BookNames.xml) and ZIP archives ✅ **IMPLEMENTED**
--   **Enhanced Plaintext**: Intelligent paragraph/section detection ✅ **IMPLEMENTED**
+-   **Smart Import**: Universal text importer with intelligent section detection (replaces plain text) ✅ **IMPLEMENTED**
 -   **Subtitles (VTT/SRT)**: Timestamp-based cells, media synchronization ✅ **IMPLEMENTED**
 -   **Open Bible Stories**: JSON/Markdown story format ✅ **IMPLEMENTED**
 -   **PDF**: Text extraction, page-based segmentation (Future)
@@ -418,7 +439,7 @@ All major transaction-based importers have been successfully migrated to the new
 | USFM Import        | `UsfmSourceImportTransaction` | `usfmImporter`           | ✅ Complete |
 | Paratext Projects  | N/A (new)                     | `paratextImporter`       | ✅ Complete |
 | eBible Download    | `DownloadBibleTransaction`    | `ebibleDownloadImporter` | ✅ Complete |
-| Enhanced Text      | `SourceImportTransaction`     | `plaintextImporter`      | ✅ Complete |
+| Smart Import       | `SourceImportTransaction`     | `smartImportPlugin`      | ✅ Complete |
 | Subtitles/VTT      | N/A (new)                     | `subtitlesImporter`      | ✅ Complete |
 | Open Bible Stories | N/A (new)                     | `obsImporter`            | ✅ Complete |
 | Markdown           | N/A (new)                     | `markdownImporter`       | ✅ Complete |

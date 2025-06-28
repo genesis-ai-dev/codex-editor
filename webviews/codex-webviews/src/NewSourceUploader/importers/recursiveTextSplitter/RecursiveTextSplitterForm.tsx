@@ -13,7 +13,7 @@ import { Progress } from "../../../components/ui/progress";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
 import {
     Upload,
-    Scissors,
+    Sparkles,
     CheckCircle,
     XCircle,
     ArrowLeft,
@@ -36,7 +36,7 @@ import {
 
 const PREVIEW_CHAR_LIMIT = 5000;
 const DEFAULT_CHUNK_SIZE = 500;
-const DEFAULT_CHUNK_OVERLAP = 50;
+const DEFAULT_CHUNK_OVERLAP = 0;
 const DEFAULT_SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", " ", ""];
 
 interface Chunk {
@@ -263,7 +263,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
             onProgress({
                 stage: "Processing",
-                message: "Splitting text into chunks...",
+                message: "Analyzing and creating sections...",
                 progress: 30,
             });
 
@@ -306,7 +306,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `source-${Date.now()}`,
                         originalFileName: file.name,
-                        importerType: "recursive-text-splitter",
+                        importerType: "smart-import",
                         createdAt: new Date().toISOString(),
                     },
                 },
@@ -316,7 +316,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `codex-${Date.now()}`,
                         originalFileName: file.name,
-                        importerType: "recursive-text-splitter",
+                        importerType: "smart-import",
                         createdAt: new Date().toISOString(),
                     },
                 },
@@ -403,8 +403,8 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                 <div className="lg:w-1/2 space-y-6">
                     <div className="flex items-center justify-between">
                         <h1 className="text-2xl font-bold flex items-center gap-2">
-                            <Scissors className="h-6 w-6" />
-                            Recursive Text Splitter
+                            <Sparkles className="h-6 w-6" />
+                            Smart Import
                         </h1>
                         <Button
                             variant="ghost"
@@ -418,11 +418,11 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
 
                     <Card>
                         <CardHeader>
-                            <CardTitle>Select Text File</CardTitle>
+                            <CardTitle>Select Your File</CardTitle>
                             <CardDescription>
-                                Import any text-based file and split it intelligently using
-                                recursive separators. Supports various formats including plain text,
-                                markdown, code files, and more.
+                                Smart Import intelligently understands your content and creates
+                                meaningful sections automatically. Works with any text
+                                file—documents, code, markdown, and more.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
@@ -457,7 +457,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             {file && (
                                 <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                                     <div className="flex items-center gap-3">
-                                        <Scissors className="h-5 w-5 text-muted-foreground" />
+                                        <Sparkles className="h-5 w-5 text-muted-foreground" />
                                         <div>
                                             <p className="font-medium">{file.name}</p>
                                             <p className="text-sm text-muted-foreground">
@@ -476,7 +476,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                             <CardHeader>
                                 <CardTitle className="text-sm flex items-center gap-2">
                                     <Settings className="h-4 w-4" />
-                                    Splitting Configuration
+                                    Import Settings
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-6">
@@ -485,7 +485,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                         htmlFor="chunkSize"
                                         className="block text-sm font-medium mb-1"
                                     >
-                                        Target Chunk Size:{" "}
+                                        Section Size:{" "}
                                         <span className="font-semibold">{chunkSize}</span>{" "}
                                         characters
                                     </Label>
@@ -592,7 +592,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                         <TooltipContent>
                                             <p>
                                                 Highlighted segments show how text will be split
-                                                into chunks
+                                                into sections
                                             </p>
                                         </TooltipContent>
                                     </Tooltip>
@@ -631,8 +631,8 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                 <>Processing...</>
                             ) : (
                                 <>
-                                    <Scissors className="h-4 w-4" />
-                                    Import with {processedChunks.length} Chunks
+                                    <Sparkles className="h-4 w-4" />
+                                    Import with {processedChunks.length} Sections
                                 </>
                             )}
                         </Button>
@@ -657,14 +657,14 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     )}
                 </div>
 
-                {/* Right Panel: Split Chunks */}
+                {/* Right Panel: Split Sections */}
                 {file && (
                     <div className="lg:w-1/2">
                         <Card className="sticky top-4">
                             <CardHeader>
-                                <CardTitle>Generated Chunks</CardTitle>
+                                <CardTitle>Generated Sections</CardTitle>
                                 <CardDescription>
-                                    Total Chunks:{" "}
+                                    Total Sections:{" "}
                                     <span className="font-semibold">{processedChunks.length}</span>
                                     {processedChunks.length > 0 && (
                                         <>
@@ -686,7 +686,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                 <ScrollArea className="h-[calc(100vh-12rem)]">
                                     {processedChunks.length === 0 && (
                                         <p className="text-muted-foreground text-center py-8">
-                                            No chunks generated. Adjust parameters or select a file.
+                                            No sections generated. Select a file to get started.
                                         </p>
                                     )}
                                     <div className="space-y-3">
@@ -718,7 +718,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                         {processedChunks.length > 50 && (
                                             <div className="text-center text-sm text-muted-foreground py-4">
                                                 ... showing first 50 of {processedChunks.length}{" "}
-                                                chunks
+                                                sections
                                             </div>
                                         )}
                                     </div>
