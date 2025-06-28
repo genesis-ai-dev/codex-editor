@@ -1,12 +1,18 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { cn } from "../lib/utils";
-import { ImporterPlugin, ImporterComponentProps, ProviderMessage } from "./types/plugin";
+import {
+    ImporterPlugin,
+    ImporterComponentProps,
+    ProviderMessage,
+    ExistingFile,
+} from "./types/plugin";
 import { NotebookPair } from "./types/common";
 import { importerPlugins, getImporterById } from "./importers/registry.tsx";
+import { FileText, FolderOpen } from "lucide-react";
 import "./App.css";
 import "../tailwind.css";
 
@@ -16,6 +22,45 @@ const vscode: { postMessage: (message: any) => void } = (window as any).vscodeAp
 const NewSourceUploader: React.FC = () => {
     const [activePluginId, setActivePluginId] = useState<string | null>(null);
     const [isDirty, setIsDirty] = useState(false);
+    const [existingFiles, setExistingFiles] = useState<ExistingFile[]>([]);
+    const [isLoadingFiles, setIsLoadingFiles] = useState(true);
+
+    // Check for existing files on mount
+    useEffect(() => {
+        const checkExistingFiles = () => {
+            setIsLoadingFiles(true);
+
+            // Set up listener for response
+            const handleMessage = (event: MessageEvent) => {
+                const message = event.data;
+                if (message.command === "existingFilesFound") {
+                    setExistingFiles(message.files || []);
+                    setIsLoadingFiles(false);
+                    window.removeEventListener("message", handleMessage);
+                }
+            };
+
+            window.addEventListener("message", handleMessage);
+
+            // Send request to check files
+            vscode.postMessage({
+                command: "checkExistingFiles",
+            });
+
+            // Timeout fallback
+            const timeout = setTimeout(() => {
+                setIsLoadingFiles(false);
+                window.removeEventListener("message", handleMessage);
+            }, 5000);
+
+            return () => {
+                clearTimeout(timeout);
+                window.removeEventListener("message", handleMessage);
+            };
+        };
+
+        checkExistingFiles();
+    }, []);
 
     const handleSelectPlugin = useCallback(
         (pluginId: string) => {
@@ -88,7 +133,13 @@ const NewSourceUploader: React.FC = () => {
         }
 
         const PluginComponent = plugin.component;
-        return <PluginComponent onComplete={handleComplete} onCancel={handleCancel} />;
+        return (
+            <PluginComponent
+                onComplete={handleComplete}
+                onCancel={handleCancel}
+                existingFiles={existingFiles}
+            />
+        );
     }
 
     // Render homepage with plugin cards
@@ -101,6 +152,48 @@ const NewSourceUploader: React.FC = () => {
                     Choose an import method to bring your content into Codex
                 </p>
             </div>
+
+            {/* Existing Files Section */}
+            {!isLoadingFiles && existingFiles.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <FolderOpen className="h-5 w-5" />
+                            Existing Source Files
+                        </CardTitle>
+                        <CardDescription>
+                            {existingFiles.length} source file{existingFiles.length > 1 ? "s" : ""}{" "}
+                            found in your project. You can import translations or additional content
+                            for these files.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="max-h-48 overflow-y-auto space-y-2">
+                            {existingFiles.map((file, index) => (
+                                <div
+                                    key={index}
+                                    className="flex items-center justify-between p-2 rounded-lg border bg-muted/30"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <FileText className="h-4 w-4 text-muted-foreground" />
+                                        <div>
+                                            <p className="font-medium text-sm">{file.name}</p>
+                                            <div className="flex gap-2 text-xs text-muted-foreground">
+                                                <span>{file.cellCount} cells</span>
+                                                {file.type !== "unknown" && (
+                                                    <Badge variant="outline" className="text-xs">
+                                                        {file.type}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Plugin Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

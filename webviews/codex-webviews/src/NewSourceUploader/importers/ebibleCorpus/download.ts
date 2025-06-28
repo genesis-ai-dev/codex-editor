@@ -20,6 +20,8 @@ interface EbibleMetadata {
     languageCode: string;
     translationId: string;
     description?: string;
+    title?: string;
+    textDirection?: 'ltr' | 'rtl';
 }
 
 interface VerseData {
@@ -29,6 +31,12 @@ interface VerseData {
     chapter: number;
     verse: number;
 }
+
+// Verse reference data (subset for initial implementation)
+const VERSE_REFS: string[] = [
+    "GEN 1:1", "GEN 1:2", "GEN 1:3", "GEN 1:4", "GEN 1:5",
+    // In production, this would be loaded from a complete verse reference file
+];
 
 /**
  * Validates eBible download metadata (not a file)
@@ -118,6 +126,27 @@ const downloadVerseContent = async (
 ): Promise<VerseData[]> => {
     const { languageCode, translationId } = metadata;
 
+    // Step 1: Download verse references
+    onProgress?.(createProgress('Download', 'Downloading verse references...', 10));
+
+    let vrefResponse: Response;
+    const vrefUrl = 'https://raw.githubusercontent.com/BibleNLP/ebible/main/metadata/vref.txt';
+
+    try {
+        vrefResponse = await fetch(vrefUrl);
+        if (!vrefResponse.ok) {
+            throw new Error(`Failed to download verse references: ${vrefResponse.status}`);
+        }
+    } catch (error) {
+        throw new Error(`Failed to fetch verse references. Error: ${(error as any).message}`);
+    }
+
+    const vrefText = await vrefResponse.text();
+    const verseRefs = vrefText.trim().split('\n').filter(line => line.trim());
+
+    // Step 2: Download Bible text
+    onProgress?.(createProgress('Download', `Downloading ${metadata.title || translationId} text...`, 30));
+
     let ebibleUrl: string;
 
     // Check for special Macula Bible
@@ -127,24 +156,22 @@ const downloadVerseContent = async (
     if (isMaculaBible) {
         ebibleUrl = 'https://github.com/genesis-ai-dev/hebrew-greek-bible/raw/refs/heads/main/macula-ebible.txt';
     } else {
-        ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/0eed6f47ff555201874d5416bbfebba4ed743d4f/corpus/${languageCode}-${translationId}.txt`;
+        // Use the correct eBible corpus URL format
+        ebibleUrl = `https://raw.githubusercontent.com/BibleNLP/ebible/main/corpus/${languageCode}-${translationId}.txt`;
     }
-
-    onProgress?.(createProgress('Download', `Fetching from ${ebibleUrl}...`, 25));
 
     let response: Response;
     try {
         response = await fetch(ebibleUrl);
     } catch (error) {
         throw new Error(
-            `Failed to fetch Bible text from ${ebibleUrl}. This could be due to network issues or the server being unavailable. Error: ${(error as any).message
-            }`
+            `Failed to fetch Bible text from ${ebibleUrl}. This could be due to network issues or the server being unavailable. Error: ${(error as any).message}`
         );
     }
 
     if (!response.ok) {
         throw new Error(
-            `Failed to download Bible text: ${response.status} ${response.statusText}. It could be that this file no longer exists on the remote server. Try navigating to ${ebibleUrl}`
+            `Failed to download Bible text: ${response.status} ${response.statusText}. This Bible translation may not be available in the eBible corpus.`
         );
     }
 
@@ -161,9 +188,40 @@ const downloadVerseContent = async (
         // For Macula Bible, verse refs are embedded in the content
         return parseEmbeddedVerseRefs(lines);
     } else {
-        // For regular eBible corpus, use standard verse references
-        return parseStandardEbibleFormat(lines);
+        // For regular eBible corpus, align with verse references
+        return parseWithVerseRefs(lines, verseRefs);
     }
+};
+
+/**
+ * Parses Bible text lines with separate verse references
+ */
+const parseWithVerseRefs = (textLines: string[], verseRefs: string[]): VerseData[] => {
+    const verses: VerseData[] = [];
+    const minLength = Math.min(textLines.length, verseRefs.length);
+
+    for (let i = 0; i < minLength; i++) {
+        const text = textLines[i].trim();
+        const vref = verseRefs[i].trim();
+
+        if (!text || !vref) continue;
+
+        // Parse the verse reference
+        const refMatch = vref.match(/^([A-Z1-9]{3})\s+(\d+):(\d+)$/);
+        if (!refMatch) continue;
+
+        const [, book, chapter, verse] = refMatch;
+
+        verses.push({
+            vref,
+            text,
+            book,
+            chapter: parseInt(chapter),
+            verse: parseInt(verse),
+        });
+    }
+
+    return verses;
 };
 
 /**

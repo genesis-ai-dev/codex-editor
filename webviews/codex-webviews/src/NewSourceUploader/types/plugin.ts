@@ -1,6 +1,22 @@
 import { NotebookPair, ProcessedNotebook } from './common';
 
 /**
+ * Information about existing source files in the project
+ */
+export interface ExistingFile {
+    name: string;
+    path: string;
+    type: string;
+    cellCount: number;
+    metadata?: {
+        id?: string;
+        originalName?: string;
+        corpusMarker?: string;
+        sourceCreatedAt?: string;
+    };
+}
+
+/**
  * Props passed to each importer component
  */
 export interface ImporterComponentProps {
@@ -14,6 +30,12 @@ export interface ImporterComponentProps {
      * Called when the user wants to cancel and return to homepage
      */
     onCancel: () => void;
+
+    /**
+     * Optional: List of existing source files in the project
+     * Useful for importers that want to add translations/targets to existing sources
+     */
+    existingFiles?: ExistingFile[];
 }
 
 /**

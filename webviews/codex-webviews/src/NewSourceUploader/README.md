@@ -40,8 +40,9 @@ Each plugin provides its own React component that handles the entire import flow
 
 ```typescript
 interface ImporterComponentProps {
-    onComplete: (notebooks: NotebookPair) => void;
+    onComplete: (notebooks: NotebookPair | NotebookPair[]) => void;
     onCancel: () => void;
+    existingFiles?: ExistingFile[]; // List of existing source files in the project
 }
 ```
 
