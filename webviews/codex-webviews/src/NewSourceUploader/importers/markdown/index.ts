@@ -9,12 +9,147 @@ import {
     createStandardCellId,
     createProcessedCell,
     validateFileExtension,
-    splitContentIntoSegments,
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { marked } from 'marked';
 
 const SUPPORTED_EXTENSIONS = ['md', 'markdown'];
+
+/**
+ * Splits markdown content into granular elements (headings, list items, paragraphs, etc.)
+ */
+const splitMarkdownIntoElements = (content: string): string[] => {
+    const lines = content.split('\n');
+    const elements: string[] = [];
+    let currentElement = '';
+    let inCodeBlock = false;
+    let inListContext = false;
+    let listDepth = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmedLine = line.trim();
+
+        // Handle code blocks
+        if (trimmedLine.startsWith('```')) {
+            inCodeBlock = !inCodeBlock;
+            currentElement += line + '\n';
+            if (!inCodeBlock && currentElement.trim()) {
+                elements.push(currentElement.trim());
+                currentElement = '';
+            }
+            continue;
+        }
+
+        // If we're in a code block, just accumulate
+        if (inCodeBlock) {
+            currentElement += line + '\n';
+            continue;
+        }
+
+        // Handle headings
+        if (trimmedLine.match(/^#{1,6}\s/)) {
+            // Finish any current element
+            if (currentElement.trim()) {
+                elements.push(currentElement.trim());
+                currentElement = '';
+            }
+            elements.push(trimmedLine);
+            inListContext = false;
+            continue;
+        }
+
+        // Handle list items
+        const listMatch = trimmedLine.match(/^(\s*)([-*+]|\d+\.)\s(.+)/);
+        if (listMatch) {
+            const indentation = listMatch[1];
+            const currentDepth = Math.floor(indentation.length / 2); // Assuming 2 spaces per level
+
+            // If we're starting a new list or changing depth significantly, finish current element
+            if (!inListContext || Math.abs(currentDepth - listDepth) > 0) {
+                if (currentElement.trim()) {
+                    elements.push(currentElement.trim());
+                    currentElement = '';
+                }
+            }
+
+            // Each list item becomes its own element
+            elements.push(trimmedLine);
+            inListContext = true;
+            listDepth = currentDepth;
+            continue;
+        }
+
+        // Handle empty lines
+        if (trimmedLine === '') {
+            // If we have accumulated content and hit an empty line, finish the element
+            if (currentElement.trim()) {
+                elements.push(currentElement.trim());
+                currentElement = '';
+                inListContext = false;
+            }
+            continue;
+        }
+
+        // Handle regular paragraphs and other content
+        if (inListContext) {
+            // If we were in a list but now have non-list content, finish any accumulated content
+            if (currentElement.trim()) {
+                elements.push(currentElement.trim());
+                currentElement = '';
+            }
+            inListContext = false;
+        }
+
+        currentElement += line + '\n';
+    }
+
+    // Don't forget the last element
+    if (currentElement.trim()) {
+        elements.push(currentElement.trim());
+    }
+
+    return elements.filter(element => element.length > 0);
+};
+
+/**
+ * Determines the type of markdown element
+ */
+const getElementType = (element: string): {
+    type: 'heading' | 'list-item' | 'paragraph' | 'code-block' | 'table' | 'other';
+    level?: number;
+    headingText?: string;
+} => {
+    const trimmed = element.trim();
+
+    // Check for headings
+    const headingMatch = trimmed.match(/^(#{1,6})\s(.+)/);
+    if (headingMatch) {
+        return {
+            type: 'heading',
+            level: headingMatch[1].length,
+            headingText: headingMatch[2],
+        };
+    }
+
+    // Check for list items
+    if (trimmed.match(/^(\s*)([-*+]|\d+\.)\s/)) {
+        return { type: 'list-item' };
+    }
+
+    // Check for code blocks
+    if (trimmed.startsWith('```') && trimmed.endsWith('```')) {
+        return { type: 'code-block' };
+    }
+
+    // Check for tables
+    if (trimmed.includes('|') && trimmed.split('\n').some(line => line.includes('|'))) {
+        return { type: 'table' };
+    }
+
+    // Default to paragraph
+    return { type: 'paragraph' };
+};
 
 /**
  * Validates a Markdown file
@@ -84,7 +219,7 @@ export const parseFile = async (
 
         const text = await file.text();
 
-        onProgress?.(createProgress('Parsing Markdown', 'Parsing Markdown structure...', 30));
+        onProgress?.(createProgress('Parsing Markdown', 'Breaking down into individual elements...', 30));
 
         // Configure marked for consistent parsing
         marked.setOptions({
@@ -92,32 +227,36 @@ export const parseFile = async (
             breaks: false,
         });
 
-        // Split markdown into sections (by headers or double line breaks)
-        const segments = splitContentIntoSegments(text, 'sections');
+        // Split markdown into individual elements instead of sections
+        const elements = splitMarkdownIntoElements(text);
 
-        if (segments.length === 0) {
-            throw new Error('No content segments could be extracted from the markdown file');
+        if (elements.length === 0) {
+            throw new Error('No content elements could be extracted from the markdown file');
         }
 
-        onProgress?.(createProgress('Converting to HTML', 'Converting markdown to HTML...', 60));
+        onProgress?.(createProgress('Converting to HTML', 'Converting markdown elements to HTML...', 60));
 
-        // Convert each segment to a cell
+        // Convert each element to a cell
         const cells = await Promise.all(
-            segments.map(async (segment, index) => {
+            elements.map(async (element, index) => {
                 const cellId = createStandardCellId(file.name, 1, index + 1);
 
                 // Convert markdown to HTML using marked library
-                const htmlContent = await marked.parse(segment);
+                const htmlContent = await marked.parse(element);
 
-                // Create cell with metadata about the segment
+                // Analyze the element type
+                const elementInfo = getElementType(element);
+
+                // Create cell with metadata about the element
                 const cell = createProcessedCell(cellId, htmlContent, {
                     type: 'markdown',
                     segmentIndex: index,
-                    originalMarkdown: segment,
-                    // Detect if this segment has a heading
-                    hasHeading: /^#{1,6}\s/.test(segment.trimStart()),
-                    // Extract heading text if present
-                    headingText: segment.match(/^#{1,6}\s(.*)$/m)?.[1],
+                    originalMarkdown: element,
+                    elementType: elementInfo.type,
+                    // Keep the heading detection for backward compatibility
+                    hasHeading: elementInfo.type === 'heading',
+                    headingText: elementInfo.headingText,
+                    headingLevel: elementInfo.level,
                 });
 
                 // Extract images from the converted HTML
@@ -131,9 +270,10 @@ export const parseFile = async (
         onProgress?.(createProgress('Creating Notebooks', 'Creating notebook pair...', 85));
 
         // Analyze content for metadata
-        const headingCount = cells.filter(cell => cell.metadata?.hasHeading).length;
+        const headingCount = cells.filter(cell => cell.metadata?.elementType === 'heading').length;
+        const listItemCount = cells.filter(cell => cell.metadata?.elementType === 'list-item').length;
         const imageCount = cells.reduce((count, cell) => count + cell.images.length, 0);
-        const wordCount = segments.join(' ').split(/\s+/).filter(w => w.length > 0).length;
+        const wordCount = elements.join(' ').split(/\s+/).filter(w => w.length > 0).length;
 
         // Create notebook pair directly
         const baseName = file.name.replace(/\.[^/.]+$/, '');
@@ -145,13 +285,15 @@ export const parseFile = async (
                 originalFileName: file.name,
                 importerType: 'markdown',
                 createdAt: new Date().toISOString(),
-                segmentCount: segments.length,
+                elementCount: elements.length,
                 headingCount,
+                listItemCount,
                 imageCount,
                 wordCount,
                 features: {
                     hasImages: imageCount > 0,
                     hasHeadings: headingCount > 0,
+                    hasListItems: listItemCount > 0,
                     hasTables: text.includes('|'),
                     hasCodeBlocks: text.includes('```'),
                     hasLinks: /\[.*?\]\(.*?\)/.test(text),
@@ -188,14 +330,16 @@ export const parseFile = async (
             success: true,
             notebookPair,
             metadata: {
-                segmentCount: cells.length,
+                elementCount: cells.length,
                 headingCount,
+                listItemCount,
                 imageCount,
                 wordCount,
                 fileSize: file.size,
                 features: {
                     hasImages: imageCount > 0,
                     hasHeadings: headingCount > 0,
+                    hasListItems: listItemCount > 0,
                     hasTables: text.includes('|'),
                     hasCodeBlocks: text.includes('```'),
                     hasLinks: /\[.*?\]\(.*?\)/.test(text),
@@ -213,8 +357,6 @@ export const parseFile = async (
     }
 };
 
-
-
 /**
  * Markdown Importer Plugin
  */
@@ -222,7 +364,7 @@ export const markdownImporter: ImporterPlugin = {
     name: 'Markdown Importer',
     supportedExtensions: SUPPORTED_EXTENSIONS,
     supportedMimeTypes: ['text/markdown', 'text/x-markdown'],
-    description: 'Imports Markdown files with section-based splitting',
+    description: 'Imports Markdown files with granular element-based splitting (headings, list items, paragraphs)',
     validateFile,
     parseFile,
 }; 
