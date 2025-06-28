@@ -412,7 +412,7 @@ describe("YourFileTypeImporter", () => {
 -   **eBible Download**: Download Bible text from eBible repository (with Macula Hebrew/Greek support) ✅ **IMPLEMENTED**
 -   **USFM**: Biblical markup parsing with usfm-grammar, chapter/verse structure ✅ **IMPLEMENTED**
 -   **Paratext Project**: Both folder-based projects (.SFM files, Settings.xml, BookNames.xml) and ZIP archives ✅ **IMPLEMENTED**
--   **Smart Import**: Universal text importer with intelligent section detection (replaces plain text) ✅ **IMPLEMENTED**
+-   **Smart Import**: Universal text importer with intelligent structure-aware section detection (replaces plain text) ✅ **IMPLEMENTED**
 -   **Subtitles (VTT/SRT)**: Timestamp-based cells, media synchronization ✅ **IMPLEMENTED**
 -   **Open Bible Stories**: JSON/Markdown story format ✅ **IMPLEMENTED**
 -   **PDF**: Text extraction, page-based segmentation (Future)
