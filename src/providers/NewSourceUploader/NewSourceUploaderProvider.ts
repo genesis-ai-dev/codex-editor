@@ -140,7 +140,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         console.log("Converted source cells preview:", sourceNotebooks[0]?.cells.slice(0, 2));
 
         // Create the notebook pairs
-        await createNoteBookPair({
+        const createdFiles = await createNoteBookPair({
             token,
             sourceNotebooks,
             codexNotebooks,
@@ -157,8 +157,18 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 : `Successfully imported ${count} ${notebooksText}!`
         );
 
-        // Force reindex to ensure new files are recognized
-        await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
+        // Use incremental indexing for just the newly created files
+        if (createdFiles && createdFiles.length > 0) {
+            // Extract file paths from the created URIs
+            const filePaths: string[] = [];
+            for (const result of createdFiles) {
+                filePaths.push(result.sourceUri.fsPath);
+                filePaths.push(result.codexUri.fsPath);
+            }
+
+            // Index only these specific files
+            await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", filePaths);
+        }
     }
 
     private async checkForExistingFiles(): Promise<Array<{

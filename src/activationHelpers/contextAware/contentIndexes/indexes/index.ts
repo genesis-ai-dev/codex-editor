@@ -50,27 +50,42 @@ async function showAILearningProgress<T>(
     operation: (progress: vscode.Progress<{ message?: string; increment?: number; }>) => Promise<T>,
     cancellable: boolean = false
 ): Promise<T | undefined> {
-    return vscode.window.withProgress(
-        {
-            location: vscode.ProgressLocation.Notification,
-            title: "AI learning from your latest changes...",
-            cancellable
-        },
-        async (progress, token) => {
-            if (cancellable && token) {
-                token.onCancellationRequested(() => {
-                    debug("AI learning cancelled by user");
-                });
-            }
+    // Create a new promise that wraps the progress notification
+    return new Promise<T | undefined>((resolve, reject) => {
+        vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "AI learning from your latest changes...",
+                cancellable
+            },
+            async (progress, token) => {
+                if (cancellable && token) {
+                    token.onCancellationRequested(() => {
+                        debug("AI learning cancelled by user");
+                        resolve(undefined);
+                    });
+                }
 
-            try {
-                return await operation(progress);
-            } catch (error) {
-                debug(`AI learning error: ${error}`);
-                throw error;
+                try {
+                    const result = await operation(progress);
+
+                    progress.report({ message: undefined }); // Clear any existing message
+                    // Update the existing notification to show completion
+                    progress.report({
+                        message: "✨ Learning complete!"
+                    });
+
+                    // Keep the completion message visible for 1 second
+                    await new Promise(res => setTimeout(res, 1000));
+
+                    resolve(result);
+                } catch (error) {
+                    debug(`AI learning error: ${error}`);
+                    reject(error);
+                }
             }
-        }
-    );
+        );
+    });
 }
 
 async function isDocumentAlreadyOpen(uri: vscode.Uri): Promise<boolean> {
@@ -1208,6 +1223,68 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        // Add command to index specific files incrementally
+        const incrementalIndexCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.indexSpecificFiles",
+            async (filePaths?: string[]) => {
+                if (!filePaths || filePaths.length === 0) {
+                    debug("[Index] No files specified for incremental indexing");
+                    return;
+                }
+
+                debug(`[Index] Incremental indexing requested for ${filePaths.length} files`);
+
+                try {
+                    // Show progress notification for incremental update
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: `AI learning from ${filePaths.length / 2} new file pair${filePaths.length > 1 ? 's' : ''}...`,
+                            cancellable: false
+                        },
+                        async (progress) => {
+                            statusBarHandler.setIndexingActive();
+
+                            const fileSyncManager = new FileSyncManager(translationPairsIndex);
+
+                            // Sync only the specified files
+                            const syncResult = await fileSyncManager.syncSpecificFiles(filePaths, {
+                                progressCallback: (message, percent) => {
+                                    progress.report({ message, increment: percent });
+                                }
+                            });
+
+                            // Update complementary indexes for the new files only
+                            const { targetFiles } = await readSourceAndTargetFiles();
+                            const relevantTargetFiles = targetFiles.filter(f =>
+                                filePaths.some(fp => f.uri.fsPath.includes(fp))
+                            );
+
+                            if (relevantTargetFiles.length > 0) {
+                                wordsIndex = await initializeWordsIndex(wordsIndex, relevantTargetFiles);
+                                await updateCompleteDrafts(relevantTargetFiles);
+                            }
+
+                            debug(`[Index] Incremental sync completed: ${syncResult.syncedFiles} files processed`);
+
+                            statusBarHandler.updateIndexCounts(
+                                translationPairsIndex.documentCount,
+                                sourceTextIndex.documentCount
+                            );
+
+                            progress.report({ message: "✨ AI learning complete!" });
+                            await new Promise(res => setTimeout(res, 1000));
+                        }
+                    );
+                } catch (error) {
+                    console.error("[Index] Error during incremental indexing:", error);
+                    vscode.window.showErrorMessage(`Failed to index files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                } finally {
+                    statusBarHandler.setIndexingComplete();
+                }
+            }
+        );
+
         // Make sure to close the database when extension deactivates
         context.subscriptions.push({
             dispose: async () => {
@@ -1241,7 +1318,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 forceSchemaResetCommand,
                 debugSchemaCommand,
                 refreshIndexCommand,
-                syncStatusCommand
+                syncStatusCommand,
+                incrementalIndexCommand
             ]
         );
 
