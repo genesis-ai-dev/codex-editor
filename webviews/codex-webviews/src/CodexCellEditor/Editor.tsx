@@ -722,8 +722,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 // Insert the word in italics followed by colon and space
                 quill.insertText(0, selectedText, { italic: true });
                 quill.insertText(selectedText.length, ": ");
-                // Set cursor after the colon and space
+                
+                // Clear any formatting and set cursor after the colon and space
                 quill.setSelection(selectedText.length + 2);
+                quill.format('italic', false);  // Ensure no italic formatting for subsequent text
             }
 
             // Store the current content
