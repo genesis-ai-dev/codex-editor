@@ -266,14 +266,14 @@ export function handleTextSelection(translationPairsIndex: IndexType, selectedTe
     return searchTargetCellsByQuery(translationPairsIndex, selectedText);
 }
 
-export function searchParallelCells(
+export async function searchParallelCells(
     translationPairsIndex: IndexType,
     sourceTextIndex: IndexType,
     query: string,
     k: number = 15
-): TranslationPair[] {
+): Promise<TranslationPair[]> {
     // Search only for complete translation pairs
-    return searchTranslationPairs(translationPairsIndex as any, query, false, k);
+    return await searchTranslationPairs(translationPairsIndex as any, query, false, k);
 }
 
 export function searchSimilarCellIds(
@@ -348,16 +348,16 @@ export async function findNextUntranslatedSourceCell(
     return null; // No untranslated cell found
 }
 
-export function searchAllCells(
+export async function searchAllCells(
     translationPairsIndex: IndexType,
     sourceTextIndex: IndexType,
     query: string,
     k: number = 15,
     includeIncomplete: boolean = true,
     options?: any
-): TranslationPair[] {
+): Promise<TranslationPair[]> {
     // Search translation pairs with boosted weights for complete pairs and target content
-    const translationPairs = searchTranslationPairs(
+    const translationPairs = await searchTranslationPairs(
         translationPairsIndex as any,
         query,
         includeIncomplete,

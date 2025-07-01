@@ -637,7 +637,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 }
 
                 // Search translation pairs with boosted weights for complete pairs and target content
-                const results = searchAllCells(
+                const results = await searchAllCells(
                     translationPairsIndex,
                     sourceTextIndex,
                     query,
@@ -653,7 +653,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 // If we have fewer unique results than requested, try to get more
                 if (uniqueResults.length < k) {
-                    const additionalResults = searchTranslationPairs(
+                    const additionalResults = await searchTranslationPairs(
                         translationPairsIndex,
                         query,
                         false, // includeIncomplete set to false
@@ -778,7 +778,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
-                const results = searchAllCells(
+                const results = await searchAllCells(
                     translationPairsIndex,
                     sourceTextIndex,
                     query,

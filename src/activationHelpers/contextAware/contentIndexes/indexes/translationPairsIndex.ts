@@ -29,13 +29,13 @@ type IndexType = SQLiteIndexManager;
 // The FileSyncManager provides more efficient and reliable file-level synchronization
 // All indexing is now handled through the main SQLite database via FileSyncManager
 
-export function searchTranslationPairs(
+export async function searchTranslationPairs(
     translationPairsIndex: IndexType,
     query: string,
     includeIncomplete: boolean = false,
     k: number = 15,
     options: { completeBoost?: number; targetContentBoost?: number; isParallelPassagesWebview?: boolean; } = {}
-): TranslationPair[] {
+): Promise<TranslationPair[]> {
     const { completeBoost = 1, targetContentBoost = 1, isParallelPassagesWebview = false, ...searchOptions } = options;
 
     const searchResults = translationPairsIndex.search(query, {
@@ -64,11 +64,52 @@ export function searchTranslationPairs(
 
         cellData.score = Math.max(cellData.score, result.score);
 
+        // Store the result based on which type of content it has
         if (result.sourceContent) {
             cellData.source = result;
         }
         if (result.targetContent) {
             cellData.target = result;
+        }
+    }
+
+    // For cells where we only found one side of the translation pair,
+    // try to get the missing side from the database
+    console.log(`[searchTranslationPairs] Processing ${cellMap.size} cells to ensure complete pairs`);
+    for (const [cellId, cellData] of cellMap.entries()) {
+        if (!cellData.source || !cellData.target) {
+            console.log(`[searchTranslationPairs] Cell ${cellId} missing ${!cellData.source ? 'source' : 'target'} content, fetching complete pair`);
+            // Get the complete translation pair from the database
+            const completePair = await (translationPairsIndex as any).getTranslationPair?.(cellId);
+            if (completePair) {
+                // Fill in missing source content
+                if (!cellData.source && completePair.sourceContent) {
+                    console.log(`[searchTranslationPairs] Adding missing source content for ${cellId}`);
+                    cellData.source = {
+                        cellId,
+                        sourceContent: completePair.sourceContent,
+                        rawContent: completePair.rawSourceContent,
+                        uri: completePair.uri,
+                        line: completePair.line,
+                        score: cellData.score * 0.9 // Slightly lower score since it wasn't directly matched
+                    };
+                }
+                
+                // Fill in missing target content
+                if (!cellData.target && completePair.targetContent) {
+                    console.log(`[searchTranslationPairs] Adding missing target content for ${cellId}`);
+                    cellData.target = {
+                        cellId,
+                        targetContent: completePair.targetContent,
+                        rawTargetContent: completePair.rawTargetContent,
+                        uri: completePair.uri,
+                        line: completePair.line,
+                        score: cellData.score * 0.9 // Slightly lower score since it wasn't directly matched
+                    };
+                }
+            } else {
+                console.log(`[searchTranslationPairs] No complete pair found in database for ${cellId}`);
+            }
         }
     }
 
@@ -78,16 +119,6 @@ export function searchTranslationPairs(
     for (const [cellId, cellData] of cellMap.entries()) {
         const sourceResult = cellData.source;
         const targetResult = cellData.target;
-
-        // Skip if we don't have source content and we're not including incomplete
-        if (!sourceResult && !includeIncomplete) {
-            continue;
-        }
-
-        // Skip if we don't have target content and we're not including incomplete
-        if (!targetResult && !includeIncomplete) {
-            continue;
-        }
 
         // For search passages webview, prefer raw content if available for proper HTML display
         const sourceContent = sourceResult ? (
@@ -102,9 +133,16 @@ export function searchTranslationPairs(
                 : targetResult.targetContent
         ) : "";
 
-        // Additional check: if we're not including incomplete pairs, ensure we have both source and target content
+        // If we're not including incomplete pairs, we need BOTH source and target content
+        // This ensures we always return complete translation pairs (both sides)
         if (!includeIncomplete && (!sourceContent.trim() || !targetContent.trim())) {
             console.log(`[searchTranslationPairs] Skipping ${cellId} - incomplete translation pair (source: ${!!sourceContent.trim()}, target: ${!!targetContent.trim()})`);
+            continue;
+        }
+
+        // If we're including incomplete pairs, we need at least one side
+        if (includeIncomplete && !sourceContent.trim() && !targetContent.trim()) {
+            console.log(`[searchTranslationPairs] Skipping ${cellId} - no content in either source or target`);
             continue;
         }
 
@@ -133,8 +171,15 @@ export function searchTranslationPairs(
     }
 
     // Sort by score and remove score property before returning
-    return results
+    const finalResults = results
         .sort((a, b) => b.score - a.score)
         .slice(0, k)
         .map(({ score, ...pair }) => pair);
+    
+    console.log(`[searchTranslationPairs] Returning ${finalResults.length} complete translation pairs for query "${query}"`);
+    finalResults.slice(0, 3).forEach((pair, index) => {
+        console.log(`[searchTranslationPairs] Result ${index + 1}: ${pair.cellId} - Source: ${!!pair.sourceCell.content}, Target: ${!!pair.targetCell.content}`);
+    });
+    
+    return finalResults;
 }
