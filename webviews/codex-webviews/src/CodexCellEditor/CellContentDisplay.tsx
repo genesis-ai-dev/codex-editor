@@ -6,7 +6,7 @@ import {
     EditHistory,
     QuillCellContent,
 } from "../../../../types";
-import { HACKY_removeContiguousSpans } from "./utils";
+import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 import { CodexCellTypes } from "../../../../types/enums";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import { WebviewApi } from "vscode-webview";
@@ -36,6 +36,7 @@ interface CellContentDisplayProps {
     handleCellClick: (cellId: string) => void;
     cellDisplayMode: CELL_DISPLAY_MODES;
     audioAttachments?: { [cellId: string]: boolean };
+    footnoteOffset?: number; // Starting footnote number for this cell
 }
 
 const DEBUG_ENABLED = false;
@@ -198,6 +199,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     handleCellClick,
     cellDisplayMode,
     audioAttachments,
+    footnoteOffset = 0,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -238,13 +240,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         markers.forEach((marker) => {
             marker.addEventListener("mouseenter", handleMarkerMouseEnter);
             marker.addEventListener("mouseleave", handleMarkerMouseLeave);
-
-            // Update marker text to show its position (1-based)
-            const index = Array.from(markers).indexOf(marker);
-            if (marker.textContent !== `${index + 1}`) {
-                marker.textContent = `${index + 1}`;
-            }
         });
+
+        // Use the proper footnote numbering utility
+        if (contentRef.current) {
+            updateFootnoteNumbering(contentRef.current, footnoteOffset + 1, false);
+        }
 
         // Clean up listeners when component unmounts
         return () => {
@@ -253,7 +254,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 marker.removeEventListener("mouseleave", handleMarkerMouseLeave);
             });
         };
-    }, [cell.cellContent, showTooltip, hideTooltip]);
+    }, [cell.cellContent, showTooltip, hideTooltip, footnoteOffset]);
 
     // Handle fade-out effect when all translations complete
     useEffect(() => {
@@ -289,63 +290,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         }
     }, [highlightedCellId]);
 
-    // Function to process HTML content (now only used to extract footnote information if needed)
-    const processHtmlContent = (
-        html: string
-    ): { footnotes: Array<{ id: string; content: string; position: number }> } => {
-        if (!html) return { footnotes: [] };
 
-        try {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, "text/html");
-
-            // Find all footnote markers
-            const footnoteMarkers = doc.querySelectorAll("sup.footnote-marker");
-
-            // Skip if no footnote markers
-            if (footnoteMarkers.length === 0) {
-                return { footnotes: [] };
-            }
-
-            // Create ordered map of footnotes based on their position in the document
-            const orderedFootnotes: Array<{ id: string; content: string; position: number }> = [];
-
-            // Collect markers and their positions
-            footnoteMarkers.forEach((marker) => {
-                if (!marker || !marker.textContent) return;
-
-                const fnId = marker.textContent || "";
-                const content = marker.getAttribute("data-footnote") || "";
-
-                // Calculate the marker's position in the document
-                const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL);
-                let position = 0;
-                let current = treeWalker.nextNode();
-
-                while (current && current !== marker) {
-                    position++;
-                    current = treeWalker.nextNode();
-                }
-
-                orderedFootnotes.push({
-                    id: fnId,
-                    content: content,
-                    position: position,
-                });
-            });
-
-            // Sort footnotes by their position in the document
-            orderedFootnotes.sort((a, b) => {
-                if (!a || !b) return 0;
-                return a.position - b.position;
-            });
-
-            return { footnotes: orderedFootnotes };
-        } catch (error) {
-            console.error("Error processing HTML content:", error);
-            return { footnotes: [] };
-        }
-    };
 
     // Handler for stopping translation when clicked on the spinner
     const handleStopTranslation = (e: React.MouseEvent) => {
@@ -487,14 +432,17 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
     };
 
-    // Function to render the content with footnote markers
+    // Function to render the content with footnote markers and proper spacing
     const renderContent = () => {
+        // Use the proper HTML processing utility instead of hacky approach
+        const processedHtml = processHtmlContent(cell.cellContent || "");
+
         return (
             <div
                 ref={contentRef}
                 className="cell-content"
                 dangerouslySetInnerHTML={{
-                    __html: HACKY_removeContiguousSpans(cell.cellContent || ""),
+                    __html: processedHtml,
                 }}
                 onClick={() => {
                     hideTooltip();

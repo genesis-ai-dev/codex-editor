@@ -19,6 +19,7 @@ import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import ReactPlayer from "react-player";
 import { diffWords } from "diff";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { processHtmlContent, updateFootnoteNumbering } from "./footnoteUtils";
 
 const icons: any = Quill.import("ui/icons");
 // Assuming you have access to the VSCode API here
@@ -50,6 +51,7 @@ export interface EditorProps {
     textDirection: "ltr" | "rtl";
     setIsEditingFootnoteInline: (isEditing: boolean) => void;
     isEditingFootnoteInline: boolean;
+    footnoteOffset?: number;
 }
 
 // Fix the imports with correct typing
@@ -677,6 +679,28 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 }
             }
 
+            // Check if we're placing a footnote adjacent to existing footnotes and ensure proper spacing
+            const htmlContent = quill.root.innerHTML;
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, "text/html");
+            
+            // Get the text content and see if there are footnote markers near our insertion point
+            const textBeforeInsertion = quill.getText(0, cursorPosition);
+            const textAfterInsertion = quill.getText(cursorPosition);
+            
+            // Check if there's a footnote marker immediately before our position
+            const hasFootnoteBefore = /<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>[^<]*<\/sup>$/m.test(
+                quill.root.innerHTML.substring(0, quill.getLeaf(cursorPosition)[1])
+            );
+            
+            // Check if there's a footnote marker immediately after our position  
+            const hasFootnoteAfter = /^<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>[^<]*<\/sup>/m.test(
+                quill.root.innerHTML.substring(quill.getLeaf(cursorPosition)[1])
+            );
+
+            // Note: The spacing between consecutive footnotes will be handled by renumberFootnotes()
+            // which runs after the footnote is created
+
             // Store original content before switching to footnote editing
             setOriginalCellContent(quill.root.innerHTML);
 
@@ -712,32 +736,17 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     // Function to renumber all footnotes based on their document position and clean up spacing
     const renumberFootnotes = () => {
         if (!quillRef.current) return;
-
-        const quill = quillRef.current;
-        let htmlContent = quill.root.innerHTML;
-
-        // First, clean up any spaces immediately before footnote markers
-        // This regex finds spaces before <sup class="footnote-marker"> elements
-        htmlContent = htmlContent.replace(/\s+(<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>)/g, '$1');
-
-        // Parse the cleaned HTML
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(htmlContent, "text/html");
-
-        // Find all footnote markers in document order
-        const footnoteMarkers = Array.from(doc.querySelectorAll("sup.footnote-marker"));
-
-        // Renumber them based on their position in the document
-        footnoteMarkers.forEach((marker, index) => {
-            const newId = `fn${index + 1}`;
-            marker.textContent = newId;
-        });
-
-        // Update the editor content with renumbered and cleaned footnotes
-        const newHtml = doc.body.innerHTML;
         
-        // Force Quill to update by setting the content and triggering an update
-        quill.root.innerHTML = newHtml;
+        const quill = quillRef.current;
+        
+        // Use the proper HTML processing utility for consistent behavior
+        const processedHtml = processHtmlContent(quill.root.innerHTML);
+        
+        // Update the editor content with processed HTML
+        quill.root.innerHTML = processedHtml;
+        
+        // Update footnote numbering starting from the footnote offset for section-based numbering
+        updateFootnoteNumbering(quill.root, props.footnoteOffset || 1, true);
         
         // Force Quill to recognize the content change
         quill.history.clear();
@@ -908,6 +917,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 .quill-toolbar-icon {
                     font-size: 16px !important;
                 }
+
                 @keyframes pulse {
                     0%, 100% { opacity: 1; }
                     50% { opacity: 0.5; }

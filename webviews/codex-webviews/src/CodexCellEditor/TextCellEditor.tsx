@@ -106,6 +106,7 @@ interface CellEditorProps {
     editHistory: EditHistory[];
     cell: QuillCellContent;
     isSaving?: boolean;
+    footnoteOffset?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -178,6 +179,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     openCellById,
     cell,
     isSaving = false,
+    footnoteOffset = 1,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -1304,6 +1306,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             ref={editorHandlesRef}
                             setIsEditingFootnoteInline={setIsEditingFootnoteInline}
                             isEditingFootnoteInline={isEditingFootnoteInline}
+                            footnoteOffset={footnoteOffset}
                         />
                     </div>
                 </div>
@@ -1504,7 +1507,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         <Card key={footnote.id} className="p-4">
                                             <div className="flex items-center justify-between mb-2">
                                                 <Badge variant="outline" className="font-mono">
-                                                    {index + 1}
+                                                    {index + footnoteOffset}
                                                 </Badge>
                                                 <div className="flex gap-1">
                                                     <Button
