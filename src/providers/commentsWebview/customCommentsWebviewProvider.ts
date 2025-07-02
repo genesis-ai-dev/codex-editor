@@ -29,14 +29,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
     private async initializeAuthState() {
         try {
+            console.log("[CommentsProvider] Initializing auth state...");
             if (this.authApi) {
                 const authStatus = this.authApi.getAuthStatus();
                 this.isAuthenticated = authStatus.isAuthenticated;
+                console.log("[CommentsProvider] Auth API found, isAuthenticated:", this.isAuthenticated);
             } else {
                 this.isAuthenticated = false;
+                console.log("[CommentsProvider] No auth API found, setting isAuthenticated to false");
             }
         } catch (error) {
-            console.error("Failed to check authentication status:", error);
+            console.error("[CommentsProvider] Failed to check authentication status:", error);
             this.isAuthenticated = false;
         }
     }
@@ -60,22 +63,51 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
+        console.log("[CommentsProvider] sendCurrentUserInfo called, isAuthenticated:", this.isAuthenticated, "authApi exists:", !!this.authApi);
+
         if (this.isAuthenticated && this.authApi) {
             try {
                 const user = await this.authApi.getUserInfo();
+                console.log("[CommentsProvider] Got user info:", user ? { username: user.username, email: user.email } : "null");
+
                 if (user) {
-                    safePostMessageToView(webviewView, {
-                        command: "updateUser",
-                        user: {
-                            id: user.username,
-                            name: user.username,
-                            avatar: null,
+                    const message = {
+                        command: "updateUserInfo",
+                        userInfo: {
+                            username: user.username,
+                            email: user.email || "",
                         },
-                    } as CommentPostMessages);
+                    } as CommentPostMessages;
+                    console.log("[CommentsProvider] Sending authenticated user message:", message);
+                    const sent = safePostMessageToView(webviewView, message);
+                    console.log("[CommentsProvider] Message send result:", sent);
+                } else {
+                    // Send unauthenticated state
+                    const message = {
+                        command: "updateUserInfo",
+                    } as CommentPostMessages;
+                    console.log("[CommentsProvider] User is null, sending unauthenticated message:", message);
+                    const sent = safePostMessageToView(webviewView, message);
+                    console.log("[CommentsProvider] Message send result:", sent);
                 }
             } catch (error) {
-                console.error("Failed to get user info:", error);
+                console.error("[CommentsProvider] Failed to get user info:", error);
+                // Send unauthenticated state on error
+                const message = {
+                    command: "updateUserInfo",
+                } as CommentPostMessages;
+                console.log("[CommentsProvider] Error getting user, sending unauthenticated message:", message);
+                const sent = safePostMessageToView(webviewView, message);
+                console.log("[CommentsProvider] Message send result:", sent);
             }
+        } else {
+            // Send unauthenticated state
+            const message = {
+                command: "updateUserInfo",
+            } as CommentPostMessages;
+            console.log("[CommentsProvider] Not authenticated or no authApi, sending unauthenticated message:", message);
+            const sent = safePostMessageToView(webviewView, message);
+            console.log("[CommentsProvider] Message send result:", sent);
         }
     }
 
@@ -100,15 +132,24 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
     private async initializeWebview(webviewView: vscode.WebviewView): Promise<void> {
         try {
+            console.log("[CommentsProvider] Initializing webview...");
             // Ensure comments file exists before trying to read it
             await this.initializeCommentsFile();
 
+            // Give the webview a moment to fully load before sending messages
+            console.log("[CommentsProvider] Waiting for webview to be ready...");
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             // Now safely initialize other components
+            console.log("[CommentsProvider] About to send user info...");
             await this.sendCurrentUserInfo(webviewView);
+            console.log("[CommentsProvider] About to send comments...");
             await this.sendCommentsToWebview(webviewView);
+            console.log("[CommentsProvider] About to send cell ID...");
             await this.sendCurrentCellId(webviewView);
+            console.log("[CommentsProvider] Webview initialization complete");
         } catch (error) {
-            console.error("Error initializing comments webview:", error);
+            console.error("[CommentsProvider] Error initializing comments webview:", error);
         }
     }
 

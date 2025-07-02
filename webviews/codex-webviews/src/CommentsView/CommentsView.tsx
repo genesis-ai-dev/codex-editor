@@ -84,6 +84,12 @@ function App() {
         email: "",
         isAuthenticated: false,
     });
+
+    // Log current user state whenever it changes
+    useEffect(() => {
+        console.log("[CommentsWebview] Current user state updated:", currentUser);
+    }, [currentUser]);
+
     const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
     const [replyingTo, setReplyingTo] = useState<{ threadId: string; username?: string } | null>(
         null
@@ -94,22 +100,24 @@ function App() {
     const handleMessage = useCallback(
         (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
+            console.log("[CommentsWebview] Received message:", message);
+
             switch (message.command) {
                 case "commentsFromWorkspace": {
                     if (message.content) {
-                        console.log("Received comments:", message.content);
+                        console.log("[CommentsWebview] Received comments:", message.content);
                         try {
                             const comments = JSON.parse(message.content);
                             setCommentThread(comments);
                             setPendingResolveThreads(new Set());
                         } catch (error) {
-                            console.error("Error parsing comments:", error);
+                            console.error("[CommentsWebview] Error parsing comments:", error);
                         }
                     }
                     break;
                 }
                 case "reload": {
-                    console.log("Reload message received:", message.data);
+                    console.log("[CommentsWebview] Reload message received:", message.data);
                     if (message.data?.cellId) {
                         setCellId({ cellId: message.data.cellId, uri: message.data.uri || "" });
                         if (viewMode === "cell") {
@@ -122,39 +130,50 @@ function App() {
                     break;
                 }
                 case "updateUserInfo": {
+                    console.log("[CommentsWebview] updateUserInfo received:", message.userInfo);
                     if (message.userInfo) {
-                        setCurrentUser({
+                        const newUser = {
                             username: message.userInfo.username,
                             email: message.userInfo.email,
                             isAuthenticated: true,
-                        });
+                        };
+                        console.log("[CommentsWebview] Setting authenticated user:", newUser);
+                        setCurrentUser(newUser);
                     } else {
-                        setCurrentUser({
+                        const newUser = {
                             username: "vscode",
                             email: "",
                             isAuthenticated: false,
-                        });
+                        };
+                        console.log("[CommentsWebview] Setting unauthenticated user:", newUser);
+                        setCurrentUser(newUser);
                     }
                     break;
                 }
+                default:
+                    console.log("[CommentsWebview] Unknown message command:", message.command);
             }
         },
         [viewMode]
     );
 
     useEffect(() => {
+        console.log("[CommentsWebview] Setting up message listener and requesting initial data...");
         window.addEventListener("message", handleMessage);
 
         // Request initial data
+        console.log("[CommentsWebview] Requesting initial comments...");
         vscode.postMessage({
             command: "fetchComments",
         } as CommentPostMessages);
 
+        console.log("[CommentsWebview] Requesting current cell ID...");
         vscode.postMessage({
             command: "getCurrentCellId",
         } as CommentPostMessages);
 
         return () => {
+            console.log("[CommentsWebview] Cleaning up message listener...");
             window.removeEventListener("message", handleMessage);
         };
     }, [handleMessage]);
