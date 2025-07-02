@@ -14,14 +14,13 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { markdownImporter } from "./index";
+import { handleImportCompletion } from "../common/translationHelper";
 
 // Use the real parser functions from the Markdown importer
 const { validateFile, parseFile } = markdownImporter;
 
-export const MarkdownImporterForm: React.FC<ImporterComponentProps> = ({
-    onComplete,
-    onCancel,
-}) => {
+export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) => {
+    const { onCancel } = props;
     const [file, setFile] = useState<File | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -88,8 +87,12 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = ({
             setIsDirty(false);
 
             // Automatically complete after showing success briefly
-            setTimeout(() => {
-                onComplete(importResult.notebookPair!);
+            setTimeout(async () => {
+                try {
+                    await handleImportCompletion(importResult.notebookPair!, props);
+                } catch (err) {
+                    setError(err instanceof Error ? err.message : "Failed to complete import");
+                }
             }, 1500);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");

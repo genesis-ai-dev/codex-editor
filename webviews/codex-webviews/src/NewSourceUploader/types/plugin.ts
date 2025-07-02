@@ -1,4 +1,5 @@
 import { NotebookPair, ProcessedNotebook } from './common';
+import { WizardContext } from './wizard';
 
 /**
  * Information about existing source files in the project
@@ -17,14 +18,115 @@ export interface ExistingFile {
 }
 
 /**
+ * Imported content item with alignment data
+ */
+export interface ImportedContent {
+    id: string;
+    content: string;
+    startTime?: number;
+    endTime?: number;
+    edits?: any[];
+    [key: string]: any; // Allow additional metadata
+}
+
+/**
+ * Aligned cell for translation import
+ */
+export interface AlignedCell {
+    notebookCell: any | null; // Target cell from existing notebook
+    importedContent: ImportedContent;
+    isParatext?: boolean;
+    isAdditionalOverlap?: boolean;
+}
+
+/**
+ * Custom alignment function for translation imports
+ */
+export type CellAligner = (
+    targetCells: any[], // Existing target notebook cells
+    sourceCells: any[], // Source notebook cells for context
+    importedContent: ImportedContent[]
+) => Promise<AlignedCell[]>;
+
+/**
+ * Default cell aligner that matches imported content IDs exactly with target cell IDs
+ * This is used when plugins don't define their own custom alignment algorithm
+ */
+export const defaultCellAligner: CellAligner = async (
+    targetCells: any[],
+    sourceCells: any[],
+    importedContent: ImportedContent[]
+): Promise<AlignedCell[]> => {
+    const alignedCells: AlignedCell[] = [];
+    let totalMatches = 0;
+
+    // Create a map of target cells for quick lookup
+    const targetCellsMap = new Map<string, any>();
+    targetCells.forEach((cell) => {
+        if (cell.metadata?.id) {
+            targetCellsMap.set(cell.metadata.id, cell);
+        }
+    });
+
+    // Process each imported content item
+    for (const importedItem of importedContent) {
+        if (!importedItem.content.trim()) {
+            continue; // Skip empty content
+        }
+
+        // Look for exact ID match in target cells
+        const targetCell = targetCellsMap.get(importedItem.id);
+
+        if (targetCell) {
+            // Found matching cell - create aligned cell
+            alignedCells.push({
+                notebookCell: targetCell,
+                importedContent: importedItem,
+            });
+            totalMatches++;
+        } else {
+            // No matching cell found - treat as paratext
+            alignedCells.push({
+                notebookCell: null,
+                importedContent: {
+                    ...importedItem,
+                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                },
+                isParatext: true,
+            });
+        }
+    }
+
+    // Log matching statistics
+    console.log(`Default aligner: ${totalMatches} exact matches found out of ${importedContent.length} imported items`);
+
+    return alignedCells;
+};
+
+/**
+ * Utility function type for performing alignment with default or custom algorithms
+ */
+export type AlignmentHelper = (
+    importedContent: ImportedContent[],
+    sourceFilePath: string,
+    customAligner?: CellAligner
+) => Promise<AlignedCell[]>;
+
+/**
  * Props passed to each importer component
  */
 export interface ImporterComponentProps {
     /**
-     * Called when the import is complete with notebook pairs
+     * Called when the import is complete with notebook pairs (for source imports)
      * Can be a single pair or multiple pairs for batch imports
      */
-    onComplete: (notebooks: NotebookPair | NotebookPair[]) => void;
+    onComplete?: (notebooks: NotebookPair | NotebookPair[]) => void;
+
+    /**
+     * Called when translation import is complete (for target imports)
+     * Provides aligned content for merging into existing target notebook
+     */
+    onTranslationComplete?: (alignedContent: AlignedCell[], sourceFilePath: string) => void;
 
     /**
      * Called when the user wants to cancel and return to homepage
@@ -36,6 +138,18 @@ export interface ImporterComponentProps {
      * Useful for importers that want to add translations/targets to existing sources
      */
     existingFiles?: ExistingFile[];
+
+    /**
+     * Optional: Wizard context when importer is used in wizard flow
+     * Provides information about intent (source/target) and selected source file
+     */
+    wizardContext?: WizardContext;
+
+    /**
+     * Optional: Helper function for performing alignment in translation imports
+     * Handles fetching target cells and running alignment algorithms
+     */
+    alignContent?: AlignmentHelper;
 }
 
 /**
@@ -68,6 +182,12 @@ export interface ImporterPlugin {
     component: React.ComponentType<ImporterComponentProps>;
 
     /**
+     * Optional: Custom alignment function for translation imports
+     * If provided, this will be used when importing translations for this plugin
+     */
+    cellAligner?: CellAligner;
+
+    /**
      * Optional: File extensions this plugin supports (for file-based importers)
      */
     supportedExtensions?: string[];
@@ -97,6 +217,15 @@ export interface WriteNotebooksMessage {
     metadata?: Record<string, any>;
 }
 
+export interface WriteTranslationMessage {
+    command: 'writeTranslation';
+    alignedContent: AlignedCell[];
+    sourceFilePath: string;
+    targetFilePath: string;
+    importerType: string;
+    metadata?: Record<string, any>;
+}
+
 export interface NotificationMessage {
     command: 'notification';
     type: 'info' | 'warning' | 'error' | 'success';
@@ -109,4 +238,4 @@ export interface ImportBookNamesMessage {
     nameType?: 'long' | 'short' | 'abbr';
 }
 
-export type ProviderMessage = WriteNotebooksMessage | NotificationMessage | ImportBookNamesMessage; 
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage; 

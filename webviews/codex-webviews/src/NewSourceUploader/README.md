@@ -478,3 +478,108 @@ All major transaction-based importers have been successfully migrated to the new
 | eBible Files       | N/A (new)                     | `ebibleCorpusImporter`   | ✅ Complete |
 
 The system now provides a consistent, efficient, and extensible way to import various file types with standardized cell IDs, progress tracking, and error handling.
+
+# NewSourceUploader Wizard
+
+The NewSourceUploader has been enhanced with a wizard-style interface that guides users through creating translation pairs from source files and their corresponding target files.
+
+## Wizard Flow
+
+### Step 1: Intent Selection
+
+Users choose whether they want to import:
+
+-   **Source Files**: Original content (the "before" in translation pairs)
+-   **Target Files**: Translated/transformed content (the "after" in translation pairs)
+
+### Step 2a: Source Files Branch
+
+If importing source files:
+
+-   Shows available importer plugins
+-   Displays current project inventory
+-   Allows selecting and importing new source files
+
+### Step 2b: Target Files Branch
+
+If importing target files:
+
+-   Checks if source files exist
+-   If no sources: Shows empty state with guidance
+-   If sources exist: Shows source file selection interface
+-   After source selection: Shows appropriate importer plugins
+
+## Key Components
+
+### Wizard Components
+
+-   `IntentSelection.tsx`: First step, choosing source or target import
+-   `SourceFileSelection.tsx`: Select which source file to create a target for
+-   `EmptySourceState.tsx`: Shown when trying to create targets without sources
+-   `PluginSelection.tsx`: Context-aware plugin selection interface
+
+### Types
+
+-   `wizard.ts`: Core wizard types and interfaces
+-   `ProjectInventory`: Tracks all files and translation pairs
+-   `WizardState`: Manages wizard flow state
+-   `WizardContext`: Provides context to plugin components
+
+## Plugin Integration
+
+Plugins receive an optional `wizardContext` prop:
+
+```typescript
+interface ImporterComponentProps {
+    onComplete: (notebooks: NotebookPair | NotebookPair[]) => void;
+    onCancel: () => void;
+    existingFiles?: ExistingFile[];
+    wizardContext?: {
+        intent: "source" | "target";
+        selectedSource?: ExistingFile;
+        projectInventory: ProjectInventory;
+    };
+}
+```
+
+Plugins can use this context to:
+
+-   Know if they're importing source or target files
+-   Access the selected source file when creating targets
+-   View the complete project inventory
+
+## Example Plugin Usage
+
+```typescript
+const MyImporterPlugin: React.FC<ImporterComponentProps> = ({
+    onComplete,
+    onCancel,
+    wizardContext,
+}) => {
+    const isTargetImport = wizardContext?.intent === "target";
+    const selectedSource = wizardContext?.selectedSource;
+
+    if (isTargetImport && selectedSource) {
+        // Customize UI for target import
+        return (
+            <div>
+                <h2>Creating translation for: {selectedSource.name}</h2>
+                {/* Target-specific import UI */}
+            </div>
+        );
+    }
+
+    // Default source import UI
+    return <div>{/* Source import UI */}</div>;
+};
+```
+
+## Provider Integration
+
+The provider supports two endpoints:
+
+-   `checkExistingFiles`: Legacy endpoint, returns source files only
+-   `fetchProjectInventory`: New endpoint, returns complete inventory including:
+    -   Source files
+    -   Target files
+    -   Translation pairs
