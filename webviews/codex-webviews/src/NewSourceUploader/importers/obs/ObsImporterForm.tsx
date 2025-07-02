@@ -1,5 +1,11 @@
 import React, { useState, useCallback } from "react";
-import { ImporterComponentProps } from "../../types/plugin";
+import {
+    ImporterComponentProps,
+    AlignedCell,
+    CellAligner,
+    ImportedContent,
+    sequentialCellAligner,
+} from "../../types/plugin";
 import { NotebookPair, ImportProgress } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import { Label } from "../../../components/ui/label";
@@ -26,14 +32,25 @@ import {
     Globe,
 } from "lucide-react";
 import { obsImporter } from "./index";
+import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { AlignmentPreview } from "../../components/AlignmentPreview";
 
-export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, onCancel }) => {
+export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
+    const { onCancel, onTranslationComplete, alignContent, wizardContext } = props;
     const [activeTab, setActiveTab] = useState<"upload" | "download">("download");
     const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAligning, setIsAligning] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
     const [progress, setProgress] = useState<ImportProgress[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<NotebookPair | NotebookPair[] | null>(null);
+    const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
+    const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
+    const [targetCells, setTargetCells] = useState<any[]>([]);
+
+    const isTranslationImport = wizardContext?.intent === "target";
+    const selectedSource = wizardContext?.selectedSource;
 
     const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files || []);
@@ -45,6 +62,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
         setIsProcessing(true);
         setError(null);
         setProgress([]);
+        setAlignedCells(null);
 
         try {
             const onProgress = (progress: ImportProgress) => {
@@ -63,12 +81,58 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
 
             if (result.success) {
                 // Handle both single and multiple notebook pairs
+                let notebookResult;
                 if (result.notebookPairs) {
-                    setResult(result.notebookPairs);
+                    notebookResult = result.notebookPairs;
                 } else if (result.notebookPair) {
-                    setResult(result.notebookPair);
+                    notebookResult = result.notebookPair;
                 } else {
                     throw new Error("No notebook pairs returned from repository download");
+                }
+
+                setResult(notebookResult);
+
+                // For translation imports, perform alignment
+                if (isTranslationImport && alignContent && selectedSource) {
+                    onProgress({
+                        stage: "Alignment",
+                        message: "Aligning OBS content with target cells...",
+                        progress: 80,
+                    });
+
+                    setIsAligning(true);
+
+                    try {
+                        // For multi-file imports, we'll use the first file for now
+                        const primaryNotebook = Array.isArray(notebookResult)
+                            ? notebookResult[0]
+                            : notebookResult;
+                        const importedContent = notebookToImportedContent(primaryNotebook);
+                        setImportedContent(importedContent);
+
+                        // Use sequential cell aligner for OBS (structured story content)
+                        const aligned = await alignContent(
+                            importedContent,
+                            selectedSource.path,
+                            sequentialCellAligner
+                        );
+
+                        setAlignedCells(aligned);
+                        setIsAligning(false);
+
+                        onProgress({
+                            stage: "Complete",
+                            message: "Alignment complete - review and confirm",
+                            progress: 100,
+                        });
+                    } catch (err) {
+                        setIsAligning(false);
+                        throw new Error(
+                            `Alignment failed: ${
+                                err instanceof Error ? err.message : "Unknown error"
+                            }`
+                        );
+                    }
                 }
             } else {
                 throw new Error(result.error || "Repository download failed");
@@ -78,7 +142,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
         } finally {
             setIsProcessing(false);
         }
-    }, []);
+    }, [isTranslationImport, alignContent, selectedSource]);
 
     const handleFileUpload = useCallback(async () => {
         if (selectedFiles.length === 0) {
@@ -89,6 +153,7 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
         setIsProcessing(true);
         setError(null);
         setProgress([]);
+        setAlignedCells(null);
 
         try {
             const onProgress = (progress: ImportProgress) => {
@@ -118,19 +183,88 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
                 }
             }
 
-            setResult(results.length === 1 ? results[0] : results);
+            const notebookResult = results.length === 1 ? results[0] : results;
+            setResult(notebookResult);
+
+            // For translation imports, perform alignment
+            if (isTranslationImport && alignContent && selectedSource) {
+                onProgress({
+                    stage: "Alignment",
+                    message: "Aligning OBS content with target cells...",
+                    progress: 80,
+                });
+
+                setIsAligning(true);
+
+                try {
+                    // For multi-file imports, we'll use the first file for now
+                    const primaryNotebook = Array.isArray(notebookResult)
+                        ? notebookResult[0]
+                        : notebookResult;
+                    const importedContent = notebookToImportedContent(primaryNotebook);
+                    setImportedContent(importedContent);
+
+                    // Use sequential cell aligner for OBS (structured story content)
+                    const aligned = await alignContent(
+                        importedContent,
+                        selectedSource.path,
+                        sequentialCellAligner
+                    );
+
+                    setAlignedCells(aligned);
+                    setIsAligning(false);
+
+                    onProgress({
+                        stage: "Complete",
+                        message: "Alignment complete - review and confirm",
+                        progress: 100,
+                    });
+                } catch (err) {
+                    setIsAligning(false);
+                    throw new Error(
+                        `Alignment failed: ${err instanceof Error ? err.message : "Unknown error"}`
+                    );
+                }
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
         } finally {
             setIsProcessing(false);
         }
-    }, [selectedFiles]);
+    }, [selectedFiles, isTranslationImport, alignContent, selectedSource]);
 
-    const handleComplete = useCallback(() => {
+    const handleComplete = useCallback(async () => {
         if (result) {
-            onComplete(result);
+            try {
+                // Handle both single and array results
+                const notebookPair = Array.isArray(result) ? result[0] : result;
+                await handleImportCompletion(notebookPair, props);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to complete import");
+            }
         }
-    }, [result, onComplete]);
+    }, [result, props]);
+
+    const handleConfirmAlignment = () => {
+        if (!alignedCells || !selectedSource || !onTranslationComplete) return;
+        onTranslationComplete(alignedCells, selectedSource.path);
+    };
+
+    const handleRetryAlignment = async (aligner: CellAligner) => {
+        if (!alignContent || !selectedSource || !importedContent) return;
+
+        setIsRetrying(true);
+        setError(null);
+
+        try {
+            const aligned = await alignContent(importedContent, selectedSource.path, aligner);
+            setAlignedCells(aligned);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Alignment retry failed");
+        } finally {
+            setIsRetrying(false);
+        }
+    };
 
     const handleCancel = useCallback(() => {
         onCancel();
@@ -141,6 +275,27 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
 
     const isComplete = result !== null;
     const currentStage = progress.length > 0 ? progress[progress.length - 1] : null;
+
+    // Render alignment preview for translation imports
+    if (alignedCells && isTranslationImport) {
+        return (
+            <AlignmentPreview
+                alignedCells={alignedCells}
+                importedContent={importedContent}
+                targetCells={targetCells}
+                sourceCells={
+                    Array.isArray(result)
+                        ? result[0]?.source.cells || []
+                        : result?.source.cells || []
+                }
+                selectedSourceName={selectedSource?.name}
+                onConfirm={handleConfirmAlignment}
+                onCancel={handleCancel}
+                onRetryAlignment={handleRetryAlignment}
+                isRetrying={isRetrying}
+            />
+        );
+    }
 
     return (
         <div className="container mx-auto p-6 max-w-4xl space-y-6">
@@ -153,10 +308,12 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, 
                 <div>
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                         <BookOpen className="h-6 w-6" />
-                        Open Bible Stories Importer
+                        Open Bible Stories Importer {isTranslationImport && "(Translation)"}
                     </h1>
                     <p className="text-muted-foreground">
-                        Import OBS content from individual files or the complete repository
+                        {isTranslationImport && selectedSource
+                            ? `Importing OBS translation for: ${selectedSource.name}`
+                            : "Import OBS content from individual files or the complete repository"}
                     </p>
                 </div>
             </div>

@@ -37,6 +37,8 @@ export interface AlignedCell {
     importedContent: ImportedContent;
     isParatext?: boolean;
     isAdditionalOverlap?: boolean;
+    alignmentMethod?: 'exact-id' | 'sequential' | 'custom' | 'timestamp' | 'manual';
+    confidence?: number; // 0-1 score for alignment confidence
 }
 
 /**
@@ -47,6 +49,60 @@ export type CellAligner = (
     sourceCells: any[], // Source notebook cells for context
     importedContent: ImportedContent[]
 ) => Promise<AlignedCell[]>;
+
+/**
+ * Sequential cell aligner that inserts content in order into empty target cells
+ * Useful for content without meaningful IDs (like DOCX, Markdown, plain text)
+ */
+export const sequentialCellAligner: CellAligner = async (
+    targetCells: any[],
+    sourceCells: any[],
+    importedContent: ImportedContent[]
+): Promise<AlignedCell[]> => {
+    const alignedCells: AlignedCell[] = [];
+
+    // Filter to only empty target cells (those without content)
+    const emptyCells = targetCells.filter(cell =>
+        !cell.value || cell.value.trim() === ''
+    );
+
+    let cellIndex = 0;
+    let insertedCount = 0;
+
+    for (const importedItem of importedContent) {
+        if (!importedItem.content.trim()) {
+            continue; // Skip empty content
+        }
+
+        if (cellIndex < emptyCells.length) {
+            // Insert into next available empty cell
+            alignedCells.push({
+                notebookCell: emptyCells[cellIndex],
+                importedContent: importedItem,
+                alignmentMethod: 'sequential',
+                confidence: 0.8 // Medium confidence for sequential insertion
+            });
+            cellIndex++;
+            insertedCount++;
+        } else {
+            // No more empty cells - add as paratext
+            alignedCells.push({
+                notebookCell: null,
+                importedContent: {
+                    ...importedItem,
+                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                },
+                isParatext: true,
+                alignmentMethod: 'sequential',
+                confidence: 0.3 // Low confidence for paratext
+            });
+        }
+    }
+
+    console.log(`Sequential aligner: ${insertedCount} items inserted sequentially, ${importedContent.length - insertedCount} as paratext`);
+
+    return alignedCells;
+};
 
 /**
  * Default cell aligner that matches imported content IDs exactly with target cell IDs
@@ -82,6 +138,8 @@ export const defaultCellAligner: CellAligner = async (
             alignedCells.push({
                 notebookCell: targetCell,
                 importedContent: importedItem,
+                alignmentMethod: 'exact-id',
+                confidence: 1.0 // High confidence for exact matches
             });
             totalMatches++;
         } else {
@@ -93,6 +151,8 @@ export const defaultCellAligner: CellAligner = async (
                     id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 },
                 isParatext: true,
+                alignmentMethod: 'exact-id',
+                confidence: 0.0 // No confidence for unmatched content
             });
         }
     }

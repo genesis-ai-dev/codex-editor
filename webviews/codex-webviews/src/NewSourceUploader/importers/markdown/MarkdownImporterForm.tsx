@@ -14,20 +14,36 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { markdownImporter } from "./index";
-import { handleImportCompletion } from "../common/translationHelper";
+import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { AlignmentPreview } from "../../components/AlignmentPreview";
+import { AlignedCell, CellAligner, sequentialCellAligner } from "../../types/plugin";
 
 // Use the real parser functions from the Markdown importer
 const { validateFile, parseFile } = markdownImporter;
 
 export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) => {
-    const { onCancel } = props;
+    const { onCancel, wizardContext, onTranslationComplete, alignContent } = props;
+
+    // Check if this is a translation import
+    const isTranslationImport =
+        wizardContext?.intent === "target" &&
+        wizardContext?.selectedSource &&
+        onTranslationComplete &&
+        alignContent;
+    const selectedSource = wizardContext?.selectedSource;
     const [file, setFile] = useState<File | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAligning, setIsAligning] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
     const [progress, setProgress] = useState<ImportProgress[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<NotebookPair | null>(null);
     const [previewContent, setPreviewContent] = useState<string>("");
+
+    // Translation import specific state
+    const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
+    const [importedContent, setImportedContent] = useState<any[]>([]);
 
     const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
@@ -86,18 +102,71 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) =>
             setResult(importResult.notebookPair);
             setIsDirty(false);
 
-            // Automatically complete after showing success briefly
-            setTimeout(async () => {
+            if (isTranslationImport) {
+                // For translation imports, perform alignment and show preview
+                setIsAligning(true);
+
                 try {
-                    await handleImportCompletion(importResult.notebookPair!, props);
+                    // Convert notebook to imported content
+                    const importedContent = notebookToImportedContent(importResult.notebookPair);
+                    setImportedContent(importedContent);
+
+                    // Use sequential alignment by default for Markdown (no meaningful IDs)
+                    const aligned = await alignContent!(
+                        importedContent,
+                        selectedSource!.path,
+                        sequentialCellAligner
+                    );
+
+                    setAlignedCells(aligned);
+                    setIsAligning(false);
+
+                    onProgress({
+                        stage: "Complete",
+                        message: "Alignment complete - review and confirm",
+                        progress: 100,
+                    });
                 } catch (err) {
-                    setError(err instanceof Error ? err.message : "Failed to complete import");
+                    setIsAligning(false);
+                    throw new Error(
+                        `Alignment failed: ${err instanceof Error ? err.message : "Unknown error"}`
+                    );
                 }
-            }, 1500);
+            } else {
+                // For source imports, complete normally
+                setTimeout(async () => {
+                    try {
+                        await handleImportCompletion(importResult.notebookPair!, props);
+                    } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to complete import");
+                    }
+                }, 1500);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const handleConfirmAlignment = () => {
+        if (!alignedCells || !selectedSource || !onTranslationComplete) return;
+        onTranslationComplete(alignedCells, selectedSource.path);
+    };
+
+    const handleRetryAlignment = async (aligner: CellAligner) => {
+        if (!alignContent || !selectedSource || !importedContent) return;
+
+        setIsRetrying(true);
+        setError(null);
+
+        try {
+            const aligned = await alignContent(importedContent, selectedSource.path, aligner);
+            setAlignedCells(aligned);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Alignment retry failed");
+        } finally {
+            setIsRetrying(false);
         }
     };
 
@@ -112,6 +181,23 @@ export const MarkdownImporterForm: React.FC<ImporterComponentProps> = (props) =>
         progress.length > 0
             ? Math.round(progress.reduce((sum, p) => sum + (p.progress || 0), 0) / progress.length)
             : 0;
+
+    // Render alignment preview for translation imports
+    if (alignedCells && isTranslationImport) {
+        return (
+            <AlignmentPreview
+                alignedCells={alignedCells}
+                importedContent={importedContent}
+                targetCells={[]}
+                sourceCells={result?.source.cells || []}
+                selectedSourceName={selectedSource?.name}
+                onConfirm={handleConfirmAlignment}
+                onCancel={handleCancel}
+                onRetryAlignment={handleRetryAlignment}
+                isRetrying={isRetrying}
+            />
+        );
+    }
 
     return (
         <div className="container mx-auto p-6 max-w-4xl space-y-6">

@@ -1,5 +1,12 @@
-import React, { useState, useCallback } from "react";
-import { ImporterComponentProps, ImportBookNamesMessage } from "../../types/plugin";
+import React, { useState, useCallback, useEffect } from "react";
+import {
+    ImporterComponentProps,
+    AlignedCell,
+    CellAligner,
+    ImportedContent,
+    defaultCellAligner,
+    ImportBookNamesMessage,
+} from "../../types/plugin";
 import { NotebookPair, ImportProgress } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import {
@@ -25,9 +32,16 @@ import {
     Languages,
     Info,
     ArrowRight,
+    Download,
+    ExternalLink,
+    FolderOpen,
+    Globe,
+    Loader2,
 } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { paratextImporter } from "./parser";
+import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Use the real parser functions from the Paratext importer
 const { validateFile, parseFile } = paratextImporter;
@@ -35,20 +49,26 @@ const { validateFile, parseFile } = paratextImporter;
 // Get the VSCode API
 const vscode: { postMessage: (message: any) => void } = (window as any).vscodeApi;
 
-export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
-    onComplete,
-    onCancel,
-}) => {
+export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) => {
+    const { onCancel, onTranslationComplete, alignContent, wizardContext } = props;
     const [file, setFile] = useState<File | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAligning, setIsAligning] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
     const [progress, setProgress] = useState<ImportProgress[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [result, setResult] = useState<NotebookPair | null>(null);
+    const [result, setResult] = useState<NotebookPair | NotebookPair[] | null>(null);
     const [validation, setValidation] = useState<any>(null);
     const [projectInfo, setProjectInfo] = useState<any>(null);
     const [notebookPairs, setNotebookPairs] = useState<NotebookPair[]>([]);
     const [bookNamesImported, setBookNamesImported] = useState(false);
+    const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
+    const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
+    const [targetCells, setTargetCells] = useState<any[]>([]);
+
+    const isTranslationImport = wizardContext?.intent === "target";
+    const selectedSource = wizardContext?.selectedSource;
 
     const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
@@ -116,7 +136,47 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
                     0
                 ),
             });
-            setIsDirty(false);
+
+            // For translation imports, perform alignment
+            if (isTranslationImport && alignContent && selectedSource) {
+                onProgress({
+                    stage: "Alignment",
+                    message: "Aligning Paratext content with target cells...",
+                    progress: 80,
+                });
+
+                setIsAligning(true);
+
+                try {
+                    // For multi-file imports, we'll use the first file for now
+                    const primaryNotebook = notebookPairs[0];
+                    const importedContent = notebookToImportedContent(primaryNotebook);
+                    setImportedContent(importedContent);
+
+                    // Use default cell aligner for Paratext (structured content with verse IDs)
+                    const aligned = await alignContent(
+                        importedContent,
+                        selectedSource.path,
+                        defaultCellAligner
+                    );
+
+                    setAlignedCells(aligned);
+                    setIsAligning(false);
+
+                    onProgress({
+                        stage: "Complete",
+                        message: "Alignment complete - review and confirm",
+                        progress: 100,
+                    });
+                } catch (err) {
+                    setIsAligning(false);
+                    throw new Error(
+                        `Alignment failed: ${err instanceof Error ? err.message : "Unknown error"}`
+                    );
+                }
+            } else {
+                setIsDirty(false);
+            }
 
             // Import book names if available
             if (importResult.metadata?.bookNamesXmlContent && !bookNamesImported) {
@@ -143,9 +203,36 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
         onCancel();
     };
 
-    const handleComplete = () => {
+    const handleComplete = async () => {
         if (notebookPairs.length > 0) {
-            onComplete(notebookPairs);
+            try {
+                // For multi-file imports, handle the first notebook pair
+                // Note: Multi-file translation imports may need special UI handling
+                await handleImportCompletion(notebookPairs[0], props);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Failed to complete import");
+            }
+        }
+    };
+
+    const handleConfirmAlignment = () => {
+        if (!alignedCells || !selectedSource || !onTranslationComplete) return;
+        onTranslationComplete(alignedCells, selectedSource.path);
+    };
+
+    const handleRetryAlignment = async (aligner: CellAligner) => {
+        if (!alignContent || !selectedSource || !importedContent) return;
+
+        setIsRetrying(true);
+        setError(null);
+
+        try {
+            const aligned = await alignContent(importedContent, selectedSource.path, aligner);
+            setAlignedCells(aligned);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Alignment retry failed");
+        } finally {
+            setIsRetrying(false);
         }
     };
 
@@ -154,13 +241,42 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
             ? Math.round(progress.reduce((sum, p) => sum + (p.progress || 0), 0) / progress.length)
             : 0;
 
+    // Render alignment preview for translation imports
+    if (alignedCells && isTranslationImport) {
+        return (
+            <AlignmentPreview
+                alignedCells={alignedCells}
+                importedContent={importedContent}
+                targetCells={targetCells}
+                sourceCells={
+                    Array.isArray(result)
+                        ? result[0]?.source.cells || []
+                        : result?.source.cells || []
+                }
+                selectedSourceName={selectedSource?.name}
+                onConfirm={handleConfirmAlignment}
+                onCancel={handleCancel}
+                onRetryAlignment={handleRetryAlignment}
+                isRetrying={isRetrying}
+            />
+        );
+    }
+
     return (
         <div className="container mx-auto p-6 max-w-4xl space-y-6">
             <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <Database className="h-6 w-6" />
-                    Import Paratext Project
-                </h1>
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-2">
+                        <Database className="h-6 w-6" />
+                        Import Paratext Project {isTranslationImport && "(Translation)"}
+                    </h1>
+                    {isTranslationImport && selectedSource && (
+                        <p className="text-muted-foreground">
+                            Importing translation for:{" "}
+                            <span className="font-medium">{selectedSource.name}</span>
+                        </p>
+                    )}
+                </div>
                 <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
                     <ArrowLeft className="h-4 w-4" />
                     Back to Home
@@ -171,9 +287,9 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = ({
                 <CardHeader>
                     <CardTitle>Select Paratext Project</CardTitle>
                     <CardDescription>
-                        Import Paratext translation projects containing USFM files, project
-                        settings, and localized book names. Supports ZIP archives and individual
-                        project folders.
+                        {isTranslationImport
+                            ? "Import Paratext translation project that will be aligned with existing cells. Content will be matched by verse references."
+                            : "Import Paratext translation projects containing USFM files, project settings, and localized book names. Supports ZIP archives and individual project folders."}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">

@@ -114,6 +114,336 @@ webviewPanel.webview.onDidReceiveMessage(async (message) => {
 });
 ```
 
+## Translation Import System
+
+The NewSourceUploader supports two distinct import modes:
+
+1. **Source Imports**: Creating new notebook pairs (source + target) from scratch
+2. **Translation Imports**: Populating existing target notebooks with translated content using custom alignment algorithms
+
+### Translation Import Flow
+
+When importing translations:
+
+1. **Wizard Selection**: User selects "Import Translations" and chooses an existing source file
+2. **Plugin Selection**: User selects an appropriate importer plugin
+3. **Content Processing**: Plugin processes the translation file and converts it to `ImportedContent[]`
+4. **Alignment**: Plugin uses custom alignment algorithm to match imported content with existing target cells
+5. **Writing**: Provider merges aligned content into the existing target notebook
+
+### Plugin Interface for Translation Imports
+
+Plugins that support translation imports receive additional props:
+
+```typescript
+interface ImporterComponentProps {
+    // Standard source import props
+    onComplete?: (notebooks: NotebookPair | NotebookPair[]) => void;
+    onCancel: () => void;
+    existingFiles?: ExistingFile[];
+
+    // Translation import props (only present during translation imports)
+    onTranslationComplete?: (alignedContent: AlignedCell[], sourceFilePath: string) => void;
+    alignContent?: AlignmentHelper;
+
+    // Wizard context
+    wizardContext?: {
+        intent: "source" | "target";
+        selectedSource?: DetailedFileInfo;
+        selectedSourceDetails?: DetailedFileInfo;
+        projectInventory: ProjectInventory;
+    };
+}
+```
+
+### Translation Import Types
+
+```typescript
+// Content extracted from imported files
+interface ImportedContent {
+    id: string; // Unique identifier for the content
+    content: string; // The actual text content
+    startTime?: number; // Optional timestamp (for media files)
+    endTime?: number; // Optional timestamp (for media files)
+    metadata?: any; // Additional metadata
+}
+
+// Result of alignment algorithm
+interface AlignedCell {
+    importedContent: ImportedContent;
+    notebookCell?: any; // Target notebook cell to update (if matched)
+    isParatext?: boolean; // True if content should be added as paratext
+    isAdditionalOverlap?: boolean; // True if this is a child cell from overlapping content
+}
+
+// Alignment algorithm function signature
+type CellAligner = (
+    targetCells: any[],
+    sourceCells: any[],
+    importedContent: ImportedContent[]
+) => Promise<AlignedCell[]>;
+
+// Helper function for plugins to request alignment
+type AlignmentHelper = (
+    importedContent: ImportedContent[],
+    sourceFilePath: string,
+    customAligner?: CellAligner
+) => Promise<AlignedCell[]>;
+```
+
+### Implementing Translation Support in Plugins
+
+#### 1. Detect Import Mode
+
+```typescript
+export const YourImporterForm: React.FC<ImporterComponentProps> = ({
+    onComplete,
+    onTranslationComplete,
+    alignContent,
+    wizardContext,
+    onCancel,
+}) => {
+    // Check if this is a translation import
+    const isTranslationImport =
+        wizardContext?.intent === "target" &&
+        wizardContext?.selectedSource &&
+        onTranslationComplete &&
+        alignContent;
+
+    if (isTranslationImport) {
+        // Show translation import UI
+        return <TranslationImportUI />;
+    }
+
+    // Show source import UI
+    return <SourceImportUI />;
+};
+```
+
+#### 2. Handle Translation Import Completion
+
+For translation imports, plugins should:
+
+1. Parse the file into `ImportedContent[]`
+2. Call `alignContent()` with a custom aligner (optional)
+3. Call `onTranslationComplete()` with the aligned results
+
+```typescript
+const handleTranslationImport = async (file: File) => {
+    try {
+        // Parse file into standardized format
+        const importedContent: ImportedContent[] = await parseFileToImportedContent(file);
+
+        // Use custom alignment algorithm (optional)
+        const customAligner: CellAligner = async (targetCells, sourceCells, imported) => {
+            // Your custom matching logic here
+            // For example: timestamp overlap, ID matching, content similarity, etc.
+            return alignedCells;
+        };
+
+        // Request alignment from the system
+        const alignedContent = await alignContent!(
+            importedContent,
+            wizardContext!.selectedSource!.path,
+            customAligner // optional - uses defaultCellAligner if not provided
+        );
+
+        // Complete the translation import
+        onTranslationComplete!(alignedContent, wizardContext!.selectedSource!.path);
+    } catch (error) {
+        console.error("Translation import failed:", error);
+        // Handle error
+    }
+};
+```
+
+#### 3. Custom Alignment Algorithms
+
+Plugins can implement custom alignment logic based on their content type:
+
+```typescript
+// Example: Timestamp-based alignment for subtitles
+const timestampAligner: CellAligner = async (targetCells, sourceCells, importedContent) => {
+    const alignedCells: AlignedCell[] = [];
+
+    for (const imported of importedContent) {
+        // Find overlapping target cells based on timestamps
+        const overlappingCells = targetCells.filter((target) => {
+            const targetStart = target.metadata?.data?.startTime;
+            const targetEnd = target.metadata?.data?.endTime;
+            return (
+                imported.startTime &&
+                imported.endTime &&
+                targetStart &&
+                targetEnd &&
+                hasTimeOverlap(imported.startTime, imported.endTime, targetStart, targetEnd)
+            );
+        });
+
+        if (overlappingCells.length > 0) {
+            // Create aligned cells for each overlap
+            overlappingCells.forEach((cell, index) => {
+                alignedCells.push({
+                    importedContent: imported,
+                    notebookCell: cell,
+                    isAdditionalOverlap: index > 0,
+                });
+            });
+        } else {
+            // No match - add as paratext
+            alignedCells.push({
+                importedContent: imported,
+                isParatext: true,
+            });
+        }
+    }
+
+    return alignedCells;
+};
+
+// Example: ID-based alignment for structured content
+const idBasedAligner: CellAligner = async (targetCells, sourceCells, importedContent) => {
+    const targetCellsById = new Map(targetCells.map((cell) => [cell.metadata?.id, cell]));
+
+    return importedContent.map((imported) => {
+        const matchingCell = targetCellsById.get(imported.id);
+
+        if (matchingCell) {
+            return {
+                importedContent: imported,
+                notebookCell: matchingCell,
+            };
+        } else {
+            return {
+                importedContent: imported,
+                isParatext: true,
+            };
+        }
+    });
+};
+```
+
+### Default Alignment Algorithm
+
+If no custom aligner is provided, the system uses `defaultCellAligner` which performs exact ID matching:
+
+```typescript
+const defaultCellAligner: CellAligner = async (targetCells, sourceCells, importedContent) => {
+    const targetCellsById = new Map(targetCells.map((cell) => [cell.metadata?.id, cell]));
+
+    const alignedCells: AlignedCell[] = [];
+    let matchedCount = 0;
+    let paratextCount = 0;
+
+    for (const imported of importedContent) {
+        const matchingCell = targetCellsById.get(imported.id);
+
+        if (matchingCell) {
+            alignedCells.push({
+                importedContent: imported,
+                notebookCell: matchingCell,
+            });
+            matchedCount++;
+        } else {
+            alignedCells.push({
+                importedContent: imported,
+                isParatext: true,
+            });
+            paratextCount++;
+        }
+    }
+
+    console.log(`Alignment complete: ${matchedCount} matched, ${paratextCount} as paratext`);
+    return alignedCells;
+};
+```
+
+### Translation Helper Function
+
+For plugins that need to support both import modes, use the `handleImportCompletion` helper:
+
+```typescript
+import { handleImportCompletion } from "../common/translationHelper";
+
+const handleImport = async (file: File) => {
+    if (wizardContext?.intent === "source") {
+        // Parse file and create notebook pair
+        const notebookPair = await parseFileToNotebookPair(file);
+        onComplete!(notebookPair);
+    } else {
+        // Parse file to imported content and handle translation
+        const importedContent = await parseFileToImportedContent(file);
+
+        await handleImportCompletion({
+            importedContent,
+            sourceFilePath: wizardContext!.selectedSource!.path,
+            onComplete,
+            onTranslationComplete,
+            alignContent,
+            customAligner: yourCustomAligner, // optional
+        });
+    }
+};
+```
+
+### Provider-Side Translation Handling
+
+The provider handles translation imports through the `handleWriteTranslation` method:
+
+1. **Receives**: `WriteTranslationMessage` with aligned content
+2. **Loads**: Existing target notebook
+3. **Merges**: Aligned content into target cells
+4. **Statistics**: Tracks inserted, skipped, and paratext cells
+5. **Writes**: Updated notebook back to disk
+
+### Translation Import Benefits
+
+-   **Preserves Existing Work**: Only updates empty cells, preserves user translations
+-   **Flexible Alignment**: Supports custom matching algorithms for different content types
+-   **Paratext Handling**: Content that doesn't match gets added as paratext for review
+-   **Child Cells**: Multiple overlaps create child cells for complex alignments
+-   **Progress Tracking**: Detailed statistics on import results
+-   **Preview & Confirm**: Review alignment results before applying changes
+-   **Sequential Insertion**: Fallback method for content without structured IDs
+-   **Retry Options**: Try different alignment methods if initial results are poor
+
+### Preview and Confirm Flow
+
+For translation imports, plugins now show a preview/confirm step that allows users to:
+
+1. **Review Alignment Quality**: See statistics on matched vs paratext content
+2. **Inspect Individual Alignments**: View exactly how content will be mapped
+3. **Try Different Methods**: Switch between ID matching and sequential insertion
+4. **Confidence Scoring**: See alignment confidence levels for each match
+
+#### Sequential Insertion
+
+For content types without meaningful IDs (DOCX, Markdown, plain text), the system provides sequential insertion:
+
+-   **Empty Cell Targeting**: Only inserts into empty target cells
+-   **Order Preservation**: Maintains the order of imported content
+-   **Overflow Handling**: Excess content becomes paratext
+-   **Medium Confidence**: Assigns 80% confidence to sequential matches
+
+```typescript
+// Example: Sequential insertion for DOCX
+const aligned = await alignContent(
+    importedContent,
+    selectedSource.path,
+    sequentialCellAligner // Use sequential instead of ID matching
+);
+```
+
+#### Alignment Preview Component
+
+The shared `AlignmentPreview` component provides:
+
+-   **Quality Assessment**: Automatic detection of good/partial/poor alignments
+-   **Method Switching**: Dropdown to retry with different alignment algorithms
+-   **Detailed Views**: Tabbed interface showing matched, paratext, and all content
+-   **Confidence Indicators**: Visual badges showing alignment confidence levels
+-   **Retry Functionality**: One-click retry with different alignment methods
+
 ## Creating a New Importer Plugin
 
 ### 1. File Structure

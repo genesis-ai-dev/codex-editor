@@ -1,6 +1,12 @@
 import React, { useState, useCallback, useEffect, useMemo } from "react";
-import { ImporterComponentProps } from "../../types/plugin";
-import { ImportProgress, ProcessedNotebook } from "../../types/common";
+import {
+    ImporterComponentProps,
+    AlignedCell,
+    CellAligner,
+    ImportedContent,
+    defaultCellAligner,
+} from "../../types/plugin";
+import { ImportProgress, ProcessedNotebook, NotebookPair } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Label } from "../../../components/ui/label";
@@ -42,6 +48,8 @@ import {
     Languages,
     Info,
     AlertCircle,
+    BookOpen,
+    Loader2,
 } from "lucide-react";
 
 import {
@@ -51,20 +59,25 @@ import {
     getTranslationStats,
 } from "./components/translationUtils";
 import { downloadEbibleCorpus } from "./download";
+import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { EbibleDownloadForm } from "../../components/EbibleDownloadForm";
+import { ebibleCorpusImporter } from "./index";
+import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Import the translations.csv file
 import translationsCSV from "./translations.csv?raw";
 
-interface NotebookPair {
-    source: ProcessedNotebook;
-    codex: ProcessedNotebook;
-}
+// Use the real parser functions from the eBible Corpus importer
+const { validateFile, parseFile } = ebibleCorpusImporter;
 
-export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
-    onComplete,
-    onCancel,
-    existingFiles = [],
-}) => {
+export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (props) => {
+    const {
+        onCancel,
+        onTranslationComplete,
+        alignContent,
+        wizardContext,
+        existingFiles = [],
+    } = props;
     const [showExistingCheck, setShowExistingCheck] = useState(true);
 
     // Filter for Bible files from existing files
@@ -88,9 +101,18 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
         downloadable: true,
     });
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAligning, setIsAligning] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
     const [progress, setProgress] = useState<ImportProgress[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [showDetails, setShowDetails] = useState(false);
+    const [result, setResult] = useState<NotebookPair | null>(null);
+    const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
+    const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
+    const [targetCells, setTargetCells] = useState<any[]>([]);
+
+    const isTranslationImport = wizardContext?.intent === "target";
+    const selectedSource = wizardContext?.selectedSource;
 
     // Parse translations from CSV
     const allTranslations = useMemo(() => {
@@ -134,6 +156,7 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
         setIsProcessing(true);
         setError(null);
         setProgress([]);
+        setAlignedCells(null);
 
         try {
             const onProgress = (progress: ImportProgress) => {
@@ -157,26 +180,93 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
             if (result.success && result.notebookPair) {
                 // If we have multiple notebooks (for different books), handle them
                 const allNotebooks = (result.metadata as any)?.allNotebooks;
+                let primaryNotebook: NotebookPair;
 
                 if (allNotebooks) {
                     // Convert all notebooks to array format
                     const notebookPairs: NotebookPair[] = Object.values(allNotebooks);
+                    primaryNotebook = notebookPairs[0];
 
                     onProgress({
                         stage: "Complete",
                         message: `Successfully downloaded ${
                             Object.keys(allNotebooks).length
                         } books`,
-                        progress: 100,
+                        progress: 80,
+                    });
+                } else {
+                    primaryNotebook = result.notebookPair as NotebookPair;
+                }
+
+                setResult(primaryNotebook);
+
+                // For translation imports, perform alignment
+                if (isTranslationImport && alignContent && selectedSource) {
+                    onProgress({
+                        stage: "Alignment",
+                        message: "Aligning eBible content with target cells...",
+                        progress: 85,
                     });
 
-                    // Complete with all notebook pairs
-                    setTimeout(() => {
-                        onComplete(notebookPairs);
-                    }, 2000);
+                    setIsAligning(true);
+
+                    try {
+                        // Convert notebook to imported content
+                        const importedContent = notebookToImportedContent(primaryNotebook);
+                        setImportedContent(importedContent);
+
+                        // Use default cell aligner for eBible (structured content with verse IDs)
+                        const aligned = await alignContent(
+                            importedContent,
+                            selectedSource.path,
+                            defaultCellAligner
+                        );
+
+                        setAlignedCells(aligned);
+                        setIsAligning(false);
+
+                        onProgress({
+                            stage: "Complete",
+                            message: "Alignment complete - review and confirm",
+                            progress: 100,
+                        });
+                    } catch (err) {
+                        setIsAligning(false);
+                        throw new Error(
+                            `Alignment failed: ${
+                                err instanceof Error ? err.message : "Unknown error"
+                            }`
+                        );
+                    }
                 } else {
-                    // Single notebook
-                    onComplete([result.notebookPair as NotebookPair]);
+                    // For source imports, complete normally
+                    if (allNotebooks) {
+                        const notebookPairs: NotebookPair[] = Object.values(allNotebooks);
+
+                        setTimeout(async () => {
+                            try {
+                                // For multi-file imports, handle the first notebook pair
+                                // Note: Multi-file translation imports may need special UI handling
+                                await handleImportCompletion(notebookPairs[0], props);
+                            } catch (err) {
+                                setError(
+                                    err instanceof Error ? err.message : "Failed to complete import"
+                                );
+                            }
+                        }, 2000);
+                    } else {
+                        // Single notebook - use the translation helper
+                        try {
+                            await handleImportCompletion(
+                                result.notebookPair as NotebookPair,
+                                props
+                            );
+                        } catch (err) {
+                            setError(
+                                err instanceof Error ? err.message : "Failed to complete import"
+                            );
+                        }
+                    }
                 }
             } else {
                 throw new Error(result.error || "Download failed");
@@ -185,7 +275,28 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
             setError(err instanceof Error ? err.message : "Download failed");
             setIsProcessing(false);
         }
-    }, [selectedTranslation, onComplete]);
+    }, [selectedTranslation, props]);
+
+    const handleConfirmAlignment = () => {
+        if (!alignedCells || !selectedSource || !onTranslationComplete) return;
+        onTranslationComplete(alignedCells, selectedSource.path);
+    };
+
+    const handleRetryAlignment = async (aligner: CellAligner) => {
+        if (!alignContent || !selectedSource || !importedContent) return;
+
+        setIsRetrying(true);
+        setError(null);
+
+        try {
+            const aligned = await alignContent(importedContent, selectedSource.path, aligner);
+            setAlignedCells(aligned);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Alignment retry failed");
+        } finally {
+            setIsRetrying(false);
+        }
+    };
 
     const handleCancel = () => {
         if (isProcessing) {
@@ -201,6 +312,23 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
             ? Math.round(progress.reduce((sum, p) => sum + (p.progress || 0), 0) / progress.length)
             : 0;
 
+    // Render alignment preview for translation imports
+    if (alignedCells && isTranslationImport) {
+        return (
+            <AlignmentPreview
+                alignedCells={alignedCells}
+                importedContent={importedContent}
+                targetCells={targetCells}
+                sourceCells={result?.source.cells || []}
+                selectedSourceName={selectedSource?.name}
+                onConfirm={handleConfirmAlignment}
+                onCancel={handleCancel}
+                onRetryAlignment={handleRetryAlignment}
+                isRetrying={isRetrying}
+            />
+        );
+    }
+
     // Show existing bibles warning first if there are any
     if (showExistingCheck && existingBibles.length > 0) {
         return (
@@ -208,8 +336,14 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
                 <div className="flex items-center justify-between mb-6">
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                         <Globe className="h-6 w-6" />
-                        Download eBible Translation
+                        Download eBible Translation {isTranslationImport && "(Translation)"}
                     </h1>
+                    {isTranslationImport && selectedSource && (
+                        <p className="text-muted-foreground">
+                            Importing translation for:{" "}
+                            <span className="font-medium">{selectedSource.name}</span>
+                        </p>
+                    )}
                     <Button
                         variant="ghost"
                         onClick={handleCancel}
@@ -284,10 +418,18 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = ({
     return (
         <div className="container mx-auto p-6 max-w-6xl space-y-6">
             <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <Globe className="h-6 w-6" />
-                    Download eBible Translation
-                </h1>
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-2">
+                        <Globe className="h-6 w-6" />
+                        Download eBible Translation {isTranslationImport && "(Translation)"}
+                    </h1>
+                    {isTranslationImport && selectedSource && (
+                        <p className="text-muted-foreground">
+                            Importing translation for:{" "}
+                            <span className="font-medium">{selectedSource.name}</span>
+                        </p>
+                    )}
+                </div>
                 <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
                     <ArrowLeft className="h-4 w-4" />
                     Back to Home

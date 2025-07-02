@@ -1,5 +1,11 @@
 import React, { useState, useCallback } from "react";
-import { ImporterComponentProps } from "../../types/plugin";
+import {
+    ImporterComponentProps,
+    AlignedCell,
+    CellAligner,
+    ImportedContent,
+    sequentialCellAligner,
+} from "../../types/plugin";
 import { NotebookPair, ImportProgress } from "../../types/common";
 import { Button } from "../../../components/ui/button";
 import {
@@ -14,18 +20,29 @@ import { Alert, AlertDescription } from "../../../components/ui/alert";
 import { Upload, FileText, CheckCircle, XCircle, ArrowLeft, Eye, Hash } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { usfmImporter } from "./index";
+import { handleImportCompletion, notebookToImportedContent } from "../common/translationHelper";
+import { AlignmentPreview } from "../../components/AlignmentPreview";
 
 // Use the real parser functions from the USFM importer
 const { validateFile, parseFile } = usfmImporter;
 
-export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete, onCancel }) => {
+export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
+    const { onCancel, onTranslationComplete, alignContent, wizardContext } = props;
     const [files, setFiles] = useState<FileList | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isAligning, setIsAligning] = useState(false);
+    const [isRetrying, setIsRetrying] = useState(false);
     const [progress, setProgress] = useState<ImportProgress[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [results, setResults] = useState<NotebookPair[]>([]);
+    const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
+    const [importedContent, setImportedContent] = useState<ImportedContent[]>([]);
+    const [targetCells, setTargetCells] = useState<any[]>([]);
     const [previewFiles, setPreviewFiles] = useState<Array<{ name: string; preview: string }>>([]);
+
+    const isTranslationImport = wizardContext?.intent === "target";
+    const selectedSource = wizardContext?.selectedSource;
 
     const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFiles = e.target.files;
@@ -61,6 +78,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
         setError(null);
         setProgress([]);
         setResults([]);
+        setAlignedCells(null);
 
         try {
             const notebookPairs: NotebookPair[] = [];
@@ -80,7 +98,7 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
                 onProgress({
                     stage: "Processing",
                     message: `Processing ${file.name} (${i + 1}/${files.length})...`,
-                    progress: (i / files.length) * 80,
+                    progress: (i / files.length) * 60,
                 });
 
                 // Validate file
@@ -104,23 +122,97 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
                 throw new Error("No valid USFM files could be processed");
             }
 
-            onProgress({
-                stage: "Complete",
-                message: `Successfully processed ${notebookPairs.length} file(s)`,
-                progress: 100,
-            });
-
             setResults(notebookPairs);
-            setIsDirty(false);
 
-            // Automatically complete after showing success briefly
-            setTimeout(() => {
-                onComplete(notebookPairs.length === 1 ? notebookPairs[0] : notebookPairs);
-            }, 2000);
+            // For translation imports, perform alignment
+            if (isTranslationImport && alignContent && selectedSource) {
+                onProgress({
+                    stage: "Alignment",
+                    message: "Aligning USFM content with target cells...",
+                    progress: 80,
+                });
+
+                setIsAligning(true);
+
+                try {
+                    // For multi-file imports, we'll use the first file for now
+                    // This could be enhanced to handle multiple files differently
+                    const primaryNotebook = notebookPairs[0];
+                    const importedContent = notebookToImportedContent(primaryNotebook);
+                    setImportedContent(importedContent);
+
+                    // Use sequential cell aligner for USFM (structured content with verse IDs)
+                    const aligned = await alignContent(
+                        importedContent,
+                        selectedSource.path,
+                        sequentialCellAligner
+                    );
+
+                    setAlignedCells(aligned);
+                    setIsAligning(false);
+
+                    onProgress({
+                        stage: "Complete",
+                        message: "Alignment complete - review and confirm",
+                        progress: 100,
+                    });
+                } catch (err) {
+                    setIsAligning(false);
+                    throw new Error(
+                        `Alignment failed: ${err instanceof Error ? err.message : "Unknown error"}`
+                    );
+                }
+            } else {
+                // For source imports, complete normally
+                onProgress({
+                    stage: "Complete",
+                    message: `Successfully processed ${notebookPairs.length} file(s)`,
+                    progress: 100,
+                });
+
+                setIsDirty(false);
+
+                setTimeout(async () => {
+                    try {
+                        // For multi-file imports, handle each notebook pair separately for translation imports
+                        if (notebookPairs.length === 1) {
+                            await handleImportCompletion(notebookPairs[0], props);
+                        } else {
+                            // For source imports, we can pass the array
+                            // For translation imports, this might need special handling
+                            await handleImportCompletion(notebookPairs[0], props);
+                            // Note: Multi-file translation imports are complex and may need UI changes
+                        }
+                    } catch (err) {
+                        setError(err instanceof Error ? err.message : "Failed to complete import");
+                    }
+                }, 2000);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Unknown error occurred");
         } finally {
             setIsProcessing(false);
+        }
+    };
+
+    const handleConfirmAlignment = () => {
+        if (!alignedCells || !selectedSource || !onTranslationComplete) return;
+        onTranslationComplete(alignedCells, selectedSource.path);
+    };
+
+    const handleRetryAlignment = async (aligner: CellAligner) => {
+        if (!alignContent || !selectedSource || !importedContent) return;
+
+        setIsRetrying(true);
+        setError(null);
+
+        try {
+            const aligned = await alignContent(importedContent, selectedSource.path, aligner);
+            setAlignedCells(aligned);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Alignment retry failed");
+        } finally {
+            setIsRetrying(false);
         }
     };
 
@@ -138,13 +230,38 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
 
     const totalCells = results.reduce((sum, pair) => sum + pair.source.cells.length, 0);
 
+    // Render alignment preview for translation imports
+    if (alignedCells && isTranslationImport) {
+        return (
+            <AlignmentPreview
+                alignedCells={alignedCells}
+                importedContent={importedContent}
+                targetCells={targetCells}
+                sourceCells={results[0]?.source.cells || []}
+                selectedSourceName={selectedSource?.name}
+                onConfirm={handleConfirmAlignment}
+                onCancel={handleCancel}
+                onRetryAlignment={handleRetryAlignment}
+                isRetrying={isRetrying}
+            />
+        );
+    }
+
     return (
         <div className="container mx-auto p-6 max-w-4xl space-y-6">
             <div className="flex items-center justify-between mb-6">
-                <h1 className="text-2xl font-bold flex items-center gap-2">
-                    <FileText className="h-6 w-6" />
-                    Import USFM Files
-                </h1>
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-2">
+                        <FileText className="h-6 w-6" />
+                        Import USFM Files {isTranslationImport && "(Translation)"}
+                    </h1>
+                    {isTranslationImport && selectedSource && (
+                        <p className="text-muted-foreground">
+                            Importing translation for:{" "}
+                            <span className="font-medium">{selectedSource.name}</span>
+                        </p>
+                    )}
+                </div>
                 <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
                     <ArrowLeft className="h-4 w-4" />
                     Back to Home
@@ -155,8 +272,9 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
                 <CardHeader>
                     <CardTitle>Select USFM Files</CardTitle>
                     <CardDescription>
-                        Import Unified Standard Format Marker (USFM) files used for biblical texts.
-                        Can import single files or multiple books at once.
+                        {isTranslationImport
+                            ? "Import USFM translation files that will be aligned with existing cells. Content will be matched by verse references or inserted sequentially."
+                            : "Import Unified Standard Format Marker (USFM) files used for biblical texts. Can import single files or multiple books at once."}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -212,11 +330,13 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = ({ onComplete,
                                 </div>
                                 <Button
                                     onClick={handleImport}
-                                    disabled={isProcessing}
+                                    disabled={isProcessing || isAligning}
                                     className="flex items-center gap-2"
                                 >
                                     {isProcessing ? (
                                         <>Processing...</>
+                                    ) : isAligning ? (
+                                        <>Aligning...</>
                                     ) : (
                                         <>
                                             <Upload className="h-4 w-4" />
