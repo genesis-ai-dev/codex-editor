@@ -47,22 +47,50 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     private async initializeCommentsFile() {
         const folders = vscode.workspace.workspaceFolders;
         if (!folders || folders.length === 0) {
-            console.error("No workspace folder found");
+            console.error("[CommentsProvider] No workspace folder found");
             return;
         }
-        this.commentsFilePath = vscode.Uri.joinPath(folders[0].uri, ".project", "comments.json");
 
-        // Create comments file if it doesn't exist
+        const projectDir = vscode.Uri.joinPath(folders[0].uri, ".project");
+        this.commentsFilePath = vscode.Uri.joinPath(projectDir, "comments.json");
+
+        console.log("[CommentsProvider] Comments file path:", this.commentsFilePath.fsPath);
+
         try {
-            await vscode.workspace.fs.stat(this.commentsFilePath);
-        } catch (error) {
-            if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-                await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode("[]"));
+            // First ensure the .project directory exists
+            try {
+                await vscode.workspace.fs.stat(projectDir);
+                console.log("[CommentsProvider] .project directory exists");
+            } catch (error) {
+                if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+                    console.log("[CommentsProvider] Creating .project directory");
+                    await vscode.workspace.fs.createDirectory(projectDir);
+                } else {
+                    throw error;
+                }
             }
+
+            // Then check/create comments file
+            try {
+                await vscode.workspace.fs.stat(this.commentsFilePath);
+                console.log("[CommentsProvider] Comments file exists");
+            } catch (error) {
+                if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+                    console.log("[CommentsProvider] Creating comments file");
+                    await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode("[]"));
+                } else {
+                    throw error;
+                }
+            }
+        } catch (error) {
+            console.error("[CommentsProvider] Error initializing comments file:", error);
+            throw error;
         }
     }
 
     private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
+        // Refresh auth state before sending
+        await this.initializeAuthState();
         console.log("[CommentsProvider] sendCurrentUserInfo called, isAuthenticated:", this.isAuthenticated, "authApi exists:", !!this.authApi);
 
         if (this.isAuthenticated && this.authApi) {
@@ -112,8 +140,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
+        console.log("[CommentsProvider] onWebviewResolved called");
+
         // Initialize everything asynchronously
-        this.initializeWebview(webviewView);
+        this.initializeWebview(webviewView).catch(error => {
+            console.error("[CommentsProvider] Error in initializeWebview:", error);
+        });
 
         // Watch for changes to comments file
         const commentsWatcher = vscode.workspace.createFileSystemWatcher(
@@ -164,74 +196,98 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     protected async handleMessage(message: CommentPostMessages): Promise<void> {
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) {
-            console.error("No workspace folder found");
+        // Ensure comments file is initialized
+        if (!this.commentsFilePath) {
+            console.log("[CommentsProvider] Comments file path not initialized, initializing now...");
+            await this.initializeCommentsFile();
+        }
+
+        if (!this.commentsFilePath) {
+            console.error("[CommentsProvider] Failed to initialize comments file path");
             return;
         }
-        const workspaceRoot = folders[0].uri;
-        const commentsFileName = vscode.Uri.joinPath(
-            workspaceRoot,
-            ".project",
-            "comments.json"
-        );
+
+        console.log("[CommentsProvider] Using comments file path:", this.commentsFilePath.fsPath);
 
         const serializeCommentsToDisk = async (
             existingCommentsThreads: NotebookCommentThread[],
             newCommentThread: NotebookCommentThread
         ) => {
-            const threadIndex = existingCommentsThreads.findIndex(
-                (thread) => thread.id === newCommentThread.id
-            );
-            if (threadIndex !== -1) {
-                // Update existing thread
-                existingCommentsThreads[threadIndex] = {
-                    ...existingCommentsThreads[threadIndex],
-                    ...newCommentThread,
-                    comments:
-                        newCommentThread.comments || existingCommentsThreads[threadIndex].comments,
-                };
-            } else {
-                existingCommentsThreads.push(newCommentThread);
-            }
+            try {
+                console.log("[CommentsProvider] Serializing comment to disk:", {
+                    threadId: newCommentThread.id,
+                    existingThreadsCount: existingCommentsThreads.length
+                });
 
-            await writeSerializedData(
-                JSON.stringify(existingCommentsThreads, null, 4),
-                commentsFileName.fsPath
-            );
+                const threadIndex = existingCommentsThreads.findIndex(
+                    (thread) => thread.id === newCommentThread.id
+                );
+
+                if (threadIndex !== -1) {
+                    // Update existing thread
+                    console.log("[CommentsProvider] Updating existing thread at index:", threadIndex);
+                    existingCommentsThreads[threadIndex] = {
+                        ...existingCommentsThreads[threadIndex],
+                        ...newCommentThread,
+                        comments:
+                            newCommentThread.comments || existingCommentsThreads[threadIndex].comments,
+                    };
+                } else {
+                    console.log("[CommentsProvider] Adding new thread");
+                    existingCommentsThreads.push(newCommentThread);
+                }
+
+                console.log("[CommentsProvider] Writing to file:", this.commentsFilePath!.fsPath);
+                await writeSerializedData(
+                    JSON.stringify(existingCommentsThreads, null, 4),
+                    this.commentsFilePath!.fsPath
+                );
+                console.log("[CommentsProvider] Successfully wrote comments to file");
+            } catch (error) {
+                console.error("[CommentsProvider] Error serializing comments to disk:", error);
+                throw error;
+            }
         };
 
         try {
+            console.log("[CommentsProvider] Handling message:", message.command);
             switch (message.command) {
                 case "updateCommentThread": {
-                    const existingCommentsThreads = await getCommentsFromFile(commentsFileName.fsPath);
+                    console.log("[CommentsProvider] updateCommentThread - getting existing comments from:", this.commentsFilePath!.fsPath);
+                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
+                    console.log("[CommentsProvider] Found existing threads:", existingCommentsThreads.length);
 
                     // NOTE: When the panel fist load the cellId defaults to null but there is no way for the webview to know the uri
                     if (!message.commentThread.uri) {
+                        console.log("[CommentsProvider] No URI in comment thread, trying to get from cellId");
                         const uriForCellId = message.commentThread.cellId.uri;
                         if (!uriForCellId) {
+                            console.error("[CommentsProvider] No URI found for cellId:", message.commentThread.cellId);
                             vscode.window.showInformationMessage(
                                 `No file found with the cellId: ${message.commentThread.cellId}`
                             );
                             return;
                         }
+                        console.log("[CommentsProvider] Setting URI from cellId:", uriForCellId);
                         message.commentThread.uri = uriForCellId;
                         await serializeCommentsToDisk(
                             existingCommentsThreads,
                             message.commentThread
                         );
                     } else {
+                        console.log("[CommentsProvider] URI already present in comment thread:", message.commentThread.uri);
                         await serializeCommentsToDisk(
                             existingCommentsThreads,
                             message.commentThread
                         );
                     }
+                    console.log("[CommentsProvider] Sending updated comments to webview");
                     this.sendCommentsToWebview(this._view!);
                     break;
                 }
                 case "deleteCommentThread": {
                     const commentThreadId = message.commentThreadId;
-                    const existingCommentsThreads = await getCommentsFromFile(commentsFileName.fsPath);
+                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
                     const indexOfCommentToMarkAsDeleted = existingCommentsThreads.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
@@ -248,7 +304,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 case "deleteComment": {
                     const commentId = message.args.commentId;
                     const commentThreadId = message.args.commentThreadId;
-                    const existingCommentsThreads = await getCommentsFromFile(commentsFileName.fsPath);
+                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
                     const threadIndex = existingCommentsThreads.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
@@ -271,7 +327,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 case "undoCommentDeletion": {
                     const commentId = message.args.commentId;
                     const commentThreadId = message.args.commentThreadId;
-                    const existingCommentsThreads = await getCommentsFromFile(commentsFileName.fsPath);
+                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
                     const threadIndex = existingCommentsThreads.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
@@ -292,10 +348,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     break;
                 }
                 case "fetchComments": {
+                    console.log("[CommentsProvider] fetchComments - also sending user info");
                     this.sendCommentsToWebview(this._view!);
+                    // Also send user info in case initialization hasn't completed
+                    await this.sendCurrentUserInfo(this._view!);
                     break;
                 }
                 case "getCurrentCellId": {
+                    console.log("[CommentsProvider] getCurrentCellId - also sending user info");
+                    // Also send user info in case initialization hasn't completed
+                    await this.sendCurrentUserInfo(this._view!);
+
                     initializeStateStore().then(({ getStoreState }) => {
                         getStoreState("cellId").then((value: CellIdGlobalState | undefined) => {
                             if (value) {

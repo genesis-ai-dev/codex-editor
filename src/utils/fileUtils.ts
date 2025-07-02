@@ -104,12 +104,14 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         if (!workspaceUri) {
             throw new Error("No workspace folder found.");
         }
-        const uri = vscode.Uri.joinPath(workspaceUri, fileName);
+        const sanitizedFileName = sanitizePath(workspaceUri, fileName);
+        const uri = vscode.Uri.joinPath(workspaceUri, sanitizedFileName);
+        console.log(`[getCommentsFromFile] Reading from: ${uri.fsPath}`);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
         return JSON.parse(fileContent);
     } catch (error) {
-        console.error(error);
+        console.error(`[getCommentsFromFile] Error reading file:`, error);
         throw new Error("Failed to parse notebook comments from file");
     }
 };
