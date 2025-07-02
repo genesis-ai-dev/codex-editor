@@ -1,12 +1,13 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
+import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
 
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
@@ -35,7 +36,16 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         webviewPanel.webview.onDidReceiveMessage(async (message: any) => {
             try {
-                if (message.command === "writeNotebooks") {
+                if (message.command === "webviewReady") {
+                    // Webview is ready, send current project inventory
+                    console.log("Webview ready, sending project inventory...");
+                    const inventory = await this.fetchProjectInventory();
+
+                    webviewPanel.webview.postMessage({
+                        command: "projectInventory",
+                        inventory: inventory,
+                    });
+                } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token);
 
                     // Send success notification
@@ -43,6 +53,29 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         command: "notification",
                         type: "success",
                         message: "Notebooks created successfully!"
+                    });
+
+                    // Send updated inventory after successful import
+                    const inventory = await this.fetchProjectInventory();
+                    webviewPanel.webview.postMessage({
+                        command: "projectInventory",
+                        inventory: inventory,
+                    });
+                } else if (message.command === "writeTranslation") {
+                    await this.handleWriteTranslation(message as WriteTranslationMessage, token);
+
+                    // Send success notification
+                    webviewPanel.webview.postMessage({
+                        command: "notification",
+                        type: "success",
+                        message: "Translation imported successfully!"
+                    });
+
+                    // Send updated inventory after successful translation import
+                    const inventory = await this.fetchProjectInventory();
+                    webviewPanel.webview.postMessage({
+                        command: "projectInventory",
+                        inventory: inventory,
                     });
                 } else if (message.command === "importBookNames") {
                     // Handle book names import
@@ -63,14 +96,62 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             });
                         }
                     }
-                } else if (message.command === "checkExistingFiles") {
-                    // Check for existing source files in the project
-                    const existingFiles = await this.checkForExistingFiles();
+                } else if (message.command === "fetchProjectInventory") {
+                    // Legacy support - fetch complete project inventory
+                    const inventory = await this.fetchProjectInventory();
 
                     webviewPanel.webview.postMessage({
-                        command: "existingFilesFound",
-                        files: existingFiles,
+                        command: "projectInventory",
+                        inventory: inventory,
                     });
+                } else if (message.command === "fetchFileDetails") {
+                    // Fetch detailed information about a specific file
+                    const { filePath } = message;
+                    console.log(`[NEW SOURCE UPLOADER] Fetching details for file: ${filePath}`);
+
+                    try {
+                        const fileDetails = await this.fetchFileDetails(filePath);
+                        webviewPanel.webview.postMessage({
+                            command: "fileDetails",
+                            filePath: filePath,
+                            details: fileDetails,
+                        });
+                    } catch (error) {
+                        console.error(`[NEW SOURCE UPLOADER] Error fetching file details for ${filePath}:`, error);
+                        webviewPanel.webview.postMessage({
+                            command: "fileDetailsError",
+                            filePath: filePath,
+                            error: error instanceof Error ? error.message : "Unknown error",
+                        });
+                    }
+                } else if (message.command === "fetchTargetFile") {
+                    // Fetch target file content for translation imports
+                    const { sourceFilePath } = message;
+                    console.log(`[NEW SOURCE UPLOADER] Fetching target file for source: ${sourceFilePath}`);
+
+                    try {
+                        const targetFilePath = sourceFilePath
+                            .replace(/\.source$/, ".codex")
+                            .replace(/\/\.project\/sourceTexts\//, "/files/target/");
+
+                        const targetUri = vscode.Uri.file(targetFilePath);
+                        const targetContent = await vscode.workspace.fs.readFile(targetUri);
+                        const targetNotebook = JSON.parse(new TextDecoder().decode(targetContent));
+
+                        webviewPanel.webview.postMessage({
+                            command: "targetFileContent",
+                            sourceFilePath: sourceFilePath,
+                            targetFilePath: targetFilePath,
+                            targetCells: targetNotebook.cells || [],
+                        });
+                    } catch (error) {
+                        console.error(`[NEW SOURCE UPLOADER] Error fetching target file for ${sourceFilePath}:`, error);
+                        webviewPanel.webview.postMessage({
+                            command: "targetFileError",
+                            sourceFilePath: sourceFilePath,
+                            error: error instanceof Error ? error.message : "Unknown error",
+                        });
+                    }
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
@@ -171,6 +252,138 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         }
     }
 
+    private async handleWriteTranslation(
+        message: WriteTranslationMessage,
+        token: vscode.CancellationToken
+    ): Promise<void> {
+        console.log("Handling translation import:", message);
+
+        try {
+            // The aligned content is already provided by the plugin's custom alignment algorithm
+            // We just need to merge it into the existing target notebook
+
+            // Load the existing target notebook
+            const targetFileUri = vscode.Uri.file(message.targetFilePath);
+            const existingContent = await vscode.workspace.fs.readFile(targetFileUri);
+            const existingNotebook = JSON.parse(new TextDecoder().decode(existingContent));
+
+            // Create a map of existing cells for quick lookup
+            const existingCellsMap = new Map<string, any>();
+            existingNotebook.cells.forEach((cell: any) => {
+                if (cell.metadata?.id) {
+                    existingCellsMap.set(cell.metadata.id, cell);
+                }
+            });
+
+            // Track statistics
+            let insertedCount = 0;
+            let skippedCount = 0;
+            let paratextCount = 0;
+            let childCellCount = 0;
+
+            // Process aligned cells and update the notebook
+            const processedCells = new Map<string, any>();
+            const processedSourceCells = new Set<string>();
+
+            for (const alignedCell of message.alignedContent) {
+                if (alignedCell.isParatext) {
+                    // Add paratext cells
+                    const paratextId = alignedCell.importedContent.id;
+                    const paratextCell = {
+                        kind: 1, // vscode.NotebookCellKind.Code
+                        languageId: "html",
+                        value: alignedCell.importedContent.content,
+                        metadata: {
+                            type: CodexCellTypes.PARATEXT,
+                            id: paratextId,
+                            data: {
+                                startTime: alignedCell.importedContent.startTime,
+                                endTime: alignedCell.importedContent.endTime,
+                            },
+                        },
+                    };
+                    processedCells.set(paratextId, paratextCell);
+                    paratextCount++;
+                } else if (alignedCell.notebookCell) {
+                    const targetId = alignedCell.importedContent.id;
+                    const existingCell = existingCellsMap.get(targetId);
+
+                    if (existingCell && existingCell.value && existingCell.value.trim() !== "") {
+                        // Keep existing content if cell already has content
+                        processedCells.set(targetId, existingCell);
+                        skippedCount++;
+                    } else {
+                        // Update empty cell with new content
+                        const updatedCell = {
+                            kind: 1, // vscode.NotebookCellKind.Code
+                            languageId: "html",
+                            value: alignedCell.importedContent.content,
+                            metadata: {
+                                ...alignedCell.notebookCell.metadata,
+                                type: CodexCellTypes.TEXT,
+                                id: targetId,
+                                data: {
+                                    ...alignedCell.notebookCell.metadata.data,
+                                    startTime: alignedCell.importedContent.startTime,
+                                    endTime: alignedCell.importedContent.endTime,
+                                },
+                            },
+                        };
+                        processedCells.set(targetId, updatedCell);
+
+                        if (alignedCell.isAdditionalOverlap) {
+                            childCellCount++;
+                        } else {
+                            insertedCount++;
+                        }
+                    }
+                }
+            }
+
+            // Build the final cell array, preserving order
+            const newCells: any[] = [];
+
+            // First add all existing cells, updating those that were processed
+            for (const cell of existingNotebook.cells) {
+                const cellId = cell.metadata?.id;
+                if (cellId && processedCells.has(cellId)) {
+                    newCells.push(processedCells.get(cellId)!);
+                    processedCells.delete(cellId);
+                } else {
+                    newCells.push(cell);
+                }
+            }
+
+            // Add any remaining processed cells (new paratext, etc.)
+            for (const [, cell] of processedCells) {
+                newCells.push(cell);
+            }
+
+            // Update the notebook
+            const updatedNotebook = {
+                ...existingNotebook,
+                cells: newCells,
+            };
+
+            // Write the updated notebook back to disk
+            await vscode.workspace.fs.writeFile(
+                targetFileUri,
+                Buffer.from(JSON.stringify(updatedNotebook, null, 2))
+            );
+
+            // Show success message with statistics
+            vscode.window.showInformationMessage(
+                `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
+            );
+
+            console.log("Translation import completed successfully");
+
+        } catch (error) {
+            console.error("Error in translation import:", error);
+            throw error;
+        }
+    }
+
     private async checkForExistingFiles(): Promise<Array<{
         name: string;
         path: string;
@@ -228,6 +441,121 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         } catch (error) {
             console.error("Error checking for existing Bibles:", error);
             return [];
+        }
+    }
+
+    private async fetchProjectInventory(): Promise<{
+        sourceFiles: Array<{
+            name: string;
+            path: string;
+        }>;
+        targetFiles: Array<{
+            name: string;
+            path: string;
+        }>;
+        translationPairs: Array<{
+            sourceFile: any;
+            targetFile: any;
+        }>;
+    }> {
+        const sourceFiles: any[] = [];
+        const targetFiles: any[] = [];
+        const translationPairs: any[] = [];
+
+        try {
+            // Find all .source and .codex files in the workspace
+            const [sourceFileUris, codexFileUris] = await Promise.all([
+                vscode.workspace.findFiles(".project/sourceTexts/*.source"),
+                vscode.workspace.findFiles("files/target/*.codex")
+            ]);
+
+            console.log("[NEW SOURCE UPLOADER] Found source files:", sourceFileUris.length);
+            console.log("[NEW SOURCE UPLOADER] Found codex files:", codexFileUris.length);
+
+            // Process source files (basic metadata only)
+            for (const file of sourceFileUris) {
+                const fileName = file.path.split('/').pop()?.replace('.source', '') || 'Unknown';
+                sourceFiles.push({
+                    name: fileName,
+                    path: file.path,
+                });
+            }
+
+            // Process codex (target) files (basic metadata only)
+            for (const file of codexFileUris) {
+                const fileName = file.path.split('/').pop()?.replace('.codex', '') || 'Unknown';
+                const targetFile = {
+                    name: fileName,
+                    path: file.path,
+                };
+                targetFiles.push(targetFile);
+
+                // Create translation pairs based on matching base names
+                const matchingSource = sourceFiles.find(source => source.name === fileName);
+                if (matchingSource) {
+                    translationPairs.push({
+                        sourceFile: matchingSource,
+                        targetFile: targetFile,
+                    });
+                }
+            }
+
+            const result = {
+                sourceFiles,
+                targetFiles,
+                translationPairs,
+            };
+            console.log("[NEW SOURCE UPLOADER] Final inventory result:", result);
+            return result;
+
+        } catch (error) {
+            console.error("Error fetching project inventory:", error);
+            return {
+                sourceFiles: [],
+                targetFiles: [],
+                translationPairs: [],
+            };
+        }
+    }
+
+    private async fetchFileDetails(filePath: string): Promise<{
+        name: string;
+        path: string;
+        type: string;
+        cellCount: number;
+        metadata?: any;
+    }> {
+        try {
+            const uri = vscode.Uri.file(filePath);
+            const document = await vscode.workspace.openNotebookDocument(uri);
+            const metadata = document.metadata as CustomNotebookMetadata | undefined;
+
+            const fileName = filePath.split('/').pop()?.replace(/\.(source|codex)$/, '') || 'Unknown';
+            const cellCount = document.cellCount;
+
+            // Determine file type based on metadata or content
+            let fileType = 'unknown';
+            if (metadata?.corpusMarker) {
+                fileType = metadata.corpusMarker;
+            } else if (this.checkIfBibleContent(document)) {
+                fileType = 'bible';
+            }
+
+            return {
+                name: fileName,
+                path: filePath,
+                type: fileType,
+                cellCount: cellCount,
+                metadata: {
+                    id: metadata?.id,
+                    originalName: metadata?.originalName,
+                    corpusMarker: metadata?.corpusMarker,
+                    sourceCreatedAt: metadata?.sourceCreatedAt,
+                }
+            };
+        } catch (error) {
+            console.error(`Error fetching details for file ${filePath}:`, error);
+            throw error;
         }
     }
 

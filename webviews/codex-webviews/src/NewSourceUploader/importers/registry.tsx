@@ -16,11 +16,10 @@ import {
 import { docxImporterPlugin } from "./docx/index.tsx";
 import { markdownImporterPlugin } from "./markdown/index.tsx";
 import { usfmImporterPlugin } from "./usfm/index.tsx";
-import { plaintextImporterPlugin } from "./plaintext/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
 import { obsImporterPlugin } from "./obs/index.tsx";
-import { recursiveTextSplitterPlugin } from "./recursiveTextSplitter/index.tsx";
+import { smartImportPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 
 // Import placeholder components - these will be created for each importer
@@ -38,12 +37,11 @@ const createPlaceholderComponent = (name: string) => {
  * Registry of all available importer plugins
  */
 export const importerPlugins: ImporterPlugin[] = [
+    smartImportPlugin, // Smart Import first - it's the most flexible
     docxImporterPlugin,
     markdownImporterPlugin,
     usfmImporterPlugin,
     paratextImporterPlugin,
-    plaintextImporterPlugin,
-    recursiveTextSplitterPlugin,
     ebibleDownloadImporterPlugin,
     subtitlesImporterPlugin,
     obsImporterPlugin,

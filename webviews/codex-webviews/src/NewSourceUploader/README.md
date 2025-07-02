@@ -44,7 +44,28 @@ interface ImporterComponentProps {
     onCancel: () => void;
     existingFiles?: ExistingFile[]; // List of existing source files in the project
 }
+
+interface ExistingFile {
+    name: string; // Filename without extension
+    path: string; // Full path to the file
+    type: string; // Content type (e.g., 'bible', 'ebibleCorpus', 'paratext', 'unknown')
+    cellCount: number; // Number of cells in the notebook
+    metadata?: {
+        // Optional notebook metadata
+        id?: string;
+        originalName?: string;
+        corpusMarker?: string;
+        sourceCreatedAt?: string;
+    };
+}
 ```
+
+The `existingFiles` prop enables plugins to:
+
+-   **Warn about duplicates**: Alert users when importing content that may already exist (e.g., multiple Bible translations)
+-   **Enable translation workflows**: Allow importing translations for existing source files
+-   **Provide project context**: Show what content is already in the project
+-   **Support incremental imports**: Add new content to existing projects intelligently
 
 ### 3. **No Shared State**
 
@@ -311,6 +332,33 @@ const notebookPair = {
 
 The provider automatically adds `.source` and `.codex` extensions when writing files.
 
+## Smart Import JSON Parsing
+
+When Smart Import detects a JSON file, it intelligently parses the structure:
+
+### **Array of Objects**
+
+Each object becomes its own section with incremented section IDs:
+
+```json
+[
+    { "title": "Chapter 1", "content": "..." }, // → "MyDoc 1:1"
+    { "title": "Chapter 2", "content": "..." } // → "MyDoc 2:1"
+]
+```
+
+### **Field Recognition**
+
+Smart Import recognizes common field patterns:
+
+-   **Title fields**: `title`, `name`, `heading`, `label`, `id`
+-   **Content fields**: `content`, `text`, `body`, `description`, `lyrics`, `message`, `value`
+-   Other fields are stored as metadata
+
+### **Nested Structures**
+
+Complex objects are formatted for readability, with nested data properly indented.
+
 ## Cell ID Format Specification
 
 All cell IDs must follow this standardized format to ensure compatibility across the system:
@@ -391,7 +439,11 @@ describe("YourFileTypeImporter", () => {
 -   **eBible Download**: Download Bible text from eBible repository (with Macula Hebrew/Greek support) ✅ **IMPLEMENTED**
 -   **USFM**: Biblical markup parsing with usfm-grammar, chapter/verse structure ✅ **IMPLEMENTED**
 -   **Paratext Project**: Both folder-based projects (.SFM files, Settings.xml, BookNames.xml) and ZIP archives ✅ **IMPLEMENTED**
--   **Enhanced Plaintext**: Intelligent paragraph/section detection ✅ **IMPLEMENTED**
+-   **Smart Import**: Universal text importer with intelligent features ✅ **IMPLEMENTED**
+    -   **Structure-aware splitting**: Respects paragraphs, sentences, and document boundaries
+    -   **JSON parsing**: Automatically detects and parses JSON files into logical sections
+    -   **Flexible sizing**: Allows sections to vary in size for better semantic grouping
+    -   **40+ file formats**: Supports text, code, config, and data files
 -   **Subtitles (VTT/SRT)**: Timestamp-based cells, media synchronization ✅ **IMPLEMENTED**
 -   **Open Bible Stories**: JSON/Markdown story format ✅ **IMPLEMENTED**
 -   **PDF**: Text extraction, page-based segmentation (Future)
@@ -418,7 +470,7 @@ All major transaction-based importers have been successfully migrated to the new
 | USFM Import        | `UsfmSourceImportTransaction` | `usfmImporter`           | ✅ Complete |
 | Paratext Projects  | N/A (new)                     | `paratextImporter`       | ✅ Complete |
 | eBible Download    | `DownloadBibleTransaction`    | `ebibleDownloadImporter` | ✅ Complete |
-| Enhanced Text      | `SourceImportTransaction`     | `plaintextImporter`      | ✅ Complete |
+| Smart Import       | `SourceImportTransaction`     | `smartImportPlugin`      | ✅ Complete |
 | Subtitles/VTT      | N/A (new)                     | `subtitlesImporter`      | ✅ Complete |
 | Open Bible Stories | N/A (new)                     | `obsImporter`            | ✅ Complete |
 | Markdown           | N/A (new)                     | `markdownImporter`       | ✅ Complete |
@@ -426,3 +478,108 @@ All major transaction-based importers have been successfully migrated to the new
 | eBible Files       | N/A (new)                     | `ebibleCorpusImporter`   | ✅ Complete |
 
 The system now provides a consistent, efficient, and extensible way to import various file types with standardized cell IDs, progress tracking, and error handling.
+
+# NewSourceUploader Wizard
+
+The NewSourceUploader has been enhanced with a wizard-style interface that guides users through creating translation pairs from source files and their corresponding target files.
+
+## Wizard Flow
+
+### Step 1: Intent Selection
+
+Users choose whether they want to import:
+
+-   **Source Files**: Original content (the "before" in translation pairs)
+-   **Target Files**: Translated/transformed content (the "after" in translation pairs)
+
+### Step 2a: Source Files Branch
+
+If importing source files:
+
+-   Shows available importer plugins
+-   Displays current project inventory
+-   Allows selecting and importing new source files
+
+### Step 2b: Target Files Branch
+
+If importing target files:
+
+-   Checks if source files exist
+-   If no sources: Shows empty state with guidance
+-   If sources exist: Shows source file selection interface
+-   After source selection: Shows appropriate importer plugins
+
+## Key Components
+
+### Wizard Components
+
+-   `IntentSelection.tsx`: First step, choosing source or target import
+-   `SourceFileSelection.tsx`: Select which source file to create a target for
+-   `EmptySourceState.tsx`: Shown when trying to create targets without sources
+-   `PluginSelection.tsx`: Context-aware plugin selection interface
+
+### Types
+
+-   `wizard.ts`: Core wizard types and interfaces
+-   `ProjectInventory`: Tracks all files and translation pairs
+-   `WizardState`: Manages wizard flow state
+-   `WizardContext`: Provides context to plugin components
+
+## Plugin Integration
+
+Plugins receive an optional `wizardContext` prop:
+
+```typescript
+interface ImporterComponentProps {
+    onComplete: (notebooks: NotebookPair | NotebookPair[]) => void;
+    onCancel: () => void;
+    existingFiles?: ExistingFile[];
+    wizardContext?: {
+        intent: "source" | "target";
+        selectedSource?: ExistingFile;
+        projectInventory: ProjectInventory;
+    };
+}
+```
+
+Plugins can use this context to:
+
+-   Know if they're importing source or target files
+-   Access the selected source file when creating targets
+-   View the complete project inventory
+
+## Example Plugin Usage
+
+```typescript
+const MyImporterPlugin: React.FC<ImporterComponentProps> = ({
+    onComplete,
+    onCancel,
+    wizardContext,
+}) => {
+    const isTargetImport = wizardContext?.intent === "target";
+    const selectedSource = wizardContext?.selectedSource;
+
+    if (isTargetImport && selectedSource) {
+        // Customize UI for target import
+        return (
+            <div>
+                <h2>Creating translation for: {selectedSource.name}</h2>
+                {/* Target-specific import UI */}
+            </div>
+        );
+    }
+
+    // Default source import UI
+    return <div>{/* Source import UI */}</div>;
+};
+```
+
+## Provider Integration
+
+The provider supports two endpoints:
+
+-   `checkExistingFiles`: Legacy endpoint, returns source files only
+-   `fetchProjectInventory`: New endpoint, returns complete inventory including:
+    -   Source files
+    -   Target files
+    -   Translation pairs
