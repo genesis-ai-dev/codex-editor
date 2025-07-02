@@ -1536,13 +1536,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 "text/html"
                                                             );
 
-                                                            // Find and remove footnote markers
+                                                            // Find and remove footnote markers by matching content
+                                                            // Since footnote.id is the display number, we need to match by content
                                                             doc.querySelectorAll(
                                                                 "sup.footnote-marker"
                                                             ).forEach((el) => {
-                                                                if (
-                                                                    el.textContent === footnote.id
-                                                                ) {
+                                                                const rawFootnoteContent = el.getAttribute("data-footnote") || "";
+                                                                const cleanedFootnoteContent = getCleanedHtml(rawFootnoteContent);
+                                                                // Match by cleaned footnote content since that's what's used in parsing
+                                                                if (cleanedFootnoteContent === footnote.content) {
                                                                     el.remove();
                                                                 }
                                                             });
@@ -1550,14 +1552,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             // Update editor content with cleaned content
                                                             const updatedContent =
                                                                 doc.body.innerHTML;
+                                                            
+                                                            // Update both the local state and the actual Quill editor
                                                             handleContentUpdate(updatedContent);
-
-                                                            // Renumber footnotes to maintain chronological order
+                                                            
+                                                            // Also update the actual Quill editor directly
                                                             setTimeout(() => {
-                                                                editorHandlesRef.current?.renumberFootnotes();
-                                                                // Force parse footnotes again after renumbering
-                                                                setTimeout(parseFootnotesFromContent, 50);
-                                                            }, 50);
+                                                                if (editorHandlesRef.current) {
+                                                                    editorHandlesRef.current.updateContent(updatedContent);
+                                                                    // Renumber footnotes to maintain chronological order
+                                                                    setTimeout(() => {
+                                                                        editorHandlesRef.current?.renumberFootnotes();
+                                                                        // Force parse footnotes again after renumbering
+                                                                        setTimeout(parseFootnotesFromContent, 50);
+                                                                    }, 50);
+                                                                }
+                                                            }, 10);
                                                         }}
                                                     />
                                                 </div>
