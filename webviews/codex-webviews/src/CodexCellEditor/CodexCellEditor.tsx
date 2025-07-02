@@ -598,9 +598,16 @@ const CodexCellEditor: React.FC = () => {
             const firstParentCell = pageParentCells[0];
             const lastParentCell = pageParentCells[pageParentCells.length - 1];
 
-            // Get the actual line numbers for the label
-            const startLineNumber = getGlobalLineNumber(firstParentCell, translationUnits);
-            const endLineNumber = getGlobalLineNumber(lastParentCell, translationUnits);
+            // Extract actual verse numbers from cell IDs for the label
+            const getVerseNumber = (cell: QuillCellContent): number => {
+                const cellId = cell.cellMarkers[0];
+                // Extract verse number from cell ID like "PSA 119:1" -> 1
+                const verseMatch = cellId.split(':')[1];
+                return verseMatch ? parseInt(verseMatch, 10) : 0;
+            };
+
+            const startVerseNumber = getVerseNumber(firstParentCell);
+            const endVerseNumber = getVerseNumber(lastParentCell);
 
             // Find the positions of the first and last parent cells in the full chapter
             const firstParentPosition = cellsForChapter.findIndex(
@@ -677,7 +684,7 @@ const CodexCellEditor: React.FC = () => {
 
             subsections.push({
                 id: `page-${i}`,
-                label: `${startLineNumber}-${endLineNumber}`,
+                label: `${startVerseNumber}-${endVerseNumber}`,
                 startIndex: startCellIndex,
                 endIndex: endCellIndex,
             });
