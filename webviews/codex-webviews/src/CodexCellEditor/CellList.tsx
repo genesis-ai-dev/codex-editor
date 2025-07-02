@@ -75,6 +75,40 @@ const CellList: React.FC<CellListProps> = ({
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
+    
+    // Calculate footnote offset for each cell based on previous cells' footnote counts
+    const calculateFootnoteOffset = useCallback(
+        (cellIndex: number): number => {
+            if (cellIndex >= translationUnits.length) return 0;
+
+            const currentCell = translationUnits[cellIndex];
+            const currentCellIdParts = currentCell.cellMarkers[0].split(":");
+            const currentSectionId = currentCellIdParts.slice(0, 2).join(":"); // book:chapter
+
+            // Count footnotes only in previous cells within the same section
+            let footnoteCount = 0;
+            for (let i = 0; i < cellIndex; i++) {
+                const cell = translationUnits[i];
+                const cellIdParts = cell.cellMarkers[0].split(":");
+                const cellSectionId = cellIdParts.slice(0, 2).join(":");
+                
+                // Only count footnotes if the cell is in the same section
+                if (cellSectionId === currentSectionId && 
+                    cell.cellType !== CodexCellTypes.PARATEXT && 
+                    cellIdParts.length >= 3) {
+                    
+                    // Extract footnotes from this cell's content
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = cell.cellContent || '';
+                    const footnoteMarkers = tempDiv.querySelectorAll('.footnote-marker');
+                    footnoteCount += footnoteMarkers.length;
+                }
+            }
+
+            return footnoteCount;
+        },
+        [translationUnits]
+    );
 
     // Move useRef hook to component level - this fixes React hooks rule violation
     const prevQueueRef = useRef<string[]>([]);
@@ -451,6 +485,7 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCellClick={openCellById}
                                 cellDisplayMode={cellDisplayMode}
                                 audioAttachments={audioAttachments}
+                                footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                             />
                         </span>
                     );
@@ -473,6 +508,7 @@ const CellList: React.FC<CellListProps> = ({
             allTranslationsComplete,
             handleCellTranslation,
             audioAttachments,
+            calculateFootnoteOffset,
         ]
     );
 
@@ -574,7 +610,7 @@ const CellList: React.FC<CellListProps> = ({
                             textDirection={textDirection}
                             openCellById={openCellById}
                             isSaving={isSaving}
-                            
+                            footnoteOffset={calculateFootnoteOffset(i) + 1}
                         />
                     </span>
                 );

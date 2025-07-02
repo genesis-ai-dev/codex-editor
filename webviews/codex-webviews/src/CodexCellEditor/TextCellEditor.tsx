@@ -85,6 +85,7 @@ interface SimilarCell {
 interface Footnote {
     id: string;
     content: string;
+    position?: number;
 }
 
 interface CellEditorProps {
@@ -105,6 +106,7 @@ interface CellEditorProps {
     editHistory: EditHistory[];
     cell: QuillCellContent;
     isSaving?: boolean;
+    footnoteOffset?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -177,6 +179,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     openCellById,
     cell,
     isSaving = false,
+    footnoteOffset = 1,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -581,6 +584,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // First try to get footnotes from cell data
         if (cell?.data?.footnotes) {
             setFootnotes(cell.data.footnotes);
+            // Force re-parse to ensure correct chronological ordering
+            setTimeout(parseFootnotesFromContent, 10);
             return;
         }
 
@@ -589,6 +594,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (storedFootnotes) {
             try {
                 setFootnotes(JSON.parse(storedFootnotes));
+                // Force re-parse to ensure correct chronological ordering
+                setTimeout(parseFootnotesFromContent, 10);
             } catch (e) {
                 console.error("Error parsing stored footnotes:", e);
             }
@@ -612,6 +619,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
                         : [...prev, newFootnote];
 
+                    // Force re-parse to ensure correct chronological ordering
+                    setTimeout(parseFootnotesFromContent, 10);
+                    
                     return updatedFootnotes;
                 });
             }
@@ -637,30 +647,35 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 return;
             }
 
-            const extractedFootnotes: Array<{ id: string; content: string }> = [];
-            const allElements = Array.from(doc.body.querySelectorAll("*"));
+            const extractedFootnotes: Array<{ id: string; content: string; position: number }> = [];
 
             footnoteElements.forEach((element) => {
                 const id = element.textContent || "";
                 const rawContent = element.getAttribute("data-footnote") || "";
                 // Clean spell check markup from footnote content as well
                 const content = getCleanedHtml(rawContent);
-                const position = allElements.indexOf(element);
+                
+                // Calculate the actual position of this element in the document
+                const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL);
+                let position = 0;
+                let current = treeWalker.nextNode();
+
+                while (current && current !== element) {
+                    position++;
+                    current = treeWalker.nextNode();
+                }
 
                 if (id && content) {
                     extractedFootnotes.push({
                         id,
                         content,
+                        position,
                     });
                 }
             });
 
-            // Sort footnotes based on their DOM position
-            extractedFootnotes.sort((a, b) => {
-                const numA = parseInt((a.id || "").replace(/\D/g, "")) || 0;
-                const numB = parseInt((b.id || "").replace(/\D/g, "")) || 0;
-                return numA - numB;
-            });
+            // Sort footnotes based on their actual DOM position (chronological order)
+            extractedFootnotes.sort((a, b) => a.position - b.position);
 
             setFootnotes(extractedFootnotes);
         } catch (error) {
@@ -1291,6 +1306,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             ref={editorHandlesRef}
                             setIsEditingFootnoteInline={setIsEditingFootnoteInline}
                             isEditingFootnoteInline={isEditingFootnoteInline}
+                            footnoteOffset={footnoteOffset}
                         />
                     </div>
                 </div>
@@ -1491,7 +1507,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         <Card key={footnote.id} className="p-4">
                                             <div className="flex items-center justify-between mb-2">
                                                 <Badge variant="outline" className="font-mono">
-                                                    {index + 1}
+                                                    {index + footnoteOffset}
                                                 </Badge>
                                                 <div className="flex gap-1">
                                                     <Button
@@ -1536,11 +1552,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                 doc.body.innerHTML;
                                                             handleContentUpdate(updatedContent);
 
-                                                            // Force parse footnotes again
-                                                            setTimeout(
-                                                                parseFootnotesFromContent,
-                                                                50
-                                                            );
+                                                            // Renumber footnotes to maintain chronological order
+                                                            setTimeout(() => {
+                                                                editorHandlesRef.current?.renumberFootnotes();
+                                                                // Force parse footnotes again after renumbering
+                                                                setTimeout(parseFootnotesFromContent, 50);
+                                                            }, 50);
                                                         }}
                                                     />
                                                 </div>
