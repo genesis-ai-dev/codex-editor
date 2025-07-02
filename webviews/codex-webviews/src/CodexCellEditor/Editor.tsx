@@ -912,7 +912,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         quill.root.innerHTML = processedHtml;
         
         // Update footnote numbering starting from the footnote offset for section-based numbering
-        updateFootnoteNumbering(quill.root, props.footnoteOffset || 1, true);
+                    updateFootnoteNumbering(quill.root, props.footnoteOffset || 1, false);
         
         // Force Quill to recognize the content change
         quill.history.clear();
