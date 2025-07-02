@@ -484,8 +484,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             if (props.initialValue) {
                 quill.root.innerHTML = props.initialValue;
                 
-                // Renumber footnotes to ensure proper chronological order on load
+                // Position cursor at the end of the content for immediate editing
                 setTimeout(() => {
+                    // Set cursor to the end of the text
+                    const textLength = quill.getLength();
+                    quill.setSelection(textLength - 1, 0); // -1 because Quill includes a trailing newline
+                    quill.focus(); // Ensure editor has focus
+                    
+                    // Renumber footnotes to ensure proper chronological order on load
                     renumberFootnotes();
                 }, 100);
             }
