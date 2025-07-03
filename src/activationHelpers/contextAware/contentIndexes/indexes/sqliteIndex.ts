@@ -2902,12 +2902,14 @@ export class SQLiteIndexManager {
 
         console.log(`[searchCompleteTranslationPairs] Using natural FTS5 search with query: "${cleanQuery}"`);
 
-        // Simple FTS5 query - let FTS5 handle the fuzzy matching and ranking
+        // Enhanced FTS5 query - search BOTH source AND target content for complete pairs
         const sql = `
-            SELECT 
+            SELECT DISTINCT 
                 c.cell_id,
                 c.s_content as source_content,
                 c.s_raw_content as raw_source_content,
+                c.t_content as target_content,
+                c.t_raw_content as raw_target_content,
                 c.s_line_number as line,
                 COALESCE(s_file.file_path, t_file.file_path) as uri,
                 bm25(cells_fts) as score
@@ -2916,7 +2918,6 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
-                AND cells_fts.content_type = 'source'
                 AND c.s_content IS NOT NULL 
                 AND c.s_content != ''
                 AND c.t_content IS NOT NULL 
@@ -2935,28 +2936,63 @@ export class SQLiteIndexManager {
             while (stmt.step()) {
                 const row = stmt.getAsObject();
 
-                // Get the target content for this cell (already available in joined data)
-                const targetStmt = this.db.prepare(`
-                    SELECT t_content as content, t_raw_content as raw_content 
-                    FROM cells 
-                    WHERE cell_id = ? AND t_content IS NOT NULL AND t_content != ''
-                    LIMIT 1
-                `);
+                // Target content is now directly available from the main query
+                const targetContent = row.target_content as string;
+                const rawTargetContent = row.raw_target_content as string;
 
-                let targetContent = '';
-                let rawTargetContent = '';
-                try {
-                    targetStmt.bind([row.cell_id]);
-                    if (targetStmt.step()) {
-                        const targetRow = targetStmt.getAsObject();
-                        targetContent = targetRow.content as string;
-                        rawTargetContent = targetRow.raw_content as string;
-                    }
-                } finally {
-                    targetStmt.free();
-                }
+                // Both source and target content are guaranteed to exist due to the WHERE clause
+                results.push({
+                    cellId: row.cell_id,
+                    cell_id: row.cell_id,
+                    sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                    targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
+                    content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
+                    uri: row.uri,
+                    line: row.line,
+                    score: row.score,
+                    cell_type: 'source' // For compatibility
+                });
+            }
+        } catch (error) {
+            console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
 
-                if (targetContent) { // Only include if we found target content
+            // If FTS5 query fails, try a simple LIKE fallback that searches both source and target
+            console.log(`[searchCompleteTranslationPairs] Falling back to LIKE search`);
+            const fallbackStmt = this.db.prepare(`
+                SELECT 
+                    c.cell_id,
+                    c.s_content as source_content,
+                    c.s_raw_content as raw_source_content,
+                    c.t_content as target_content,
+                    c.t_raw_content as raw_target_content,
+                    c.s_line_number as line,
+                    COALESCE(s_file.file_path, t_file.file_path) as uri,
+                    1.0 as score
+                FROM cells c
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                LEFT JOIN files t_file ON c.t_file_id = t_file.id
+                WHERE c.s_content IS NOT NULL 
+                    AND c.s_content != ''
+                    AND c.t_content IS NOT NULL 
+                    AND c.t_content != ''
+                    AND (c.s_content LIKE ? OR c.t_content LIKE ?)
+                ORDER BY c.cell_id DESC
+                LIMIT ?
+            `);
+
+            try {
+                // Use first word for LIKE search in both source and target
+                const firstWord = cleanQuery.split(' ')[0];
+                const searchPattern = `%${firstWord}%`;
+                fallbackStmt.bind([searchPattern, searchPattern, limit]);
+
+                while (fallbackStmt.step()) {
+                    const row = fallbackStmt.getAsObject();
+
+                    // Target content is now directly available from the main query
+                    const targetContent = row.target_content as string;
+                    const rawTargetContent = row.raw_target_content as string;
+
                     results.push({
                         cellId: row.cell_id,
                         cell_id: row.cell_id,
@@ -2966,77 +3002,8 @@ export class SQLiteIndexManager {
                         uri: row.uri,
                         line: row.line,
                         score: row.score,
-                        cell_type: 'source' // For compatibility
+                        cell_type: 'source'
                     });
-                }
-            }
-        } catch (error) {
-            console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
-
-            // If FTS5 query fails, try a simple LIKE fallback
-            console.log(`[searchCompleteTranslationPairs] Falling back to LIKE search`);
-            const fallbackStmt = this.db.prepare(`
-                SELECT 
-                    c.cell_id,
-                    c.s_content as source_content,
-                    c.s_raw_content as raw_source_content,
-                    c.s_line_number as line,
-                    COALESCE(s_file.file_path, t_file.file_path) as uri,
-                    1.0 as score
-                FROM cells c
-                LEFT JOIN files s_file ON c.s_file_id = s_file.id
-                LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE c.s_content IS NOT NULL 
-                    AND c.s_content != ''
-                    AND c.s_content LIKE ?
-                    AND c.t_content IS NOT NULL 
-                    AND c.t_content != ''
-                ORDER BY c.cell_id DESC
-                LIMIT ?
-            `);
-
-            try {
-                // Use first word for LIKE search
-                const firstWord = cleanQuery.split(' ')[0];
-                fallbackStmt.bind([`%${firstWord}%`, limit]);
-
-                while (fallbackStmt.step()) {
-                    const row = fallbackStmt.getAsObject();
-
-                    // Get the target content for this cell
-                    const targetStmt = this.db.prepare(`
-                        SELECT t_content as content, t_raw_content as raw_content 
-                        FROM cells 
-                        WHERE cell_id = ? AND t_content IS NOT NULL AND t_content != ''
-                        LIMIT 1
-                    `);
-
-                    let targetContent = '';
-                    let rawTargetContent = '';
-                    try {
-                        targetStmt.bind([row.cell_id]);
-                        if (targetStmt.step()) {
-                            const targetRow = targetStmt.getAsObject();
-                            targetContent = targetRow.content as string;
-                            rawTargetContent = targetRow.raw_content as string;
-                        }
-                    } finally {
-                        targetStmt.free();
-                    }
-
-                    if (targetContent) {
-                        results.push({
-                            cellId: row.cell_id,
-                            cell_id: row.cell_id,
-                            sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                            targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
-                            content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                            uri: row.uri,
-                            line: row.line,
-                            score: row.score,
-                            cell_type: 'source'
-                        });
-                    }
                 }
             } finally {
                 fallbackStmt.free();

@@ -636,52 +636,61 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     showInfo = true;
                 }
 
-                // Search translation pairs with boosted weights for complete pairs and target content
-                const results = await searchAllCells(
-                    translationPairsIndex,
-                    sourceTextIndex,
-                    query,
-                    k,
-                    false,
-                    options // Pass through options including isParallelPassagesWebview
-                );
-
-                // Remove duplicates based on cellId
-                const uniqueResults = results.filter(
-                    (v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i
-                );
-
-                // If we have fewer unique results than requested, try to get more
-                if (uniqueResults.length < k) {
-                    const additionalResults = await searchTranslationPairs(
-                        translationPairsIndex,
+                // Use the reliable database-direct search for complete translation pairs
+                let searchResults: any[] = [];
+                if (translationPairsIndex instanceof SQLiteIndexManager) {
+                    // Use the new, reliable database-direct search with validation filtering
+                    // For searchParallelCells, we always want only complete pairs (both source and target)
+                    // and we can optionally filter by validation status if needed
+                    searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
-                        false, // includeIncomplete set to false
-                        k * 2,
-                        { completeBoost: 1.5, targetContentBoost: 1.2, ...options }
+                        k,
+                        options?.isParallelPassagesWebview || false, // return raw content for webview display
+                        false // onlyValidated - for now, show all complete pairs regardless of validation
                     );
-                    const allResults = [...uniqueResults, ...additionalResults];
-                    uniqueResults.splice(
-                        0,
-                        uniqueResults.length,
-                        ...allResults
-                            .filter((v, i, a) => a.findIndex((t) => t.cellId === v.cellId) === i)
-                            .slice(0, k)
+                } else {
+                    console.warn("[searchParallelCells] Non-SQLite index detected, using fallback");
+                    // Fallback to old method for non-SQLite indexes
+                    const results = await searchAllCells(
+                        translationPairsIndex,
+                        sourceTextIndex,
+                        query,
+                        k,
+                        false,
+                        options
                     );
+                    searchResults = results.slice(0, k);
                 }
 
+                // Convert search results to TranslationPair format
+                const translationPairs: TranslationPair[] = searchResults.map((result) => ({
+                    cellId: result.cellId || result.cell_id,
+                    sourceCell: {
+                        cellId: result.cellId || result.cell_id,
+                        content: result.sourceContent || result.content || "",
+                        uri: result.uri || "",
+                        line: result.line || 0,
+                    },
+                    targetCell: {
+                        cellId: result.cellId || result.cell_id,
+                        content: result.targetContent || "",
+                        uri: result.uri || "",
+                        line: result.line || 0,
+                    },
+                }));
+
                 if (showInfo) {
-                    const resultsString = uniqueResults
+                    const resultsString = translationPairs
                         .map(
                             (r: TranslationPair) =>
                                 `${r.cellId}: Source: ${r.sourceCell.content}, Target: ${r.targetCell.content}`
                         )
                         .join("\n");
                     vscode.window.showInformationMessage(
-                        `Found ${uniqueResults.length} unique parallel cells for query: ${query}\n${resultsString}`
+                        `Found ${translationPairs.length} complete translation pairs for query: ${query}\n${resultsString}`
                     );
                 }
-                return uniqueResults;
+                return translationPairs;
             }
         );
         const searchSimilarCellIdsCommand = vscode.commands.registerCommand(
@@ -778,14 +787,47 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
-                const results = await searchAllCells(
-                    translationPairsIndex,
-                    sourceTextIndex,
-                    query,
-                    k,
-                    includeIncomplete,
-                    options // Pass through options including isParallelPassagesWebview
-                );
+
+                let results: TranslationPair[] = [];
+
+                // If we only want complete pairs and we have SQLite, use the more reliable method
+                if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
+                    console.log(`[searchAllCells] Using database-direct search for complete pairs only`);
+                    const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
+                        query,
+                        k,
+                        options?.isParallelPassagesWebview || false,
+                        false // onlyValidated - show all complete pairs regardless of validation status
+                    );
+
+                    // Convert to TranslationPair format
+                    results = searchResults.map((result) => ({
+                        cellId: result.cellId || result.cell_id,
+                        sourceCell: {
+                            cellId: result.cellId || result.cell_id,
+                            content: result.sourceContent || result.content || "",
+                            uri: result.uri || "",
+                            line: result.line || 0,
+                        },
+                        targetCell: {
+                            cellId: result.cellId || result.cell_id,
+                            content: result.targetContent || "",
+                            uri: result.uri || "",
+                            line: result.line || 0,
+                        },
+                    }));
+                } else {
+                    // Use the original method for incomplete searches or non-SQLite indexes
+                    console.log(`[searchAllCells] Using index-based search (includeIncomplete: ${includeIncomplete})`);
+                    results = await searchAllCells(
+                        translationPairsIndex,
+                        sourceTextIndex,
+                        query,
+                        k,
+                        includeIncomplete,
+                        options // Pass through options including isParallelPassagesWebview
+                    );
+                }
 
                 debug(`Search results for "${query}":`, results);
 
