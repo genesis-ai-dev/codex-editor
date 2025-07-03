@@ -2955,59 +2955,9 @@ export class SQLiteIndexManager {
             }
         } catch (error) {
             console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
-
-            // If FTS5 query fails, try a simple LIKE fallback that searches both source and target
-            console.log(`[searchCompleteTranslationPairs] Falling back to LIKE search`);
-            const fallbackStmt = this.db.prepare(`
-                SELECT 
-                    c.cell_id,
-                    c.s_content as source_content,
-                    c.s_raw_content as raw_source_content,
-                    c.t_content as target_content,
-                    c.t_raw_content as raw_target_content,
-                    c.s_line_number as line,
-                    COALESCE(s_file.file_path, t_file.file_path) as uri,
-                    1.0 as score
-                FROM cells c
-                LEFT JOIN files s_file ON c.s_file_id = s_file.id
-                LEFT JOIN files t_file ON c.t_file_id = t_file.id
-                WHERE c.s_content IS NOT NULL 
-                    AND c.s_content != ''
-                    AND c.t_content IS NOT NULL 
-                    AND c.t_content != ''
-                    AND (c.s_content LIKE ? OR c.t_content LIKE ?)
-                ORDER BY c.cell_id DESC
-                LIMIT ?
-            `);
-
-            try {
-                // Use first word for LIKE search in both source and target
-                const firstWord = cleanQuery.split(' ')[0];
-                const searchPattern = `%${firstWord}%`;
-                fallbackStmt.bind([searchPattern, searchPattern, limit]);
-
-                while (fallbackStmt.step()) {
-                    const row = fallbackStmt.getAsObject();
-
-                    // Target content is now directly available from the main query
-                    const targetContent = row.target_content as string;
-                    const rawTargetContent = row.raw_target_content as string;
-
-                    results.push({
-                        cellId: row.cell_id,
-                        cell_id: row.cell_id,
-                        sourceContent: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                        targetContent: returnRawContent && rawTargetContent ? rawTargetContent : targetContent,
-                        content: returnRawContent && row.raw_source_content ? row.raw_source_content : row.source_content,
-                        uri: row.uri,
-                        line: row.line,
-                        score: row.score,
-                        cell_type: 'source'
-                    });
-                }
-            } finally {
-                fallbackStmt.free();
-            }
+            // No fallback - return empty results if FTS5 fails
+            console.log(`[searchCompleteTranslationPairs] FTS5-only mode: returning empty results on query failure`);
+            return [];
         } finally {
             stmt.free();
         }
@@ -3239,8 +3189,9 @@ export class SQLiteIndexManager {
             }
         } catch (error) {
             console.error(`[searchCompleteTranslationPairsWithValidation] FTS5 query failed: ${error}`);
-            // Fallback to non-validated search if validation filtering fails
-            return this.searchCompleteTranslationPairs(query, limit, returnRawContent);
+            // FTS5-only mode: return empty results if query fails
+            console.log(`[searchCompleteTranslationPairsWithValidation] FTS5-only mode: returning empty results on query failure`);
+            return [];
         } finally {
             stmt.free();
         }
