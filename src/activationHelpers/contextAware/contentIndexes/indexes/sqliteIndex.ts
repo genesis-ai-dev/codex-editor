@@ -1748,7 +1748,7 @@ export class SQLiteIndexManager {
             const ftsQuery = escapedWords.join(" OR ");
 
             console.log(`[searchGreekText] Words extracted: ${words.length} - ${words.slice(0, 5).join(', ')}...`);
-            console.log(`[searchGreekText] FTS query: content: ${ftsQuery}`);
+
 
             sql = `
                 SELECT 
@@ -2886,8 +2886,6 @@ export class SQLiteIndexManager {
             debugStmt.free();
         }
 
-        console.log(`[searchCompleteTranslationPairs] Database contains ${totalCompletePairs} complete translation pairs total`);
-
         // Use FTS5's natural fuzzy search - keep it simple and let FTS5 do the work
         // Clean the query but don't over-process it
         const cleanQuery = query
@@ -2899,8 +2897,6 @@ export class SQLiteIndexManager {
         if (!cleanQuery) {
             return this.searchCompleteTranslationPairs('', limit, returnRawContent);
         }
-
-        console.log(`[searchCompleteTranslationPairs] Using natural FTS5 search with query: "${cleanQuery}"`);
 
         // Enhanced FTS5 query - search BOTH source AND target content for complete pairs
         const sql = `
@@ -2955,58 +2951,12 @@ export class SQLiteIndexManager {
             }
         } catch (error) {
             console.error(`[searchCompleteTranslationPairs] FTS5 query failed: ${error}`);
-            // No fallback - return empty results if FTS5 fails
-            console.log(`[searchCompleteTranslationPairs] FTS5-only mode: returning empty results on query failure`);
             return [];
         } finally {
             stmt.free();
         }
 
-        console.log(`[searchCompleteTranslationPairs] Found ${results.length} complete translation pairs`);
 
-        // If we still have no results and there are complete pairs in the database, 
-        // let's debug by showing some sample data
-        if (results.length === 0 && totalCompletePairs > 0) {
-            console.log(`[searchCompleteTranslationPairs] No results found despite ${totalCompletePairs} complete pairs existing. Debugging...`);
-
-            // Show a few sample source cells to see what the content looks like
-            const sampleStmt = this.db.prepare(`
-                SELECT c.cell_id, c.s_content as content, 'source' as cell_type 
-                FROM cells c 
-                WHERE c.s_content IS NOT NULL AND c.s_content != '' 
-                LIMIT 3
-            `);
-
-            try {
-                console.log(`[searchCompleteTranslationPairs] Sample source cells in database:`);
-                while (sampleStmt.step()) {
-                    const sample = sampleStmt.getAsObject();
-                    console.log(`  ${sample.cell_id}: ${(sample.content as string).substring(0, 50)}...`);
-                }
-            } finally {
-                sampleStmt.free();
-            }
-
-            // Try a very simple FTS search to see if FTS is working at all
-            const simpleStmt = this.db.prepare(`
-                SELECT cell_id, content 
-                FROM cells_fts 
-                WHERE cells_fts MATCH ? 
-                LIMIT 3
-            `);
-
-            try {
-                console.log(`[searchCompleteTranslationPairs] Simple FTS test with first word of query:`);
-                const firstWord = cleanQuery.split(' ')[0];
-                simpleStmt.bind([firstWord]);
-                while (simpleStmt.step()) {
-                    const sample = simpleStmt.getAsObject();
-                    console.log(`  ${sample.cell_id}: ${(sample.content as string).substring(0, 50)}...`);
-                }
-            } finally {
-                simpleStmt.free();
-            }
-        }
 
         return results;
     }
@@ -3025,15 +2975,12 @@ export class SQLiteIndexManager {
         returnRawContent: boolean = false,
         onlyValidated: boolean = false
     ): Promise<any[]> {
-        console.log(`[searchCompleteTranslationPairsWithValidation] Searching for ${onlyValidated ? 'validated-only' : 'all'} translation pairs`);
         // If validation filtering is not required, use the existing method
         if (!onlyValidated) {
             return this.searchCompleteTranslationPairs(query, limit, returnRawContent);
         }
 
         if (!this.db) throw new Error("Database not initialized");
-
-        console.log(`[searchCompleteTranslationPairsWithValidation] Searching for ${onlyValidated ? 'validated-only' : 'all'} translation pairs`);
 
         // Handle empty query by returning recent complete validated pairs
         if (!query || query.trim() === '') {
@@ -3071,7 +3018,6 @@ export class SQLiteIndexManager {
                     let isFullyValidated = true;
                     if (onlyValidated) {
                         isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id as string);
-                        console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isFullyValidated ? 'validated' : 'not validated'}`);
                     }
 
                     if (isFullyValidated) {
@@ -3106,7 +3052,7 @@ export class SQLiteIndexManager {
             return this.searchCompleteTranslationPairsWithValidation('', limit, returnRawContent, onlyValidated);
         }
 
-        console.log(`[searchCompleteTranslationPairsWithValidation] Using FTS5 search with validation filter: "${cleanQuery}"`);
+
 
         // FTS5 query with validation filtering
         const sql = `
@@ -3144,7 +3090,6 @@ export class SQLiteIndexManager {
                 let isFullyValidated = true;
                 if (onlyValidated) {
                     isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id as string);
-                    console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isFullyValidated ? 'validated' : 'not validated'}`);
                 }
 
                 if (isFullyValidated) {
@@ -3189,14 +3134,11 @@ export class SQLiteIndexManager {
             }
         } catch (error) {
             console.error(`[searchCompleteTranslationPairsWithValidation] FTS5 query failed: ${error}`);
-            // FTS5-only mode: return empty results if query fails
-            console.log(`[searchCompleteTranslationPairsWithValidation] FTS5-only mode: returning empty results on query failure`);
             return [];
         } finally {
             stmt.free();
         }
 
-        console.log(`[searchCompleteTranslationPairsWithValidation] Found ${results.length} ${onlyValidated ? 'validated' : 'all'} translation pairs`);
         return results;
     }
 

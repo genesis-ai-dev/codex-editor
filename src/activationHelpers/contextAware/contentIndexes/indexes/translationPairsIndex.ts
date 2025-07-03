@@ -75,16 +75,13 @@ export async function searchTranslationPairs(
 
     // For cells where we only found one side of the translation pair,
     // try to get the missing side from the database
-    console.log(`[searchTranslationPairs] Processing ${cellMap.size} cells to ensure complete pairs`);
     for (const [cellId, cellData] of cellMap.entries()) {
         if (!cellData.source || !cellData.target) {
-            console.log(`[searchTranslationPairs] Cell ${cellId} missing ${!cellData.source ? 'source' : 'target'} content, fetching complete pair`);
             // Get the complete translation pair from the database
             const completePair = await (translationPairsIndex as any).getTranslationPair?.(cellId);
             if (completePair) {
                 // Fill in missing source content
                 if (!cellData.source && completePair.sourceContent) {
-                    console.log(`[searchTranslationPairs] Adding missing source content for ${cellId}`);
                     cellData.source = {
                         cellId,
                         sourceContent: completePair.sourceContent,
@@ -94,10 +91,9 @@ export async function searchTranslationPairs(
                         score: cellData.score * 0.9 // Slightly lower score since it wasn't directly matched
                     };
                 }
-                
+
                 // Fill in missing target content
                 if (!cellData.target && completePair.targetContent) {
-                    console.log(`[searchTranslationPairs] Adding missing target content for ${cellId}`);
                     cellData.target = {
                         cellId,
                         targetContent: completePair.targetContent,
@@ -107,8 +103,6 @@ export async function searchTranslationPairs(
                         score: cellData.score * 0.9 // Slightly lower score since it wasn't directly matched
                     };
                 }
-            } else {
-                console.log(`[searchTranslationPairs] No complete pair found in database for ${cellId}`);
             }
         }
     }
@@ -136,13 +130,11 @@ export async function searchTranslationPairs(
         // If we're not including incomplete pairs, we need BOTH source and target content
         // This ensures we always return complete translation pairs (both sides)
         if (!includeIncomplete && (!sourceContent.trim() || !targetContent.trim())) {
-            console.log(`[searchTranslationPairs] Skipping ${cellId} - incomplete translation pair (source: ${!!sourceContent.trim()}, target: ${!!targetContent.trim()})`);
             continue;
         }
 
         // If we're including incomplete pairs, we need at least one side
         if (includeIncomplete && !sourceContent.trim() && !targetContent.trim()) {
-            console.log(`[searchTranslationPairs] Skipping ${cellId} - no content in either source or target`);
             continue;
         }
 
@@ -175,11 +167,6 @@ export async function searchTranslationPairs(
         .sort((a, b) => b.score - a.score)
         .slice(0, k)
         .map(({ score, ...pair }) => pair);
-    
-    console.log(`[searchTranslationPairs] Returning ${finalResults.length} complete translation pairs for query "${query}"`);
-    finalResults.slice(0, 3).forEach((pair, index) => {
-        console.log(`[searchTranslationPairs] Result ${index + 1}: ${pair.cellId} - Source: ${!!pair.sourceCell.content}, Target: ${!!pair.targetCell.content}`);
-    });
-    
+
     return finalResults;
 }

@@ -502,14 +502,12 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     if (!query) return []; // User cancelled the input
                     showInfo = true;
                 }
-                console.log({ query, k, onlyValidated });
                 const results = await getTranslationPairsFromSourceCellQuery(
                     translationPairsIndex,
                     query,
                     k,
                     onlyValidated
                 );
-                console.log({ results });
                 if (showInfo) {
                     const resultsString = results
                         .map((r: TranslationPair) => `${r.cellId}: ${r.sourceCell.content}`)
@@ -792,7 +790,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                 // If we only want complete pairs and we have SQLite, use the more reliable method
                 if (!includeIncomplete && translationPairsIndex instanceof SQLiteIndexManager) {
-                    console.log(`[searchAllCells] Using database-direct search for complete pairs only`);
                     const searchResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(
                         query,
                         k,
@@ -818,7 +815,6 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                     }));
                 } else {
                     // Use the original method for incomplete searches or non-SQLite indexes
-                    console.log(`[searchAllCells] Using index-based search (includeIncomplete: ${includeIncomplete})`);
                     results = await searchAllCells(
                         translationPairsIndex,
                         sourceTextIndex,

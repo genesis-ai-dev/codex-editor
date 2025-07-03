@@ -171,8 +171,6 @@ export async function getTranslationPairsFromSourceCellQuery(
     k: number = 5,
     onlyValidated: boolean = false
 ): Promise<TranslationPair[]> {
-    console.log(`[getTranslationPairsFromSourceCellQuery] Searching for: "${query.substring(0, 100)}..." with k=${k}`);
-
     // Use the new efficient method to search for complete translation pairs directly
     // Request more results (k * 6) to have a good pool for filtering
     const initialLimit = Math.max(k * 6, 30); // Ensure we get at least 30 candidates
@@ -181,7 +179,6 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
-        console.log(`[getTranslationPairsFromSourceCellQuery] Complete pairs search (${onlyValidated ? 'validated-only' : 'all'}) returned ${results.length} results`);
     } else {
         // This case shouldn't happen in current implementation since IndexType is SQLiteIndexManager
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
@@ -190,11 +187,9 @@ export async function getTranslationPairsFromSourceCellQuery(
 
     // If we still don't have results, get some recent complete pairs as fallback
     if (results.length === 0) {
-        console.log(`[getTranslationPairsFromSourceCellQuery] No results found, getting recent complete pairs (${onlyValidated ? 'validated-only' : 'all'})`);
         if (translationPairsIndex instanceof SQLiteIndexManager) {
             results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
         }
-        console.log(`[getTranslationPairsFromSourceCellQuery] Fallback query returned ${results.length} results`);
     }
 
     // Convert results to TranslationPair format
@@ -258,7 +253,6 @@ export async function getTranslationPairsFromSourceCellQuery(
         if (translationPairs.length >= initialLimit) break;
     }
 
-    console.log(`[getTranslationPairsFromSourceCellQuery] Returning ${translationPairs.length} complete translation pairs (ready for word overlap filtering)`);
     return translationPairs;
 }
 
