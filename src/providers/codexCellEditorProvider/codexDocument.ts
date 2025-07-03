@@ -337,6 +337,33 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     this._cachedFileId = fileId;
                 }
 
+                // Calculate logical line position based on cell structure
+                let logicalLinePosition: number | null = null;
+                const cellIndex = this._documentData.cells.findIndex(cell => cell.metadata?.id === cellId);
+
+                if (cellIndex >= 0) {
+                    const currentCell = this._documentData.cells[cellIndex];
+                    const isCurrentCellParatext = currentCell.metadata?.type === "paratext";
+
+                    // Only non-paratext cells get line positions
+                    if (!isCurrentCellParatext) {
+                        // Count all non-paratext cells before this cell to get logical position (1-indexed)
+                        let logicalPosition = 1;
+                        for (let i = 0; i < cellIndex; i++) {
+                            const cell = this._documentData.cells[i];
+                            const isParatext = cell.metadata?.type === "paratext";
+                            if (!isParatext) {
+                                logicalPosition++;
+                            }
+                        }
+                        logicalLinePosition = logicalPosition;
+
+                        // Since this method is only called when content exists,
+                        // we always assign the logical position as the line number
+                    }
+                    // Paratext cells get lineNumber = null
+                }
+
                 // Sanitize content for search while preserving raw content with HTML
                 const sanitizedContent = this.sanitizeContent(content);
 
@@ -346,28 +373,19 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     fileId,
                     "target",
                     sanitizedContent,  // Sanitized content for search
-                    undefined,
+                    logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
                     { editType, lastUpdated: Date.now() },
                     content           // Raw content with HTML tags
                 );
 
-                console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable`);
+                console.log(`[CodexDocument] ✅ Cell ${cellId} immediately indexed and searchable at logical line ${logicalLinePosition}`);
 
             } catch (error) {
-                // VISIBLE error logging - we need to know when indexing fails!
-                console.error(`[CodexDocument] ❌ Failed to immediately index cell ${cellId}:`, error);
-
-                // Try to recover with a background operation
-                setImmediate(async () => {
-                    try {
-                        await this._indexManager?.refreshFTSIndex();
-                        console.log(`[CodexDocument] 🔄 FTS index refreshed for recovery`);
-                    } catch (recoveryError) {
-                        console.error(`[CodexDocument] ❌ FTS recovery also failed for cell ${cellId}:`, recoveryError);
+                console.error(`[CodexDocument] Error indexing cell ${cellId}:`, error);
             }
+        })().catch(error => {
+            console.error(`[CodexDocument] Async error in immediate indexing for cell ${cellId}:`, error);
         });
-            }
-        })();
     }
 
     public replaceDuplicateCells(content: QuillCellContent) {
@@ -401,6 +419,10 @@ export class CodexCellDocument implements vscode.CustomDocument {
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(text));
+
+        // IMMEDIATE DATABASE SYNC - Update all cells with content to ensure validation changes are persisted
+        await this.syncAllCellsToDatabase();
+
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
     }
@@ -412,7 +434,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     ): Promise<void> {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
-        if (!backup) this._isDirty = false; // Reset dirty flag
+
+        // IMMEDIATE DATABASE SYNC for non-backup saves
+        if (!backup) {
+            await this.syncAllCellsToDatabase();
+            this._isDirty = false; // Reset dirty flag
+        }
     }
 
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
@@ -732,6 +759,17 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 },
             ],
         });
+
+        // Log validation change for debugging
+        console.log(`[CodexDocument] 🔍 Validation change for cell ${cellId}:`, {
+            validate,
+            username,
+            validationCount: latestEdit.validatedBy.filter(entry => this.isValidValidationEntry(entry) && !entry.isDeleted).length,
+            cellHasContent: !!(cellToUpdate.value && cellToUpdate.value.trim()),
+            editsCount: cellToUpdate.metadata.edits.length
+        });
+
+        // Database update will happen automatically when document is saved
     }
 
     /**
@@ -1151,5 +1189,119 @@ export class CodexCellDocument implements vscode.CustomDocument {
         this._onDidChangeForVsCodeAndWebview.fire({
             edits: this._edits,
         });
+    }
+
+
+
+    // Add method to sync all cells to database without modifying content
+    // @ts-ignore: Temporarily disable strict null checks for this method
+    private async syncAllCellsToDatabase(): Promise<void> {
+        try {
+            console.log(`[CodexDocument] 🔄 Syncing all cells to database after save...`);
+
+            if (!this._indexManager) {
+                this._indexManager = getSQLiteIndexManager();
+                if (!this._indexManager) {
+                    console.warn(`[CodexDocument] Index manager not available for database sync`);
+                    return;
+                }
+            }
+
+            // Get file ID
+            let fileId = this._cachedFileId;
+            if (!fileId) {
+                fileId = await this._indexManager.upsertFile(
+                    this.uri.toString(),
+                    "codex",
+                    Date.now()
+                );
+                this._cachedFileId = fileId;
+            }
+
+            let syncedCells = 0;
+            let syncedValidations = 0;
+
+            // Process each cell that has content
+            // @ts-ignore: We know cells array exists in for loop
+            for (const cell of this._documentData.cells!) {
+                if (cell.value && cell.value.trim() !== '') {
+                    // Get cell ID outside try block so it's accessible in catch block
+                    const cellId = cell.metadata?.id;
+
+                    // Skip cells without valid metadata or IDs
+                    if (!cellId || !this._documentData.cells) {
+                        console.warn(`[CodexDocument] Skipping cell without valid ID or cells array`);
+                        continue;
+                    }
+
+                    try {
+                        // Calculate logical line position
+                        let logicalLinePosition: number | null = null;
+                        const cellIndex = this._documentData.cells!.findIndex(c => c.metadata?.id === cellId);
+
+                        if (cellIndex >= 0) {
+                            const isCurrentCellParatext = cell.metadata?.type === "paratext";
+
+                            if (!isCurrentCellParatext) {
+                                // Count non-paratext cells before this cell
+                                let logicalPosition = 1;
+                                for (let i = 0; i < cellIndex; i++) {
+                                    const checkCell = this._documentData.cells![i];
+                                    const isParatext = checkCell.metadata?.type === "paratext";
+                                    if (!isParatext) {
+                                        logicalPosition++;
+                                    }
+                                }
+                                logicalLinePosition = logicalPosition;
+                            }
+                        }
+
+                        // Prepare metadata for database - this will handle validation extraction
+                        const cellMetadata = {
+                            edits: cell.metadata?.edits || [],
+                            type: "database_sync",
+                            lastUpdated: Date.now()
+                        };
+
+
+
+                        // Check if this cell has validation data for logging
+                        const edits = cell.metadata?.edits;
+                        const lastEdit = edits && edits.length > 0 ? edits[edits.length - 1] : null;
+                        const hasValidationData = lastEdit?.validatedBy && lastEdit.validatedBy.length > 0;
+
+                        if (hasValidationData && lastEdit?.validatedBy) {
+                            const activeValidations = lastEdit.validatedBy.filter((v: any) => v && !v.isDeleted);
+                            console.log(`[CodexDocument] 🔄 Syncing validation data for cell ${cellId}: ${activeValidations.length} validators`);
+                            syncedValidations++;
+                        }
+
+                        // Sanitize content for search
+                        const sanitizedContent = this.sanitizeContent(cell.value);
+
+                        // Update database with current cell state (this will extract and update validation metadata)
+                        await this._indexManager.upsertCellWithFTSSync(
+                            cellId || '',
+                            fileId,
+                            "target",
+                            sanitizedContent,
+                            logicalLinePosition ?? undefined,
+                            cellMetadata,
+                            cell.value // raw content with HTML
+                        );
+
+                        syncedCells++;
+
+                    } catch (error) {
+                        console.error(`[CodexDocument] Error syncing cell ${cellId} to database:`, error);
+                    }
+                }
+            }
+
+            console.log(`[CodexDocument] ✅ Database sync complete: ${syncedCells} cells synced, ${syncedValidations} cells with validation data`);
+
+        } catch (error) {
+            console.error(`[CodexDocument] Error during database sync:`, error);
+        }
     }
 }

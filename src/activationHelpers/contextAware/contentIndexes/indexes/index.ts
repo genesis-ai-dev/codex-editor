@@ -1174,6 +1174,73 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        const checkLineNumbersCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkLineNumbers",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const lineStats = await translationPairsIndex.getLineNumberStats();
+
+                        let message = `Line Number Statistics:\n`;
+                        message += `• Total cells: ${lineStats.totalCells}\n`;
+                        message += `• Cells with source line numbers: ${lineStats.cellsWithSourceLineNumbers}\n`;
+                        message += `• Cells with target line numbers: ${lineStats.cellsWithTargetLineNumbers}\n\n`;
+
+                        message += `Target Cell Content Analysis:\n`;
+                        message += `• Target cells WITH content: ${lineStats.targetCellsWithContent}\n`;
+                        message += `• Target cells WITHOUT content: ${lineStats.targetCellsWithoutContent}\n`;
+                        message += `• Target line numbers should match content count: ${lineStats.cellsWithTargetLineNumbers === lineStats.targetCellsWithContent ? '✅' : '❌'}\n\n`;
+
+                        message += `Null Line Numbers (expected behavior):\n`;
+                        message += `• Source cells with NULL line numbers: ${lineStats.cellsWithNullSourceLineNumbers} ${lineStats.cellsWithNullSourceLineNumbers > 0 ? '⚠️' : '✅'}\n`;
+                        message += `• Target cells with NULL line numbers: ${lineStats.cellsWithNullTargetLineNumbers} (empty + paratext cells)\n`;
+
+                        if (lineStats.sampleCellsWithLineNumbers.length > 0) {
+                            message += `\nSample cells with line numbers:\n`;
+                            lineStats.sampleCellsWithLineNumbers.forEach((cell, i) => {
+                                message += `${i + 1}. ${cell.cellId}:\n`;
+                                message += `   • src=${cell.sourceLineNumber || 'NULL'} (content: ${cell.hasSourceContent ? 'YES' : 'NO'})\n`;
+                                message += `   • tgt=${cell.targetLineNumber || 'NULL'} (content: ${cell.hasTargetContent ? 'YES' : 'NO'})\n`;
+                            });
+                        } else {
+                            message += `\n⚠️ No cells found with line numbers!`;
+                        }
+
+                        // Check for logical consistency
+                        const hasIssues = (
+                            lineStats.cellsWithNullSourceLineNumbers > 0 ||
+                            lineStats.cellsWithTargetLineNumbers !== lineStats.targetCellsWithContent
+                        );
+
+                        const actions = ["OK"];
+                        if (hasIssues || lineStats.cellsWithSourceLineNumbers === 0) {
+                            actions.unshift("Force Index Rebuild");
+                        }
+
+                        const choice = await vscode.window.showInformationMessage(message, ...actions);
+
+                        if (choice === "Force Index Rebuild") {
+                            const confirm = await vscode.window.showWarningMessage(
+                                "This will rebuild the AI knowledge with proper content-based line numbers. This may take a few moments. Continue?",
+                                "Yes, Rebuild",
+                                "Cancel"
+                            );
+
+                            if (confirm === "Yes, Rebuild") {
+                                vscode.commands.executeCommand("codex-editor-extension.forceCompleteRebuild");
+                            }
+                        }
+
+                    } else {
+                        vscode.window.showErrorMessage("Line number checking only available for SQLite index");
+                    }
+                } catch (error) {
+                    console.error("Error checking line numbers:", error);
+                    vscode.window.showErrorMessage("Failed to check line numbers. Check the logs for details.");
+                }
+            }
+        );
+
         const refreshIndexCommand = vscode.commands.registerCommand(
             "codex-editor-extension.refreshIndex",
             async () => {
@@ -1285,6 +1352,506 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
             }
         );
 
+        // Register command to check timestamp consistency
+        const checkTimestampsCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkTimestamps",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const db = translationPairsIndex.database;
+                        if (!db) {
+                            vscode.window.showErrorMessage("Database not available");
+                            return;
+                        }
+
+                        // Check target cell timestamp information
+                        const timestampStmt = db.prepare(`
+                            SELECT 
+                                COUNT(*) as total_target_cells,
+                                COUNT(t_current_edit_timestamp) as cells_with_edit_timestamp,
+                                COUNT(CASE WHEN t_current_edit_timestamp IS NULL THEN 1 END) as cells_without_edit_timestamp
+                            FROM cells 
+                            WHERE t_content IS NOT NULL AND t_content != ''
+                        `);
+
+                        let timestampStats = {
+                            totalTargetCells: 0,
+                            cellsWithEditTimestamp: 0,
+                            cellsWithoutEditTimestamp: 0
+                        };
+
+                        try {
+                            timestampStmt.step();
+                            const result = timestampStmt.getAsObject();
+                            timestampStats = {
+                                totalTargetCells: (result.total_target_cells as number) || 0,
+                                cellsWithEditTimestamp: (result.cells_with_edit_timestamp as number) || 0,
+                                cellsWithoutEditTimestamp: (result.cells_without_edit_timestamp as number) || 0
+                            };
+                        } finally {
+                            timestampStmt.free();
+                        }
+
+                        // Get sample target cells with timestamps
+                        const sampleStmt = db.prepare(`
+                            SELECT 
+                                cell_id,
+                                t_current_edit_timestamp,
+                                datetime(t_current_edit_timestamp / 1000, 'unixepoch') as formatted_timestamp
+                            FROM cells 
+                            WHERE t_content IS NOT NULL 
+                                AND t_content != ''
+                                AND t_current_edit_timestamp IS NOT NULL
+                            ORDER BY t_current_edit_timestamp DESC
+                            LIMIT 5
+                        `);
+
+                        const sampleCells: Array<{
+                            cellId: string;
+                            editTimestamp: number;
+                            formattedTimestamp: string;
+                        }> = [];
+
+                        try {
+                            while (sampleStmt.step()) {
+                                const row = sampleStmt.getAsObject();
+                                sampleCells.push({
+                                    cellId: row.cell_id as string,
+                                    editTimestamp: row.t_current_edit_timestamp as number,
+                                    formattedTimestamp: row.formatted_timestamp as string
+                                });
+                            }
+                        } finally {
+                            sampleStmt.free();
+                        }
+
+                        let message = `Target Cell Timestamp Analysis (Optimized Schema v8):\\n`;
+                        message += `• Total target cells: ${timestampStats.totalTargetCells}\\n`;
+                        message += `• Cells with edit timestamps: ${timestampStats.cellsWithEditTimestamp}\\n`;
+                        message += `• Cells without edit timestamps: ${timestampStats.cellsWithoutEditTimestamp}\\n\\n`;
+
+                        message += `✅ Schema v8 optimizations:\\n`;
+                        message += `• Single timestamp per cell type (no redundancy)\\n`;
+                        message += `• All timestamps from JSON metadata (not DB time)\\n`;
+                        message += `• t_is_fully_validated with configurable threshold\\n\\n`;
+
+                        if (sampleCells.length > 0) {
+                            message += `Sample cells with timestamps:\\n`;
+                            for (const cell of sampleCells) {
+                                message += `   • ${cell.cellId}: ${cell.formattedTimestamp}\\n`;
+                            }
+                        }
+
+                        vscode.window.showInformationMessage(message);
+                    } else {
+                        vscode.window.showErrorMessage("SQLite index not available");
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Error checking timestamps: ${error}`);
+                }
+            }
+        );
+
+        // Register command to check target timestamp logic after our fixes
+        const checkTargetTimestampsCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkTargetTimestamps",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        vscode.window.withProgress({
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Analyzing target cell timestamps...",
+                            cancellable: false
+                        }, async (progress) => {
+                            progress.report({ message: "Checking timestamp consistency..." });
+
+                            const stats = await translationPairsIndex.getTargetTimestampStats();
+                            const validationThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                                .get('validationCount', 1);
+
+                            let message = `Target Cell Analysis (Schema v8 - Fully Optimized):\n\n`;
+                            message += `📊 General Statistics:\n`;
+                            message += `• Total target cells: ${stats.totalTargetCells}\n`;
+                            message += `• Target cells with content: ${stats.targetCellsWithContent}\n`;
+                            message += `• Target cells with t_created_at: ${stats.targetCellsWithCreatedAt}\n`;
+                            message += `• Target cells with edit timestamps: ${stats.targetCellsWithEditTimestamp}\n\n`;
+
+                            message += `⚙️ Validation Configuration:\n`;
+                            message += `• Required validators for "fully validated": ${validationThreshold}\n`;
+                            message += `• Column: t_is_fully_validated (threshold-based)\n\n`;
+
+                            message += `🔍 Consistency Checks:\n`;
+                            message += `• Content but no t_created_at: ${stats.targetCellsWithContentButNoCreatedAt}\n`;
+                            message += `• No content but has t_created_at: ${stats.targetCellsWithoutContentButWithCreatedAt}\n\n`;
+
+                            if (stats.timestampConsistencyIssues.length > 0) {
+                                message += `⚠️ Issues Found (${stats.timestampConsistencyIssues.length}):\n`;
+                                for (const issue of stats.timestampConsistencyIssues.slice(0, 5)) {
+                                    message += `• ${issue.cellId}: ${issue.issue}\n`;
+                                }
+                                if (stats.timestampConsistencyIssues.length > 5) {
+                                    message += `• ... and ${stats.timestampConsistencyIssues.length - 5} more\n`;
+                                }
+                            } else {
+                                message += `✅ No timestamp consistency issues found!\n`;
+                            }
+
+                            if (stats.sampleTargetCells.length > 0) {
+                                message += `\n📝 Sample Target Cells:\n`;
+                                for (const cell of stats.sampleTargetCells.slice(0, 3)) {
+                                    const hasContent = cell.hasContent ? "✓" : "✗";
+                                    const hasCreated = cell.createdAt ? "✓" : "✗";
+                                    const hasEdit = cell.editTimestamp ? "✓" : "✗";
+                                    message += `• ${cell.cellId}: Content${hasContent} Created${hasCreated} Edit${hasEdit}\n`;
+                                    if (cell.createdAtDate) {
+                                        message += `  Created: ${cell.createdAtDate}\n`;
+                                    }
+                                    if (cell.editTimestampDate) {
+                                        message += `  Last Edit: ${cell.editTimestampDate}\n`;
+                                    }
+                                }
+                            }
+
+                            progress.report({ message: "Analysis complete!" });
+                            await new Promise(resolve => setTimeout(resolve, 500));
+
+                            vscode.window.showInformationMessage(message);
+                        });
+                    } else {
+                        vscode.window.showErrorMessage("SQLite index not available");
+                    }
+                } catch (error) {
+                    console.error("Error checking target timestamps:", error);
+                    vscode.window.showErrorMessage(`Error checking target timestamps: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+        );
+
+        // Register command to diagnose database schema issues
+        const diagnoseSchemaCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.diagnoseSchema",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        const schemaInfo = await translationPairsIndex.getDetailedSchemaInfo();
+                        const db = translationPairsIndex.database;
+
+                        if (db) {
+                            // Check what columns actually exist in the cells table
+                            const stmt = db.prepare("PRAGMA table_info(cells)");
+                            const actualColumns: Array<{ name: string; type: string; }> = [];
+
+                            try {
+                                while (stmt.step()) {
+                                    const row = stmt.getAsObject();
+                                    actualColumns.push({
+                                        name: row.name as string,
+                                        type: row.type as string
+                                    });
+                                }
+                            } finally {
+                                stmt.free();
+                            }
+
+                            let message = `Database Schema Diagnosis (Expected v8):\n\n`;
+                            message += `📊 Schema Version: ${schemaInfo.currentVersion}\n`;
+                            message += `📁 Tables Exist: ${schemaInfo.cellsTableExists ? 'Yes' : 'No'}\n`;
+                            message += `🏗️ New Structure: ${schemaInfo.hasNewStructure ? 'Yes' : 'No'}\n\n`;
+
+                            message += `🔍 Cells Table Columns (${actualColumns.length}):\n`;
+
+                            // Check specifically for the timestamp columns
+                            const hasTargetUpdatedAt = actualColumns.some(col => col.name === 't_updated_at');
+                            const hasTargetCurrentEdit = actualColumns.some(col => col.name === 't_current_edit_timestamp');
+                            const hasSourceUpdatedAt = actualColumns.some(col => col.name === 's_updated_at');
+
+                            for (const col of actualColumns) {
+                                let indicator = '';
+                                if (col.name === 't_updated_at') {
+                                    indicator = ' ❌ (SHOULD NOT EXIST)';
+                                } else if (col.name === 't_current_edit_timestamp') {
+                                    indicator = ' ✅ (CORRECT)';
+                                } else if (col.name === 's_updated_at') {
+                                    indicator = ' ✅ (CORRECT FOR SOURCE)';
+                                }
+                                message += `• ${col.name} (${col.type})${indicator}\n`;
+                            }
+
+                            message += `\n🎯 Timestamp Column Analysis:\n`;
+                            message += `• t_updated_at exists: ${hasTargetUpdatedAt ? '❌ YES (PROBLEM!)' : '✅ No'}\n`;
+                            message += `• t_current_edit_timestamp exists: ${hasTargetCurrentEdit ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n`;
+                            message += `• s_updated_at exists: ${hasSourceUpdatedAt ? '✅ Yes' : '❌ NO (PROBLEM!)'}\n\n`;
+
+                            if (hasTargetUpdatedAt) {
+                                message += `🚨 ISSUE FOUND: t_updated_at should NOT exist in schema v8!\n`;
+                                message += `This suggests an old database that wasn't properly recreated.\n\n`;
+                                message += `💡 SOLUTION: Force recreate the database:\n`;
+                                message += `1. Run "Codex: Force Schema Reset" command\n`;
+                                message += `2. Or delete .project/indexes.sqlite and restart extension\n`;
+                            } else {
+                                message += `✅ Timestamp columns are correct for schema v8!\n`;
+                            }
+
+                            vscode.window.showInformationMessage(message);
+                        }
+                    } else {
+                        vscode.window.showErrorMessage("SQLite index not available");
+                    }
+                } catch (error) {
+                    console.error("Error diagnosing schema:", error);
+                    vscode.window.showErrorMessage(`Error diagnosing schema: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+        );
+
+        // Register command to configure validation threshold
+        const configureValidationThresholdCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.configureValidationThreshold",
+            async () => {
+                try {
+                    const currentThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                        .get('validationCount', 1);
+
+                    const newThresholdStr = await vscode.window.showInputBox({
+                        prompt: "How many validators are required for a cell to be considered 'fully validated'?",
+                        value: currentThreshold.toString(),
+                        validateInput: (value) => {
+                            const num = parseInt(value);
+                            if (isNaN(num) || num < 1 || num > 10) {
+                                return "Please enter a number between 1 and 10";
+                            }
+                            return null;
+                        }
+                    });
+
+                    if (newThresholdStr === undefined) {
+                        return; // User cancelled
+                    }
+
+                    const newThreshold = parseInt(newThresholdStr);
+
+                    // Update the Project Manager's validation count configuration
+                    await vscode.workspace.getConfiguration('codex-project-manager')
+                        .update('validationCount', newThreshold, vscode.ConfigurationTarget.Workspace);
+
+                    // Automatically recalculate validation status for all cells
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        await vscode.window.withProgress({
+                            location: vscode.ProgressLocation.Notification,
+                            title: `Updating validation threshold (${currentThreshold} → ${newThreshold})...`,
+                            cancellable: false
+                        }, async (progress) => {
+                            progress.report({ message: "Recalculating cell validation status..." });
+
+                            const result = await translationPairsIndex.recalculateAllValidationStatus();
+
+                            vscode.window.showInformationMessage(
+                                `Validation threshold updated to ${newThreshold} validator${newThreshold === 1 ? '' : 's'}. ` +
+                                `${result.updatedCells} cells updated with new validation status.`
+                            );
+                        });
+                    } else {
+                        vscode.window.showInformationMessage(
+                            `Validation threshold updated to ${newThreshold} validator${newThreshold === 1 ? '' : 's'}. ` +
+                            `Changes will apply to new validations.`
+                        );
+                    }
+                } catch (error) {
+                    console.error("Error configuring validation threshold:", error);
+                    vscode.window.showErrorMessage(`Error configuring validation threshold: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+            }
+        );
+
+        // Add configuration change listener to automatically recalculate when Project Manager changes validation threshold
+        const configChangeListener = vscode.workspace.onDidChangeConfiguration((event) => {
+            // Check if the Project Manager's validation count changed
+            if (event.affectsConfiguration('codex-project-manager.validationCount')) {
+                // Automatically recalculate validation status
+                if (translationPairsIndex instanceof SQLiteIndexManager) {
+                    // Use setTimeout to avoid blocking the configuration change
+                    setTimeout(async () => {
+                        try {
+                            const newThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                                .get('validationCount', 1);
+
+                            const result = await translationPairsIndex.recalculateAllValidationStatus();
+
+                            // Show a brief notification to the user
+                            vscode.window.showInformationMessage(
+                                `Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`
+                            );
+                        } catch (error) {
+                            console.error('[SQLiteIndex] Auto-recalculation failed:', error);
+                        }
+                    }, 100); // Small delay to ensure configuration is fully applied
+                }
+            }
+        });
+
+        // Add the listener to context subscriptions for cleanup
+        context.subscriptions.push(configChangeListener);
+
+        // Register command to recalculate validation status for all cells
+        const recalculateValidationStatusCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.recalculateValidationStatus",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        vscode.window.withProgress({
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Recalculating validation status...",
+                            cancellable: false
+                        }, async (progress) => {
+                            progress.report({ message: "Updating validation status for all cells..." });
+
+                            const currentThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                                .get('validationCount', 1);
+
+                            const result = await translationPairsIndex.recalculateAllValidationStatus();
+
+                            vscode.window.showInformationMessage(
+                                `Validation status recalculated! ${result.updatedCells} cells processed with threshold of ${currentThreshold} validator${currentThreshold === 1 ? '' : 's'}.`
+                            );
+                        });
+                    } else {
+                        vscode.window.showErrorMessage("Validation recalculation only available for SQLite index");
+                    }
+                } catch (error) {
+                    console.error("Error recalculating validation status:", error);
+                    vscode.window.showErrorMessage("Failed to recalculate validation status");
+                }
+            }
+        );
+
+        // Register command to check validation data in database
+        const checkValidationDataCommand = vscode.commands.registerCommand(
+            "codex-editor-extension.checkValidationData",
+            async () => {
+                try {
+                    if (translationPairsIndex instanceof SQLiteIndexManager) {
+                        vscode.window.withProgress({
+                            location: vscode.ProgressLocation.Notification,
+                            title: "Checking validation data in database...",
+                            cancellable: false
+                        }, async (progress) => {
+                            progress.report({ message: "Analyzing validation columns..." });
+
+                            const db = translationPairsIndex.database;
+                            if (db) {
+                                try {
+                                    // Get validation statistics
+                                    const validationStmt = db.prepare(`
+                                        SELECT 
+                                            COUNT(*) as total_target_cells,
+                                            COUNT(t_validation_count) as cells_with_validation_count,
+                                            COUNT(t_validated_by) as cells_with_validated_by,
+                                            SUM(CASE WHEN t_is_fully_validated = 1 THEN 1 ELSE 0 END) as fully_validated_cells,
+                                            AVG(t_validation_count) as avg_validation_count,
+                                            MAX(t_validation_count) as max_validation_count
+                                        FROM cells 
+                                        WHERE t_content IS NOT NULL AND t_content != ''
+                                    `);
+
+                                    let stats = {
+                                        totalTargetCells: 0,
+                                        cellsWithValidationCount: 0,
+                                        cellsWithValidatedBy: 0,
+                                        fullyValidatedCells: 0,
+                                        avgValidationCount: 0,
+                                        maxValidationCount: 0
+                                    };
+
+                                    try {
+                                        validationStmt.step();
+                                        const result = validationStmt.getAsObject();
+                                        stats = {
+                                            totalTargetCells: (result.total_target_cells as number) || 0,
+                                            cellsWithValidationCount: (result.cells_with_validation_count as number) || 0,
+                                            cellsWithValidatedBy: (result.cells_with_validated_by as number) || 0,
+                                            fullyValidatedCells: (result.fully_validated_cells as number) || 0,
+                                            avgValidationCount: (result.avg_validation_count as number) || 0,
+                                            maxValidationCount: (result.max_validation_count as number) || 0
+                                        };
+                                    } finally {
+                                        validationStmt.free();
+                                    }
+
+                                    // Get sample validation data
+                                    const sampleStmt = db.prepare(`
+                                        SELECT 
+                                            cell_id,
+                                            t_validation_count,
+                                            t_validated_by,
+                                            t_is_fully_validated,
+                                            t_current_edit_timestamp
+                                        FROM cells 
+                                        WHERE t_content IS NOT NULL AND t_content != ''
+                                        AND (t_validation_count > 0 OR t_validated_by IS NOT NULL OR t_is_fully_validated = 1)
+                                        ORDER BY t_validation_count DESC, t_current_edit_timestamp DESC
+                                        LIMIT 10
+                                    `);
+
+                                    const sampleCells: any[] = [];
+                                    try {
+                                        while (sampleStmt.step()) {
+                                            sampleCells.push(sampleStmt.getAsObject());
+                                        }
+                                    } finally {
+                                        sampleStmt.free();
+                                    }
+
+                                    // Get validation threshold
+                                    const validationThreshold = vscode.workspace.getConfiguration('codex-project-manager')
+                                        .get('validationCount', 1);
+
+                                    progress.report({ message: "Analysis complete" });
+
+                                    let message = `Validation Data Analysis (Schema v8):\\n\\n`;
+                                    message += `📊 General Statistics:\\n`;
+                                    message += `• Total target cells with content: ${stats.totalTargetCells}\\n`;
+                                    message += `• Cells with validation count: ${stats.cellsWithValidationCount}\\n`;
+                                    message += `• Cells with validated_by data: ${stats.cellsWithValidatedBy}\\n`;
+                                    message += `• Fully validated cells: ${stats.fullyValidatedCells}\\n`;
+                                    message += `• Average validation count: ${stats.avgValidationCount.toFixed(2)}\\n`;
+                                    message += `• Max validation count: ${stats.maxValidationCount}\\n`;
+                                    message += `• Validation threshold: ${validationThreshold} validators\\n\\n`;
+
+                                    if (sampleCells.length > 0) {
+                                        message += `🔍 Sample Validated Cells:\\n`;
+                                        sampleCells.forEach((cell, index) => {
+                                            message += `${index + 1}. ${cell.cell_id}:\\n`;
+                                            message += `   • Count: ${cell.t_validation_count || 0}\\n`;
+                                            message += `   • By: ${cell.t_validated_by || 'none'}\\n`;
+                                            message += `   • Fully validated: ${cell.t_is_fully_validated ? 'Yes' : 'No'}\\n`;
+                                            if (cell.t_current_edit_timestamp) {
+                                                message += `   • Last edit: ${new Date(cell.t_current_edit_timestamp).toISOString()}\\n`;
+                                            }
+                                            message += `\\n`;
+                                        });
+                                    } else {
+                                        message += `⚠️ No validated cells found in database.\\n`;
+                                        message += `This might indicate validation updates are not reaching the database.\\n`;
+                                    }
+
+                                    vscode.window.showInformationMessage(message, { modal: true });
+
+                                } catch (error) {
+                                    vscode.window.showErrorMessage(`Validation analysis failed: ${error}`);
+                                }
+                            } else {
+                                vscode.window.showErrorMessage("Database not available");
+                            }
+                        });
+                    } else {
+                        vscode.window.showErrorMessage("Index manager not available");
+                    }
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Error checking validation data: ${error}`);
+                }
+            }
+        );
+
         // Make sure to close the database when extension deactivates
         context.subscriptions.push({
             dispose: async () => {
@@ -1317,9 +1884,16 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                 checkIndexStatusCommand,
                 forceSchemaResetCommand,
                 debugSchemaCommand,
+                checkLineNumbersCommand,
                 refreshIndexCommand,
                 syncStatusCommand,
-                incrementalIndexCommand
+                incrementalIndexCommand,
+                checkTimestampsCommand,
+                checkTargetTimestampsCommand,
+                diagnoseSchemaCommand,
+                checkValidationDataCommand,
+                configureValidationThresholdCommand,
+                recalculateValidationStatusCommand
             ]
         );
 

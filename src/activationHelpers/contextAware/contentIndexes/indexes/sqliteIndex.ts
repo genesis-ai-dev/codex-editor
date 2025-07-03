@@ -10,11 +10,11 @@ const INDEX_DB_PATH = [".project", "indexes.sqlite"];
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
-    DEBUG_MODE && debug(`${message}`, ...args);
+    DEBUG_MODE && console.log(`[SQLiteIndex] ${message}`, ...args);
 };
 
 // Schema version for migrations
-export const CURRENT_SCHEMA_VERSION = 8; // Major restructure: combine source/target rows, extract metadata columns
+export const CURRENT_SCHEMA_VERSION = 9; // Optimized schema: no redundant columns, proper timestamps, t_is_fully_validated with threshold logic and more
 
 export class SQLiteIndexManager {
     private sql: SqlJsStatic | null = null;
@@ -287,13 +287,12 @@ export class SQLiteIndexManager {
                     t_word_count INTEGER DEFAULT 0,
                     t_raw_content TEXT,
                     t_created_at INTEGER,
-                    t_updated_at INTEGER,
                     
                     -- Target metadata (optimized fields only)
                     t_current_edit_timestamp INTEGER,
                     t_validation_count INTEGER DEFAULT 0,
                     t_validated_by TEXT,
-                    t_is_validated BOOLEAN DEFAULT FALSE,
+                    t_is_fully_validated BOOLEAN DEFAULT FALSE,
                     
                     FOREIGN KEY (s_file_id) REFERENCES files(id) ON DELETE SET NULL,
                     FOREIGN KEY (t_file_id) REFERENCES files(id) ON DELETE SET NULL
@@ -369,16 +368,8 @@ export class SQLiteIndexManager {
                 END
             `);
 
-            this.db!.run(`
-                CREATE TRIGGER IF NOT EXISTS update_cells_t_timestamp 
-                AFTER UPDATE OF t_content, t_raw_content ON cells
-                BEGIN
-                    UPDATE cells SET 
-                        t_updated_at = strftime('%s', 'now') * 1000,
-                        t_current_edit_timestamp = strftime('%s', 'now') * 1000
-                    WHERE cell_id = NEW.cell_id;
-                END
-            `);
+            // Target timestamp trigger removed - timestamps now handled in application logic
+            // to preserve actual edit timestamps from JSON metadata instead of database operation time
 
             // FTS synchronization triggers - handle source and target separately
             this.db!.run(`
@@ -464,7 +455,7 @@ export class SQLiteIndexManager {
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_content_hash ON cells(t_raw_content_hash)");
 
             // Performance indexes for extracted metadata
-            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_is_validated ON cells(t_is_validated)");
+            this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_is_fully_validated ON cells(t_is_fully_validated)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_current_edit_timestamp ON cells(t_current_edit_timestamp)");
             this.db!.run("CREATE INDEX IF NOT EXISTS idx_cells_t_validation_count ON cells(t_validation_count)");
 
@@ -508,25 +499,27 @@ export class SQLiteIndexManager {
                 this.trackProgress("New database schema initialized", stepStart);
                 debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
-                // Scenario 2: Wrong version (ahead, behind, or any mismatch) - recreate everything
+                // Scenario 2: ANY version mismatch (ahead, behind, or different) - ALWAYS recreate everything
+                // No partial migrations - we're senior database engineers who don't mess with bad/partial databases!
                 stepStart = this.trackProgress("Handle schema version mismatch", stepStart);
                 debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
-                debug("Recreating database with current schema - this ensures maximum reliability");
+                debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
 
                 // Show user notification about the recreation
                 const vscode = await import('vscode');
                 vscode.window.showInformationMessage(
-                    `AI updating to latest version. This may take a few moments...`
+                    `AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`
                 );
 
-                // Delete the database file and recreate from scratch
+                // CRITICAL: Delete the database file completely and recreate from scratch
+                // This handles ALL cases: old schemas, corrupted databases, future schema versions, etc.
                 await this.deleteDatabaseFile();
 
-                // Recreate the database with the latest schema
+                // Recreate the database with the current schema (version 8)
                 await this.recreateDatabase();
 
-                this.trackProgress("Database schema recreation complete", stepStart);
-                debug(`Database recreated with schema version ${CURRENT_SCHEMA_VERSION}`);
+                this.trackProgress("Database complete recreation finished", stepStart);
+                debug(`Database completely recreated with schema version ${CURRENT_SCHEMA_VERSION} - no partial migrations used`);
             } else {
                 // Scenario 3: Correct version - load normally
                 stepStart = this.trackProgress("Verify database schema", stepStart);
@@ -807,12 +800,18 @@ export class SQLiteIndexManager {
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
 
-        if (!contentChanged && existingCell) {
+        // Extract metadata for dedicated columns (always extract for target cells to handle validation changes)
+        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
+
+        // For target cells, always update metadata even if content hasn't changed (validation may have changed)
+        const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
+
+        if (!shouldUpdate && existingCell) {
             return { id: cellId, isNew: false, contentChanged: false };
         }
 
-        // Extract metadata for dedicated columns
-        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
+        // Use actual edit timestamp from JSON metadata when available
+        const actualEditTimestamp = extractedMetadata.currentEditTimestamp || currentTimestamp;
 
         // Prepare column names and values based on cell type
         const prefix = cellType === 'source' ? 's_' : 't_';
@@ -822,8 +821,7 @@ export class SQLiteIndexManager {
             `${prefix}raw_content_hash`,
             `${prefix}line_number`,
             `${prefix}word_count`,
-            `${prefix}raw_content`,
-            `${prefix}updated_at`
+            `${prefix}raw_content`
         ];
 
         const values = [
@@ -832,26 +830,70 @@ export class SQLiteIndexManager {
             rawContentHash,
             lineNumber || null,
             wordCount,
-            actualRawContent,
-            currentTimestamp
+            actualRawContent
         ];
+
+        // Add timestamps based on cell type
+        if (cellType === 'source') {
+            // Source cells keep s_updated_at for tracking source content changes
+            columns.push('s_updated_at');
+            values.push(actualEditTimestamp);
+        }
+        // Target cells only use t_current_edit_timestamp (added below with metadata)
 
         // Add target-specific metadata columns
         if (cellType === 'target') {
-            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_validated');
+            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated');
             values.push(
-                extractedMetadata.currentEditTimestamp || currentTimestamp,
+                actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
                 extractedMetadata.validationCount || 0,
                 extractedMetadata.validatedBy || null,
-                extractedMetadata.isValidated ? 1 : 0
+                extractedMetadata.isFullyValidated ? 1 : 0
             );
         }
 
-        // Add created_at for new cells
-        if (isNew) {
-            columns.push(`${prefix}created_at`);
-            values.push(currentTimestamp);
+        // Handle t_created_at logic for target cells (more complex than source cells)
+        if (cellType === 'target') {
+            // For target cells, t_created_at should only be set when first content is added
+            if (isNew) {
+                // New target cell: only set t_created_at if we actually have content
+                if (content && content.trim() !== '') {
+                    columns.push('t_created_at');
+                    values.push(actualEditTimestamp);
+                }
+                // If no content, t_created_at remains NULL (will be set when first content is added)
+            } else {
+                // Existing target cell: check if t_created_at is NULL and we're adding first content
+                const checkCreatedStmt = this.db.prepare(`
+                    SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
+                `);
+
+                let currentCreatedAt: number | null = null;
+                try {
+                    checkCreatedStmt.bind([cellId]);
+                    if (checkCreatedStmt.step()) {
+                        currentCreatedAt = checkCreatedStmt.getAsObject().t_created_at as number | null;
+                    }
+                } finally {
+                    checkCreatedStmt.free();
+                }
+
+                // If t_created_at is NULL and we're adding content, set it to current edit timestamp
+                if (currentCreatedAt === null && content && content.trim() !== '') {
+                    columns.push('t_created_at');
+                    values.push(actualEditTimestamp);
+                }
+                // Otherwise, don't modify t_created_at (preserve existing value)
+            }
+        } else if (cellType === 'source') {
+            // Source cells: simpler logic, always set created_at for new cells
+            if (isNew) {
+                columns.push('s_created_at');
+                values.push(actualEditTimestamp);
+            }
         }
+
+        // Created_at logic is handled above based on cell type and content presence
 
         // Upsert the cell
         const upsertStmt = this.db.prepare(`
@@ -914,12 +956,18 @@ export class SQLiteIndexManager {
         const contentChanged = !existingCell || existingCell.hash !== rawContentHash;
         const isNew = !existingCell;
 
-        if (!contentChanged && existingCell) {
+        // Extract metadata for dedicated columns (always extract for target cells to handle validation changes)
+        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
+
+        // For target cells, always update metadata even if content hasn't changed (validation may have changed)
+        const shouldUpdate = contentChanged || (cellType === 'target' && metadata && Object.keys(metadata).length > 0);
+
+        if (!shouldUpdate && existingCell) {
             return { id: cellId, isNew: false, contentChanged: false };
         }
 
-        // Extract metadata for dedicated columns
-        const extractedMetadata = this.extractMetadataFields(metadata, cellType);
+        // Use actual edit timestamp from JSON metadata when available
+        const actualEditTimestamp = extractedMetadata.currentEditTimestamp || currentTimestamp;
 
         // Prepare column names and values based on cell type
         const prefix = cellType === 'source' ? 's_' : 't_';
@@ -929,8 +977,7 @@ export class SQLiteIndexManager {
             `${prefix}raw_content_hash`,
             `${prefix}line_number`,
             `${prefix}word_count`,
-            `${prefix}raw_content`,
-            `${prefix}updated_at`
+            `${prefix}raw_content`
         ];
 
         const values = [
@@ -939,26 +986,70 @@ export class SQLiteIndexManager {
             rawContentHash,
             lineNumber || null,
             wordCount,
-            actualRawContent,
-            currentTimestamp
+            actualRawContent
         ];
+
+        // Add timestamps based on cell type
+        if (cellType === 'source') {
+            // Source cells keep s_updated_at for tracking source content changes
+            columns.push('s_updated_at');
+            values.push(actualEditTimestamp);
+        }
+        // Target cells only use t_current_edit_timestamp (added below with metadata)
 
         // Add target-specific metadata columns
         if (cellType === 'target') {
-            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_validated');
+            columns.push('t_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated');
             values.push(
-                extractedMetadata.currentEditTimestamp || currentTimestamp,
+                actualEditTimestamp, // Only t_current_edit_timestamp for target cells (no redundant t_updated_at)
                 extractedMetadata.validationCount || 0,
                 extractedMetadata.validatedBy || null,
-                extractedMetadata.isValidated ? 1 : 0
+                extractedMetadata.isFullyValidated ? 1 : 0
             );
         }
 
-        // Add created_at for new cells
-        if (isNew) {
-            columns.push(`${prefix}created_at`);
-            values.push(currentTimestamp);
+        // Handle t_created_at logic for target cells (more complex than source cells)
+        if (cellType === 'target') {
+            // For target cells, t_created_at should only be set when first content is added
+            if (isNew) {
+                // New target cell: only set t_created_at if we actually have content
+                if (content && content.trim() !== '') {
+                    columns.push('t_created_at');
+                    values.push(actualEditTimestamp);
+                }
+                // If no content, t_created_at remains NULL (will be set when first content is added)
+            } else {
+                // Existing target cell: check if t_created_at is NULL and we're adding first content
+                const checkCreatedStmt = this.db.prepare(`
+                    SELECT t_created_at FROM cells WHERE cell_id = ? LIMIT 1
+                `);
+
+                let currentCreatedAt: number | null = null;
+                try {
+                    checkCreatedStmt.bind([cellId]);
+                    if (checkCreatedStmt.step()) {
+                        currentCreatedAt = checkCreatedStmt.getAsObject().t_created_at as number | null;
+                    }
+                } finally {
+                    checkCreatedStmt.free();
+                }
+
+                // If t_created_at is NULL and we're adding content, set it to current edit timestamp
+                if (currentCreatedAt === null && content && content.trim() !== '') {
+                    columns.push('t_created_at');
+                    values.push(actualEditTimestamp);
+                }
+                // Otherwise, don't modify t_created_at (preserve existing value)
+            }
+        } else if (cellType === 'source') {
+            // Source cells: simpler logic, always set created_at for new cells
+            if (isNew) {
+                columns.push('s_created_at');
+                values.push(actualEditTimestamp);
+            }
         }
+
+        // Created_at logic is handled above based on cell type and content presence
 
         // Upsert the cell
         const upsertStmt = this.db.prepare(`
@@ -1250,7 +1341,7 @@ export class SQLiteIndexManager {
                 c.t_current_edit_timestamp,
                 c.t_validation_count,
                 c.t_validated_by,
-                c.t_is_validated,
+                c.t_is_fully_validated,
                 t_file.file_path as t_file_path
             FROM cells c
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
@@ -1269,7 +1360,7 @@ export class SQLiteIndexManager {
                     currentEditTimestamp: row.t_current_edit_timestamp || null,
                     validationCount: row.t_validation_count || 0,
                     validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
-                    isValidated: Boolean(row.t_is_validated)
+                    isFullyValidated: Boolean(row.t_is_fully_validated)
                 };
 
                 return {
@@ -1313,7 +1404,7 @@ export class SQLiteIndexManager {
                 c.t_current_edit_timestamp,
                 c.t_validation_count,
                 c.t_validated_by,
-                c.t_is_validated,
+                c.t_is_fully_validated,
                 t_file.file_path as t_file_path,
                 t_file.file_type as t_file_type
             FROM cells c
@@ -1333,7 +1424,7 @@ export class SQLiteIndexManager {
                     currentEditTimestamp: row.t_current_edit_timestamp || null,
                     validationCount: row.t_validation_count || 0,
                     validatedBy: row.t_validated_by ? row.t_validated_by.split(',') : [],
-                    isValidated: Boolean(row.t_is_validated)
+                    isFullyValidated: Boolean(row.t_is_fully_validated)
                 };
 
                 // Return data based on requested cell type
@@ -2034,8 +2125,8 @@ export class SQLiteIndexManager {
             const expectedCellsColumns = [
                 'cell_id',
                 's_file_id', 's_content', 's_raw_content_hash', 's_line_number', 's_word_count', 's_raw_content', 's_created_at', 's_updated_at',
-                't_file_id', 't_content', 't_raw_content_hash', 't_line_number', 't_word_count', 't_raw_content', 't_created_at', 't_updated_at',
-                't_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_validated'
+                't_file_id', 't_content', 't_raw_content_hash', 't_line_number', 't_word_count', 't_raw_content', 't_created_at',
+                't_current_edit_timestamp', 't_validation_count', 't_validated_by', 't_is_fully_validated'
             ];
 
             const expectedIndexes = [
@@ -3047,7 +3138,7 @@ export class SQLiteIndexManager {
                     AND c.s_content != ''
                     AND c.t_content IS NOT NULL 
                     AND c.t_content != ''
-                    ${onlyValidated ? "AND c.t_is_validated = 1" : ""}
+                    ${onlyValidated ? "AND c.t_is_fully_validated = 1" : ""}
                 ORDER BY c.cell_id DESC
                 LIMIT ?
             `;
@@ -3061,13 +3152,13 @@ export class SQLiteIndexManager {
                     const row = stmt.getAsObject();
 
                     // Additional validation check if needed
-                    let isValidated = true;
+                    let isFullyValidated = true;
                     if (onlyValidated) {
-                        isValidated = await this.isTargetCellValidated(row.cell_id as string);
-                        console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isValidated ? 'validated' : 'not validated'}`);
+                        isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id as string);
+                        console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isFullyValidated ? 'validated' : 'not validated'}`);
                     }
 
-                    if (isValidated) {
+                    if (isFullyValidated) {
                         results.push({
                             cellId: row.cell_id,
                             cell_id: row.cell_id,
@@ -3134,13 +3225,13 @@ export class SQLiteIndexManager {
                 const row = stmt.getAsObject();
 
                 // Check if target content is validated (only if onlyValidated is true)
-                let isValidated = true;
+                let isFullyValidated = true;
                 if (onlyValidated) {
-                    isValidated = await this.isTargetCellValidated(row.cell_id as string);
-                    console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isValidated ? 'validated' : 'not validated'}`);
+                    isFullyValidated = await this.isTargetCellFullyValidated(row.cell_id as string);
+                    console.log(`[searchCompleteTranslationPairsWithValidation] Target cell ${row.cell_id} is ${isFullyValidated ? 'validated' : 'not validated'}`);
                 }
 
-                if (isValidated) {
+                if (isFullyValidated) {
                     // Get the target content for this cell
                     const targetStmt = this.db.prepare(`
                         SELECT t_content as content, t_raw_content as raw_content 
@@ -3197,12 +3288,12 @@ export class SQLiteIndexManager {
      * @param cellId - The cell ID to check
      * @returns True if the target cell has been validated, false otherwise
      */
-    private async isTargetCellValidated(cellId: string): Promise<boolean> {
+    private async isTargetCellFullyValidated(cellId: string): Promise<boolean> {
         if (!this.db) return false;
 
         // Get the target cell's validation status from dedicated columns
         const stmt = this.db.prepare(`
-            SELECT t_is_validated FROM cells 
+            SELECT t_is_fully_validated FROM cells 
             WHERE cell_id = ? AND t_content IS NOT NULL
             LIMIT 1
         `);
@@ -3211,10 +3302,10 @@ export class SQLiteIndexManager {
             stmt.bind([cellId]);
             if (stmt.step()) {
                 const row = stmt.getAsObject();
-                return Boolean(row.t_is_validated);
+                return Boolean(row.t_is_fully_validated);
             }
         } catch (error) {
-            console.error(`[isTargetCellValidated] Error checking validation for ${cellId}:`, error);
+            console.error(`[isTargetCellFullyValidated] Error checking validation for ${cellId}:`, error);
         } finally {
             stmt.free();
         }
@@ -3222,9 +3313,48 @@ export class SQLiteIndexManager {
         return false;
     }
 
+    /**
+     * Get the validation threshold for determining if a cell is "fully validated"
+     * This reads from the same configuration as the Project Manager
+     */
+    private getValidationThreshold(): number {
+        // Use the same configuration source as Project Manager
+        return vscode.workspace.getConfiguration('codex-project-manager')
+            .get('validationCount', 1); // Default to 1 validator required
+    }
 
+    /**
+ * Recalculate t_is_fully_validated for all cells based on current validation threshold
+ * This should be called whenever the validation threshold setting changes
+ */
+    async recalculateAllValidationStatus(): Promise<{ updatedCells: number; }> {
+        if (!this.db) throw new Error("Database not initialized");
 
+        const currentThreshold = this.getValidationThreshold();
 
+        // Update all target cells based on current validation count vs threshold
+        const updateStmt = this.db.prepare(`
+            UPDATE cells 
+            SET t_is_fully_validated = CASE 
+                WHEN t_validation_count >= ? THEN 1 
+                ELSE 0 
+            END
+            WHERE t_content IS NOT NULL AND t_content != ''
+        `);
+
+        try {
+            updateStmt.bind([currentThreshold]);
+            updateStmt.step();
+            const updatedCells = this.db.getRowsModified();
+
+            // Save changes to disk
+            await this.saveDatabase();
+
+            return { updatedCells };
+        } finally {
+            updateStmt.free();
+        }
+    }
 
     /**
      * Extract frequently accessed metadata fields for dedicated columns
@@ -3233,13 +3363,13 @@ export class SQLiteIndexManager {
         currentEditTimestamp?: number | null;
         validationCount?: number;
         validatedBy?: string;
-        isValidated?: boolean;
+        isFullyValidated?: boolean;
     } {
         const result: {
             currentEditTimestamp?: number | null;
             validationCount?: number;
             validatedBy?: string;
-            isValidated?: boolean;
+            isFullyValidated?: boolean;
         } = {};
 
         if (!metadata || typeof metadata !== 'object' || cellType !== 'target') {
@@ -3249,26 +3379,38 @@ export class SQLiteIndexManager {
         // Extract edit information for target cells only
         const edits = metadata.edits || [];
 
+
+
         if (edits.length > 0) {
             const lastEdit = edits[edits.length - 1];
             result.currentEditTimestamp = lastEdit.timestamp || null;
 
             // Extract validation information
             if (lastEdit.validatedBy) {
+
+
                 const activeValidations = lastEdit.validatedBy.filter((v: any) =>
                     v && typeof v === 'object' && !v.isDeleted
                 );
                 result.validationCount = activeValidations.length;
-                result.isValidated = activeValidations.length > 0;
+
+                // NEW: Check against validation threshold instead of just > 0
+                const requiredValidators = this.getValidationThreshold();
+                result.isFullyValidated = activeValidations.length >= requiredValidators;
 
                 // Store comma-separated list of usernames
                 const usernames = activeValidations.map((v: any) => v.username).filter(Boolean);
                 result.validatedBy = usernames.length > 0 ? usernames.join(',') : undefined;
+
+
             } else {
                 result.validationCount = 0;
-                result.isValidated = false;
+                result.isFullyValidated = false;
                 result.validatedBy = undefined;
+
             }
+        } else {
+
         }
 
         return result;
@@ -3340,5 +3482,287 @@ export class SQLiteIndexManager {
         };
     }
 
+    /**
+     * Debug method to check line number population in the database
+     * This reflects our logic: source cells always get line numbers, target cells only when they have content
+     */
+    async getLineNumberStats(): Promise<{
+        totalCells: number;
+        cellsWithSourceLineNumbers: number;
+        cellsWithTargetLineNumbers: number;
+        cellsWithNullSourceLineNumbers: number;
+        cellsWithNullTargetLineNumbers: number;
+        targetCellsWithContent: number;
+        targetCellsWithoutContent: number;
+        sampleCellsWithLineNumbers: Array<{
+            cellId: string;
+            sourceLineNumber: number | null;
+            targetLineNumber: number | null;
+            sourceFilePath: string | null;
+            targetFilePath: string | null;
+            hasSourceContent: boolean;
+            hasTargetContent: boolean;
+        }>;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
 
+        // Get general stats
+        const statsStmt = this.db.prepare(`
+            SELECT 
+                COUNT(*) as total_cells,
+                COUNT(c.s_line_number) as cells_with_source_line_numbers,
+                COUNT(c.t_line_number) as cells_with_target_line_numbers,
+                SUM(CASE WHEN c.s_line_number IS NULL THEN 1 ELSE 0 END) as cells_with_null_source_line_numbers,
+                SUM(CASE WHEN c.t_line_number IS NULL THEN 1 ELSE 0 END) as cells_with_null_target_line_numbers,
+                SUM(CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END) as target_cells_with_content,
+                SUM(CASE WHEN c.t_content IS NULL OR c.t_content = '' THEN 1 ELSE 0 END) as target_cells_without_content
+            FROM cells c
+        `);
+
+        let stats = {
+            totalCells: 0,
+            cellsWithSourceLineNumbers: 0,
+            cellsWithTargetLineNumbers: 0,
+            cellsWithNullSourceLineNumbers: 0,
+            cellsWithNullTargetLineNumbers: 0,
+            targetCellsWithContent: 0,
+            targetCellsWithoutContent: 0
+        };
+
+        try {
+            statsStmt.step();
+            const result = statsStmt.getAsObject();
+            stats = {
+                totalCells: (result.total_cells as number) || 0,
+                cellsWithSourceLineNumbers: (result.cells_with_source_line_numbers as number) || 0,
+                cellsWithTargetLineNumbers: (result.cells_with_target_line_numbers as number) || 0,
+                cellsWithNullSourceLineNumbers: (result.cells_with_null_source_line_numbers as number) || 0,
+                cellsWithNullTargetLineNumbers: (result.cells_with_null_target_line_numbers as number) || 0,
+                targetCellsWithContent: (result.target_cells_with_content as number) || 0,
+                targetCellsWithoutContent: (result.target_cells_without_content as number) || 0
+            };
+        } finally {
+            statsStmt.free();
+        }
+
+        // Get sample cells with line numbers
+        const sampleStmt = this.db.prepare(`
+            SELECT 
+                c.cell_id,
+                c.s_line_number as source_line_number,
+                c.t_line_number as target_line_number,
+                s_file.file_path as source_file_path,
+                t_file.file_path as target_file_path,
+                CASE WHEN c.s_content IS NOT NULL AND c.s_content != '' THEN 1 ELSE 0 END as has_source_content,
+                CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END as has_target_content
+            FROM cells c
+            LEFT JOIN files s_file ON c.s_file_id = s_file.id
+            LEFT JOIN files t_file ON c.t_file_id = t_file.id
+            WHERE c.s_line_number IS NOT NULL OR c.t_line_number IS NOT NULL
+            ORDER BY c.s_line_number, c.t_line_number
+            LIMIT 10
+        `);
+
+        const sampleCells: Array<{
+            cellId: string;
+            sourceLineNumber: number | null;
+            targetLineNumber: number | null;
+            sourceFilePath: string | null;
+            targetFilePath: string | null;
+            hasSourceContent: boolean;
+            hasTargetContent: boolean;
+        }> = [];
+
+        try {
+            while (sampleStmt.step()) {
+                const row = sampleStmt.getAsObject();
+                sampleCells.push({
+                    cellId: row.cell_id as string,
+                    sourceLineNumber: row.source_line_number as number | null,
+                    targetLineNumber: row.target_line_number as number | null,
+                    sourceFilePath: row.source_file_path as string | null,
+                    targetFilePath: row.target_file_path as string | null,
+                    hasSourceContent: Boolean(row.has_source_content),
+                    hasTargetContent: Boolean(row.has_target_content)
+                });
+            }
+        } finally {
+            sampleStmt.free();
+        }
+
+        return {
+            ...stats,
+            sampleCellsWithLineNumbers: sampleCells
+        };
+    }
+
+    /**
+     * Debug method to check target cell timestamp consistency after our fixes
+     * This verifies that t_created_at is only populated for cells with content
+     * and that t_current_edit_timestamp is properly populated from JSON metadata
+     */
+    async getTargetTimestampStats(): Promise<{
+        totalTargetCells: number;
+        targetCellsWithContent: number;
+        targetCellsWithCreatedAt: number;
+        targetCellsWithEditTimestamp: number;
+        targetCellsWithContentButNoCreatedAt: number;
+        targetCellsWithoutContentButWithCreatedAt: number;
+        sampleTargetCells: Array<{
+            cellId: string;
+            hasContent: boolean;
+            createdAt: number | null;
+            editTimestamp: number | null;
+            createdAtDate: string | null;
+            editTimestampDate: string | null;
+        }>;
+        timestampConsistencyIssues: Array<{
+            cellId: string;
+            issue: string;
+            hasContent: boolean;
+            createdAt: number | null;
+            editTimestamp: number | null;
+        }>;
+    }> {
+        if (!this.db) throw new Error("Database not initialized");
+
+        // Get general stats about target cell timestamps
+        const statsStmt = this.db.prepare(`
+            SELECT 
+                COUNT(*) as total_target_cells,
+                SUM(CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END) as target_cells_with_content,
+                COUNT(c.t_created_at) as target_cells_with_created_at,
+                COUNT(c.t_current_edit_timestamp) as target_cells_with_edit_timestamp,
+                SUM(CASE WHEN (c.t_content IS NOT NULL AND c.t_content != '') AND c.t_created_at IS NULL THEN 1 ELSE 0 END) as target_cells_with_content_but_no_created_at,
+                SUM(CASE WHEN (c.t_content IS NULL OR c.t_content = '') AND c.t_created_at IS NOT NULL THEN 1 ELSE 0 END) as target_cells_without_content_but_with_created_at
+            FROM cells c
+            WHERE c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL
+        `);
+
+        let stats = {
+            totalTargetCells: 0,
+            targetCellsWithContent: 0,
+            targetCellsWithCreatedAt: 0,
+            targetCellsWithEditTimestamp: 0,
+            targetCellsWithContentButNoCreatedAt: 0,
+            targetCellsWithoutContentButWithCreatedAt: 0
+        };
+
+        try {
+            statsStmt.step();
+            const result = statsStmt.getAsObject();
+            stats = {
+                totalTargetCells: (result.total_target_cells as number) || 0,
+                targetCellsWithContent: (result.target_cells_with_content as number) || 0,
+                targetCellsWithCreatedAt: (result.target_cells_with_created_at as number) || 0,
+                targetCellsWithEditTimestamp: (result.target_cells_with_edit_timestamp as number) || 0,
+                targetCellsWithContentButNoCreatedAt: (result.target_cells_with_content_but_no_created_at as number) || 0,
+                targetCellsWithoutContentButWithCreatedAt: (result.target_cells_without_content_but_with_created_at as number) || 0
+            };
+        } finally {
+            statsStmt.free();
+        }
+
+        // Get sample target cells to inspect timestamps
+        const sampleStmt = this.db.prepare(`
+            SELECT 
+                c.cell_id,
+                CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END as has_content,
+                c.t_created_at as created_at,
+                c.t_current_edit_timestamp as edit_timestamp
+            FROM cells c
+            WHERE c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL
+            ORDER BY c.t_created_at DESC, c.t_current_edit_timestamp DESC
+            LIMIT 10
+        `);
+
+        const sampleCells: Array<{
+            cellId: string;
+            hasContent: boolean;
+            createdAt: number | null;
+            editTimestamp: number | null;
+            createdAtDate: string | null;
+            editTimestampDate: string | null;
+        }> = [];
+
+        try {
+            while (sampleStmt.step()) {
+                const row = sampleStmt.getAsObject();
+                sampleCells.push({
+                    cellId: row.cell_id as string,
+                    hasContent: Boolean(row.has_content),
+                    createdAt: row.created_at as number | null,
+                    editTimestamp: row.edit_timestamp as number | null,
+                    createdAtDate: row.created_at ? new Date(row.created_at as number).toISOString() : null,
+                    editTimestampDate: row.edit_timestamp ? new Date(row.edit_timestamp as number).toISOString() : null
+                });
+            }
+        } finally {
+            sampleStmt.free();
+        }
+
+        // Find timestamp consistency issues
+        const issuesStmt = this.db.prepare(`
+            SELECT 
+                c.cell_id,
+                CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 ELSE 0 END as has_content,
+                c.t_created_at as created_at,
+                c.t_current_edit_timestamp as edit_timestamp
+            FROM cells c
+            WHERE (c.t_file_id IS NOT NULL OR c.t_content IS NOT NULL)
+            AND (
+                -- Issue 1: Has content but no created_at timestamp
+                ((c.t_content IS NOT NULL AND c.t_content != '') AND c.t_created_at IS NULL)
+                OR
+                -- Issue 2: No content but has created_at timestamp
+                ((c.t_content IS NULL OR c.t_content = '') AND c.t_created_at IS NOT NULL)
+                OR
+                -- Issue 3: Has content but no edit timestamp
+                ((c.t_content IS NOT NULL AND c.t_content != '') AND c.t_current_edit_timestamp IS NULL)
+            )
+            LIMIT 20
+        `);
+
+        const timestampConsistencyIssues: Array<{
+            cellId: string;
+            issue: string;
+            hasContent: boolean;
+            createdAt: number | null;
+            editTimestamp: number | null;
+        }> = [];
+
+        try {
+            while (issuesStmt.step()) {
+                const row = issuesStmt.getAsObject();
+                const hasContent = Boolean(row.has_content);
+                const createdAt = row.created_at as number | null;
+                const editTimestamp = row.edit_timestamp as number | null;
+
+                let issue = '';
+                if (hasContent && !createdAt) {
+                    issue = 'Has content but missing t_created_at';
+                } else if (!hasContent && createdAt) {
+                    issue = 'No content but has t_created_at (should be NULL)';
+                } else if (hasContent && !editTimestamp) {
+                    issue = 'Has content but missing t_current_edit_timestamp';
+                }
+
+                timestampConsistencyIssues.push({
+                    cellId: row.cell_id as string,
+                    issue,
+                    hasContent,
+                    createdAt,
+                    editTimestamp
+                });
+            }
+        } finally {
+            issuesStmt.free();
+        }
+
+        return {
+            ...stats,
+            sampleTargetCells: sampleCells,
+            timestampConsistencyIssues
+        };
+    }
 }

@@ -250,16 +250,43 @@ export class FileSyncManager {
                     fileStat.mtime
                 );
 
+                // Calculate logical line positions for all non-paratext cells (1-indexed)
+                let logicalLinePosition = 1;
+
                 // Process all cells in the file using sync operations
                 for (const cell of fileData.cells) {
                     const cellId = cell.metadata?.id || `${fileData.id}_${fileData.cells.indexOf(cell)}`;
+                    const isParatext = cell.metadata?.type === "paratext";
+                    const hasContent = cell.value && cell.value.trim() !== "";
+
+                    // Calculate line number for database storage
+                    let lineNumberForDB: number | null = null;
+
+                    if (!isParatext) {
+                        if (fileType === 'source') {
+                            // Source cells: always store line numbers (they should always have content)
+                            lineNumberForDB = logicalLinePosition;
+                        } else {
+                            // Target cells: only store line number if cell has content
+                            // But we still calculate the logical position for structural consistency
+                            if (hasContent) {
+                                lineNumberForDB = logicalLinePosition;
+                            }
+                            // If no content, lineNumberForDB stays null but logical position still increments
+                        }
+
+                        // Always increment logical position for non-paratext cells
+                        // This ensures stable line numbering even as cells get translated
+                        logicalLinePosition++;
+                    }
+                    // Paratext cells: no line numbers, no position increment
 
                     this.sqliteIndex.upsertCellSync(
                         cellId,
                         fileId,
                         fileType === 'source' ? 'source' : 'target',
                         cell.value,
-                        undefined, // line number not available in current metadata
+                        lineNumberForDB ?? undefined, // Convert null to undefined for method signature compatibility
                         cell.metadata,
                         cell.value // raw content same as value for now
                     );
