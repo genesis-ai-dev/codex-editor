@@ -293,18 +293,43 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
     }
 
-    // Helper function to sanitize HTML content
+    // Helper function to sanitize HTML content using enhanced parsing
     private sanitizeContent(htmlContent: string): string {
-        // Remove HTML tags but preserve the text content
-        return htmlContent
-            .replace(/<[^>]*>/g, '') // Remove HTML tags
-            .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
-            .replace(/&amp;/g, '&')  // Replace HTML entities
+        if (!htmlContent) return '';
+
+        let cleanContent = htmlContent;
+
+        // Step 1: Remove footnote sup tags completely (including all nested content)
+        // Handle both class-based and data-attribute-based footnotes
+        cleanContent = cleanContent
+            .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+            .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+            .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, ''); // Remove any remaining sup tags
+
+        // Step 2: Remove spell check markup and other unwanted elements
+        cleanContent = cleanContent
+            .replace(/<[^>]*class=["'][^"']*spell-check[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '')
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
+
+        // Step 3: Remove all remaining HTML tags
+        cleanContent = cleanContent.replace(/<[^>]*>/g, '');
+
+        // Step 4: Clean up HTML entities and normalize whitespace
+        cleanContent = cleanContent
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"')
             .replace(/&#39;/g, "'")
-            .trim(); // Remove leading/trailing whitespace
+            .replace(/&#\d+;/g, ' ') // Remove numeric HTML entities
+            .replace(/&[a-zA-Z]+;/g, ' ') // Remove named HTML entities
+            .replace(/\s+/g, ' ') // Normalize all whitespace to single spaces
+            .trim();
+
+        return cleanContent;
     }
 
     // TRUE IMMEDIATE INDEXING - No delays, immediate searchability
@@ -1194,7 +1219,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
 
     // Add method to sync all cells to database without modifying content
-    // @ts-ignore: Temporarily disable strict null checks for this method
     private async syncAllCellsToDatabase(): Promise<void> {
         try {
             console.log(`[CodexDocument] 🔄 Syncing all cells to database after save...`);
@@ -1222,7 +1246,6 @@ export class CodexCellDocument implements vscode.CustomDocument {
             let syncedValidations = 0;
 
             // Process each cell that has content
-            // @ts-ignore: We know cells array exists in for loop
             for (const cell of this._documentData.cells!) {
                 if (cell.value && cell.value.trim() !== '') {
                     // Get cell ID outside try block so it's accessible in catch block

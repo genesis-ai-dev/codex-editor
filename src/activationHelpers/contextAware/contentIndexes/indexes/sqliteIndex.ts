@@ -2407,20 +2407,51 @@ export class SQLiteIndexManager {
         }
     }
 
-    // Helper function to sanitize HTML content (same as in codexDocument.ts)
+    // Helper function to sanitize HTML content using enhanced regex parsing
     private sanitizeContent(htmlContent: string): string {
         if (!htmlContent) return '';
 
-        // Remove HTML tags but preserve the text content
-        return htmlContent
-            .replace(/<[^>]*>/g, '') // Remove HTML tags
-            .replace(/&nbsp;/g, ' ') // Replace non-breaking spaces
-            .replace(/&amp;/g, '&')  // Replace HTML entities
+        // Use enhanced regex approach since we want to avoid heavy dependencies
+        return this.parseAndSanitizeHtml(htmlContent);
+    }
+
+    // Enhanced HTML sanitization method using improved regex patterns
+    private parseAndSanitizeHtml(htmlContent: string): string {
+        if (!htmlContent) return '';
+
+        let cleanContent = htmlContent;
+
+        // Step 1: Remove footnote sup tags completely (including all nested content)
+        // Handle both class-based and data-attribute-based footnotes
+        cleanContent = cleanContent
+            .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '')
+            .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '')
+            .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, ''); // Remove any remaining sup tags
+
+        // Step 2: Remove spell check markup and other unwanted elements
+        cleanContent = cleanContent
+            .replace(/<[^>]*class=["'][^"']*spell-check[^"']*["'][^>]*>[\s\S]*?<\/[^>]+>/gi, '')
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
+
+        // Step 3: Remove all remaining HTML tags
+        cleanContent = cleanContent.replace(/<[^>]*>/g, '');
+
+        // Step 4: Clean up HTML entities and normalize whitespace
+        cleanContent = cleanContent
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
             .replace(/&lt;/g, '<')
             .replace(/&gt;/g, '>')
             .replace(/&quot;/g, '"')
             .replace(/&#39;/g, "'")
-            .trim(); // Remove leading/trailing whitespace
+            .replace(/&#\d+;/g, ' ') // Remove numeric HTML entities
+            .replace(/&[a-zA-Z]+;/g, ' ') // Remove named HTML entities
+            .replace(/\s+/g, ' ') // Normalize all whitespace to single spaces
+            .trim();
+
+        return cleanContent;
     }
 
     // Delete the database file from disk

@@ -112,6 +112,120 @@ export interface EditorHandles {
     renumberFootnotes: () => void;
 }
 
+/**
+ * Processes Quill content for saving by converting paragraphs to spans properly
+ * This replaces the problematic string-based paragraph processing
+ */
+function processQuillContentForSaving(htmlContent: string): string {
+    if (!htmlContent || htmlContent.trim() === "") {
+        return "";
+    }
+
+    console.log("[processQuillContentForSaving] Input:", htmlContent);
+
+    try {
+        // Create a temporary DOM element for proper HTML parsing
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = htmlContent;
+
+        // Get all paragraph elements
+        const paragraphs = tempDiv.querySelectorAll("p");
+
+        console.log("[processQuillContentForSaving] Found paragraphs:", paragraphs.length);
+
+        if (paragraphs.length === 0) {
+            // No paragraphs found, wrap content in span
+            const result = tempDiv.innerHTML.trim() ? `<span>${tempDiv.innerHTML}</span>` : "";
+            console.log("[processQuillContentForSaving] No paragraphs, result:", result);
+            return result;
+        }
+
+        if (paragraphs.length === 1) {
+            // Single paragraph: convert to span
+            const content = paragraphs[0].innerHTML.trim();
+            const result = content ? `<span>${content}</span>` : "";
+            console.log("[processQuillContentForSaving] Single paragraph, result:", result);
+            return result;
+        }
+
+        // Multiple paragraphs: first becomes span, others remain paragraphs
+        const processedElements: string[] = [];
+
+        paragraphs.forEach((p, index) => {
+            const content = p.innerHTML.trim();
+            console.log(`[processQuillContentForSaving] Processing paragraph ${index}:`, content);
+            if (content) {
+                if (index === 0) {
+                    // First paragraph becomes a span
+                    const spanElement = `<span>${content}</span>`;
+                    processedElements.push(spanElement);
+                    console.log(
+                        `[processQuillContentForSaving] First paragraph as span:`,
+                        spanElement
+                    );
+                } else {
+                    // Subsequent paragraphs remain as paragraphs
+                    const pElement = `<p>${content}</p>`;
+                    processedElements.push(pElement);
+                    console.log(`[processQuillContentForSaving] Subsequent paragraph:`, pElement);
+                }
+            }
+        });
+
+        const result = processedElements.join("");
+        console.log("[processQuillContentForSaving] Final result:", result);
+        return result;
+    } catch (error) {
+        console.warn("Error processing Quill content, falling back to simple processing:", error);
+
+        // Enhanced fallback using regex
+        const cleaned = htmlContent.trim();
+        console.log("[processQuillContentForSaving] Fallback processing:", cleaned);
+
+        // Count paragraphs using regex
+        const paragraphMatches = cleaned.match(/<p[^>]*>[\s\S]*?<\/p>/g);
+        const paragraphCount = paragraphMatches ? paragraphMatches.length : 0;
+
+        console.log("[processQuillContentForSaving] Fallback paragraph count:", paragraphCount);
+
+        if (paragraphCount === 0) {
+            return cleaned ? `<span>${cleaned}</span>` : "";
+        }
+
+        if (paragraphCount === 1) {
+            // Single paragraph case
+            const match = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+            if (match) {
+                const content = match[1].trim();
+                return content ? `<span>${content}</span>` : "";
+            }
+            return cleaned ? `<span>${cleaned}</span>` : "";
+        }
+
+        // Multiple paragraphs: process each
+        if (paragraphMatches) {
+            const processedParagraphs = paragraphMatches
+                .map((paragraph, index) => {
+                    const match = paragraph.match(/<p[^>]*>([\s\S]*?)<\/p>/);
+                    if (match) {
+                        const content = match[1].trim();
+                        if (content) {
+                            return index === 0 ? `<span>${content}</span>` : `<p>${content}</p>`;
+                        }
+                    }
+                    return "";
+                })
+                .filter((p) => p !== "");
+
+            const result = processedParagraphs.join("");
+            console.log("[processQuillContentForSaving] Fallback result:", result);
+            return result;
+        }
+
+        return cleaned;
+    }
+}
+
 // Function to check if Quill editor is empty
 function isQuillEmpty(quill: Quill | null) {
     if (!quill) return true;
@@ -290,29 +404,11 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             isEmpty: isQuillEmpty(quillRef.current),
                         });
 
-                        // Process the content using the same logic as text-change
-                        const cleanedContents = getCleanedHtml(content);
-
-                        const arrayOfParagraphs = cleanedContents
-                            .trim()
-                            .split("</p>")
-                            .map((p) => p.trim())
-                            .filter((p) => p !== "");
-
-                        const finalParagraphs = arrayOfParagraphs.map((p) =>
-                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
-                        );
-
-                        const firstParagraph = finalParagraphs[0] || "";
-                        const restOfParagraphs = finalParagraphs.slice(1) || [];
-                        const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
+                        // Process the content using the improved processing function
                         const contentIsEmpty = isQuillEmpty(quillRef.current);
-
                         const finalContent = contentIsEmpty
                             ? ""
-                            : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join(
-                                  ""
-                              );
+                            : processQuillContentForSaving(getCleanedHtml(content));
 
                         debug("Paste finalContent", { finalContent, contentIsEmpty });
 
@@ -336,7 +432,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 if (!selection) return;
 
                 // Look for footnote markers in the editor content
-                const allFootnotes = quillRef.current.root.querySelectorAll('.footnote-marker');
+                const allFootnotes = quillRef.current.root.querySelectorAll(".footnote-marker");
                 if (allFootnotes.length === 0) return;
 
                 // Get the current cursor position
@@ -344,25 +440,25 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 if (!leaf || !leaf.domNode) return;
 
                 let footnoteMarker: Element | null = null;
-                let element = leaf.domNode as Element;
+                const element = leaf.domNode as Element;
 
-                debug("Footnote deletion attempt", { 
-                    key: event.key, 
+                debug("Footnote deletion attempt", {
+                    key: event.key,
                     selectionIndex: selection.index,
                     elementTag: element.tagName,
                     elementClass: element.className,
-                    totalFootnotes: allFootnotes.length
+                    totalFootnotes: allFootnotes.length,
                 });
 
                 // Simple approach: check if we're directly in a footnote marker
-                if (element.classList?.contains('footnote-marker')) {
+                if (element.classList?.contains("footnote-marker")) {
                     footnoteMarker = element;
                     debug("Found footnote marker directly", { marker: footnoteMarker });
                 } else {
                     // Check parent elements up the tree
                     let parent = element.parentElement;
                     while (parent && !footnoteMarker) {
-                        if (parent.classList?.contains('footnote-marker')) {
+                        if (parent.classList?.contains("footnote-marker")) {
                             footnoteMarker = parent;
                             debug("Found footnote marker in parent", { marker: footnoteMarker });
                             break;
@@ -374,15 +470,22 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     if (!footnoteMarker) {
                         for (const footnote of allFootnotes) {
                             const footnoteIndex = quillRef.current.getIndex(footnote as any);
-                            
+
                             // Check if cursor is right before or after this footnote
                             if (event.key === "Delete" && selection.index === footnoteIndex) {
                                 footnoteMarker = footnote;
-                                debug("Found footnote marker with Delete key", { marker: footnoteMarker });
+                                debug("Found footnote marker with Delete key", {
+                                    marker: footnoteMarker,
+                                });
                                 break;
-                            } else if (event.key === "Backspace" && selection.index === footnoteIndex + 1) {
+                            } else if (
+                                event.key === "Backspace" &&
+                                selection.index === footnoteIndex + 1
+                            ) {
                                 footnoteMarker = footnote;
-                                debug("Found footnote marker with Backspace key", { marker: footnoteMarker });
+                                debug("Found footnote marker with Backspace key", {
+                                    marker: footnoteMarker,
+                                });
                                 break;
                             }
                         }
@@ -394,22 +497,22 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     return;
                 }
 
-                debug("Processing footnote marker", { 
-                    marker: footnoteMarker, 
+                debug("Processing footnote marker", {
+                    marker: footnoteMarker,
                     isSelected: selectedFootnoteMarker === footnoteMarker,
-                    selectedMarker: selectedFootnoteMarker
+                    selectedMarker: selectedFootnoteMarker,
                 });
 
                 // If this footnote is already selected, delete it
                 if (selectedFootnoteMarker === footnoteMarker) {
                     event.preventDefault();
-                    
+
                     debug("Deleting footnote marker", { marker: footnoteMarker });
-                    
+
                     // Remove the footnote marker
                     footnoteMarker.remove();
                     selectedFootnoteMarker = null;
-                    
+
                     // Trigger content change and renumber footnotes
                     setTimeout(() => {
                         if (quillRef.current && props.onChange) {
@@ -417,7 +520,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             const cleanedContents = getCleanedHtml(content);
                             props.onChange({ html: cleanedContents });
                         }
-                        
+
                         // Renumber remaining footnotes (now preserves cursor automatically)
                         setTimeout(() => {
                             if (quillRef.current) {
@@ -426,24 +529,25 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             }
                         }, 10);
                     }, 10);
-                    
+
                     return;
                 }
 
                 // First time: select the footnote marker
                 event.preventDefault();
                 selectedFootnoteMarker = footnoteMarker;
-                
+
                 // Add visual selection styling
                 const htmlElement = footnoteMarker as HTMLElement;
-                htmlElement.style.backgroundColor = 'var(--vscode-editor-selectionBackground, #0078d4)';
-                htmlElement.style.color = 'var(--vscode-editor-selectionForeground, white)';
-                
+                htmlElement.style.backgroundColor =
+                    "var(--vscode-editor-selectionBackground, #0078d4)";
+                htmlElement.style.color = "var(--vscode-editor-selectionForeground, white)";
+
                 // Clear selection after a delay if no further deletion occurs
                 setTimeout(() => {
                     if (selectedFootnoteMarker === footnoteMarker) {
-                        htmlElement.style.backgroundColor = '';
-                        htmlElement.style.color = '';
+                        htmlElement.style.backgroundColor = "";
+                        htmlElement.style.color = "";
                         selectedFootnoteMarker = null;
                     }
                 }, 3000); // Clear selection after 3 seconds
@@ -458,8 +562,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     // Clear footnote selection on any other key press
                     if (selectedFootnoteMarker) {
                         const htmlElement = selectedFootnoteMarker as HTMLElement;
-                        htmlElement.style.backgroundColor = '';
-                        htmlElement.style.color = '';
+                        htmlElement.style.backgroundColor = "";
+                        htmlElement.style.color = "";
                         selectedFootnoteMarker = null;
                     }
                 }
@@ -471,8 +575,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             const clearFootnoteSelection = () => {
                 if (selectedFootnoteMarker) {
                     const htmlElement = selectedFootnoteMarker as HTMLElement;
-                    htmlElement.style.backgroundColor = '';
-                    htmlElement.style.color = '';
+                    htmlElement.style.backgroundColor = "";
+                    htmlElement.style.color = "";
                     selectedFootnoteMarker = null;
                 }
             };
@@ -483,14 +587,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
             if (props.initialValue) {
                 quill.root.innerHTML = props.initialValue;
-                
+
                 // Position cursor at the end of the content for immediate editing
                 setTimeout(() => {
                     // Set cursor to the end of the text
                     const textLength = quill.getLength();
                     quill.setSelection(textLength - 1, 0); // -1 because Quill includes a trailing newline
                     quill.focus(); // Ensure editor has focus
-                    
+
                     // Renumber footnotes to ensure proper chronological order on load
                     renumberFootnotes();
                 }, 100);
@@ -554,28 +658,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 if (isDirty) {
                     setUnsavedChanges(true);
                     if (props.onChange) {
-                        const cleanedContents = getCleanedHtml(content);
-
-                        const arrayOfParagraphs = cleanedContents
-                            .trim()
-                            .split("</p>")
-                            .map((p) => p.trim())
-                            .filter((p) => p !== "");
-
-                        const finalParagraphs = arrayOfParagraphs.map((p) =>
-                            p.startsWith("<p>") ? `${p}</p>` : `<p>${p}</p>`
-                        );
-
-                        const firstParagraph = finalParagraphs[0] || "";
-                        const restOfParagraphs = finalParagraphs.slice(1) || [];
-                        const firstParagraphWithoutP = firstParagraph.trim().slice(3, -4);
                         const contentIsEmpty = isQuillEmpty(quill);
-
                         const finalContent = contentIsEmpty
                             ? ""
-                            : [`<span>${firstParagraphWithoutP}</span>`, ...restOfParagraphs].join(
-                                  ""
-                              );
+                            : processQuillContentForSaving(getCleanedHtml(content));
 
                         debug("finalContent", { finalContent, contentIsEmpty });
 
@@ -675,7 +761,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 const textContent = quill.getText();
                 const charCount = textContent.trim().length;
                 setCharacterCount(charCount);
-                
+
                 // Renumber footnotes to ensure proper chronological order
                 setTimeout(() => {
                     renumberFootnotes();
@@ -792,7 +878,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 const trimmedText = selectedText.trimEnd();
                 const spacesRemoved = selectedText.length - trimmedText.length;
                 selectedText = trimmedText;
-                
+
                 // Adjust cursor position to account for removed trailing spaces
                 cursorPosition = selection.index + selection.length - spacesRemoved;
             } else {
@@ -812,14 +898,20 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // Check for punctuation after cursor position and adjust footnote placement
             const text = quill.getText();
             const punctuationRegex = /[.,;:!?'")\]}/]/;
-            
+
             // Look ahead for punctuation immediately after the current position
-            if (cursorPosition < text.length && punctuationRegex.test(text.charAt(cursorPosition))) {
+            if (
+                cursorPosition < text.length &&
+                punctuationRegex.test(text.charAt(cursorPosition))
+            ) {
                 // Move footnote position after the punctuation
                 cursorPosition++;
-                
+
                 // If there are multiple consecutive punctuation marks, move past all of them
-                while (cursorPosition < text.length && punctuationRegex.test(text.charAt(cursorPosition))) {
+                while (
+                    cursorPosition < text.length &&
+                    punctuationRegex.test(text.charAt(cursorPosition))
+                ) {
                     cursorPosition++;
                 }
             }
@@ -834,7 +926,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 if (checkPos < text.length && punctuationRegex.test(text.charAt(checkPos))) {
                     cursorPosition = checkPos + 1;
                     // Move past any additional consecutive punctuation
-                    while (cursorPosition < text.length && punctuationRegex.test(text.charAt(cursorPosition))) {
+                    while (
+                        cursorPosition < text.length &&
+                        punctuationRegex.test(text.charAt(cursorPosition))
+                    ) {
                         cursorPosition++;
                     }
                 }
@@ -844,20 +939,22 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             const htmlContent = quill.root.innerHTML;
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlContent, "text/html");
-            
+
             // Get the text content and see if there are footnote markers near our insertion point
             const textBeforeInsertion = quill.getText(0, cursorPosition);
             const textAfterInsertion = quill.getText(cursorPosition);
-            
+
             // Check if there's a footnote marker immediately before our position
-            const hasFootnoteBefore = /<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>[^<]*<\/sup>$/m.test(
-                quill.root.innerHTML.substring(0, quill.getLeaf(cursorPosition)[1])
-            );
-            
-            // Check if there's a footnote marker immediately after our position  
-            const hasFootnoteAfter = /^<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>[^<]*<\/sup>/m.test(
-                quill.root.innerHTML.substring(quill.getLeaf(cursorPosition)[1])
-            );
+            const hasFootnoteBefore =
+                /<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>[^<]*<\/sup>$/m.test(
+                    quill.root.innerHTML.substring(0, quill.getLeaf(cursorPosition)[1])
+                );
+
+            // Check if there's a footnote marker immediately after our position
+            const hasFootnoteAfter =
+                /^<sup[^>]*class="[^"]*footnote-marker[^"]*"[^>]*>[^<]*<\/sup>/m.test(
+                    quill.root.innerHTML.substring(quill.getLeaf(cursorPosition)[1])
+                );
 
             // Note: The spacing between consecutive footnotes will be handled by renumberFootnotes()
             // which runs after the footnote is created
@@ -883,10 +980,10 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 // Insert the word in italics followed by colon and space
                 quill.insertText(0, selectedText, { italic: true });
                 quill.insertText(selectedText.length, ": ");
-                
+
                 // Clear any formatting and set cursor after the colon and space
                 quill.setSelection(selectedText.length + 2);
-                quill.format('italic', false);  // Ensure no italic formatting for subsequent text
+                quill.format("italic", false); // Ensure no italic formatting for subsequent text
             }
 
             // Store the current content
@@ -899,34 +996,34 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
     // Function to renumber all footnotes based on their document position and clean up spacing
     const renumberFootnotes = () => {
         if (!quillRef.current) return;
-        
+
         const quill = quillRef.current;
-        
+
         // Preserve cursor position before processing
         const currentSelection = quill.getSelection();
-        
+
         // Use the proper HTML processing utility for consistent behavior
         const processedHtml = processHtmlContent(quill.root.innerHTML);
-        
+
         // Update the editor content with processed HTML
         quill.root.innerHTML = processedHtml;
-        
+
         // Update footnote numbering starting from the footnote offset for section-based numbering
-                    updateFootnoteNumbering(quill.root, props.footnoteOffset || 1, false);
-        
+        updateFootnoteNumbering(quill.root, props.footnoteOffset || 1, false);
+
         // Force Quill to recognize the content change
         quill.history.clear();
         quill.update();
-        
+
         // Restore cursor position after processing
         if (currentSelection) {
             const textLength = quill.getLength();
             const safePosition = Math.min(Math.max(0, currentSelection.index), textLength - 1);
             quill.setSelection(safePosition, 0);
         }
-        
+
         // Emit a content change event to ensure everything is synchronized
-        quill.emitter.emit('text-change', null, null, 'api');
+        quill.emitter.emit("text-change", null, null, "api");
     };
 
     // Save footnote content (for both creating new and editing existing)
@@ -1058,7 +1155,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         },
         renumberFootnotes: () => {
             renumberFootnotes();
-            
+
             // Trigger change event and callback after renumbering
             setUnsavedChanges(true);
             if (props.onChange && quillRef.current) {
