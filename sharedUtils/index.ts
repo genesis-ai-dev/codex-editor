@@ -17,6 +17,9 @@ export const removeHtmlTags = (content: string) => {
             const spellCheckElements = tempDiv.querySelectorAll('.spell-check-error, .spell-check-suggestion, [class*="spell-check"]');
             spellCheckElements.forEach(el => el.remove());
             
+            // Replace paragraph end tags with spaces to preserve word boundaries
+            tempDiv.innerHTML = tempDiv.innerHTML.replace(/<\/p>/gi, ' ');
+            
             // Get clean text content
             const textContent = tempDiv.textContent || tempDiv.innerText || '';
             
@@ -33,6 +36,7 @@ export const removeHtmlTags = (content: string) => {
         .replace(/<sup[^>]*class=["']footnote-marker["'][^>]*>[\s\S]*?<\/sup>/gi, '') // Remove footnotes
         .replace(/<sup[^>]*data-footnote[^>]*>[\s\S]*?<\/sup>/gi, '') // Remove data-footnote sups
         .replace(/<sup[^>]*>[\s\S]*?<\/sup>/gi, '') // Remove any remaining sup tags
+        .replace(/<\/p>/gi, ' ') // Replace paragraph end tags with spaces to preserve word boundaries
         .replace(/<[^>]*>/g, "") // Remove HTML tags
         .replace(/&amp;|&lt;|&gt;|&quot;|&#39;/g, "") // Remove common HTML entities
         .replace(/&nbsp; ?/g, " ") // Remove &nbsp;

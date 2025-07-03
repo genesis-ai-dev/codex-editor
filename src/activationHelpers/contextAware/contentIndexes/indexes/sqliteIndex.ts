@@ -2435,10 +2435,13 @@ export class SQLiteIndexManager {
             .replace(/<style[\s\S]*?<\/style>/gi, '')
             .replace(/<iframe[\s\S]*?<\/iframe>/gi, '');
 
-        // Step 3: Remove all remaining HTML tags
+        // Step 3: Replace paragraph end tags with spaces to preserve word boundaries
+        cleanContent = cleanContent.replace(/<\/p>/gi, ' ');
+        
+        // Step 4: Remove all remaining HTML tags
         cleanContent = cleanContent.replace(/<[^>]*>/g, '');
 
-        // Step 4: Clean up HTML entities and normalize whitespace
+        // Step 5: Clean up HTML entities and normalize whitespace
         cleanContent = cleanContent
             .replace(/&nbsp;/g, ' ')
             .replace(/&amp;/g, '&')
@@ -3297,11 +3300,9 @@ export class SQLiteIndexManager {
                 result.validationCount = 0;
                 result.isFullyValidated = false;
                 result.validatedBy = undefined;
-
             }
-        } else {
-
         }
+        // No edits found - defaults are already set
 
         return result;
     }
