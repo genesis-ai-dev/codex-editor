@@ -505,11 +505,8 @@ export class SQLiteIndexManager {
                 debug(`Database schema version ${currentVersion} does not match code version ${CURRENT_SCHEMA_VERSION}`);
                 debug("FULL RECREATION: No partial migrations - deleting and recreating database from scratch for maximum reliability");
 
-                // Show user notification about the recreation
-                const vscode = await import('vscode');
-                vscode.window.showInformationMessage(
-                    `AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`
-                );
+                // Log schema recreation to console instead of showing to user
+                console.log(`[SQLiteIndex] 🔄 AI updating database schema (v${currentVersion} → v${CURRENT_SCHEMA_VERSION}). Recreating for reliability...`);
 
                 // CRITICAL: Delete the database file completely and recreate from scratch
                 // This handles ALL cases: old schemas, corrupted databases, future schema versions, etc.
@@ -2461,7 +2458,8 @@ export class SQLiteIndexManager {
         );
 
         if (confirm === "Yes, Reset AI") {
-            vscode.window.showInformationMessage("AI preparing to learn from scratch...");
+            // Log AI reset to console instead of showing to user
+            console.log("[SQLiteIndex] 🤖 AI preparing to learn from scratch...");
 
             // Close current database connection
             await this.close();
@@ -2469,6 +2467,7 @@ export class SQLiteIndexManager {
             // Delete the database file
             await this.deleteDatabaseFile();
 
+            console.log("[SQLiteIndex] ✅ AI reset complete.");
             vscode.window.showInformationMessage("AI reset complete. Please reload the extension to continue.");
         }
     }

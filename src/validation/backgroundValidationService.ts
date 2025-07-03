@@ -556,9 +556,8 @@ export class BackgroundValidationService {
                 });
             }
         } else if (result.stats.autoRepaired > 0) {
-            vscode.window.showInformationMessage(
-                `Auto-repaired ${result.stats.autoRepaired} database issues during validation`
-            );
+            // Log auto-repair results to console instead of showing to user
+            console.log(`[BackgroundValidation] ✅ Auto-repaired ${result.stats.autoRepaired} database issues during validation`);
         }
     }
 
@@ -855,7 +854,9 @@ Last Integrity: ${status.lastValidationTimes.integrity || 'never'}`;
                         title: "Refreshing search index...",
                         cancellable: false
                     }, async (progress) => {
-                        progress.report({ message: "Rebuilding full-text search index..." });
+                        // Log technical operation to console instead of showing to user
+                        console.log("[BackgroundValidation] 🔍 Rebuilding full-text search index...");
+                        progress.report({ message: "Refreshing search..." });
                         await sqliteIndex.refreshFTSIndex();
 
                         const debugInfo = await sqliteIndex.getFTSDebugInfo();

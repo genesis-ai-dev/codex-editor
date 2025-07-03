@@ -1100,6 +1100,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         if (choice === "Yes, Reset") {
                             // Reset schema version to force migration
                             await (translationPairsIndex as any).setSchemaVersion(2);
+                            console.log("[SQLiteIndex] ✅ AI configuration reset.");
                             vscode.window.showInformationMessage("AI configuration reset. Please reload the extension to continue.");
                         }
                     } else {
@@ -1677,10 +1678,8 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                             const result = await translationPairsIndex.recalculateAllValidationStatus();
 
-                            // Show a brief notification to the user
-                            vscode.window.showInformationMessage(
-                                `Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`
-                            );
+                            // Log validation recalculation to console instead of showing to user
+                            console.log(`[SQLiteIndex] ✅ Database updated: ${result.updatedCells} cells recalculated with ${newThreshold} validator${newThreshold === 1 ? '' : 's'} threshold.`);
                         } catch (error) {
                             console.error('[SQLiteIndex] Auto-recalculation failed:', error);
                         }
@@ -1710,9 +1709,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
 
                             const result = await translationPairsIndex.recalculateAllValidationStatus();
 
-                            vscode.window.showInformationMessage(
-                                `Validation status recalculated! ${result.updatedCells} cells processed with threshold of ${currentThreshold} validator${currentThreshold === 1 ? '' : 's'}.`
-                            );
+                            // Log validation recalculation to console and show simple completion message
+                            console.log(`[SQLiteIndex] ✅ Validation status recalculated! ${result.updatedCells} cells processed with threshold of ${currentThreshold} validator${currentThreshold === 1 ? '' : 's'}.`);
+                            vscode.window.showInformationMessage("Validation status recalculation complete.");
                         });
                     } else {
                         vscode.window.showErrorMessage("Validation recalculation only available for SQLite index");
@@ -1735,7 +1734,9 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             title: "Checking validation data in database...",
                             cancellable: false
                         }, async (progress) => {
-                            progress.report({ message: "Analyzing validation columns..." });
+                            // Log technical operation to console instead of showing to user
+                            console.log("[SQLiteIndex] 🔍 Analyzing validation columns...");
+                            progress.report({ message: "Checking validation data..." });
 
                             const db = translationPairsIndex.database;
                             if (db) {
