@@ -1678,7 +1678,7 @@ const CodexCellEditor: React.FC = () => {
                 </div>
 
                 {/* Floating button to apply pending validations */}
-                {pendingValidationsCount > 0 && !isApplyingValidations && (
+                {!isSourceText && pendingValidationsCount > 0 && !isApplyingValidations && (
                     <div
                         className="floating-apply-validations-button"
                         onClick={applyPendingValidations}
@@ -1700,7 +1700,7 @@ const CodexCellEditor: React.FC = () => {
                 )}
 
                 {/* Loading indicator while applying validations */}
-                {isApplyingValidations && (
+                {!isSourceText && isApplyingValidations && (
                     <div className="floating-apply-validations-button applying">
                         <i className="codicon codicon-loading spin"></i>
                         <span className="button-text">Applying...</span>
