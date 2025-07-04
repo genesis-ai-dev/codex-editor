@@ -11,7 +11,7 @@ import { diffWords } from "diff";
 import { ICEEdits } from "./iceEdits";
 import { tokenizeText } from "@/utils/nlpUtils";
 
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false;
 function debug(...args: any[]): void {
     if (DEBUG_ENABLED) {
         console.log(`[SmartEdits]`, ...args);

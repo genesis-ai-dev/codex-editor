@@ -46,7 +46,7 @@ import {
     SourcePreview as ISourcePreview,
 } from "../../../../types";
 
-const DEBUG = true;
+const DEBUG = false;
 const debug = function (...args: any[]) {
     if (DEBUG) {
         console.log("[SourceUploader]", ...args);

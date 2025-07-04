@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-const DEBUG_MODE = true;
+const DEBUG_MODE = false;
 const debug = (message: string) => {
     if (DEBUG_MODE) {
         console.log(`[UpdateChecker] ${message}`);
