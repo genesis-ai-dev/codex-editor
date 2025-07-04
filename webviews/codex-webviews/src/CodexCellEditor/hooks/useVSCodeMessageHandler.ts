@@ -7,16 +7,16 @@ interface UseVSCodeMessageHandlerProps {
     setContent: (
         content: QuillCellContent[],
         isSourceText: boolean,
-        sourceCellMap: { [k: string]: { content: string; versions: string[] } }
+        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; }
     ) => void;
     setSpellCheckResponse: Dispatch<SetStateAction<SpellCheckResponse | null>>;
     jumpToCell: (cellId: string) => void;
-    updateCell: (data: { cellId: string; newContent: string; progress: number }) => void;
+    updateCell: (data: { cellId: string; newContent: string; progress: number; }) => void;
     autocompleteChapterComplete: () => void;
     updateTextDirection: (direction: "ltr" | "rtl") => void;
     updateNotebookMetadata: (metadata: CustomNotebookMetadata) => void;
     updateVideoUrl: (url: string) => void;
-    setAlertColorCodes: Dispatch<SetStateAction<{ [cellId: string]: number }>>;
+    setAlertColorCodes: Dispatch<SetStateAction<{ [cellId: string]: number; }>>;
     recheckAlertCodes: () => void;
 
     // New handlers for provider-centric state management
@@ -35,17 +35,26 @@ interface UseVSCodeMessageHandlerProps {
         progress: number;
     }) => void;
 
+    updateSingleCellQueueState?: (state: {
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    }) => void;
+
     // Keep old handlers for backward compatibility
-    autocompleteChapterStart?: (data: { cellIds: string[]; totalCells: number }) => void;
-    processingCell?: (data: { cellId: string; index: number; totalCells: number }) => void;
-    cellCompleted?: (data: { cellId: string; index: number; totalCells: number }) => void;
-    cellError?: (data: { cellId: string; index: number; totalCells: number }) => void;
-    singleCellTranslationStarted?: (data: { cellId: string }) => void;
-    singleCellTranslationProgress?: (data: { progress: number }) => void;
+    autocompleteChapterStart?: (data: { cellIds: string[]; totalCells: number; }) => void;
+    processingCell?: (data: { cellId: string; index: number; totalCells: number; }) => void;
+    cellCompleted?: (data: { cellId: string; index: number; totalCells: number; }) => void;
+    cellError?: (data: { cellId: string; index: number; totalCells: number; }) => void;
+    singleCellTranslationStarted?: (data: { cellId: string; }) => void;
+    singleCellTranslationProgress?: (data: { progress: number; }) => void;
     singleCellTranslationCompleted?: () => void;
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
-    setAudioAttachments: (attachments: { [cellId: string]: boolean }) => void;
+    setAudioAttachments: (attachments: { [cellId: string]: boolean; }) => void;
 }
 
 export const useVSCodeMessageHandler = ({
@@ -63,6 +72,7 @@ export const useVSCodeMessageHandler = ({
     // New handlers
     updateAutocompletionState,
     updateSingleCellTranslationState,
+    updateSingleCellQueueState,
 
     // Legacy handlers
     autocompleteChapterStart,
@@ -122,6 +132,11 @@ export const useVSCodeMessageHandler = ({
                 case "providerSingleCellTranslationState":
                     if (updateSingleCellTranslationState) {
                         updateSingleCellTranslationState(message.state);
+                    }
+                    break;
+                case "providerSingleCellQueueState":
+                    if (updateSingleCellQueueState) {
+                        updateSingleCellQueueState(message.state);
                     }
                     break;
 
@@ -211,6 +226,7 @@ export const useVSCodeMessageHandler = ({
         // New handlers
         updateAutocompletionState,
         updateSingleCellTranslationState,
+        updateSingleCellQueueState,
 
         // Legacy handlers
         autocompleteChapterStart,

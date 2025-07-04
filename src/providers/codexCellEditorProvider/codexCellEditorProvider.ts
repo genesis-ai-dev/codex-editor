@@ -54,6 +54,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
 
+    // Cancellation token for single cell queue operations
+    private singleCellQueueCancellation: vscode.CancellationTokenSource | undefined;
+
     // Add cells per page configuration
     private get CELLS_PER_PAGE(): number {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
@@ -89,7 +92,24 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             progress: 0,
         };
 
-    // Single cell translation state
+    // Single cell translation state - using the same robust pattern as autocomplete
+    public singleCellQueueState: {
+        isProcessing: boolean;
+        totalCells: number;
+        completedCells: number;
+        currentCellId?: string;
+        cellsToProcess: string[];
+        progress: number;
+    } = {
+            isProcessing: false,
+            totalCells: 0,
+            completedCells: 0,
+            currentCellId: undefined,
+            cellsToProcess: [],
+            progress: 0,
+        };
+
+    // Legacy single cell translation state for backward compatibility
     public singleCellTranslationState: {
         isProcessing: boolean;
         cellId?: string;
@@ -1105,6 +1125,224 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
     }
 
+    // New method to broadcast single cell queue state (robust pattern)
+    private broadcastSingleCellQueueState(): void {
+        const { isProcessing, totalCells, completedCells, currentCellId, cellsToProcess, progress } =
+            this.singleCellQueueState;
+
+        this.webviewPanels.forEach((panel) => {
+            safePostMessageToPanel(panel, {
+                type: "providerSingleCellQueueState",
+                state: {
+                    isProcessing,
+                    totalCells,
+                    completedCells,
+                    currentCellId,
+                    cellsToProcess,
+                    progress,
+                },
+            });
+        });
+    }
+
+    // New method to start single cell queue processing (robust pattern)
+    public async performSingleCellQueue(
+        document: CodexCellDocument,
+        webviewPanel: vscode.WebviewPanel,
+        cellIds: string[]
+    ) {
+
+        // Create a new cancellation token source for this operation
+        if (this.singleCellQueueCancellation) {
+            this.singleCellQueueCancellation.dispose();
+        }
+        this.singleCellQueueCancellation = new vscode.CancellationTokenSource();
+
+        try {
+            const totalCells = cellIds.length;
+
+            // Update state in the provider first
+            this.singleCellQueueState = {
+                isProcessing: true,
+                totalCells,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: cellIds,
+                progress: 0.01, // Start with a tiny bit of progress
+            };
+
+            // Send state to webview
+            this.broadcastSingleCellQueueState();
+
+            // Enqueue all cells for processing - they will be processed one by one
+            for (const cellId of cellIds) {
+                if (!cellId) {
+                    console.error("Cell ID is undefined, skipping cell");
+                    continue;
+                }
+
+                // Add to the unified queue - no need to wait for completion here
+                this.enqueueTranslation(cellId, document, true)
+                    .then(() => {
+                        // Cell has been processed successfully
+                        // The queue processing will update progress automatically
+                    })
+                    .catch((error) => {
+                        // Just log errors - the queue processing will update progress
+                        console.error(`Error processing single cell ${cellId}:`, error);
+                    });
+            }
+
+            // Instead of waiting for all promises to complete, monitor the queue status
+            const checkQueueStatus = () => {
+                // Use the current state to get all cells (including dynamically added ones)
+                const currentCellIds = this.singleCellQueueState.cellsToProcess;
+                const remainingCells = this.translationQueue.filter((req) =>
+                    currentCellIds.includes(req.cellId)
+                ).length;
+
+                // Update state directly based on remaining cells and current total
+                const currentTotalCells = this.singleCellQueueState.totalCells;
+                this.singleCellQueueState.completedCells = currentTotalCells - remainingCells;
+                this.singleCellQueueState.progress = Math.min(
+                    0.99,
+                    this.singleCellQueueState.completedCells / currentTotalCells
+                );
+                this.broadcastSingleCellQueueState();
+
+                // Continue checking until complete or cancelled
+                if (
+                    remainingCells > 0 &&
+                    !this.singleCellQueueCancellation?.token.isCancellationRequested
+                ) {
+                    setTimeout(checkQueueStatus, 500);
+                } else {
+                    // All cells processed or operation cancelled
+                    this.singleCellQueueState.progress = 1.0;
+                    this.broadcastSingleCellQueueState();
+
+                    // After a short delay, reset state and clean up cancellation token
+                    setTimeout(() => {
+                        this.singleCellQueueState = {
+                            isProcessing: false,
+                            totalCells: 0,
+                            completedCells: 0,
+                            currentCellId: undefined,
+                            cellsToProcess: [],
+                            progress: 0,
+                        };
+                        this.broadcastSingleCellQueueState();
+
+                        // Clean up cancellation token when processing is actually complete
+                        if (this.singleCellQueueCancellation) {
+                            this.singleCellQueueCancellation.dispose();
+                            this.singleCellQueueCancellation = undefined;
+                        }
+                    }, 1500);
+                }
+            };
+
+            // Start monitoring
+            checkQueueStatus();
+        } catch (error) {
+            // If there's an error during setup, clean up the cancellation token
+            console.error("Error in performSingleCellQueue:", error);
+            if (this.singleCellQueueCancellation) {
+                this.singleCellQueueCancellation.dispose();
+                this.singleCellQueueCancellation = undefined;
+            }
+            throw error;
+        }
+    }
+
+    // New method to add a cell to the single cell queue (accumulate like autocomplete chapter)
+    public async addCellToSingleCellQueue(
+        cellId: string,
+        document: CodexCellDocument,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+
+        // Check if we already have a single cell queue running
+        if (this.singleCellQueueState.isProcessing) {
+            // Add to existing queue if not already there
+            if (!this.singleCellQueueState.cellsToProcess.includes(cellId)) {
+                this.singleCellQueueState.cellsToProcess.push(cellId);
+                this.singleCellQueueState.totalCells = this.singleCellQueueState.cellsToProcess.length;
+
+                // Broadcast updated state
+                this.broadcastSingleCellQueueState();
+
+                // Add to the unified translation queue
+                this.enqueueTranslation(cellId, document, true)
+                    .then(() => {
+                        // Cell processed successfully
+                    })
+                    .catch((error) => {
+                        console.error(`Error processing single cell ${cellId}:`, error);
+                    });
+            }
+        } else {
+            // Start a new single cell queue with this cell
+            await this.performSingleCellQueue(document, webviewPanel, [cellId]);
+        }
+    }
+
+    // New method to cancel single cell queue processing
+    public cancelSingleCellQueue(): boolean {
+        if (this.singleCellQueueCancellation) {
+            this.singleCellQueueCancellation.cancel();
+
+            // Immediately clear all single cell queue requests from the queue
+            if (this.translationQueue.length > 0 && this.singleCellQueueState.isProcessing) {
+                // Get current cell IDs in the queue
+                const queueCellIds = this.singleCellQueueState.cellsToProcess;
+
+                // Keep the current processing cell if any, but only if it's not actively processing
+                const shouldKeepCurrentRequest = this.isProcessingQueue ? false : true;
+                const currentRequest = shouldKeepCurrentRequest && this.translationQueue.length > 0 ?
+                    this.translationQueue[0] : null;
+
+                // Filter out all single cell queue requests
+                const remainingRequests = this.translationQueue.filter((req, index) => {
+                    // If we're keeping the current request and this is the first item
+                    if (index === 0 && shouldKeepCurrentRequest && currentRequest) {
+                        return !queueCellIds.includes(req.cellId);
+                    }
+
+                    // Reject all queue requests
+                    if (queueCellIds.includes(req.cellId)) {
+                        req.reject(new Error("Translation cancelled"));
+                        return false;
+                    }
+
+                    // Keep all non-queue requests
+                    return true;
+                });
+
+                // Update the queue
+                this.translationQueue = remainingRequests;
+            }
+
+            // Reset single cell queue state
+            this.singleCellQueueState = {
+                isProcessing: false,
+                totalCells: 0,
+                completedCells: 0,
+                currentCellId: undefined,
+                cellsToProcess: [],
+                progress: 0,
+            };
+            this.broadcastSingleCellQueueState();
+
+            // Dispose of the cancellation token since we're manually cancelling
+            this.singleCellQueueCancellation.dispose();
+            this.singleCellQueueCancellation = undefined;
+
+            return true;
+        }
+        return false;
+    }
+
     private processNotebookData(notebook: vscode.NotebookData) {
         debug("Processing notebook data");
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
@@ -1495,6 +1733,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 if (this.autocompletionState.isProcessing) {
                     this.autocompletionState.currentCellId = request.cellId;
                     this.broadcastAutocompletionState();
+                } else if (this.singleCellQueueState.isProcessing) {
+                    this.singleCellQueueState.currentCellId = request.cellId;
+                    this.broadcastSingleCellQueueState();
                 } else {
                     this.startSingleCellTranslation(request.cellId);
                 }

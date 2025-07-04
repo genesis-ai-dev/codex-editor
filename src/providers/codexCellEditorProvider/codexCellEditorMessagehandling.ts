@@ -190,18 +190,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const cellId = typedEvent.content.currentLineId;
         const addContentToValue = typedEvent.content.addContentToValue;
 
-        const completionResult = await provider.enqueueTranslation(
-            cellId,
-            document,
-            addContentToValue
-        );
+        // Add cell to the single cell queue (accumulate cells like autocomplete chapter does)
+        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel);
 
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsLLMCompletionResponse",
-            content: {
-                completion: completionResult || "",
-            },
-        });
+        // Note: The response is now handled by the queue system's completion callback
+        // The old direct response is no longer needed since the queue system manages state
     },
 
     stopAutocompleteChapter: ({ provider }) => {
@@ -216,9 +209,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     stopSingleCellTranslation: ({ provider }) => {
         console.log("stopSingleCellTranslation message received");
-        if (provider?.singleCellTranslationState.isProcessing) {
+
+        // Try the new robust single cell queue system first
+        const cancelledQueue = provider.cancelSingleCellQueue();
+
+        // Fallback to old system for backward compatibility
+        if (!cancelledQueue && provider?.singleCellTranslationState.isProcessing) {
             provider.clearTranslationQueue();
             provider.updateSingleCellTranslation(1.0);
+        }
+
+        if (cancelledQueue || provider?.singleCellTranslationState.isProcessing) {
             vscode.window.showInformationMessage("Translation cancelled.");
         }
     },

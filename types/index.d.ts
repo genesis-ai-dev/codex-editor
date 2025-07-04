@@ -750,6 +750,17 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "providerSingleCellQueueState";
+        state: {
+            isProcessing: boolean;
+            totalCells: number;
+            completedCells: number;
+            currentCellId?: string;
+            cellsToProcess: string[];
+            progress: number;
+        };
+    }
+    | {
         type: "providerUpdatesCell";
         content: {
             cellId: string;
