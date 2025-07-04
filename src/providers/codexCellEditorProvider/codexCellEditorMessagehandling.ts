@@ -130,20 +130,36 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             console.log("Spellcheck is disabled, skipping alert codes");
             return;
         }
-        const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
-            "codex-editor-extension.alertCodes",
-            typedEvent.content
-        );
 
-        const content: { [cellId: string]: number; } = {};
-        result.forEach((item) => {
-            content[item.cellId] = item.code;
-        });
+        try {
+            const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
+                "codex-editor-extension.alertCodes",
+                typedEvent.content
+            );
 
-        provider.postMessageToWebview(webviewPanel, {
-            type: "providerSendsgetAlertCodeResponse",
-            content,
-        });
+            const content: { [cellId: string]: number; } = {};
+            result.forEach((item) => {
+                content[item.cellId] = item.code;
+            });
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsgetAlertCodeResponse",
+                content,
+            });
+        } catch (error) {
+            console.warn("Error getting alert codes, providing empty response:", error);
+
+            // Provide fallback response with empty codes for all requested cells
+            const content: { [cellId: string]: number; } = {};
+            typedEvent.content.forEach((item) => {
+                content[item.cellId] = 0; // 0 = no alerts
+            });
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsgetAlertCodeResponse",
+                content,
+            });
+        }
     },
 
     saveHtml: async ({ event, document, provider }) => {

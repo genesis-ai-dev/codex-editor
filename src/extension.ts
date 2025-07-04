@@ -443,13 +443,15 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const lsDuration = globalThis.performance.now() - lsStart;
         console.log(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
 
-        if (client && global.db) {
-            const regServicesStart = globalThis.performance.now();
-            clientCommandsDisposable = registerClientCommands(context, client);
-            context.subscriptions.push(clientCommandsDisposable);
-            const regServicesDuration = globalThis.performance.now() - regServicesStart;
-            console.log(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
+        // Always register client commands, even if language server or database is not available
+        // This prevents "command not found" errors and provides appropriate fallbacks
+        const regServicesStart = globalThis.performance.now();
+        clientCommandsDisposable = registerClientCommands(context, client);
+        context.subscriptions.push(clientCommandsDisposable);
+        const regServicesDuration = globalThis.performance.now() - regServicesStart;
+        console.log(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
 
+        if (client && global.db) {
             const optimizeStart = globalThis.performance.now();
             try {
                 await registerClientOnRequests(client, global.db);

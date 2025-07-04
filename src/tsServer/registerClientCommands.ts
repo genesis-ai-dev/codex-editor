@@ -4,7 +4,7 @@ import { LanguageClient } from "vscode-languageclient/node";
 
 export function registerClientCommands(
     context: vscode.ExtensionContext,
-    client: LanguageClient
+    client: LanguageClient | undefined
 ): vscode.Disposable {
     const disposables: vscode.Disposable[] = [];
 
@@ -14,6 +14,9 @@ export function registerClientCommands(
             async (text: string, cellId: string) => {
                 if (client) {
                     return client.sendRequest("spellcheck/check", { text, cellId });
+                } else {
+                    console.warn("Language server not available for spell check");
+                    return null;
                 }
             }
         )
@@ -21,7 +24,7 @@ export function registerClientCommands(
     disposables.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.alertCodes",
-            async (args: GetAlertCodes) => {
+            async (args: GetAlertCodes): Promise<AlertCodesServerResponse> => {
                 if (client) {
                     const ret = client.sendRequest<AlertCodesServerResponse>(
                         "spellcheck/getAlertCodes",
@@ -29,6 +32,14 @@ export function registerClientCommands(
                     );
 
                     return ret;
+                } else {
+                    console.warn("Language server not available for alert codes, returning empty results");
+                    // Return empty results for all cells to prevent errors
+                    return args.map((arg) => ({
+                        code: 0,
+                        cellId: arg.cellId,
+                        savedSuggestions: { suggestions: [] },
+                    }));
                 }
             }
         )
@@ -40,6 +51,9 @@ export function registerClientCommands(
             async (word: string) => {
                 if (client) {
                     return client.sendRequest("server.getSimilarWords", [word]);
+                } else {
+                    console.warn("Language server not available for similar words");
+                    return [];
                 }
             }
         )
@@ -61,8 +75,8 @@ export function registerClientCommands(
                     vscode.window.showErrorMessage(`Error adding word: ${error.message}`);
                 }
             } else {
-                console.error("Language client is not initialized");
-                vscode.window.showErrorMessage("Language client is not initialized");
+                console.warn("Language server is not available, cannot add word");
+                vscode.window.showWarningMessage("Spellcheck service is not available");
             }
         })
     );
