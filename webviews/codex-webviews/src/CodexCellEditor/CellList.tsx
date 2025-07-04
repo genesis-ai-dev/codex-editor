@@ -36,6 +36,7 @@ export interface CellListProps {
     translationQueue?: string[]; // Queue of cells waiting for translation
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
+    successfulCompletions?: Set<string>; // Cells that completed successfully
     audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
     isSaving?: boolean;
 }
@@ -67,15 +68,18 @@ const CellList: React.FC<CellListProps> = ({
     translationQueue = [],
     currentProcessingCellId,
     cellsInAutocompleteQueue = [],
+    successfulCompletions = new Set(),
     audioAttachments,
     isSaving = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
-    // Add state to track completed translations
-    const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
-    const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
-    
+    // State to track completed translations (only successful ones) - REMOVED: Now handled by parent
+    const [lastRequestTime, setLastRequestTime] = useState(0);
+
+    // Previous queue reference for comparison
+    const prevQueueRef = useRef<string[]>([]);
+
     // Calculate footnote offset for each cell based on previous cells' footnote counts within the same chapter
     // This uses fullDocumentTranslationUnits to count across all subsections within a chapter
     const calculateFootnoteOffset = useCallback(
@@ -120,12 +124,6 @@ const CellList: React.FC<CellListProps> = ({
         [translationUnits, fullDocumentTranslationUnits]
     );
 
-    // Move useRef hook to component level - this fixes React hooks rule violation
-    const prevQueueRef = useRef<string[]>([]);
-
-    // Store last request time to implement a simple request throttling
-    const [lastRequestTime, setLastRequestTime] = useState(0);
-
     // Add debug logging for translation state tracking
     useEffect(() => {
         if (DEBUG_ENABLED) {
@@ -133,16 +131,14 @@ const CellList: React.FC<CellListProps> = ({
                 queue: translationQueue,
                 processing: currentProcessingCellId,
                 autocompleteQueue: cellsInAutocompleteQueue,
-                completed: Array.from(completedTranslations),
-                allComplete: allTranslationsComplete,
+                completed: Array.from(successfulCompletions),
             });
         }
     }, [
         translationQueue,
         currentProcessingCellId,
         cellsInAutocompleteQueue,
-        completedTranslations,
-        allTranslationsComplete,
+        successfulCompletions,
     ]);
 
     const duplicateCellIds = useMemo(() => {
@@ -179,7 +175,8 @@ const CellList: React.FC<CellListProps> = ({
         [translationQueueSet, currentProcessingCellId, autocompleteQueueSet]
     );
 
-    // Track cells that move from processing to completed
+    // Track cells that move from processing to completed - DISABLED to prevent cancelled cells being marked as completed
+    // This was causing cancelled cells to turn green instead of just clearing the border
     useEffect(() => {
         if (!currentProcessingCellId) return;
 
@@ -187,25 +184,9 @@ const CellList: React.FC<CellListProps> = ({
             debug("Current processing cell updated:", currentProcessingCellId);
         }
 
-        // When a cell is no longer the current processing cell, mark it as completed
-        const checkForCompletion = () => {
-            if (currentProcessingCellId) {
-                if (DEBUG_ENABLED) {
-                    debug("Cell completed:", currentProcessingCellId);
-                }
-
-                setCompletedTranslations((prev) => {
-                    const newSet = new Set(prev);
-                    newSet.add(currentProcessingCellId);
-                    return newSet;
-                });
-            }
-        };
-
-        // Set up cleanup function to run when currentProcessingCellId changes
-        return () => {
-            checkForCompletion();
-        };
+        // NOTE: We don't automatically mark cells as completed when currentProcessingCellId changes
+        // because this happens both when translation completes AND when it's cancelled.
+        // Instead, we rely on the backend to explicitly tell us when cells are completed.
     }, [currentProcessingCellId]);
 
     // Initialize prevQueueRef when component mounts
@@ -216,34 +197,28 @@ const CellList: React.FC<CellListProps> = ({
     // Helper function to determine the translation state of a cell
     const getCellTranslationState = useCallback(
         (cellId: string): "waiting" | "processing" | "completed" | null => {
-            // First check if this cell is completed - highest priority
-            if (completedTranslations.has(cellId)) {
-                return "completed";
-            }
-
-            // If cell is not in any translation process and not completed, return null
-            if (!isCellInTranslationProcess(cellId)) {
-                return null;
-            }
-
-            // Check if this is the current processing cell (either single cell or autocomplete)
+            // Check if this is the current processing cell first (highest priority)
             if (cellId === currentProcessingCellId) {
                 return "processing";
             }
 
+            // Check if cell is successfully completed BEFORE checking queue membership
+            // This ensures completed cells show green even if they're still in queue data structures
+            if (successfulCompletions.has(cellId)) {
+                return "completed";
+            }
+
             // For cells in translation queue or autocomplete queue (waiting to be processed)
-            // Using the faster Set-based lookups
             if (translationQueueSet.has(cellId) || autocompleteQueueSet.has(cellId)) {
                 return "waiting";
             }
 
-            // Default fallback (shouldn't get here based on other checks)
+            // Default: no translation state
             return null;
         },
         [
-            isCellInTranslationProcess,
             currentProcessingCellId,
-            completedTranslations,
+            successfulCompletions,
             translationQueueSet,
             autocompleteQueueSet,
         ]
@@ -288,32 +263,24 @@ const CellList: React.FC<CellListProps> = ({
     // When cells are added/removed from translation queue or completed
     useEffect(() => {
         try {
-            // If all queues are empty and we have completed translations
+            // If all queues are empty and we have successfully completed translations
             const noActiveTranslations =
                 translationQueue.length === 0 &&
                 currentProcessingCellId === undefined &&
                 cellsInAutocompleteQueue.length === 0;
 
-            if (noActiveTranslations && completedTranslations.size > 0) {
+            // Only consider translations complete if we have successfully completed translations AND
+            // there are no active translations AND no cells in any queue
+            if (noActiveTranslations && successfulCompletions.size > 0) {
                 // Only set to true if it wasn't already true
-                if (!allTranslationsComplete) {
-                    debug("All translations complete - starting fade timer");
-                    setAllTranslationsComplete(true);
-
-                    // Trigger reindexing when all translations are complete
-                    // vscode.postMessage({
-                    //     command: "triggerReindexing",
-                    // });
-
-                    // Reset completed translations after fade-out period
-                    setTimeout(() => {
-                        setCompletedTranslations(new Set());
-                        setAllTranslationsComplete(false);
-                        debug("Fade complete - reset state");
-                    }, 1500); // 1.5s display + 0.5s fade
+                if (DEBUG_ENABLED) {
+                    debug("All translations complete - starting clear timer");
                 }
+                // The parent component will handle clearing the borders
             } else {
-                setAllTranslationsComplete(false);
+                if (DEBUG_ENABLED) {
+                    debug("There are active translations or no successful completions, not all complete.");
+                }
             }
         } catch (error) {
             console.error("Error in translation queue/completion monitoring:", error);
@@ -322,7 +289,7 @@ const CellList: React.FC<CellListProps> = ({
         translationQueue,
         currentProcessingCellId,
         cellsInAutocompleteQueue,
-        completedTranslations,
+        successfulCompletions,
     ]);
 
     // Also track changes in cellsInAutocompleteQueue to detect completed cells
@@ -338,17 +305,26 @@ const CellList: React.FC<CellListProps> = ({
                 (cellId) => !cellsInAutocompleteQueue.includes(cellId)
             );
 
-            // Mark removed cells as completed
+            // Only mark removed cells as completed if we're still processing autocomplete
+            // If autocomplete is stopped/cancelled, don't mark cells as completed
             if (removedCells.length > 0) {
                 if (DEBUG_ENABLED) {
-                    debug("Cells completed from autocomplete queue:", removedCells);
+                    debug("Cells removed from autocomplete queue:", removedCells);
                 }
 
-                setCompletedTranslations((prev) => {
-                    const newSet = new Set(prev);
-                    removedCells.forEach((cellId) => newSet.add(cellId));
-                    return newSet;
-                });
+                // Only mark as completed if autocomplete is still processing
+                // This prevents cancelled cells from being marked as completed
+                if (currentProcessingCellId !== undefined) {
+                    if (DEBUG_ENABLED) {
+                        debug("Marking cells as successfully completed:", removedCells);
+                    }
+
+                    // The parent component will handle marking cells as completed
+                } else {
+                    if (DEBUG_ENABLED) {
+                        debug("Not marking cells as completed - no current processing cell");
+                    }
+                }
             }
 
             // Update the previous queue reference for next comparison
@@ -356,7 +332,7 @@ const CellList: React.FC<CellListProps> = ({
         } catch (error) {
             console.error("Error in autocomplete queue monitoring:", error);
         }
-    }, [cellsInAutocompleteQueue]);
+    }, [cellsInAutocompleteQueue, currentProcessingCellId]);
 
     // Helper function to generate appropriate cell label using global line numbers
     const generateCellLabel = useCallback(
@@ -490,7 +466,7 @@ const CellList: React.FC<CellListProps> = ({
                                 scrollSyncEnabled={scrollSyncEnabled}
                                 isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
                                 translationState={translationState}
-                                allTranslationsComplete={allTranslationsComplete}
+                                allTranslationsComplete={successfulCompletions.size > 0} // Assuming all complete if there are successful completions
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
                                 cellDisplayMode={cellDisplayMode}
@@ -515,7 +491,7 @@ const CellList: React.FC<CellListProps> = ({
             generateCellLabel,
             isCellInTranslationProcess,
             getCellTranslationState,
-            allTranslationsComplete,
+            successfulCompletions,
             handleCellTranslation,
             audioAttachments,
             calculateFootnoteOffset,
@@ -659,7 +635,7 @@ const CellList: React.FC<CellListProps> = ({
                                     boxSizing: "border-box",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
-                                        allTranslationsComplete
+                                        successfulCompletions.size > 0
                                     ),
                                 }}
                             >
@@ -765,7 +741,7 @@ const CellList: React.FC<CellListProps> = ({
                                     padding: "2px",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
-                                        allTranslationsComplete
+                                        successfulCompletions.size > 0
                                     ),
                                 }}
                                 onClick={() => openCellById(cellMarkers[0])}
@@ -808,7 +784,7 @@ const CellList: React.FC<CellListProps> = ({
         handleCellTranslation,
         isCellInTranslationProcess,
         getCellTranslationState,
-        allTranslationsComplete,
+        successfulCompletions,
         audioAttachments,
     ]);
 

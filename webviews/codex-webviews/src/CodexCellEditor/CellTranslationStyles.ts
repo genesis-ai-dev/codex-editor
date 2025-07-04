@@ -27,7 +27,7 @@ const baseTranslationStyle: CSSProperties = {
   borderRadius: '4px',
   padding: '2px',
   position: 'relative',
-  transition: 'border-color 0.3s ease, opacity 0.8s ease',
+  transition: 'border-color 0.3s ease', // Removed opacity transition to prevent fading
 };
 
 // Translation state-specific styles
@@ -85,18 +85,19 @@ export const getEmptyCellTranslationStyle = (
   }
 
   // Use same border colors as regular cells for consistency
-  const borderColor = 
-    translationState === 'waiting' ? '#ff6b6b' : 
-    translationState === 'processing' ? '#ffc14d' : 
-    translationState === 'completed' ? '#4caf50' : 'transparent';
-  
+  const borderColor =
+    translationState === 'waiting' ? '#ff6b6b' :
+      translationState === 'processing' ? '#ffc14d' :
+        translationState === 'completed' ? '#4caf50' : 'transparent';
+
   // Use subtle background color with border - matching regular cell styling
+  // DISABLED: opacity change to prevent cells from disappearing
   return {
     backgroundColor: 'transparent',
     border: `2px solid ${borderColor}`,
     borderRadius: '4px',
-    transition: 'border-color 0.3s ease, opacity 0.5s ease',
-    opacity: allTranslationsComplete && translationState === 'completed' ? 0 : 1,
+    transition: 'border-color 0.3s ease',
+    opacity: 1, // Always keep cells visible
   };
 };
 
@@ -110,7 +111,7 @@ export const getTranslationStyle = (
   translationState: CellTranslationState,
   isInlineMode: boolean,
   fadingOut: boolean = false
-): CSSProperties & { className?: string } => {
+): CSSProperties & { className?: string; } => {
   if (!translationState) {
     return {};
   }
@@ -121,7 +122,7 @@ export const getTranslationStyle = (
   }
 
   const styles = isInlineMode ? inlineTranslationStyles : translationStyles;
-  const result: CSSProperties & { className?: string } = { ...styles[translationState] };
+  const result: CSSProperties & { className?: string; } = { ...styles[translationState] };
 
   // Add animation class name for processing state
   if (translationState === 'processing') {

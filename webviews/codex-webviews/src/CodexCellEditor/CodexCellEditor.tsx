@@ -73,14 +73,13 @@ const CodexCellEditor: React.FC = () => {
     const [isWebviewReady, setIsWebviewReady] = useState(false);
     const [scrollSyncEnabled, setScrollSyncEnabled] = useState(true);
 
-    // Translation queue state for single cell translations
+    // State for tracking successful completions
+    const [successfulCompletions, setSuccessfulCompletions] = useState<Set<string>>(new Set());
+
+    // State for tracking translation queue
     const [translationQueue, setTranslationQueue] = useState<string[]>([]);
-    // Flag to track if a cell is currently being translated
-    const [isProcessingCell, setIsProcessingCell] = useState<boolean>(false);
-    // Currently processing cell ID
-    const [singleCellQueueProcessingId, setSingleCellQueueProcessingId] = useState<
-        string | undefined
-    >(undefined);
+    const [singleCellQueueProcessingId, setSingleCellQueueProcessingId] = useState<string | undefined>();
+    const [isProcessingCell, setIsProcessingCell] = useState(false);
 
     // Keep track of cell content for detecting changes
     const cellContentMapRef = useRef<Map<string, string>>(new Map());
@@ -370,6 +369,26 @@ const CodexCellEditor: React.FC = () => {
         checkAlertCodes();
     }, [translationUnits]);
 
+    // Clear successful completions after a delay when all translations are complete
+    useEffect(() => {
+        const noActiveTranslations = 
+            translationQueue.length === 0 &&
+            !singleCellQueueProcessingId &&
+            !autocompletionState.currentCellId;
+
+        if (noActiveTranslations && successfulCompletions.size > 0) {
+            debug("translation", "All translations complete, scheduling border clear");
+            
+            // Clear the successful completions after 1.5 seconds to hide the green borders
+            const timer = setTimeout(() => {
+                debug("translation", "Clearing successful completions");
+                setSuccessfulCompletions(new Set());
+            }, 1500);
+
+            return () => clearTimeout(timer);
+        }
+    }, [translationQueue, singleCellQueueProcessingId, autocompletionState.currentCellId, successfulCompletions]);
+
     useVSCodeMessageHandler({
         setContent: (
             content: QuillCellContent[],
@@ -459,6 +478,36 @@ const CodexCellEditor: React.FC = () => {
             setTranslationQueue(state.cellsToProcess);
             setSingleCellQueueProcessingId(state.currentCellId);
             setIsProcessingCell(state.isProcessing);
+        },
+
+        updateCellTranslationCompletion: (cellId: string, success: boolean, cancelled?: boolean, error?: string) => {
+            debug("translation", `Cell ${cellId} translation completion: success=${success}, cancelled=${cancelled}, error=${error}`);
+            
+            if (success) {
+                // Cell completed successfully - add to successful completions
+                debug("translation", `Cell ${cellId} completed successfully`);
+                setSuccessfulCompletions(prev => {
+                    const newSet = new Set(prev);
+                    newSet.add(cellId);
+                    return newSet;
+                });
+            } else if (cancelled) {
+                // Cell was cancelled - make sure it's not in successful completions
+                debug("translation", `Cell ${cellId} was cancelled`);
+                setSuccessfulCompletions(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(cellId);
+                    return newSet;
+                });
+            } else if (error) {
+                // Cell had an error - make sure it's not in successful completions
+                debug("translation", `Cell ${cellId} had error: ${error}`);
+                setSuccessfulCompletions(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(cellId);
+                    return newSet;
+                });
+            }
         },
 
         updateTextDirection: (direction) => {
@@ -1231,22 +1280,6 @@ const CodexCellEditor: React.FC = () => {
         untranslatedOrNotValidatedByCurrentUserUnitsForSection,
     ]);
 
-    // Clean up when component unmounts
-    useEffect(() => {
-        return () => {
-            // Cancel any in-progress autocompletion when component unmounts
-            if (autocompletionState.isProcessing) {
-                vscode.postMessage({
-                    command: "stopAutocompleteChapter",
-                } as EditorPostMessages);
-            }
-        };
-    }, [autocompletionState.isProcessing]);
-
-    // Removed frontend queue processing - backend now handles all queue management
-
-    // Removed frontend processing monitoring - backend now handles this
-
     // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
         // Check that the cell ID is valid
@@ -1637,6 +1670,7 @@ const CodexCellEditor: React.FC = () => {
                                     ? [autocompletionState.currentCellId]
                                     : []
                             }
+                            successfulCompletions={successfulCompletions}
                             audioAttachments={audioAttachments}
                             isSaving={isSaving}
                         />

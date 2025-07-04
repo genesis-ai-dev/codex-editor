@@ -261,7 +261,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     requestAutocompleteChapter: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "requestAutocompleteChapter"; }>;
-        console.log("requestAutocompleteChapter message received", { event });
         await provider.performAutocompleteChapter(
             document,
             webviewPanel,

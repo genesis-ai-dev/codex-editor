@@ -15,7 +15,6 @@ export async function llmCompletion(
     returnHTML: boolean = true
 ): Promise<string> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
-    console.log("[llmCompletion] completionConfig.useOnlyValidatedExamples:", completionConfig.useOnlyValidatedExamples);
 
     if (!currentCellId) {
         throw new Error("Current cell has no ID in llmCompletion().");
@@ -29,8 +28,6 @@ export async function llmCompletion(
         const currentCellIndex = await currentNotebookReader.getCellIndex({ id: currentCellId });
         const currentCellIds = await currentNotebookReader.getCellIds(currentCellIndex);
 
-        console.log(`[llmCompletion] Getting source content for cell IDs: ${currentCellIds.join(", ")}`);
-
         const sourceCells = await Promise.all(
             currentCellIds.map(async (id) => {
                 const result = await vscode.commands.executeCommand(
@@ -40,8 +37,6 @@ export async function llmCompletion(
 
                 if (!result) {
                     console.warn(`[llmCompletion] No source content found for cell ID: ${id}`);
-                } else {
-                    console.log(`[llmCompletion] Found source content for ${id}: ${result.content?.substring(0, 50) || "(empty)"}...`);
                 }
 
                 return result;
@@ -68,18 +63,9 @@ export async function llmCompletion(
             completionConfig.useOnlyValidatedExamples // Pass validation setting
         );
 
-        console.log(`[llmCompletion] Found ${similarSourceCells.length} complete translation pairs as candidates (${completionConfig.useOnlyValidatedExamples ? 'validated-only' : 'all'})`);
-
         if (!similarSourceCells || similarSourceCells.length === 0) {
             console.warn(`[llmCompletion] No complete translation pairs found for source content: "${sourceContent?.substring(0, 100)}..."`);
             showNoResultsWarning();
-        } else {
-            // Log the found translation pairs for debugging
-            similarSourceCells.slice(0, 5).forEach((pair, index) => {
-                console.log(`[llmCompletion] Candidate ${index + 1}: ${pair.cellId}`);
-                console.log(`  Source: ${pair.sourceCell.content?.substring(0, 100) || "(empty)"}...`);
-                console.log(`  Target: ${pair.targetCell.content?.substring(0, 100) || "(empty)"}...`);
-            });
         }
 
         // Filter complete translation pairs by word overlap with the current cell
@@ -110,11 +96,6 @@ export async function llmCompletion(
 
         const numberOfDroppedExamples =
             similarSourceCells.length - filteredSimilarSourceCells.length;
-        if (numberOfDroppedExamples > 0) {
-            console.log(`[llmCompletion] Filtered out ${numberOfDroppedExamples} complete pairs due to no word overlap with current cell.`);
-        }
-
-        console.log(`[llmCompletion] After word overlap filtering: ${filteredSimilarSourceCells.length} translation pairs remaining for LLM context`);
 
         // Take only the number we actually need for few-shot examples
         const finalExamples = filteredSimilarSourceCells.slice(0, numberOfFewShotExamples);
@@ -225,7 +206,7 @@ export async function llmCompletion(
                 { role: "user", content: userMessage },
             ] as ChatMessage[];
 
-            const completion = await callLLM(messages, completionConfig);
+            const completion = await callLLM(messages, completionConfig, token);
 
             // Debug mode logging
             if (debugMode) {
@@ -237,6 +218,13 @@ export async function llmCompletion(
             }
             return completion;
         } catch (error) {
+            // Check if this is a cancellation error and re-throw as-is
+            if (error instanceof vscode.CancellationError ||
+                (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'))) {
+                console.info(`[llmCompletion] Translation cancelled for cell ${currentCellId}`);
+                throw error; // Re-throw cancellation errors without wrapping
+            }
+
             console.error("Error in llmCompletion:", error);
             throw new Error(
                 `An error occurred while generating the completion. ${JSON.stringify(error)}`
@@ -245,6 +233,13 @@ export async function llmCompletion(
             statusBarItem.hide();
         }
     } catch (error) {
+        // Check if this is a cancellation error and re-throw as-is
+        if (error instanceof vscode.CancellationError ||
+            (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'))) {
+            console.info(`[llmCompletion] Translation cancelled for cell ${currentCellId}`);
+            throw error; // Re-throw cancellation errors without wrapping
+        }
+
         console.error("Error in llmCompletion:", error);
         throw new Error(
             `An error occurred while generating the completion. ${JSON.stringify(error)}`

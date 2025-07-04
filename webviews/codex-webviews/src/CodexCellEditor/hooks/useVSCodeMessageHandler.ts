@@ -44,6 +44,9 @@ interface UseVSCodeMessageHandlerProps {
         progress: number;
     }) => void;
 
+    // Handler for explicit completion messages
+    updateCellTranslationCompletion?: (cellId: string, success: boolean, cancelled?: boolean, error?: string) => void;
+
     // Keep old handlers for backward compatibility
     autocompleteChapterStart?: (data: { cellIds: string[]; totalCells: number; }) => void;
     processingCell?: (data: { cellId: string; index: number; totalCells: number; }) => void;
@@ -73,6 +76,7 @@ export const useVSCodeMessageHandler = ({
     updateAutocompletionState,
     updateSingleCellTranslationState,
     updateSingleCellQueueState,
+    updateCellTranslationCompletion,
 
     // Legacy handlers
     autocompleteChapterStart,
@@ -137,6 +141,11 @@ export const useVSCodeMessageHandler = ({
                 case "providerSingleCellQueueState":
                     if (updateSingleCellQueueState) {
                         updateSingleCellQueueState(message.state);
+                    }
+                    break;
+                case "cellTranslationCompleted":
+                    if (updateCellTranslationCompletion) {
+                        updateCellTranslationCompletion(message.cellId, message.success, message.cancelled, message.error);
                     }
                     break;
 
@@ -227,6 +236,7 @@ export const useVSCodeMessageHandler = ({
         updateAutocompletionState,
         updateSingleCellTranslationState,
         updateSingleCellQueueState,
+        updateCellTranslationCompletion,
 
         // Legacy handlers
         autocompleteChapterStart,

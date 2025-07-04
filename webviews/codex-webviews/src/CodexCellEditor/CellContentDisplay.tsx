@@ -256,17 +256,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         };
     }, [cell.cellContent, showTooltip, hideTooltip, footnoteOffset]);
 
-    // Handle fade-out effect when all translations complete
+    // Handle fade-out effect when all translations complete - DISABLED to prevent glitches
     useEffect(() => {
-        if (allTranslationsComplete && translationState === "completed") {
-            const timer = setTimeout(() => {
-                setFadingOut(true);
-            }, 2000);
-            return () => clearTimeout(timer);
-        } else if (!allTranslationsComplete) {
-            setFadingOut(false);
-        }
-    }, [allTranslationsComplete, translationState]);
+        // Completely disable fading to prevent any glitches during translation
+        setFadingOut(false);
+    }, [allTranslationsComplete, translationState, isInTranslationProcess]);
 
     useEffect(() => {
         debug("Before Scrolling to content highlightedCellId", {

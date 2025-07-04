@@ -761,6 +761,13 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "cellTranslationCompleted";
+        cellId: string;
+        success: boolean;
+        cancelled?: boolean;
+        error?: string;
+    }
+    | {
         type: "providerUpdatesCell";
         content: {
             cellId: string;

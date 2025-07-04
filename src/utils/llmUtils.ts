@@ -9,11 +9,21 @@ import * as vscode from "vscode";
  *
  * @param messages - An array of ChatMessage objects representing the conversation history.
  * @param config - The CompletionConfig object containing LLM configuration settings.
+ * @param cancellationToken - Optional cancellation token to cancel the request
  * @returns A Promise that resolves to the LLM's response as a string.
  * @throws Error if the LLM response is unexpected or if there's an error during the API call.
  */
-export async function callLLM(messages: ChatMessage[], config: CompletionConfig): Promise<string> {
+export async function callLLM(
+    messages: ChatMessage[],
+    config: CompletionConfig,
+    cancellationToken?: vscode.CancellationToken
+): Promise<string> {
     try {
+        // Check for cancellation before starting
+        if (cancellationToken?.isCancellationRequested) {
+            throw new vscode.CancellationError();
+        }
+
         // Get the LLM endpoint from auth API if available
         let llmEndpoint: string | undefined;
         let authBearerToken: string | undefined;
@@ -30,6 +40,11 @@ export async function callLLM(messages: ChatMessage[], config: CompletionConfig)
 
         if (llmEndpoint) {
             config.endpoint = llmEndpoint;
+        }
+
+        // Check for cancellation before creating OpenAI client
+        if (cancellationToken?.isCancellationRequested) {
+            throw new vscode.CancellationError();
         }
 
         const openai = new OpenAI({
@@ -50,25 +65,84 @@ export async function callLLM(messages: ChatMessage[], config: CompletionConfig)
         console.log("model", model);
 
         try {
-            const completion = await openai.chat.completions.create({
-                model: model,
-                messages: messages as ChatCompletionMessageParam[],
-                max_tokens: config.maxTokens,
-                temperature: config.temperature,
-            });
+            // Check for cancellation before making the API call
+            if (cancellationToken?.isCancellationRequested) {
+                throw new vscode.CancellationError();
+            }
 
-            if (
-                completion.choices &&
-                completion.choices.length > 0 &&
-                completion.choices[0].message
-            ) {
-                return completion.choices[0].message.content?.trim() ?? "";
+            // Create an AbortController for the fetch request if cancellation token is provided
+            let abortController: AbortController | undefined;
+            if (cancellationToken) {
+                abortController = new AbortController();
+
+                // Set up cancellation handler
+                const cancellationListener = cancellationToken.onCancellationRequested(() => {
+                    abortController?.abort();
+                });
+
+                // Clean up the listener after the request
+                const cleanup = () => cancellationListener.dispose();
+
+                // Wrap the completion call to ensure cleanup
+                try {
+                    const completion = await openai.chat.completions.create({
+                        model: model,
+                        messages: messages as ChatCompletionMessageParam[],
+                        max_tokens: config.maxTokens,
+                        temperature: config.temperature,
+                    }, {
+                        signal: abortController.signal
+                    });
+
+                    cleanup();
+
+                    if (
+                        completion.choices &&
+                        completion.choices.length > 0 &&
+                        completion.choices[0].message
+                    ) {
+                        return completion.choices[0].message.content?.trim() ?? "";
+                    } else {
+                        throw new Error(
+                            "Unexpected response format from the LLM; callLLM() failed - case 1"
+                        );
+                    }
+                } catch (error: any) {
+                    cleanup();
+
+                    // Check if the error is due to cancellation
+                    if (error.name === 'AbortError' || cancellationToken.isCancellationRequested) {
+                        throw new vscode.CancellationError();
+                    }
+
+                    throw error;
+                }
             } else {
-                throw new Error(
-                    "Unexpected response format from the LLM; callLLM() failed - case 1"
-                );
+                // No cancellation token provided, use the original logic
+                const completion = await openai.chat.completions.create({
+                    model: model,
+                    messages: messages as ChatCompletionMessageParam[],
+                    max_tokens: config.maxTokens,
+                    temperature: config.temperature,
+                });
+
+                if (
+                    completion.choices &&
+                    completion.choices.length > 0 &&
+                    completion.choices[0].message
+                ) {
+                    return completion.choices[0].message.content?.trim() ?? "";
+                } else {
+                    throw new Error(
+                        "Unexpected response format from the LLM; callLLM() failed - case 1"
+                    );
+                }
             }
         } catch (error: any) {
+            if (error instanceof vscode.CancellationError) {
+                throw error; // Re-throw cancellation errors as-is
+            }
+
             if (error.response && error.response.status === 401) {
                 vscode.window.showErrorMessage(
                     "Authentication failed. Please add a valid API key for the copilot if you are using a remote LLM."
@@ -78,6 +152,10 @@ export async function callLLM(messages: ChatMessage[], config: CompletionConfig)
             throw error;
         }
     } catch (error) {
+        if (error instanceof vscode.CancellationError) {
+            throw error; // Re-throw cancellation errors as-is
+        }
+
         console.error("Error calling LLM:", error);
         throw new Error("Failed to get a response from the LLM; callLLM() failed - case 2");
     }
@@ -89,7 +167,8 @@ export async function performReflection(
     num_improvers: number,
     number_of_loops: number,
     chatReflectionConcern: string,
-    config: CompletionConfig
+    config: CompletionConfig,
+    cancellationToken?: vscode.CancellationToken
 ): Promise<string> {
     async function generateImprovement(text: string): Promise<string> {
         let systemContent = "";
@@ -112,7 +191,8 @@ export async function performReflection(
                     content: `Context: ${text_context}\nAnswer to grade: ${text}\nGrade:`,
                 },
             ],
-            config
+            config,
+            cancellationToken
         );
 
         return response;
@@ -134,7 +214,8 @@ export async function performReflection(
                     content: `Comments containing improvements: ${summarizedContent}\nSummary:`,
                 },
             ],
-            config
+            config,
+            cancellationToken
         );
         return summary.trim();
     }
@@ -157,7 +238,8 @@ export async function performReflection(
                             content: text,
                         },
                     ],
-                    config
+                    config,
+                    cancellationToken
                 );
             });
             return await improvedText;
@@ -179,7 +261,8 @@ export async function performReflection(
                     content: `Text to distill: ${textToDistill}\nDistilled text: `,
                 },
             ],
-            config
+            config,
+            cancellationToken
         )
             .then((distilledText) => {
                 // Some basic post-processing to remove any trailing whitespace
@@ -244,8 +327,6 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
         const config = vscode.workspace.getConfiguration("codex-editor-extension");
         const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") ?? false;
-        console.log("[fetchCompletionConfig] useOnlyValidatedExamples setting:", useOnlyValidatedExamples);
-
         // if (sharedStateExtension) {
         //     const stateStore = sharedStateExtension.exports;
         //     stateStore.updateStoreState({
@@ -271,7 +352,6 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
             useOnlyValidatedExamples: useOnlyValidatedExamples as boolean,
         };
-        console.log("[fetchCompletionConfig] Final config useOnlyValidatedExamples:", completionConfig.useOnlyValidatedExamples);
         return completionConfig;
     } catch (error) {
         console.error("Error getting completion configuration", error);

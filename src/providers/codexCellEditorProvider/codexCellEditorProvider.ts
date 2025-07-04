@@ -887,8 +887,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // The queue processing will update progress automatically
                     })
                     .catch((error) => {
-                        // Just log errors - the queue processing will update progress
-                        console.error(`Error autocompleting cell ${cellId}:`, error);
+                        // Check if this is a cancellation error
+                        const isCancellationError = error instanceof vscode.CancellationError ||
+                            (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'));
+                        const isIntentionalCancellation = error instanceof Error && error.message.includes("Translation cancelled");
+
+                        if (!isCancellationError && !isIntentionalCancellation) {
+                            console.error(`Error autocompleting cell ${cellId}:`, error);
+                        }
                     });
             }
 
@@ -1001,7 +1007,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return !batchCellIds.includes(req.cellId);
                     }
 
-                    // Reject all batch requests
+                    // Reject all batch requests with intentional cancellation (info level, not error)
                     if (batchCellIds.includes(req.cellId)) {
                         req.reject(new Error("Translation cancelled"));
                         return false;
@@ -1278,7 +1284,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         // Cell processed successfully
                     })
                     .catch((error) => {
-                        console.error(`Error processing single cell ${cellId}:`, error);
+                        // Check if this is a cancellation error
+                        const isCancellationError = error instanceof vscode.CancellationError ||
+                            (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'));
+                        const isIntentionalCancellation = error instanceof Error && error.message.includes("Translation cancelled");
+
+                        if (!isCancellationError && !isIntentionalCancellation) {
+                            console.error(`Error processing single cell ${cellId}:`, error);
+                        }
                     });
             }
         } else {
@@ -1309,7 +1322,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         return !queueCellIds.includes(req.cellId);
                     }
 
-                    // Reject all queue requests
+                    // Reject all queue requests with intentional cancellation (info level, not error)
                     if (queueCellIds.includes(req.cellId)) {
                         req.reject(new Error("Translation cancelled"));
                         return false;
@@ -1761,20 +1774,46 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Remove the processed request from the queue before resolving
                     this.translationQueue.shift();
 
-                    // Update state and resolve the promise
+                    // Update state and resolve the promise - ONLY for successful completions
                     this.markCellComplete(request.cellId);
+
+                    // Send explicit success message to frontend
+                    this.webviewPanels.forEach((panel) => {
+                        this.postMessageToWebview(panel, {
+                            type: "cellTranslationCompleted",
+                            cellId: request.cellId,
+                            success: true,
+                        } as any);
+                    });
 
                     request.resolve(result);
 
                     // Process next item immediately without delay - both for individual and batch translations
                 } catch (error) {
-                    debug(`Error processing translation for cell ${request.cellId}:`, error);
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    const isCancellationError = error instanceof vscode.CancellationError ||
+                        (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'));
+                    const isIntentionalCancellation = errorMessage.includes("Translation cancelled");
+
+                    if (!isCancellationError && !isIntentionalCancellation) {
+                        console.error(`[Translation] Error processing translation for cell ${request.cellId}:`, error);
+                    }
 
                     // Remove the failed request from the queue before rejecting
                     this.translationQueue.shift();
 
-                    // Update state and reject the promise
-                    this.markCellComplete(request.cellId);
+                    // Send explicit cancellation/error message to frontend - DON'T mark as complete
+                    this.webviewPanels.forEach((panel) => {
+                        this.postMessageToWebview(panel, {
+                            type: "cellTranslationCompleted",
+                            cellId: request.cellId,
+                            success: false,
+                            cancelled: isCancellationError || isIntentionalCancellation,
+                            error: !isCancellationError && !isIntentionalCancellation ? errorMessage : undefined,
+                        } as any);
+                    });
+
+                    // Update single cell translation state for UI feedback
                     if (!this.autocompletionState.isProcessing) {
                         this.updateSingleCellTranslation(
                             0, error instanceof Error ? error.message : String(error)
@@ -1866,6 +1905,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // Use the existing cancellation token if available, otherwise create a new one
                     const cancellationToken = this.autocompleteCancellation?.token ||
+                        this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
                     // Perform LLM completion
@@ -1876,8 +1916,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         cancellationToken
                     );
 
-                    // Check for cancellation before updating document
-                    if (this.autocompleteCancellation?.token.isCancellationRequested) {
+                    // Check for cancellation before updating document - this is crucial to prevent cell population
+                    if (this.autocompleteCancellation?.token.isCancellationRequested ||
+                        this.singleCellQueueCancellation?.token.isCancellationRequested) {
                         throw new Error("Translation cancelled");
                     }
 
@@ -1886,7 +1927,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslation(0.9);
 
-                    // Update content and metadata atomically
+                    // Update content and metadata atomically - only if not cancelled
                     currentDocument.updateCellContent(
                         currentCellId,
                         result,
@@ -1900,6 +1941,13 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     debug("LLM completion result", { result });
                     return result;
                 } catch (error: any) {
+                    // Check if this is a cancellation error
+                    if (error instanceof vscode.CancellationError ||
+                        (error instanceof Error && (error.message.includes('Canceled') || error.name === 'AbortError'))) {
+                        console.info(`[performLLMCompletionInternal] Translation cancelled for cell ${currentCellId}`);
+                        throw error; // Re-throw cancellation errors without wrapping
+                    }
+
                     console.error("Error in performLLMCompletionInternal:", error);
                     throw error;
                 }
