@@ -81,28 +81,36 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
 
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        const isFileNotFound = error instanceof vscode.FileSystemError && error.code === 'FileNotFound';
         const isCorruption = errorMessage.includes("database disk image is malformed") ||
             errorMessage.includes("file is not a database") ||
             errorMessage.includes("database is locked") ||
             errorMessage.includes("database corruption");
 
-        if (isCorruption) {
+        if (isFileNotFound) {
+            console.info("[Dictionary DB] Dictionary database file not found - creating new database");
+        } else if (isCorruption) {
             console.warn(`[Dictionary DB] Database corruption detected: ${errorMessage}`);
             console.warn("[Dictionary DB] Deleting corrupt database and creating new one");
 
             // Delete the corrupted database file
             try {
                 await vscode.workspace.fs.delete(dbPath);
-
             } catch (deleteError) {
                 console.warn("[Dictionary DB] Could not delete corrupted database file:", deleteError);
             }
         } else {
-            console.error("Error reading dictionary file:", error);
-            return;
+            console.error("[Dictionary DB] Unexpected error reading dictionary file:", {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                dbPath: dbPath.fsPath,
+                errorType: error instanceof Error ? error.constructor.name : typeof error
+            });
+            // For unexpected errors, still try to create a new database
+            console.info("[Dictionary DB] Attempting to create new database despite error");
         }
 
-        // Create new database
+        // Create new database for all error cases (file not found, corruption, or unexpected errors)
         const newDb = new SQL.Database();
         // Create your table structure
         newDb.run(`
@@ -120,9 +128,28 @@ export const initializeSqlJs = async (context: vscode.ExtensionContext) => {
         `);
         // Save the new database to file
         fileBuffer = newDb.export();
-        // Ensure data directory exists
-        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, "data"));
-        await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
+
+        // Ensure the .project directory exists
+        const projectDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project");
+        try {
+            await vscode.workspace.fs.createDirectory(projectDir);
+        } catch (dirError) {
+            // Directory might already exist, which is fine
+            console.debug("[Dictionary DB] .project directory already exists or could not be created:", dirError);
+        }
+
+        // Write the new database file
+        try {
+            await vscode.workspace.fs.writeFile(dbPath, fileBuffer);
+            console.info("[Dictionary DB] New dictionary database created successfully");
+        } catch (writeError) {
+            console.error("[Dictionary DB] Failed to write new database file:", {
+                error: writeError instanceof Error ? writeError.message : String(writeError),
+                stack: writeError instanceof Error ? writeError.stack : undefined,
+                dbPath: dbPath.fsPath
+            });
+            // Don't return here - still try to use the in-memory database
+        }
     }
 
     // Create/load the database
