@@ -77,5 +77,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(<Index />);
 // Send webviewReady message when the webview is mounted
 window.addEventListener("load", () => {
     const vscode = (window as any).vscodeApi;
-    vscode.postMessage({ type: "webviewReady" });
+    vscode.postMessage({ command: "webviewReady" });
 });

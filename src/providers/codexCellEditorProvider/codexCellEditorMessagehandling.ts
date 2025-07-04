@@ -124,14 +124,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     getAlertCodes: async ({ event, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "getAlertCodes"; }>;
-        const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
-        if (!spellcheckEnabled) {
-            console.log("Spellcheck is disabled, skipping alert codes");
-            return;
-        }
 
         try {
+            const config = vscode.workspace.getConfiguration("codex-project-manager");
+            const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
+
+            if (!spellcheckEnabled) {
+                console.log("[Message Handler] Spellcheck is disabled, skipping alert codes");
+                return;
+            }
+
             const result: AlertCodesServerResponse = await vscode.commands.executeCommand(
                 "codex-editor-extension.alertCodes",
                 typedEvent.content
@@ -147,14 +149,23 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 content,
             });
         } catch (error) {
-            console.warn("Error getting alert codes, providing empty response:", error);
+            console.error("[Message Handler] Failed to get alert codes:", {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                requestedCells: typedEvent?.content?.length || 0,
+                cellIds: typedEvent?.content?.map(item => item.cellId) || [],
+                errorType: error instanceof Error ? error.constructor.name : typeof error
+            });
 
             // Provide fallback response with empty codes for all requested cells
             const content: { [cellId: string]: number; } = {};
-            typedEvent.content.forEach((item) => {
-                content[item.cellId] = 0; // 0 = no alerts
-            });
+            if (typedEvent?.content && Array.isArray(typedEvent.content)) {
+                typedEvent.content.forEach((item) => {
+                    content[item.cellId] = 0; // 0 = no alerts
+                });
+            }
 
+            // Always send a response to prevent webview from waiting indefinitely
             provider.postMessageToWebview(webviewPanel, {
                 type: "providerSendsgetAlertCodeResponse",
                 content,
@@ -982,29 +993,80 @@ export const handleGlobalMessage = async (
 };
 
 export const handleMessages = async (
-    event: EditorPostMessages,
+    event: any, // Changed from EditorPostMessages to allow validation
     webviewPanel: vscode.WebviewPanel,
     document: CodexCellDocument,
     updateWebview: () => void,
     provider: CodexCellEditorProvider
 ) => {
+    // Validate message structure before processing
+    if (!event || typeof event !== 'object') {
+        console.error("[Message Handler] Invalid message structure - not an object:", {
+            event,
+            eventType: typeof event
+        });
+        return;
+    }
+
+    // Check if this is a backend-to-frontend message (uses 'type' property)
+    // These should not be processed by this handler
+    if (event.type && !event.command) {
+        console.warn("[Message Handler] Received backend-to-frontend message in frontend-to-backend handler - ignoring:", {
+            messageType: event.type,
+            eventKeys: Object.keys(event || {}),
+            webviewPanelActive: webviewPanel?.active,
+            documentUri: document?.uri?.toString()
+        });
+        return;
+    }
+
+    // Check for frontend-to-backend messages (should have 'command' property)
+    if (!event.command) {
+        console.error("[Message Handler] Frontend-to-backend message missing command property:", {
+            event,
+            eventKeys: Object.keys(event || {}),
+            webviewPanelActive: webviewPanel?.active,
+            documentUri: document?.uri?.toString()
+        });
+        return;
+    }
+
+    if (typeof event.command !== 'string') {
+        console.error("[Message Handler] Message command is not a string:", {
+            command: event.command,
+            commandType: typeof event.command,
+            event,
+            webviewPanelActive: webviewPanel?.active
+        });
+        return;
+    }
+
+    // Cast to proper type after validation
+    const validatedEvent = event as EditorPostMessages;
+
     const context: MessageHandlerContext = {
-        event,
+        event: validatedEvent,
         webviewPanel,
         document,
         updateWebview,
         provider,
     };
 
-    const handler = messageHandlers[event.command];
+    const handler = messageHandlers[validatedEvent.command];
     if (handler) {
         await withErrorHandling(
             () => handler(context),
-            `handle ${event.command}`,
+            `handle ${validatedEvent.command}`,
             true // Show user error for most operations
         );
     } else {
-        console.warn(`Unknown message command: ${event.command}`);
+        console.error("[Message Handler] Unknown message command:", {
+            command: validatedEvent.command,
+            availableCommands: Object.keys(messageHandlers).slice(0, 10), // First 10 for debugging
+            totalHandlers: Object.keys(messageHandlers).length,
+            event: validatedEvent,
+            webviewPanelActive: webviewPanel?.active
+        });
     }
 };
 

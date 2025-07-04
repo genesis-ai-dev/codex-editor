@@ -294,23 +294,38 @@ export class QuillSpellChecker {
         }, 100);
     }
 }
+
+// Global flag to track registration state
+let isSpellCheckerRegistered = false;
+
 export default function registerQuillSpellChecker(Quill: any, vscodeApi: any) {
     debug("spell-checker-debug: registerQuillSpellChecker", {
         Quill,
         vscodeApi,
+        isAlreadyRegistered: isSpellCheckerRegistered
     });
 
     // Store the VSCode API in the global variable
     (window as any).vscodeApi = vscodeApi;
 
-    // Check if the module is already registered
-    if (!(Quill as any).imports?.["modules/spellChecker"]) {
+    // Check if we've already registered (more robust check)
+    if (isSpellCheckerRegistered || (Quill as any).imports?.["modules/spellChecker"]) {
+        debug("SpellChecker module already registered, skipping registration");
+        return;
+    }
+
+    try {
         (Quill as any).register({
             "modules/spellChecker": QuillSpellChecker,
             "formats/spck-match": createSuggestionBlotForQuillInstance(Quill),
         });
-    } else {
-        console.warn("SpellChecker module is already registered. Skipping registration.");
+
+        // Mark as registered to prevent future registrations
+        isSpellCheckerRegistered = true;
+        debug("SpellChecker module registered successfully");
+    } catch (error) {
+        console.error("[SpellChecker] Failed to register SpellChecker module:", error);
+        // Don't set the flag if registration failed
     }
 }
 

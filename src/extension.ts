@@ -339,17 +339,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
             trackTiming("Initialize Workspace", workspaceStart);
 
-            if (!metadataExists) {
+            // Always initialize extension to ensure language server is available before webviews
+            await initializeExtension(context, metadataExists);
 
+            if (!metadataExists) {
                 const watchStart = globalThis.performance.now();
                 await watchForInitialization(context, metadataUri);
                 trackTiming("Watch for Initialization", watchStart);
-            } else {
-                // DEBUGGING: Here is where the splash screen reappears
-                await initializeExtension(context, metadataExists);
             }
         } else {
-
             vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
             trackTiming("Initialize Workspace", workspaceStart);
         }
@@ -443,8 +441,8 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const lsDuration = globalThis.performance.now() - lsStart;
         console.log(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
 
-        // Always register client commands, even if language server or database is not available
-        // This prevents "command not found" errors and provides appropriate fallbacks
+        // Always register client commands to prevent "command not found" errors
+        // If language server failed, commands will return appropriate fallbacks
         const regServicesStart = globalThis.performance.now();
         clientCommandsDisposable = registerClientCommands(context, client);
         context.subscriptions.push(clientCommandsDisposable);
@@ -461,6 +459,13 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
             }
             const optimizeDuration = globalThis.performance.now() - optimizeStart;
             console.log(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
+        } else {
+            if (!client) {
+                console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
+            }
+            if (!global.db) {
+                console.info("[Database] Database not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
+            }
         }
         finishRealtimeStep();
         const totalLsDuration = globalThis.performance.now() - totalLsStart;
