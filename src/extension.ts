@@ -229,7 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const splashStart = activationStart;
         registerSplashScreenProvider(context);
         showSplashScreen(activationStart);
-        trackTiming("Initialize Splash Screen", splashStart);
+        trackTiming("Initializing Splash Screen", splashStart);
     } catch (error) {
         console.error("Error showing splash screen:", error);
         // Continue with activation even if splash screen fails
@@ -243,18 +243,18 @@ export async function activate(context: vscode.ExtensionContext) {
         // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
         // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
         await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-        stepStart = trackTiming("Configure Editor Layout", layoutStart);
+        stepStart = trackTiming("Configuring Editor Layout", layoutStart);
 
         // Setup pre-activation commands
         const preCommandsStart = globalThis.performance.now();
         await executeCommandsBefore(context);
-        stepStart = trackTiming("Setup Pre-activation Commands", preCommandsStart);
+        stepStart = trackTiming("Setting up Pre-activation Commands", preCommandsStart);
 
         // Initialize metadata manager
         const metadataStart = globalThis.performance.now();
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
-        stepStart = trackTiming("Load Project Metadata", metadataStart);
+        stepStart = trackTiming("Loading Project Metadata", metadataStart);
 
         // Initialize Frontier API first - needed before startup flow
         const authStart = globalThis.performance.now();
@@ -262,7 +262,7 @@ export async function activate(context: vscode.ExtensionContext) {
         if (extension?.isActive) {
             authApi = extension.exports;
         }
-        stepStart = trackTiming("Connect Authentication Service", authStart);
+        stepStart = trackTiming("Connecting Authentication Service", authStart);
 
         // Run independent initialization steps in parallel (excluding auth which is needed by startup flow)
         const parallelInitStart = globalThis.performance.now();
@@ -272,19 +272,19 @@ export async function activate(context: vscode.ExtensionContext) {
             // Register welcome view provider
             registerWelcomeViewProvider(context),
         ]);
-        stepStart = trackTiming("Parallel Basic Setup", parallelInitStart);
+        stepStart = trackTiming("Setting up Basic Components", parallelInitStart);
 
         // Register startup flow commands after auth is available
         const startupStart = globalThis.performance.now();
         await registerStartupFlowCommands(context);
         registerPreflightCommand(context);
-        stepStart = trackTiming("Configure Startup Workflow", startupStart);
+        stepStart = trackTiming("Configuring Startup Workflow", startupStart);
 
         // Initialize SqlJs with real-time progress since it loads WASM files
         // Only initialize database if we have a workspace (database is for project content)
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-            startRealtimeStep("Load Database Engine");
+            startRealtimeStep("Loading Database Engine");
             try {
                 global.db = await initializeSqlJs(context);
 
@@ -303,7 +303,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         } else {
             // No workspace, skip database initialization
-            stepStart = trackTiming("Load Database Engine (skipped - no workspace)", globalThis.performance.now());
+            stepStart = trackTiming("Loading Database Engine (skipped - no workspace)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -337,7 +337,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 metadataExists = false;
             }
 
-            trackTiming("Initialize Workspace", workspaceStart);
+            trackTiming("Initializing Workspace", workspaceStart);
 
             // Always initialize extension to ensure language server is available before webviews
             await initializeExtension(context, metadataExists);
@@ -345,11 +345,11 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!metadataExists) {
                 const watchStart = globalThis.performance.now();
                 await watchForInitialization(context, metadataUri);
-                trackTiming("Watch for Initialization", watchStart);
+                trackTiming("Watching for Initialization", watchStart);
             }
         } else {
             vscode.commands.executeCommand("codex-project-manager.showProjectOverview");
-            trackTiming("Initialize Workspace", workspaceStart);
+            trackTiming("Initializing Workspace", workspaceStart);
         }
 
         // Register remaining components in parallel
@@ -365,7 +365,7 @@ export async function activate(context: vscode.ExtensionContext) {
         ]);
 
         // Track total time for core components
-        stepStart = trackTiming("Total Core Components", coreComponentsStart);
+        stepStart = trackTiming("Loading Core Components", coreComponentsStart);
 
         // Initialize status bar
         const statusBarStart = globalThis.performance.now();
@@ -376,7 +376,7 @@ export async function activate(context: vscode.ExtensionContext) {
         autoCompleteStatusBarItem.text = "$(sync~spin) Auto-completing...";
         autoCompleteStatusBarItem.hide();
         context.subscriptions.push(autoCompleteStatusBarItem);
-        stepStart = trackTiming("Initialize Status Bar", statusBarStart);
+        stepStart = trackTiming("Initializing Status Bar", statusBarStart);
 
         // Show activation summary
         const totalDuration = globalThis.performance.now() - activationStart;
@@ -401,7 +401,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
-        trackTiming("Post-activation Tasks", postActivationStart);
+        trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)
         registerUpdateCommands(context);
@@ -435,7 +435,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         // Break down language server initialization
         const totalLsStart = globalThis.performance.now();
 
-        startRealtimeStep("Initialize Language Server");
+        startRealtimeStep("Initializing Language Server");
         const lsStart = globalThis.performance.now();
         client = await registerLanguageServer(context);
         const lsDuration = globalThis.performance.now() - lsStart;
@@ -481,7 +481,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("Initialize Search Database");
+        startRealtimeStep("Initializing Search Database");
         await createIndexWithContext(context);
         finishRealtimeStep();
 
@@ -506,12 +506,12 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                     // During startup, don't show info messages for connection issues
                     try {
                         await syncManager.executeSync("Initial workspace sync", false);
-                        trackTiming("Project Synchronization Complete", syncStart);
+                        trackTiming("Completing Project Synchronization", syncStart);
                         updateSplashScreenSync(100, "Synchronization complete");
                         console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");
                     } catch (error) {
                         console.error("❌ [SPLASH SCREEN PHASE] Error during initial sync:", error);
-                        trackTiming("Project Synchronization Failed", syncStart);
+                        trackTiming("Failing Project Synchronization", syncStart);
                         updateSplashScreenSync(100, "Synchronization failed");
                     }
                 } else {
