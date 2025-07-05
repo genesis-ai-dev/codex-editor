@@ -580,7 +580,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                     )}
 
                     {isDetailedView ? (
-                        <>
+                        <div style={{ padding: "0 8px" }}>
                             <div
                                 style={{
                                     fontWeight: "bold",
@@ -603,7 +603,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                             display: "flex",
                                             alignItems: "center",
                                             justifyContent: "space-between",
-                                            padding: "2px 0",
+                                            padding: "3px 0",
                                             position: "relative",
                                         }}
                                     >
@@ -611,105 +611,114 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                             style={{
                                                 display: "flex",
                                                 alignItems: "center",
-                                                position: "relative",
-                                                flex: "0 1 auto",
-                                                marginRight: "8px",
+                                                gap: "8px",
+                                                flex: "1",
                                             }}
                                         >
                                             <span
                                                 id={`username-${user.username}-${uniqueId.current}`}
+                                                style={{
+                                                    fontWeight: isCurrentUser ? "600" : "400",
+                                                }}
                                             >
                                                 {user.username}
-                                                {user.username === username && (
-                                                    <span
-                                                        id={`trash-icon-${user.username}-${uniqueId.current}`}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-
-                                                            // Queue the validation removal
-                                                            vscode.postMessage({
-                                                                command: "queueValidation",
-                                                                content: {
-                                                                    cellId,
-                                                                    validate: false,
-                                                                    pending: true,
-                                                                },
-                                                            });
-
-                                                            // Set the pending state
-                                                            setIsPendingValidation(true);
-
-                                                            // Immediately close the popover
-                                                            setShowPopover(false);
-                                                            setIsPersistentPopover(false);
-                                                            setIsDetailedView(false);
-                                                            if (
-                                                                popoverTracker.getActivePopover() ===
-                                                                uniqueId.current
-                                                            ) {
-                                                                popoverTracker.setActivePopover(
-                                                                    null
-                                                                );
-                                                            }
-                                                        }}
-                                                        title="Remove your validation"
-                                                        className="validation-trash-icon"
-                                                    >
-                                                        <svg
-                                                            width="14"
-                                                            height="14"
-                                                            viewBox="0 0 24 24"
-                                                            fill="none"
-                                                            xmlns="http://www.w3.org/2000/svg"
-                                                        >
-                                                            <path
-                                                                d="M3 6H5H21"
-                                                                stroke="#ff5252"
-                                                                strokeWidth="2"
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                            />
-                                                            <path
-                                                                d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
-                                                                stroke="#ff5252"
-                                                                strokeWidth="2"
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                            />
-                                                            <path
-                                                                d="M10 11V17"
-                                                                stroke="#ff5252"
-                                                                strokeWidth="2"
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                            />
-                                                            <path
-                                                                d="M14 11V17"
-                                                                stroke="#ff5252"
-                                                                strokeWidth="2"
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                            />
-                                                        </svg>
-                                                    </span>
-                                                )}
                                             </span>
-                                        </div>
-                                        <div
-                                            style={{
-                                                fontSize: "10px",
-                                                color: "#888",
-                                                flex: "0 0 auto",
-                                                minWidth: "45px",
-                                                textAlign: "right",
-                                            }}
-                                        >
-                                            {formatTimestamp(user.updatedTimestamp)}
+                                            {user.username === username && (
+                                                <span
+                                                    id={`trash-icon-${user.username}-${uniqueId.current}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+
+                                                        // Queue the validation removal
+                                                        vscode.postMessage({
+                                                            command: "queueValidation",
+                                                            content: {
+                                                                cellId,
+                                                                validate: false,
+                                                                pending: true,
+                                                            },
+                                                        });
+
+                                                        // Set the pending state
+                                                        setIsPendingValidation(true);
+
+                                                        // Immediately close the popover
+                                                        setShowPopover(false);
+                                                        setIsPersistentPopover(false);
+                                                        setIsDetailedView(false);
+                                                        if (
+                                                            popoverTracker.getActivePopover() ===
+                                                            uniqueId.current
+                                                        ) {
+                                                            popoverTracker.setActivePopover(
+                                                                null
+                                                            );
+                                                        }
+                                                    }}
+                                                    title="Remove your validation"
+                                                    className="validation-trash-icon"
+                                                    style={{
+                                                        cursor: "pointer",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                        padding: "2px",
+                                                        borderRadius: "3px",
+                                                        transition: "background-color 0.2s",
+                                                    }}
+                                                >
+                                                    <svg
+                                                        width="14"
+                                                        height="14"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                    >
+                                                        <path
+                                                            d="M3 6H5H21"
+                                                            stroke="#ff5252"
+                                                            strokeWidth="2"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                        />
+                                                        <path
+                                                            d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z"
+                                                            stroke="#ff5252"
+                                                            strokeWidth="2"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                        />
+                                                        <path
+                                                            d="M10 11V17"
+                                                            stroke="#ff5252"
+                                                            strokeWidth="2"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                        />
+                                                        <path
+                                                            d="M14 11V17"
+                                                            stroke="#ff5252"
+                                                            strokeWidth="2"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                        />
+                                                    </svg>
+                                                </span>
+                                            )}
+                                            <span
+                                                style={{
+                                                    fontSize: "11px",
+                                                    color: "var(--vscode-descriptionForeground)",
+                                                    marginLeft: "auto",
+                                                }}
+                                            >
+                                                {formatTimestamp(user.updatedTimestamp)}
+                                            </span>
                                         </div>
                                     </div>
                                 );
                             })}
-                        </>
+                        </div>
                     ) : (
                         // Simple view with just usernames separated by dots
                         <div className="validators-simple-view">
@@ -751,6 +760,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                         .validators-simple-view .separator {
                             color: var(--vscode-descriptionForeground);
                             margin: 0 2px;
+                            pointer-events: none;
+                            background: none !important;
+                            user-select: none;
+                        }
+                        .validation-trash-icon:hover {
+                            background-color: rgba(255, 82, 82, 0.1) !important;
                         }
                         `}
                     </style>
