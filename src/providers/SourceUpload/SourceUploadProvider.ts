@@ -381,6 +381,21 @@ export class SourceUploadProvider
                     case "closePanel":
                         webviewPanel.dispose();
                         break;
+                    case "openTranslationFile":
+                        try {
+                            // Focus the navigation view to help users browse and select files
+                            await vscode.commands.executeCommand("codex-editor.navigation.focus");
+
+                            // Close the upload panel since the user is moving to translation
+                            webviewPanel.dispose();
+                        } catch (error) {
+                            console.error("Error opening translation file:", error);
+                            this.safeSendMessage(webviewPanel, {
+                                command: "error",
+                                message: "Failed to open translation file browser",
+                            } as SourceUploadResponseMessages);
+                        }
+                        break;
                     case "previewSourceText": {
                         // Create temporary file and start transaction
                         if (!this.context) {

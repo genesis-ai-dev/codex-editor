@@ -257,6 +257,7 @@ export type SourceUploadPostMessages =
     | { command: "closePanel"; }
     | { command: "previewSourceText"; fileContent: string; fileName: string; }
     | { command: "extension.check"; extensionId: string; }
+    | { command: "openTranslationFile"; }
     | { command: "navigateToMainMenu"; };
 
 export type SourceUploadResponseMessages =
