@@ -831,7 +831,8 @@
         "pretest": "npm run compile && npm run lint",
         "test": "node ./out/test/runTest.js",
         "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
-        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../.."
+        "build:webviews": "cd webviews/codex-webviews && pnpm run build:all && cd ../..",
+        "smart-watch": "cd webviews/codex-webviews && pnpm run smart-watch"
     },
     "devDependencies": {
         "@babel/plugin-proposal-private-property-in-object": "^7.16.7",

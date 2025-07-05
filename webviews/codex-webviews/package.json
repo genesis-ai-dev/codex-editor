@@ -30,6 +30,7 @@
         "watch:SplashScreen": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:SplashScreen",
         "watch:CellLabelImporterView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CellLabelImporterView",
         "watch:NewSourceUploader": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:NewSourceUploader",
+        "smart-watch": "node smart-watch.cjs",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"
     },
@@ -122,6 +123,7 @@
         "@typescript-eslint/parser": "^6.21.0",
         "@vitejs/plugin-react": "^4.2.1",
         "autoprefixer": "^10.4.21",
+        "chokidar": "^3.6.0",
         "cross-env": "^7.0.3",
         "eslint": "^8.56.0",
         "eslint-config-react-app": "^7.0.1",
