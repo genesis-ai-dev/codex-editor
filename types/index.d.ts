@@ -722,6 +722,29 @@ export type EditorPostMessages =
             transcribedText: string;
             language: string;
         };
+    }
+    | {
+        command: "mergeCellWithPrevious";
+        content: {
+            currentCellId: string;
+            previousCellId: string;
+            currentContent: string;
+            previousContent: string;
+        };
+    }
+    | {
+        command: "confirmCellMerge";
+        content: {
+            currentCellId: string;
+            previousCellId: string;
+            currentContent: string;
+            previousContent: string;
+            message: string;
+        };
+    }
+    | {
+        command: "showErrorMessage";
+        text: string;
     };
 
 type EditorReceiveMessages =

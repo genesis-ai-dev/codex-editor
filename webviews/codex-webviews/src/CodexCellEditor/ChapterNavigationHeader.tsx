@@ -64,6 +64,8 @@ interface ChapterNavigationHeaderProps {
     editorPosition: EditorPosition;
     onClose?: () => void;
     onTriggerSync?: () => void;
+    isCorrectionEditorMode?: boolean;
+    onToggleCorrectionEditor?: () => void;
 }
 
 export function ChapterNavigationHeader({
@@ -107,6 +109,8 @@ export function ChapterNavigationHeader({
     editorPosition,
     onClose,
     onTriggerSync,
+    isCorrectionEditorMode,
+    onToggleCorrectionEditor,
 }: ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
@@ -287,6 +291,17 @@ export function ChapterNavigationHeader({
                             />
                         </Button>
                         <span className="ml-2">Source Text</span>
+                        {onToggleCorrectionEditor && (
+                            <Button
+                                variant={isCorrectionEditorMode ? "default" : "outline"}
+                                onClick={onToggleCorrectionEditor}
+                                className="ml-2"
+                                title="Toggle Correction Editor Mode"
+                            >
+                                <i className="codicon codicon-wrench" />
+                                <span className="ml-1">Correction Editor</span>
+                            </Button>
+                        )}
                     </>
                 ) : (
                     <Button variant="outline" onClick={() => openSourceText(chapterNumber)}>

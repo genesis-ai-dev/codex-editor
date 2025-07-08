@@ -932,6 +932,140 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         debug("Audio attachment deleted successfully");
     },
+
+    confirmCellMerge: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "confirmCellMerge"; }>;
+        const { currentCellId, previousCellId, currentContent, previousContent, message } = typedEvent.content;
+
+        // Show VS Code confirmation dialog
+        const confirmed = await vscode.window.showWarningMessage(
+            message,
+            { modal: true },
+            "Yes",
+            "No"
+        );
+
+        if (confirmed === "Yes") {
+            // User confirmed, proceed with merge
+            const mergeEvent = {
+                command: "mergeCellWithPrevious" as const,
+                content: {
+                    currentCellId,
+                    previousCellId,
+                    currentContent,
+                    previousContent
+                }
+            };
+
+            // Call the existing merge handler
+            await messageHandlers.mergeCellWithPrevious({
+                event: mergeEvent,
+                document,
+                webviewPanel,
+                provider
+            });
+        }
+    },
+
+    showErrorMessage: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "showErrorMessage"; }>;
+        vscode.window.showErrorMessage(typedEvent.text);
+    },
+
+    mergeCellWithPrevious: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "mergeCellWithPrevious"; }>;
+        const { currentCellId, previousCellId, currentContent, previousContent } = typedEvent.content;
+
+        try {
+            // Get all cell IDs to find the indices
+            const allCellIds = document.getAllCellIds();
+            const previousCellIndex = allCellIds.findIndex(id => id === previousCellId);
+            const currentCellIndex = allCellIds.findIndex(id => id === currentCellId);
+
+            if (previousCellIndex === -1 || currentCellIndex === -1) {
+                console.error("Could not find cells for merge operation");
+                vscode.window.showErrorMessage("Could not find cells for merge operation");
+                return;
+            }
+
+            // Get the actual cell objects
+            const previousCell = document.getCell(previousCellId);
+            const currentCell = document.getCell(currentCellId);
+
+            if (!previousCell || !currentCell) {
+                console.error("Could not retrieve cell objects for merge operation");
+                vscode.window.showErrorMessage("Could not retrieve cell objects for merge operation");
+                return;
+            }
+
+            // Get current user using the provider's auth API
+            let currentUser = "anonymous";
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                currentUser = userInfo?.username || "anonymous";
+            } catch (error) {
+                console.warn("Could not get user info for merge operation, using 'anonymous':", error);
+            }
+
+            const timestamp = Date.now();
+
+            // Get existing edit history or create new one
+            const existingEdits = previousCell.metadata?.edits || [];
+
+            // 1. Add the current content as an edit entry (save original previous content)
+            const firstEdit = {
+                cellValue: previousContent,
+                timestamp: timestamp,
+                type: "user" as const,
+                author: currentUser,
+                validatedBy: []
+            };
+
+            // 2. Concatenate content and create second edit
+            const mergedContent = previousContent + " " + currentContent;
+            const secondEdit = {
+                cellValue: mergedContent,
+                timestamp: timestamp + 1,
+                type: "user" as const,
+                author: currentUser,
+                validatedBy: []
+            };
+
+            // Update the previous cell content and edit history directly
+            // Since this is a merge operation in source files, we need to bypass normal restrictions
+            const updatedEdits = [...existingEdits, firstEdit, secondEdit];
+
+            // Update the previous cell content and metadata directly
+            previousCell.value = mergedContent;
+            if (!previousCell.metadata.edits) {
+                previousCell.metadata.edits = [];
+            }
+            previousCell.metadata.edits = updatedEdits;
+
+            // Mark the document as dirty manually since we bypassed the normal update methods
+            (document as any)._isDirty = true;
+
+            // 3. Mark current cell as merged by updating its data
+            const currentCellData = document.getCellData(currentCellId) || {};
+            document.updateCellData(currentCellId, {
+                ...currentCellData,
+                merged: true
+            });
+
+            // Save the document
+            await document.save(new vscode.CancellationTokenSource().token);
+
+            console.log(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
+
+            // Refresh the webview content
+            provider.refreshWebview(webviewPanel, document);
+
+        } catch (error) {
+            console.error("Error merging cells:", error);
+            vscode.window.showErrorMessage(`Failed to merge cells: ${error}`);
+        }
+    },
 };
 
 export async function performLLMCompletion(
