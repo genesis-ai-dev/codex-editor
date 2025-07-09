@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 interface SyncSettingsProps {
     autoSyncEnabled: boolean;
     syncDelayMinutes: number;
+    isSyncInProgress: boolean;
+    syncStage: string;
     onToggleAutoSync: (enabled: boolean) => void;
     onChangeSyncDelay: (minutes: number) => void;
     onTriggerSync: () => void;
@@ -15,6 +17,8 @@ interface SyncSettingsProps {
 export const SyncSettings: React.FC<SyncSettingsProps> = ({
     autoSyncEnabled,
     syncDelayMinutes,
+    isSyncInProgress,
+    syncStage,
     onToggleAutoSync,
     onChangeSyncDelay,
     onTriggerSync,
@@ -42,11 +46,21 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </CardTitle>
                     <Button
                         onClick={onTriggerSync}
+                        disabled={isSyncInProgress}
                         size="default"
-                        className="button-primary font-semibold px-4 py-2 shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200"
+                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[140px] xl:max-w-none"
                     >
-                        <i className="codicon codicon-sync mr-2 h-4 w-4" />
-                        Sync Now
+                        <i
+                            className={`codicon ${
+                                isSyncInProgress
+                                    ? "codicon-loading codicon-modifier-spin"
+                                    : "codicon-sync"
+                            } mr-2 h-4 w-4`}
+                        />
+                        <span className="hidden sm:inline">
+                            {isSyncInProgress ? syncStage || "Syncing..." : "Sync Now"}
+                        </span>
+                        <span className="sm:hidden">{isSyncInProgress ? "Syncing" : "Sync"}</span>
                     </Button>
                 </div>
             </CardHeader>
@@ -104,7 +118,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             onValueChange={(value) => onChangeSyncDelay(parseInt(value, 10))}
                         >
                             <SelectTrigger
-                                className="w-36 font-medium input"
+                                className="w-28 lg:w-36 font-medium input text-sm"
                                 style={{
                                     borderWidth: "2px",
                                     borderColor: "var(--border)",
