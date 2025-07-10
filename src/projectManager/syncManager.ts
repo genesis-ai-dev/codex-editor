@@ -73,6 +73,7 @@ export class SyncManager {
     private lastConnectionErrorTime: number = 0;
     private CONNECTION_ERROR_COOLDOWN = 60000; // 1 minute cooldown for connection messages
     private currentSyncStage: string = "";
+    private syncStatusListeners: Array<(isSyncInProgress: boolean, syncStage: string) => void> = [];
 
     private constructor() {
         // Initialize with configuration values
@@ -84,6 +85,30 @@ export class SyncManager {
             SyncManager.instance = new SyncManager();
         }
         return SyncManager.instance;
+    }
+
+    // Register a listener for sync status updates
+    public addSyncStatusListener(listener: (isSyncInProgress: boolean, syncStage: string) => void): void {
+        this.syncStatusListeners.push(listener);
+    }
+
+    // Remove a sync status listener
+    public removeSyncStatusListener(listener: (isSyncInProgress: boolean, syncStage: string) => void): void {
+        const index = this.syncStatusListeners.indexOf(listener);
+        if (index !== -1) {
+            this.syncStatusListeners.splice(index, 1);
+        }
+    }
+
+    // Notify all listeners of sync status changes
+    private notifySyncStatusListeners(): void {
+        this.syncStatusListeners.forEach(listener => {
+            try {
+                listener(this.isSyncInProgress, this.currentSyncStage);
+            } catch (error) {
+                console.error("Error notifying sync status listener:", error);
+            }
+        });
     }
 
     // Schedule a sync operation to occur after the configured delay
@@ -163,6 +188,8 @@ export class SyncManager {
         // Set sync in progress flag and show immediate feedback
         this.clearPendingSync();
         this.isSyncInProgress = true;
+        this.currentSyncStage = "Starting sync...";
+        this.notifySyncStatusListeners();
         console.log("   nc operation in background with message:", commitMessage);
 
         // Show progress indicator to user instead of simple message
@@ -192,10 +219,12 @@ export class SyncManager {
 
             // Update sync stage and splash screen
             this.currentSyncStage = "Preparing synchronization...";
+            this.notifySyncStatusListeners();
             updateSplashScreenSync(60, this.currentSyncStage);
 
             // Sync all changes in background
             this.currentSyncStage = "Synchronizing changes...";
+            this.notifySyncStatusListeners();
             const syncResult = await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
 
             const syncEndTime = performance.now();
@@ -204,6 +233,7 @@ export class SyncManager {
 
             // Update sync stage and splash screen
             this.currentSyncStage = "Synchronization complete!";
+            this.notifySyncStatusListeners();
             updateSplashScreenSync(100, "Synchronization complete");
 
             // Schedule progress report after successful sync (when there are actual changes)
@@ -221,6 +251,7 @@ export class SyncManager {
 
             // Update sync stage and splash screen
             this.currentSyncStage = "Sync failed";
+            this.notifySyncStatusListeners();
             updateSplashScreenSync(100, `Sync failed: ${errorMessage}`);
 
             // Show error messages to user
@@ -242,6 +273,7 @@ export class SyncManager {
         } finally {
             this.currentSyncStage = "";
             this.isSyncInProgress = false;
+            this.notifySyncStatusListeners();
         }
     }
 

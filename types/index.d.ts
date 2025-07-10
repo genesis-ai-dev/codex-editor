@@ -1339,6 +1339,8 @@ interface ProjectManagerState {
     workspaceIsOpen: boolean;
     repoHasRemote: boolean;
     isInitializing: boolean;
+    isSyncInProgress: boolean;
+    syncStage: string;
     updateState: 'ready' | 'downloaded' | 'available for download' | 'downloading' | 'updating' | 'checking for updates' | 'idle' | 'disabled' | null;
     updateVersion: string | null;
     isCheckingForUpdates: boolean;
@@ -1360,6 +1362,13 @@ type ProjectManagerMessageToWebview =
         data: {
             autoSyncEnabled: boolean;
             syncDelayMinutes: number;
+        };
+    }
+    | {
+        command: "syncStatusUpdate";
+        data: {
+            isSyncInProgress: boolean;
+            syncStage: string;
         };
     }
     | {
