@@ -1155,7 +1155,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async performSingleCellQueue(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
-        cellIds: string[]
+        cellIds: string[],
+        shouldUpdateValue: boolean,
     ) {
 
         // Create a new cancellation token source for this operation
@@ -1188,7 +1189,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 // Add to the unified queue - no need to wait for completion here
-                this.enqueueTranslation(cellId, document, true)
+                this.enqueueTranslation(cellId, document, shouldUpdateValue)
                     .then(() => {
                         // Cell has been processed successfully
                         // The queue processing will update progress automatically
@@ -1265,7 +1266,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async addCellToSingleCellQueue(
         cellId: string,
         document: CodexCellDocument,
-        webviewPanel: vscode.WebviewPanel
+        webviewPanel: vscode.WebviewPanel,
+        shouldUpdateValue: boolean = false
     ): Promise<void> {
 
         // Check if we already have a single cell queue running
@@ -1279,7 +1281,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.broadcastSingleCellQueueState();
 
                 // Add to the unified translation queue
-                this.enqueueTranslation(cellId, document, true)
+                this.enqueueTranslation(cellId, document, shouldUpdateValue)
                     .then(() => {
                         // Cell processed successfully
                     })
@@ -1296,7 +1298,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
         } else {
             // Start a new single cell queue with this cell
-            await this.performSingleCellQueue(document, webviewPanel, [cellId]);
+            await this.performSingleCellQueue(document, webviewPanel, [cellId], shouldUpdateValue);
         }
     }
 
@@ -1785,6 +1787,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             success: true,
                         } as any);
                     });
+
+                    // Send LLM completion response for single cell translations (non-batch)
+                    if (!this.autocompletionState.isProcessing && this.singleCellQueueState.isProcessing) {
+                        this.webviewPanels.forEach((panel) => {
+                            this.postMessageToWebview(panel, {
+                                type: "providerSendsLLMCompletionResponse",
+                                content: {
+                                    completion: result || "",
+                                },
+                            });
+                        });
+                    }
 
                     request.resolve(result);
 

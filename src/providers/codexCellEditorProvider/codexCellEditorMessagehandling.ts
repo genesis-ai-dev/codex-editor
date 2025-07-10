@@ -218,7 +218,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const addContentToValue = typedEvent.content.addContentToValue;
 
         // Add cell to the single cell queue (accumulate cells like autocomplete chapter does)
-        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel);
+        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
 
         // Note: The response is now handled by the queue system's completion callback
         // The old direct response is no longer needed since the queue system manages state
