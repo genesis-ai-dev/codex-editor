@@ -1795,6 +1795,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                 type: "providerSendsLLMCompletionResponse",
                                 content: {
                                     completion: result || "",
+                                    cellId: request.cellId,
                                 },
                             });
                         });

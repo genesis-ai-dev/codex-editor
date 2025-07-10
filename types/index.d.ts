@@ -819,7 +819,7 @@ type EditorReceiveMessages =
         content: { [cellId: string]: number; };
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
-    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; }; }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
