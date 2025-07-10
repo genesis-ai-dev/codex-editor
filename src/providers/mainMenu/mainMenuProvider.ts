@@ -40,6 +40,8 @@ class ProjectManagerStore {
         workspaceIsOpen: false,
         repoHasRemote: false,
         isInitializing: false,
+        isSyncInProgress: false,
+        syncStage: "",
         updateState: null,
         updateVersion: null,
         isCheckingForUpdates: false,
@@ -336,6 +338,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
         this.store = new ProjectManagerStore();
         this.initializeFrontierApi();
         this.setupWorkspaceWatchers();
+        this.setupSyncStatusListener();
 
         // Subscribe to state changes to update webview
         this.store.subscribe((state) => {
@@ -383,6 +386,23 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         // Set up metadata watcher if in a workspace
         this.setupMetadataWatcher();
+    }
+
+    private setupSyncStatusListener() {
+        // Register listener for sync status updates from SyncManager
+        const syncManager = SyncManager.getInstance();
+        const syncStatusListener = (isSyncInProgress: boolean, syncStage: string) => {
+            this.sendSyncStatusUpdate(isSyncInProgress, syncStage);
+        };
+
+        syncManager.addSyncStatusListener(syncStatusListener);
+
+        // Store the listener reference for cleanup
+        this.disposables.push({
+            dispose: () => {
+                syncManager.removeSyncStatusListener(syncStatusListener);
+            }
+        });
     }
 
     private async setupMetadataWatcher() {
@@ -551,6 +571,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "syncProject": {
                 console.log("Syncing project");
                 const syncManager = SyncManager.getInstance();
+                // Don't manually set sync status - let SyncManager handle it through listeners
                 await syncManager.executeSync("Syncing project");
                 break;
             }
@@ -595,6 +616,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             }
             case "triggerSync": {
                 const syncManager = SyncManager.getInstance();
+                // Don't manually set sync status - let SyncManager handle it through listeners
                 await syncManager.executeSync("Manual sync triggered from main menu");
                 break;
             }
@@ -755,6 +777,25 @@ export class MainMenuProvider extends BaseWebviewProvider {
             safePostMessageToView(this._view, {
                 command: "stateUpdate",
                 data: state,
+            } as ProjectManagerMessageToWebview, "MainMenu");
+        }
+    }
+
+    private sendSyncStatusUpdate(isSyncInProgress: boolean, syncStage: string = ""): void {
+        // Update the store state
+        this.store.setState({
+            isSyncInProgress,
+            syncStage,
+        });
+
+        // Send update to webview
+        if (this._view) {
+            safePostMessageToView(this._view, {
+                command: "syncStatusUpdate",
+                data: {
+                    isSyncInProgress,
+                    syncStage,
+                },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }
     }

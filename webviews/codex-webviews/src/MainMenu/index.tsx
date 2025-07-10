@@ -41,6 +41,8 @@ interface ProjectManagerState {
     workspaceIsOpen: boolean;
     repoHasRemote: boolean;
     isInitializing: boolean;
+    isSyncInProgress: boolean;
+    syncStage: string;
     updateState:
         | "ready"
         | "downloaded"
@@ -81,6 +83,8 @@ function MainMenu() {
             updateVersion: null,
             isCheckingForUpdates: false,
             appVersion: null,
+            isSyncInProgress: false,
+            syncStage: "",
         },
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
@@ -126,6 +130,18 @@ function MainMenu() {
                             updateState: message.data.updateState,
                             updateVersion: message.data.updateVersion,
                             isCheckingForUpdates: message.data.isCheckingForUpdates,
+                        },
+                    }));
+                    break;
+                case "syncStatusUpdate":
+                    setState((prevState) => ({
+                        ...prevState,
+                        projectState: {
+                            ...prevState.projectState,
+                            isSyncInProgress:
+                                message.data.isSyncInProgress ??
+                                prevState.projectState.isSyncInProgress,
+                            syncStage: message.data.syncStage ?? prevState.projectState.syncStage,
                         },
                     }));
                     break;
@@ -572,6 +588,8 @@ function MainMenu() {
                                 <SyncSettings
                                     autoSyncEnabled={state.autoSyncEnabled}
                                     syncDelayMinutes={state.syncDelayMinutes}
+                                    isSyncInProgress={projectState.isSyncInProgress}
+                                    syncStage={projectState.syncStage}
                                     onToggleAutoSync={handleToggleAutoSync}
                                     onChangeSyncDelay={handleChangeSyncDelay}
                                     onTriggerSync={handleTriggerSync}
@@ -659,21 +677,23 @@ function MainMenu() {
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
                                         <Button
                                             variant="outline"
                                             size="default"
                                             onClick={() => handleProjectAction("openEditAnalysis")}
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
-                                                className="codicon codicon-graph mr-3 h-5 w-5"
+                                                className="codicon codicon-graph mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">AI Metrics</div>
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
+                                                    AI Metrics
+                                                </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     Analysis & insights
@@ -685,16 +705,18 @@ function MainMenu() {
                                             variant="outline"
                                             size="default"
                                             onClick={() => executeCommand("openCellLabelImporter")}
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
-                                                className="codicon codicon-symbol-array mr-3 h-5 w-5"
+                                                className="codicon codicon-symbol-array mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">Import Labels</div>
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
+                                                    Import Labels
+                                                </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     Cell label import
@@ -708,16 +730,18 @@ function MainMenu() {
                                             onClick={() =>
                                                 handleProjectAction("openBookNameEditor")
                                             }
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
-                                                className="codicon codicon-book mr-3 h-5 w-5"
+                                                className="codicon codicon-book mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">Book Names</div>
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
+                                                    Book Names
+                                                </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     Configure books
@@ -729,18 +753,18 @@ function MainMenu() {
                                             variant="outline"
                                             size="default"
                                             onClick={() => handleProjectAction("openAISettings")}
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
-                                                className="codicon codicon-settings mr-3 h-5 w-5"
+                                                className="codicon codicon-settings mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
                                                     Copilot Settings
                                                 </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     AI configuration
@@ -752,16 +776,18 @@ function MainMenu() {
                                             variant="outline"
                                             size="default"
                                             onClick={() => handleProjectAction("openExportView")}
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
-                                                className="codicon codicon-export mr-3 h-5 w-5"
+                                                className="codicon codicon-export mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">Export Project</div>
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
+                                                    Export Project
+                                                </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     Download files
@@ -774,24 +800,24 @@ function MainMenu() {
                                             size="default"
                                             onClick={() => handleProjectAction("checkForUpdates")}
                                             disabled={projectState.isCheckingForUpdates}
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
                                                 className={`codicon ${
                                                     projectState.isCheckingForUpdates
                                                         ? "codicon-loading codicon-modifier-spin"
                                                         : "codicon-extensions"
-                                                } mr-3 h-5 w-5`}
+                                                } mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0`}
                                                 style={{ color: "var(--ring)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
                                                     {projectState.isCheckingForUpdates
                                                         ? "Checking..."
                                                         : "Check for Updates"}
                                                 </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     Check for app updates
@@ -803,16 +829,18 @@ function MainMenu() {
                                             variant="outline"
                                             size="default"
                                             onClick={() => executeCommand("closeProject")}
-                                            className="button-outline justify-start h-14 p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium"
+                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
-                                                className="codicon codicon-close mr-3 h-5 w-5"
+                                                className="codicon codicon-close mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
                                                 style={{ color: "var(--destructive)" }}
                                             />
-                                            <div className="text-left">
-                                                <div className="font-semibold">Close Project</div>
+                                            <div className="text-left min-w-0">
+                                                <div className="font-semibold text-xs lg:text-sm truncate">
+                                                    Close Project
+                                                </div>
                                                 <div
-                                                    className="text-xs"
+                                                    className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
                                                     Exit workspace
