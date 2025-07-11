@@ -27,6 +27,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import path from "path";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -819,6 +820,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return path.toLowerCase().endsWith(".source");
     }
 
+    private isMatchingFilePair(currentUri: vscode.Uri | string, otherUri: vscode.Uri | string): boolean {
+        const currentPath = typeof currentUri === "string" ? currentUri : currentUri.path;
+        const otherPath = typeof otherUri === "string" ? otherUri : otherUri.path;
+        // Remove extensions before comparing
+        const currentPathWithoutExt = currentPath.toLowerCase().replace(/\.[^/.]+$/, '');
+        const otherPathWithoutExt = otherPath.toLowerCase().replace(/\.[^/.]+$/, '');
+        return currentPathWithoutExt === otherPathWithoutExt;
+    }
+
     private isCodexFile(uri: vscode.Uri | string): boolean {
         const path = typeof uri === "string" ? uri : uri.path;
         return path.toLowerCase().endsWith(".codex");
@@ -1359,7 +1369,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     }
 
     private processNotebookData(notebook: vscode.NotebookData) {
-        debug("Processing notebook data");
+        debug("Processing notebook data", notebook);
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
             cellMarkers: [cell.metadata?.id],
             cellContent: cell.value,
@@ -1367,20 +1377,25 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             editHistory: cell.metadata?.edits,
             timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
             cellLabel: cell.metadata?.cellLabel,
+            merged: cell.metadata?.data?.merged,
         }));
+        debug("Translation units:", translationUnits);
 
-        const processedData = this.mergeRangesAndProcess(translationUnits);
-        debug("Notebook data processed");
+        const processedData = this.mergeRangesAndProcess(translationUnits, this.isCorrectionEditorMode);
+        debug("Notebook data processed", processedData);
         return processedData;
     }
 
-    private mergeRangesAndProcess(translationUnits: QuillCellContent[]) {
+    private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean) {
         debug("Merging ranges and processing translation units");
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
 
         translationUnits.forEach((verse, index) => {
             const rangeMarker = "<range>";
             if (verse.cellContent?.trim() === rangeMarker) {
+                return;
+            }
+            if (verse.merged && !isCorrectionEditorMode) {
                 return;
             }
 
@@ -1487,6 +1502,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // Send highlight/clear messages to source files when a codex file is active
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
                     const isSourceFile = this.isSourceText(panelUri);
+                    // copy this to update target with merged cells
                     if (isSourceFile) {
                         if (cellId) {
                             // Set highlight
@@ -1520,6 +1536,107 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamp: new Date().toISOString(),
             },
         });
+    }
+
+    public async mergeMatchingCellsInTargetFile(cellIdOfCellToMerge: string, cellIdOfTargetCell: string, uri: string, workspaceFolder: vscode.WorkspaceFolder) {
+        debug("Merging matching cells in target file:", { cellIdOfCellToMerge, cellIdOfTargetCell, uri });
+
+        try {
+            // 1. Construct target file path
+            const normalizedPath = uri.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+            const targetFileName = baseFileName.replace(".source", ".codex");
+
+            // 2. Open or find the target document if it is not already open
+            const targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+            const sourcePath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", baseFileName);
+
+
+            // Open the source file in the left-most group (ViewColumn.One)
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                sourcePath,
+                "codex.cellEditor",
+                { viewColumn: vscode.ViewColumn.One }
+            );
+
+            // Open the codex file in the right-most group (ViewColumn.Two)
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                targetPath,
+                "codex.cellEditor",
+                { viewColumn: vscode.ViewColumn.Two }
+            );
+            // Find the target document instance
+            let targetDocument: CodexCellDocument | undefined;
+
+            // Check if the target document is already open in our webview panels
+            const targetDocumentUri = targetPath.toString();
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    // Try to get the document from the provider's current document or create it
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                // If not found in panels, create a new document instance
+                targetDocument = await this.openCustomDocument(
+                    targetPath,
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+
+            // 3. Get the content from both cells
+            const currentCellContent = this.currentDocument?.getCellContent(cellIdOfCellToMerge);
+            const targetCellContent = targetDocument.getCellContent(cellIdOfTargetCell);
+
+            if (!currentCellContent || !targetCellContent) {
+                throw new Error("Could not find one or both cells for merge operation");
+            }
+
+            // 4. Use the existing mergeCellWithPrevious command
+            const targetPanel = this.webviewPanels.get(targetDocumentUri);
+            if (!targetPanel) {
+                throw new Error("Could not find target webview panel");
+            }
+
+            // Create a merge event to reuse existing handler
+            const mergeEvent: EditorPostMessages = {
+                command: "mergeCellWithPrevious" as const,
+                content: {
+                    currentCellId: cellIdOfCellToMerge,
+                    previousCellId: cellIdOfTargetCell,
+                    currentContent: currentCellContent.cellContent || "",
+                    previousContent: targetCellContent.cellContent || ""
+                }
+            };
+
+            // Call the existing merge handler directly
+            await handleMessages(
+                mergeEvent,
+                targetPanel,
+                targetDocument,
+                () => this.refreshWebview(targetPanel, targetDocument),
+                this
+            );
+
+            vscode.window.showInformationMessage(
+                `Successfully merged cells in ${targetFileName}`
+            );
+
+        } catch (error) {
+            console.error("Error merging cells in target file:", error);
+            vscode.window.showErrorMessage(
+                `Failed to merge target cells: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
     }
 
     public async getAuthApi() {

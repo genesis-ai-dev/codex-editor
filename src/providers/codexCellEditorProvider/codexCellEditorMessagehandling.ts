@@ -947,7 +947,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         if (confirmed === "Yes") {
             // User confirmed, proceed with merge
-            const mergeEvent = {
+            const mergeEvent: EditorPostMessages = {
                 command: "mergeCellWithPrevious" as const,
                 content: {
                     currentCellId,
@@ -962,8 +962,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 event: mergeEvent,
                 document,
                 webviewPanel,
-                provider
+                provider,
+                updateWebview: () => {
+                    provider.refreshWebview(webviewPanel, document);
+                }
             });
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (!workspaceFolder) {
+                throw new Error("No workspace folder found");
+            }
+            await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
         }
     },
 

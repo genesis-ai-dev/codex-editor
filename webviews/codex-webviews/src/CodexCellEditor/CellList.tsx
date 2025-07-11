@@ -459,6 +459,7 @@ const CellList: React.FC<CellListProps> = ({
                     const cellIdForTranslation = cellMarkers[0];
                     const translationState = getCellTranslationState(cellIdForTranslation);
 
+
                     return (
                         <span
                             key={startIndex + index}

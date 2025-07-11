@@ -1062,6 +1062,7 @@ interface QuillCellContent {
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
+    merged?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
 }
 
