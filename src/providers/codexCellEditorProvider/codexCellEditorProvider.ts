@@ -30,7 +30,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 
 // Enable debug logging if needed
-const DEBUG_MODE = false;
+const DEBUG_MODE = true;
 function debug(...args: any[]) {
     if (DEBUG_MODE) {
         console.log("[CodexCellEditorProvider]", ...args);
@@ -134,6 +134,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
     // Add bibleBookMap state to the provider
     private bibleBookMap: Map<string, { name: string;[key: string]: any; }> | undefined;
+
+    // Add correction editor mode state
+    private isCorrectionEditorMode: boolean = false;
 
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
@@ -476,6 +479,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         debug("Performing initial webview update");
         updateWebview();
 
+        // Send initial correction editor mode state
+        this.postMessageToWebview(webviewPanel, {
+            type: "correctionEditorModeChanged",
+            enabled: this.isCorrectionEditorMode,
+        });
+
         // Wait for webview ready event before scanning for audio attachments
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
             if ('type' in e && e.type === 'webviewReady') {
@@ -716,7 +725,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         metadata: ${JSON.stringify(notebookData.metadata)},
                         userInfo: ${JSON.stringify(this.userInfo)},
                         cachedChapter: ${cachedChapter},
-                        cellsPerPage: ${this.CELLS_PER_PAGE}
+                        cellsPerPage: ${this.CELLS_PER_PAGE},
+                        isCorrectionEditorMode: ${this.isCorrectionEditorMode}
                     };
                 </script>
             </head>
@@ -1381,13 +1391,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }));
         debug("Translation units:", translationUnits);
 
-        const processedData = this.mergeRangesAndProcess(translationUnits, this.isCorrectionEditorMode);
+        const isSourceText = this.isSourceText(this.currentDocument?.uri.toString() ?? "");
+        console.log("isSourceText dasffae", isSourceText);
+        const processedData = this.mergeRangesAndProcess(translationUnits, this.isCorrectionEditorMode, isSourceText ?? false);
         debug("Notebook data processed", processedData);
         return processedData;
     }
 
-    private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean) {
+    private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
+        console.log("isSourceText dasffae", { isSourceText, isCorrectionEditorMode });
         debug("Merging ranges and processing translation units");
+        const isSourceAndCorrectionEditorMode = isSourceText && isCorrectionEditorMode;
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
 
         translationUnits.forEach((verse, index) => {
@@ -1395,7 +1409,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (verse.cellContent?.trim() === rangeMarker) {
                 return;
             }
-            if (verse.merged && !isCorrectionEditorMode) {
+            if (verse.merged && !isSourceAndCorrectionEditorMode) {
                 return;
             }
 
@@ -1419,10 +1433,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 editHistory: verse.editHistory,
                 timestamps: verse.timestamps,
                 cellLabel: verse.cellLabel,
+                merged: verse.merged,
             });
         });
 
-        debug("Range merging completed");
+        debug("Range merging completed", { translationUnitsWithMergedRanges });
         return translationUnitsWithMergedRanges;
     }
 
@@ -2587,5 +2602,28 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.updateFileStatus();
             }
         }
+    }
+
+    /**
+     * Toggles the correction editor mode and notifies all webviews
+     */
+    public toggleCorrectionEditorMode(): void {
+        this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
+        debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
+
+        // Broadcast the change to all webviews
+        this.webviewPanels.forEach((panel) => {
+            this.postMessageToWebview(panel, {
+                type: "correctionEditorModeChanged",
+                enabled: this.isCorrectionEditorMode,
+            });
+        });
+
+        // Refresh all webviews to show/hide merged cells appropriately
+        this.webviewPanels.forEach((panel, docUri) => {
+            if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
+                this.refreshWebview(panel, this.currentDocument);
+            }
+        });
     }
 }

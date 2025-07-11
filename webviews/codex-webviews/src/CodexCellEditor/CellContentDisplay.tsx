@@ -332,6 +332,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         }
     };
 
+    const handleCancelMerge = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent the cell click handler from firing
+        vscode.postMessage({
+            command: "cancelMerge",
+            content: { cellId: cellIds[0] },
+        } as any);
+    };
+
     // Handler for merging cell with previous cell
     const handleMergeWithPrevious = (e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent the cell click handler from firing
@@ -597,7 +605,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             )}
 
                             {/* Merge Button - only show in correction editor mode for source text */}
-                            {isSourceText && isCorrectionEditorMode && (
+                            {isSourceText && isCorrectionEditorMode && !cell.merged && (
                                 <div style={{ flexShrink: 0 }}>
                                     <Button
                                         variant="ghost"
@@ -613,7 +621,29 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                         title="Merge with previous cell"
                                     >
                                         <i
-                                            className="codicon codicon-combine"
+                                            className="codicon codicon-merge"
+                                            style={{ fontSize: "12px" }}
+                                        />
+                                    </Button>
+                                </div>
+                            )}
+                            {isSourceText && isCorrectionEditorMode && cell.merged && (
+                                <div style={{ flexShrink: 0 }}>
+                                    <Button
+                                        variant="ghost"
+                                        style={{
+                                            height: "16px",
+                                            width: "16px",
+                                            padding: 0,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                        }}
+                                        onClick={handleCancelMerge}
+                                        title="Cancel merge"
+                                    >
+                                        <i
+                                            className="codicon codicon-debug-step-back"
                                             style={{ fontSize: "12px" }}
                                         />
                                     </Button>

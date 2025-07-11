@@ -91,7 +91,7 @@ const CellList: React.FC<CellListProps> = ({
         }
         return translationUnits;
     }, [translationUnits, isSourceText, isCorrectionEditorMode]);
-
+    console.log("filteredTranslationUnits", { filteredTranslationUnits, translationUnits });
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;
     // State to track completed translations (only successful ones) - REMOVED: Now handled by parent
@@ -356,10 +356,14 @@ const CellList: React.FC<CellListProps> = ({
     const generateCellLabel = useCallback(
         (cell: QuillCellContent, currentCellsArray: QuillCellContent[]): string => {
             // If cell already has a label, use it
+            if (cell.merged) {
+                return "❌";
+            }
+
             if (cell.cellLabel) {
                 return cell.cellLabel;
             }
-
+            console.log("generateCellLabel", { cell, currentCellsArray });
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
                 return "";
@@ -429,7 +433,11 @@ const CellList: React.FC<CellListProps> = ({
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
-                if (allCells[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+                if (
+                    allCells[i].cellType !== CodexCellTypes.PARATEXT &&
+                    cellIdParts.length < 3 &&
+                    !allCells[i].merged
+                ) {
                     visibleCellCount++;
                 }
             }
@@ -454,11 +462,11 @@ const CellList: React.FC<CellListProps> = ({
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
                     // Use the current translationUnits array for context, but generate global labels
+                    console.log({ workingTranslationUnits, cell });
                     const generatedCellLabel = generateCellLabel(cell, workingTranslationUnits);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
                     const translationState = getCellTranslationState(cellIdForTranslation);
-
 
                     return (
                         <span
@@ -470,6 +478,7 @@ const CellList: React.FC<CellListProps> = ({
                                         : "block",
                                 verticalAlign: "middle",
                                 backgroundColor: "transparent",
+                                opacity: cell.merged ? 0.5 : 1,
                             }}
                         >
                             <CellContentDisplay

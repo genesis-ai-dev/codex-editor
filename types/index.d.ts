@@ -732,6 +732,7 @@ export type EditorPostMessages =
             previousContent: string;
         };
     }
+    | { command: "toggleCorrectionEditorMode"; }
     | {
         command: "confirmCellMerge";
         content: {
@@ -955,6 +956,10 @@ type EditorReceiveMessages =
                 language?: string;
             };
         };
+    }
+    | {
+        type: "correctionEditorModeChanged";
+        enabled: boolean;
     }
     | {
         type: "audioAttachmentSaved";

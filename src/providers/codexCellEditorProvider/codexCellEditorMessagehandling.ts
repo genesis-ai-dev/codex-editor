@@ -703,6 +703,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         provider.triggerSync();
     },
 
+    toggleCorrectionEditorMode: ({ provider }) => {
+        console.log("toggleCorrectionEditorMode message received");
+        provider.toggleCorrectionEditorMode();
+    },
+
     triggerReindexing: async () => {
         console.log("Triggering reindexing after all translations completed");
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
