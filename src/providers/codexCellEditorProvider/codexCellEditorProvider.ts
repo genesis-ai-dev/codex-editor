@@ -1654,6 +1654,98 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
+    public async unmergeMatchingCellsInTargetFile(cellIdToUnmerge: string, uri: string, workspaceFolder: vscode.WorkspaceFolder) {
+        debug("Unmerging matching cells in target file:", { cellIdToUnmerge, uri });
+
+        try {
+            // 1. Construct target file path - handle both directions
+            const normalizedPath = uri.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+
+            let targetPath: vscode.Uri;
+            let targetFileName: string;
+            let isSourceToTarget: boolean;
+
+            if (baseFileName.endsWith(".source")) {
+                // Source file -> Target file (.source -> .codex)
+                targetFileName = baseFileName.replace(".source", ".codex");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+                isSourceToTarget = true;
+            } else if (baseFileName.endsWith(".codex")) {
+                // Target file -> Source file (.codex -> .source)
+                targetFileName = baseFileName.replace(".codex", ".source");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", targetFileName);
+                isSourceToTarget = false;
+            } else {
+                throw new Error(`Unsupported file type for unmerge operation: ${baseFileName}`);
+            }
+
+            // 2. Open the target file
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                targetPath,
+                "codex.cellEditor",
+                { viewColumn: isSourceToTarget ? vscode.ViewColumn.Two : vscode.ViewColumn.One }
+            );
+
+            // Find the target document instance
+            let targetDocument: CodexCellDocument | undefined;
+
+            // Check if the target document is already open in our webview panels
+            const targetDocumentUri = targetPath.toString();
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    // Try to get the document from the provider's current document or create it
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                // If not found in panels, create a new document instance
+                targetDocument = await this.openCustomDocument(
+                    targetPath,
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+
+            // 3. Remove the merge flag from the corresponding cell in the target file
+            const targetCellData = targetDocument.getCellData(cellIdToUnmerge) || {};
+
+            // Remove the merged flag by setting it to false
+            targetDocument.updateCellData(cellIdToUnmerge, {
+                ...targetCellData,
+                merged: false
+            });
+
+            // Save the target document
+            await targetDocument.save(new vscode.CancellationTokenSource().token);
+
+            console.log(`Successfully unmerged cell ${cellIdToUnmerge} in ${isSourceToTarget ? 'target' : 'source'} file ${targetFileName}`);
+
+            // Refresh the target webview if it's open
+            const targetPanel = this.webviewPanels.get(targetDocumentUri);
+            if (targetPanel) {
+                this.refreshWebview(targetPanel, targetDocument);
+            }
+
+            vscode.window.showInformationMessage(
+                `Successfully unmerged cell in both files`
+            );
+
+        } catch (error) {
+            console.error("Error unmerging cell in target file:", error);
+            vscode.window.showErrorMessage(
+                `Failed to unmerge corresponding cell: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
     public async getAuthApi() {
         return getAuthApi();
     }

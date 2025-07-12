@@ -734,6 +734,12 @@ export type EditorPostMessages =
     }
     | { command: "toggleCorrectionEditorMode"; }
     | {
+        command: "cancelMerge";
+        content: {
+            cellId: string;
+        };
+    }
+    | {
         command: "confirmCellMerge";
         content: {
             currentCellId: string;

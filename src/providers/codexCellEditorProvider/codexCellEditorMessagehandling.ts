@@ -708,6 +708,47 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         provider.toggleCorrectionEditorMode();
     },
 
+    cancelMerge: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "cancelMerge"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        console.log("cancelMerge message received for cell:", cellId);
+
+        try {
+            // Get the current cell data and remove the merged flag
+            const currentCellData = document.getCellData(cellId) || {};
+
+            // Remove the merged flag by setting it to false in the current document
+            document.updateCellData(cellId, {
+                ...currentCellData,
+                merged: false
+            });
+
+            // Save the current document
+            await document.save(new vscode.CancellationTokenSource().token);
+
+            console.log(`Successfully unmerged cell in source: ${cellId}`);
+
+            // Also unmerge the corresponding cell in the target file (like merge function does)
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (workspaceFolder) {
+                await provider.unmergeMatchingCellsInTargetFile(cellId, document.uri.toString(), workspaceFolder);
+            } else {
+                console.warn("No workspace folder found, skipping target file unmerge");
+                vscode.window.showWarningMessage("Could not unmerge corresponding cell in target file - no workspace folder found");
+            }
+
+            // Refresh the webview to show the updated state
+            provider.refreshWebview(webviewPanel, document);
+
+        } catch (error) {
+            console.error("Error canceling merge for cell:", cellId, error);
+            vscode.window.showErrorMessage(
+                `Failed to unmerge cell: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    },
+
     triggerReindexing: async () => {
         console.log("Triggering reindexing after all translations completed");
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
