@@ -1085,7 +1085,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             };
 
             // 2. Concatenate content and create second edit
-            const mergedContent = previousContent + " " + currentContent;
+            const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
             const secondEdit: EditHistory = {
                 cellValue: mergedContent,
                 timestamp: timestamp + 1,
