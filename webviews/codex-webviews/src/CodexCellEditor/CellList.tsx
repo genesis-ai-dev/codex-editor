@@ -363,7 +363,6 @@ const CellList: React.FC<CellListProps> = ({
             if (cell.cellLabel) {
                 return cell.cellLabel;
             }
-            console.log("generateCellLabel", { cell, currentCellsArray });
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
                 return "";
@@ -462,7 +461,6 @@ const CellList: React.FC<CellListProps> = ({
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
                     // Use the current translationUnits array for context, but generate global labels
-                    console.log({ workingTranslationUnits, cell });
                     const generatedCellLabel = generateCellLabel(cell, workingTranslationUnits);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
@@ -535,7 +533,7 @@ const CellList: React.FC<CellListProps> = ({
             const cellToOpen = workingTranslationUnits.find(
                 (unit) => unit.cellMarkers[0] === cellId
             );
-            if (unsavedChanges || isSourceText) {
+            if (unsavedChanges || (isSourceText && !isCorrectionEditorMode)) {
                 toggleFlashingBorder();
                 return;
             }
@@ -596,7 +594,7 @@ const CellList: React.FC<CellListProps> = ({
             };
 
             if (
-                !isSourceText &&
+                (!isSourceText || (isSourceText && isCorrectionEditorMode)) &&
                 cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
             ) {
                 if (currentGroup.length > 0) {

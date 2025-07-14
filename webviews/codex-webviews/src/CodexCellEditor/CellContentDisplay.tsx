@@ -515,7 +515,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 alignItems: "flex-start",
                 gap: "0.5rem",
                 padding: "0.25rem",
-                cursor: isSourceText ? "default" : "pointer",
+                cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                 border: "1px solid transparent",
                 borderRadius: "4px",
                 overflow: "hidden",

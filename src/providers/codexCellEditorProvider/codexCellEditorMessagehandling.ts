@@ -175,6 +175,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     saveHtml: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
+
         if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
             console.warn("Attempted to update content in a different file. This operation is not allowed.");
             return;
@@ -183,19 +184,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const oldContent = document.getCellContent(typedEvent.content.cellMarkers[0]);
         const oldText = oldContent?.cellContent || "";
         const newText = typedEvent.content.cellContent || "";
+        const isSourceText = document.uri.toString().includes(".source");
+
 
         if (oldText !== newText) {
-            await vscode.commands.executeCommand(
-                "codex-smart-edits.recordIceEdit",
-                oldText,
-                newText
-            );
+            if (!isSourceText) {
+                await vscode.commands.executeCommand(
+                    "codex-smart-edits.recordIceEdit",
+                    oldText,
+                    newText
+                );
+            }
             provider.updateFileStatus("dirty");
         }
 
+
+        const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
+
         document.updateCellContent(
             typedEvent.content.cellMarkers[0],
-            typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent,
+            finalContent,
             EditType.USER_EDIT
         );
     },
