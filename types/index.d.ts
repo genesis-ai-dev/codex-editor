@@ -1004,7 +1004,7 @@ interface ValidationEntry {
     isDeleted: boolean;
 }
 
-type EditHistory = {
+export type EditHistory = {
     author: string;
     cellValue: string;
     timestamp: number;
@@ -1013,7 +1013,7 @@ type EditHistory = {
 };
 
 type CodexData = Timestamps & {
-    [key: string]: any;
+    // [key: string]: any; this makes it very hard to type the data
     footnotes?: Footnote[];
 };
 

@@ -2703,6 +2703,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
         debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
 
+        // If correction editor mode is being enabled, preserve original content in edit history
+        if (this.isCorrectionEditorMode && this.currentDocument) {
+            this.preserveOriginalContentInEditHistory();
+        }
+
         // Broadcast the change to all webviews
         this.webviewPanels.forEach((panel) => {
             this.postMessageToWebview(panel, {
@@ -2717,5 +2722,72 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.refreshWebview(panel, this.currentDocument);
             }
         });
+    }
+
+    /**
+     * Preserves original content in edit history for cells that don't have any edits
+     * This ensures that when users start editing in correction mode, the original content is preserved
+     */
+    private preserveOriginalContentInEditHistory(): void {
+        if (!this.currentDocument) {
+            debug("No current document available for preserving edit history");
+            return;
+        }
+
+        debug("Preserving original content in edit history for correction editor mode");
+
+        try {
+            // Get all cell IDs from the document
+            const allCellIds = this.currentDocument.getAllCellIds();
+            let cellsUpdated = 0;
+
+            allCellIds.forEach((cellId: string) => {
+                try {
+                    // Get the cell data and content
+                    const cell = this.currentDocument!.getCell(cellId);
+                    const cellContent = this.currentDocument!.getCellContent(cellId);
+
+
+                    // Check if edit history exists and is empty
+                    const editHistory = cell?.metadata.edits || [];
+
+                    if (editHistory.length === 0 && cellContent?.cellContent) {
+                        // Preserve the original content as the first edit
+                        debug(`Preserving original content for cell ${cellId}`);
+
+                        // Use the existing updateCellContent method with the current content
+                        // This will create the first edit entry in the history
+                        this.currentDocument!.updateCellContent(
+                            cellId,
+                            cellContent.cellContent,
+                            EditType.INITIAL_IMPORT,
+                            false // Don't update the value, just add to edit history
+                        );
+
+                        cellsUpdated++;
+                    }
+                } catch (error) {
+                    console.error(`Error preserving edit history for cell ${cellId}:`, error);
+                }
+            });
+
+            if (cellsUpdated > 0) {
+                debug(`Preserved original content in edit history for ${cellsUpdated} cells`);
+
+                // Save the document to persist the changes
+                this.currentDocument.save(new vscode.CancellationTokenSource().token)
+                    .then(() => {
+                        debug("Document saved after preserving edit history");
+                    })
+                    .catch((error) => {
+                        console.error("Error saving document after preserving edit history:", error);
+                    });
+            } else {
+                debug("No cells needed edit history preservation");
+            }
+
+        } catch (error) {
+            console.error("Error preserving original content in edit history:", error);
+        }
     }
 }
