@@ -621,7 +621,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                     // Force re-parse to ensure correct chronological ordering
                     setTimeout(parseFootnotesFromContent, 10);
-                    
+
                     return updatedFootnotes;
                 });
             }
@@ -654,7 +654,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 const rawContent = element.getAttribute("data-footnote") || "";
                 // Clean spell check markup from footnote content as well
                 const content = getCleanedHtml(rawContent);
-                
+
                 // Calculate the actual position of this element in the document
                 const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL);
                 let position = 0;
@@ -1061,8 +1061,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4">
-                <div className="flex items-center justify-between">
+            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between">
+                <div className="flex flex-row flex-wrap items-center justify-between">
                     <div className="flex items-center gap-2">
                         {isEditorControlsExpanded ? (
                             <X
@@ -1204,47 +1204,46 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <Settings className="h-4 w-4" />
                             </Button>
                         )}
-                        {unsavedChanges ? (
-                            <>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSaveHtml();
-                                    }}
-                                    variant="default"
-                                    size="icon"
-                                    title={isSaving ? "Saving..." : "Save changes"}
-                                    disabled={isSaving || isEditingFootnoteInline}
-                                >
-                                    {isSaving ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Check className="h-4 w-4" />
-                                    )}
-                                </Button>
-                                <Button
-                                    onClick={handleCloseEditor}
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Discard changes"
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            </>
-                        ) : (
+                    </div>
+                </div>
+                <div className="flex items-center gap-1">
+                    {unsavedChanges ? (
+                        <>
                             <Button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleCloseEditor();
+                                    handleSaveHtml();
                                 }}
-                                variant="ghost"
+                                variant="default"
                                 size="icon"
-                                title="Close editor"
+                                title={isSaving ? "Saving..." : "Save changes"}
+                                disabled={isSaving || isEditingFootnoteInline}
                             >
-                                <X className="h-4 w-4" />
+                                {isSaving ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Check className="h-4 w-4" />
+                                )}
                             </Button>
-                        )}
-                    </div>
+                            <ConfirmationButton
+                                icon="trash"
+                                onClick={handleCloseEditor}
+                                disabled={isSaving || isEditingFootnoteInline}
+                            />
+                        </>
+                    ) : (
+                        <Button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleCloseEditor();
+                            }}
+                            variant="ghost"
+                            size="icon"
+                            title="Close editor"
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </CardHeader>
 
@@ -1541,10 +1540,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             doc.querySelectorAll(
                                                                 "sup.footnote-marker"
                                                             ).forEach((el) => {
-                                                                const rawFootnoteContent = el.getAttribute("data-footnote") || "";
-                                                                const cleanedFootnoteContent = getCleanedHtml(rawFootnoteContent);
+                                                                const rawFootnoteContent =
+                                                                    el.getAttribute(
+                                                                        "data-footnote"
+                                                                    ) || "";
+                                                                const cleanedFootnoteContent =
+                                                                    getCleanedHtml(
+                                                                        rawFootnoteContent
+                                                                    );
                                                                 // Match by cleaned footnote content since that's what's used in parsing
-                                                                if (cleanedFootnoteContent === footnote.content) {
+                                                                if (
+                                                                    cleanedFootnoteContent ===
+                                                                    footnote.content
+                                                                ) {
                                                                     el.remove();
                                                                 }
                                                             });
@@ -1552,19 +1560,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                             // Update editor content with cleaned content
                                                             const updatedContent =
                                                                 doc.body.innerHTML;
-                                                            
+
                                                             // Update both the local state and the actual Quill editor
                                                             handleContentUpdate(updatedContent);
-                                                            
+
                                                             // Also update the actual Quill editor directly
                                                             setTimeout(() => {
                                                                 if (editorHandlesRef.current) {
-                                                                    editorHandlesRef.current.updateContent(updatedContent);
+                                                                    editorHandlesRef.current.updateContent(
+                                                                        updatedContent
+                                                                    );
                                                                     // Renumber footnotes to maintain chronological order
                                                                     setTimeout(() => {
                                                                         editorHandlesRef.current?.renumberFootnotes();
                                                                         // Force parse footnotes again after renumbering
-                                                                        setTimeout(parseFootnotesFromContent, 50);
+                                                                        setTimeout(
+                                                                            parseFootnotesFromContent,
+                                                                            50
+                                                                        );
                                                                     }, 50);
                                                                 }
                                                             }, 10);

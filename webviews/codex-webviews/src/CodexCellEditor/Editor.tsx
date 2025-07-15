@@ -798,9 +798,18 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     quill.root.innerHTML = event.data.content;
                 } else if (event.data.type === "providerSendsLLMCompletionResponse") {
                     const completionText = event.data.content.completion;
-                    quill.root.innerHTML = completionText; // Clear existing content
-                    props.onChange?.({ html: quill.root.innerHTML });
-                    setUnsavedChanges(true);
+                    const completionCellId = event.data.content.cellId;
+
+                    // Validate that the completion is for the current cell
+                    if (completionCellId === props.currentLineId) {
+                        quill.root.innerHTML = completionText; // Clear existing content
+                        props.onChange?.({ html: quill.root.innerHTML });
+                        setUnsavedChanges(true);
+                    } else {
+                        console.warn(
+                            `LLM completion received for cell ${completionCellId} but current cell is ${props.currentLineId}. Ignoring completion.`
+                        );
+                    }
                 }
                 updateHeaderLabel(); // Update header label after external changes
             }

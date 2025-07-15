@@ -185,6 +185,9 @@ const CodexCellEditor: React.FC = () => {
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);
 
+    // Add correction editor mode state
+    const [isCorrectionEditorMode, setIsCorrectionEditorMode] = useState<boolean>(false);
+
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
 
@@ -244,6 +247,11 @@ const CodexCellEditor: React.FC = () => {
                 setCurrentSubsectionIndex(0);
                 // You could also update cellsPerPage state here if needed
                 // setCellsPerPage(message.cellsPerPage);
+            }
+
+            // Handle correction editor mode changes from provider
+            if (message.type === "correctionEditorModeChanged") {
+                setIsCorrectionEditorMode(message.enabled);
             }
         };
         window.addEventListener("message", handleMessage);
@@ -403,6 +411,7 @@ const CodexCellEditor: React.FC = () => {
             isSourceText: boolean,
             sourceCellMap: { [k: string]: { content: string; versions: string[] } }
         ) => {
+            console.log("content in cell editor", { content, isSourceText, sourceCellMap });
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
@@ -571,6 +580,7 @@ const CodexCellEditor: React.FC = () => {
         setIsSourceText((window as any).initialData?.isSourceText || false);
         setVideoUrl((window as any).initialData?.videoUrl || "");
         setMetadata((window as any).initialData?.metadata || {});
+        setIsCorrectionEditorMode((window as any).initialData?.isCorrectionEditorMode || false);
 
         // Add focus event listener
         window.addEventListener("focus", () => {
@@ -1509,7 +1519,11 @@ const CodexCellEditor: React.FC = () => {
             />
         );
     }
-
+    console.log("content in cell editor", {
+        translationUnitsWithCurrentEditorContent,
+        isCorrectionEditorMode,
+        isSourceText,
+    });
     return (
         <div className="cell-editor-container" style={{ direction: textDirection as any }}>
             {/* Menu toggle button */}
@@ -1560,7 +1574,11 @@ const CodexCellEditor: React.FC = () => {
             `}</style>
 
             <div className="codex-cell-editor">
-                <div className="static-header" ref={headerRef}>
+                <div
+                    className="static-header bg-background shadow-md"
+                    ref={headerRef}
+                    style={{ position: "sticky", top: 0, zIndex: 1000 }}
+                >
                     <div ref={navigationRef}>
                         <ChapterNavigationHeader
                             vscode={vscode}
@@ -1637,6 +1655,7 @@ const CodexCellEditor: React.FC = () => {
                             editorPosition={editorPosition}
                             fileStatus={fileStatus}
                             onTriggerSync={handleTriggerSync}
+                            isCorrectionEditorMode={isCorrectionEditorMode}
                         />
                     </div>
                 </div>
@@ -1693,6 +1712,7 @@ const CodexCellEditor: React.FC = () => {
                             successfulCompletions={successfulCompletions}
                             audioAttachments={audioAttachments}
                             isSaving={isSaving}
+                            isCorrectionEditorMode={isCorrectionEditorMode}
                         />
                     </div>
                 </div>

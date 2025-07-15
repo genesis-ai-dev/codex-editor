@@ -13,7 +13,7 @@ export const ConfirmDeleteButton: React.FC<{ onConfirm: () => void }> = ({ onCon
                 }}
             >
                 <div
-                    style={{
+                    style={{ 
                         backgroundColor: "#4caf50",
                         padding: "2px",
                         borderRadius: "4px",

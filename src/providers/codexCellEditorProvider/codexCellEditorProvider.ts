@@ -27,6 +27,7 @@ import { SyncManager } from "../../projectManager/syncManager";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
 import { getNonce } from "../dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
+import path from "path";
 
 // Enable debug logging if needed
 const DEBUG_MODE = false;
@@ -134,6 +135,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     // Add bibleBookMap state to the provider
     private bibleBookMap: Map<string, { name: string;[key: string]: any; }> | undefined;
 
+    // Add correction editor mode state
+    private isCorrectionEditorMode: boolean = false;
+
     public static register(context: vscode.ExtensionContext): vscode.Disposable {
         debug("Registering CodexCellEditorProvider");
         const provider = new CodexCellEditorProvider(context);
@@ -199,6 +203,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 () => {
                     // Send validation count to all webviews
                     this.updateValidationIndicatorsForAllDocuments();
+                }
+            )
+        );
+
+        // Register a command to toggle correction editor mode
+        this.context.subscriptions.push(
+            vscode.commands.registerCommand(
+                "codex-editor-extension.toggleCorrectionEditorMode",
+                () => {
+                    this.toggleCorrectionEditorMode();
                 }
             )
         );
@@ -368,7 +382,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const updateWebview = () => {
             debug("Updating webview");
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
-            const processedData = this.processNotebookData(notebookData);
+            const processedData = this.processNotebookData(notebookData, document);
 
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
@@ -474,6 +488,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Initial update
         debug("Performing initial webview update");
         updateWebview();
+
+        // Send initial correction editor mode state
+        this.postMessageToWebview(webviewPanel, {
+            type: "correctionEditorModeChanged",
+            enabled: this.isCorrectionEditorMode,
+        });
 
         // Wait for webview ready event before scanning for audio attachments
         webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
@@ -715,7 +735,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         metadata: ${JSON.stringify(notebookData.metadata)},
                         userInfo: ${JSON.stringify(this.userInfo)},
                         cachedChapter: ${cachedChapter},
-                        cellsPerPage: ${this.CELLS_PER_PAGE}
+                        cellsPerPage: ${this.CELLS_PER_PAGE},
+                        isCorrectionEditorMode: ${this.isCorrectionEditorMode}
                     };
                 </script>
             </head>
@@ -817,6 +838,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private isSourceText(uri: vscode.Uri | string): boolean {
         const path = typeof uri === "string" ? uri : uri.path;
         return path.toLowerCase().endsWith(".source");
+    }
+
+    private isMatchingFilePair(currentUri: vscode.Uri | string, otherUri: vscode.Uri | string): boolean {
+        const currentPath = typeof currentUri === "string" ? currentUri : currentUri.path;
+        const otherPath = typeof otherUri === "string" ? otherUri : otherUri.path;
+        // Remove extensions before comparing
+        const currentPathWithoutExt = currentPath.toLowerCase().replace(/\.[^/.]+$/, '');
+        const otherPathWithoutExt = otherPath.toLowerCase().replace(/\.[^/.]+$/, '');
+        return currentPathWithoutExt === otherPathWithoutExt;
     }
 
     private isCodexFile(uri: vscode.Uri | string): boolean {
@@ -1155,7 +1185,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async performSingleCellQueue(
         document: CodexCellDocument,
         webviewPanel: vscode.WebviewPanel,
-        cellIds: string[]
+        cellIds: string[],
+        shouldUpdateValue: boolean,
     ) {
 
         // Create a new cancellation token source for this operation
@@ -1188,7 +1219,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
 
                 // Add to the unified queue - no need to wait for completion here
-                this.enqueueTranslation(cellId, document, true)
+                this.enqueueTranslation(cellId, document, shouldUpdateValue)
                     .then(() => {
                         // Cell has been processed successfully
                         // The queue processing will update progress automatically
@@ -1265,7 +1296,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async addCellToSingleCellQueue(
         cellId: string,
         document: CodexCellDocument,
-        webviewPanel: vscode.WebviewPanel
+        webviewPanel: vscode.WebviewPanel,
+        shouldUpdateValue: boolean = false
     ): Promise<void> {
 
         // Check if we already have a single cell queue running
@@ -1279,7 +1311,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 this.broadcastSingleCellQueueState();
 
                 // Add to the unified translation queue
-                this.enqueueTranslation(cellId, document, true)
+                this.enqueueTranslation(cellId, document, shouldUpdateValue)
                     .then(() => {
                         // Cell processed successfully
                     })
@@ -1296,7 +1328,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
         } else {
             // Start a new single cell queue with this cell
-            await this.performSingleCellQueue(document, webviewPanel, [cellId]);
+            await this.performSingleCellQueue(document, webviewPanel, [cellId], shouldUpdateValue);
         }
     }
 
@@ -1356,8 +1388,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return false;
     }
 
-    private processNotebookData(notebook: vscode.NotebookData) {
-        debug("Processing notebook data");
+    private processNotebookData(notebook: vscode.NotebookData, document?: CodexCellDocument) {
+        debug("Processing notebook data", notebook);
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
             cellMarkers: [cell.metadata?.id],
             cellContent: cell.value,
@@ -1365,20 +1397,29 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             editHistory: cell.metadata?.edits,
             timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
             cellLabel: cell.metadata?.cellLabel,
+            merged: cell.metadata?.data?.merged,
         }));
+        debug("Translation units:", translationUnits);
 
-        const processedData = this.mergeRangesAndProcess(translationUnits);
-        debug("Notebook data processed");
+        // Use the passed document if available, otherwise fall back to currentDocument
+        const docToCheck = document || this.currentDocument;
+        const isSourceText = this.isSourceText(docToCheck?.uri.toString() ?? "");
+        const processedData = this.mergeRangesAndProcess(translationUnits, this.isCorrectionEditorMode, isSourceText ?? false);
+        debug("Notebook data processed", processedData);
         return processedData;
     }
 
-    private mergeRangesAndProcess(translationUnits: QuillCellContent[]) {
+    private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
         debug("Merging ranges and processing translation units");
+        const isSourceAndCorrectionEditorMode = isSourceText && isCorrectionEditorMode;
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
 
         translationUnits.forEach((verse, index) => {
             const rangeMarker = "<range>";
             if (verse.cellContent?.trim() === rangeMarker) {
+                return;
+            }
+            if (verse.merged && !isSourceAndCorrectionEditorMode) {
                 return;
             }
 
@@ -1402,10 +1443,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 editHistory: verse.editHistory,
                 timestamps: verse.timestamps,
                 cellLabel: verse.cellLabel,
+                merged: verse.merged,
             });
         });
 
-        debug("Range merging completed");
+        debug("Range merging completed", { translationUnitsWithMergedRanges });
         return translationUnitsWithMergedRanges;
     }
 
@@ -1417,7 +1459,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
-        const processedData = this.processNotebookData(notebookData);
+        const processedData = this.processNotebookData(notebookData, document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
 
@@ -1485,6 +1527,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 // Send highlight/clear messages to source files when a codex file is active
                 for (const [panelUri, panel] of this.webviewPanels.entries()) {
                     const isSourceFile = this.isSourceText(panelUri);
+                    // copy this to update target with merged cells
                     if (isSourceFile) {
                         if (cellId) {
                             // Set highlight
@@ -1518,6 +1561,199 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 timestamp: new Date().toISOString(),
             },
         });
+    }
+
+    public async mergeMatchingCellsInTargetFile(cellIdOfCellToMerge: string, cellIdOfTargetCell: string, uri: string, workspaceFolder: vscode.WorkspaceFolder) {
+        debug("Merging matching cells in target file:", { cellIdOfCellToMerge, cellIdOfTargetCell, uri });
+
+        try {
+            // 1. Construct target file path
+            const normalizedPath = uri.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+            const targetFileName = baseFileName.replace(".source", ".codex");
+
+            // 2. Open or find the target document if it is not already open
+            const targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+            const sourcePath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", baseFileName);
+
+
+            // Open the source file in the left-most group (ViewColumn.One)
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                sourcePath,
+                "codex.cellEditor",
+                { viewColumn: vscode.ViewColumn.One }
+            );
+
+            // Open the codex file in the right-most group (ViewColumn.Two)
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                targetPath,
+                "codex.cellEditor",
+                { viewColumn: vscode.ViewColumn.Two }
+            );
+            // Find the target document instance
+            let targetDocument: CodexCellDocument | undefined;
+
+            // Check if the target document is already open in our webview panels
+            const targetDocumentUri = targetPath.toString();
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    // Try to get the document from the provider's current document or create it
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                // If not found in panels, create a new document instance
+                targetDocument = await this.openCustomDocument(
+                    targetPath,
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+
+            // 3. Get the content from both cells
+            const currentCellContent = this.currentDocument?.getCellContent(cellIdOfCellToMerge);
+            const targetCellContent = targetDocument.getCellContent(cellIdOfTargetCell);
+
+            if (!currentCellContent || !targetCellContent) {
+                throw new Error("Could not find one or both cells for merge operation");
+            }
+
+            // 4. Use the existing mergeCellWithPrevious command
+            const targetPanel = this.webviewPanels.get(targetDocumentUri);
+            if (!targetPanel) {
+                throw new Error("Could not find target webview panel");
+            }
+
+            // Create a merge event to reuse existing handler
+            const mergeEvent: EditorPostMessages = {
+                command: "mergeCellWithPrevious" as const,
+                content: {
+                    currentCellId: cellIdOfCellToMerge,
+                    previousCellId: cellIdOfTargetCell,
+                    currentContent: currentCellContent.cellContent || "",
+                    previousContent: targetCellContent.cellContent || ""
+                }
+            };
+
+            // Call the existing merge handler directly
+            await handleMessages(
+                mergeEvent,
+                targetPanel,
+                targetDocument,
+                () => this.refreshWebview(targetPanel, targetDocument),
+                this
+            );
+
+            vscode.window.showInformationMessage(
+                `Successfully merged cells in ${targetFileName}`
+            );
+
+        } catch (error) {
+            console.error("Error merging cells in target file:", error);
+            vscode.window.showErrorMessage(
+                `Failed to merge target cells: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
+    public async unmergeMatchingCellsInTargetFile(cellIdToUnmerge: string, uri: string, workspaceFolder: vscode.WorkspaceFolder) {
+        debug("Unmerging matching cells in target file:", { cellIdToUnmerge, uri });
+
+        try {
+            // 1. Construct target file path - handle both directions
+            const normalizedPath = uri.replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+
+            let targetPath: vscode.Uri;
+            let targetFileName: string;
+            let isSourceToTarget: boolean;
+
+            if (baseFileName.endsWith(".source")) {
+                // Source file -> Target file (.source -> .codex)
+                targetFileName = baseFileName.replace(".source", ".codex");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+                isSourceToTarget = true;
+            } else if (baseFileName.endsWith(".codex")) {
+                // Target file -> Source file (.codex -> .source)
+                targetFileName = baseFileName.replace(".codex", ".source");
+                targetPath = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "sourceTexts", targetFileName);
+                isSourceToTarget = false;
+            } else {
+                throw new Error(`Unsupported file type for unmerge operation: ${baseFileName}`);
+            }
+
+            // 2. Open the target file
+            await vscode.commands.executeCommand(
+                "vscode.openWith",
+                targetPath,
+                "codex.cellEditor",
+                { viewColumn: isSourceToTarget ? vscode.ViewColumn.Two : vscode.ViewColumn.One }
+            );
+
+            // Find the target document instance
+            let targetDocument: CodexCellDocument | undefined;
+
+            // Check if the target document is already open in our webview panels
+            const targetDocumentUri = targetPath.toString();
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    // Try to get the document from the provider's current document or create it
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                // If not found in panels, create a new document instance
+                targetDocument = await this.openCustomDocument(
+                    targetPath,
+                    {},
+                    new vscode.CancellationTokenSource().token
+                );
+            }
+
+            // 3. Remove the merge flag from the corresponding cell in the target file
+            const targetCellData = targetDocument.getCellData(cellIdToUnmerge) || {};
+
+            // Remove the merged flag by setting it to false
+            targetDocument.updateCellData(cellIdToUnmerge, {
+                ...targetCellData,
+                merged: false
+            });
+
+            // Save the target document
+            await targetDocument.save(new vscode.CancellationTokenSource().token);
+
+            console.log(`Successfully unmerged cell ${cellIdToUnmerge} in ${isSourceToTarget ? 'target' : 'source'} file ${targetFileName}`);
+
+            // Refresh the target webview if it's open
+            const targetPanel = this.webviewPanels.get(targetDocumentUri);
+            if (targetPanel) {
+                this.refreshWebview(targetPanel, targetDocument);
+            }
+
+            vscode.window.showInformationMessage(
+                `Successfully unmerged cell in both files`
+            );
+
+        } catch (error) {
+            console.error("Error unmerging cell in target file:", error);
+            vscode.window.showErrorMessage(
+                `Failed to unmerge corresponding cell: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
     }
 
     public async getAuthApi() {
@@ -1785,6 +2021,19 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                             success: true,
                         } as any);
                     });
+
+                    // Send LLM completion response for single cell translations (non-batch)
+                    if (!this.autocompletionState.isProcessing && this.singleCellQueueState.isProcessing) {
+                        this.webviewPanels.forEach((panel) => {
+                            this.postMessageToWebview(panel, {
+                                type: "providerSendsLLMCompletionResponse",
+                                content: {
+                                    completion: result || "",
+                                    cellId: request.cellId,
+                                },
+                            });
+                        });
+                    }
 
                     request.resolve(result);
 
@@ -2454,6 +2703,184 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 console.error("Error triggering sync:", error);
                 this.updateFileStatus();
             }
+        }
+    }
+
+    /**
+     * Toggles the correction editor mode and notifies all webviews
+     */
+    public toggleCorrectionEditorMode(): void {
+        this.isCorrectionEditorMode = !this.isCorrectionEditorMode;
+        debug("Correction editor mode toggled:", this.isCorrectionEditorMode);
+
+        // If correction editor mode is being enabled, preserve original content in edit history
+        if (this.isCorrectionEditorMode && this.currentDocument) {
+            this.preserveOriginalContentInEditHistory();
+        }
+
+        // Broadcast the change to all webviews
+        this.webviewPanels.forEach((panel) => {
+            this.postMessageToWebview(panel, {
+                type: "correctionEditorModeChanged",
+                enabled: this.isCorrectionEditorMode,
+            });
+        });
+
+        // Refresh all webviews to show/hide merged cells appropriately
+        this.webviewPanels.forEach((panel, docUri) => {
+            if (this.currentDocument && docUri === this.currentDocument.uri.toString()) {
+                this.refreshWebview(panel, this.currentDocument);
+            }
+        });
+    }
+
+    /**
+     * Preserves original content in edit history for cells that don't have any edits
+     * This ensures that when users start editing in correction mode, the original content is preserved
+     */
+    private preserveOriginalContentInEditHistory(): void {
+        if (!this.currentDocument) {
+            debug("No current document available for preserving edit history");
+            return;
+        }
+
+        debug("Preserving original content in edit history for correction editor mode");
+
+        try {
+            // Get all cell IDs from the document
+            const allCellIds = this.currentDocument.getAllCellIds();
+            let cellsUpdated = 0;
+
+            allCellIds.forEach((cellId: string) => {
+                try {
+                    // Get the cell data and content
+                    const cell = this.currentDocument!.getCell(cellId);
+                    const cellContent = this.currentDocument!.getCellContent(cellId);
+
+
+                    // Check if edit history exists and is empty
+                    const editHistory = cell?.metadata.edits || [];
+
+                    if (editHistory.length === 0 && cellContent?.cellContent) {
+                        // Preserve the original content as the first edit
+                        debug(`Preserving original content for cell ${cellId}`);
+
+                        // Use the existing updateCellContent method with the current content
+                        // This will create the first edit entry in the history
+                        this.currentDocument!.updateCellContent(
+                            cellId,
+                            cellContent.cellContent,
+                            EditType.INITIAL_IMPORT,
+                            false // Don't update the value, just add to edit history
+                        );
+
+                        cellsUpdated++;
+                    }
+                } catch (error) {
+                    console.error(`Error preserving edit history for cell ${cellId}:`, error);
+                }
+            });
+
+            if (cellsUpdated > 0) {
+                debug(`Preserved original content in edit history for ${cellsUpdated} cells`);
+
+                // Save the document to persist the changes
+                this.currentDocument.save(new vscode.CancellationTokenSource().token)
+                    .then(() => {
+                        debug("Document saved after preserving edit history");
+                    })
+                    .catch((error) => {
+                        console.error("Error saving document after preserving edit history:", error);
+                    });
+            } else {
+                debug("No cells needed edit history preservation");
+            }
+
+        } catch (error) {
+            console.error("Error preserving original content in edit history:", error);
+        }
+    }
+
+    /**
+     * Checks if there are any child cells in the target file for the specified parent cell IDs
+     * @param parentCellIds Array of parent cell IDs to check for children
+     * @param workspaceFolder The workspace folder to look in
+     * @returns Promise<string[]> Array of child cell IDs found, empty if none
+     */
+    public async checkForChildCellsInTarget(parentCellIds: string[], workspaceFolder: vscode.WorkspaceFolder): Promise<string[]> {
+        debug("Checking for child cells in target file:", { parentCellIds });
+
+        try {
+            // Get the current document info to construct target path
+            if (!this.currentDocument) {
+                throw new Error("No current document available");
+            }
+
+            const normalizedPath = this.currentDocument.uri.toString().replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+
+            // Source file -> Target file
+            const targetFileName = baseFileName.replace(".source", ".codex");
+            const targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+
+            // Try to open or find the target document
+            let targetDocument: CodexCellDocument | undefined;
+
+            // Check if target document is already open
+            const targetDocumentUri = targetPath.toString();
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                // Try to create a document instance
+                try {
+                    targetDocument = await this.openCustomDocument(
+                        targetPath,
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                } catch (error) {
+                    // Target file might not exist yet
+                    debug("Target file not found, no child cells to check");
+                    return [];
+                }
+            }
+
+            // Get all cell IDs from the target document
+            const allTargetCellIds = targetDocument.getAllCellIds();
+            const childCellIds: string[] = [];
+
+            // Check each cell ID to see if it's a child of any parent cell
+            for (const cellId of allTargetCellIds) {
+                const cellIdParts = cellId.split(":");
+
+                // Child cells have more than 2 segments
+                if (cellIdParts.length > 2) {
+                    // Get the parent ID (first 2 segments)
+                    const parentId = cellIdParts.slice(0, 2).join(":");
+
+                    // Check if this parent ID is in our list of cells being merged
+                    if (parentCellIds.includes(parentId)) {
+                        childCellIds.push(cellId);
+                    }
+                }
+            }
+
+            debug(`Found ${childCellIds.length} child cells in target:`, childCellIds);
+            return childCellIds;
+
+        } catch (error) {
+            console.error("Error checking for child cells in target:", error);
+            // Return empty array on error - safer to proceed than block
+            return [];
         }
     }
 }

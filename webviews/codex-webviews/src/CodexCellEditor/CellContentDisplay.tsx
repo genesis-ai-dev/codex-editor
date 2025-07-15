@@ -37,6 +37,8 @@ interface CellContentDisplayProps {
     cellDisplayMode: CELL_DISPLAY_MODES;
     audioAttachments?: { [cellId: string]: boolean };
     footnoteOffset?: number; // Starting footnote number for this cell
+    isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
+    translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
 }
 
 const DEBUG_ENABLED = false;
@@ -200,6 +202,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cellDisplayMode,
     audioAttachments,
     footnoteOffset = 0,
+    isCorrectionEditorMode = false,
+    translationUnits = [],
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
@@ -284,8 +288,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         }
     }, [highlightedCellId]);
 
-
-
     // Handler for stopping translation when clicked on the spinner
     const handleStopTranslation = (e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent the cell click handler from firing
@@ -328,6 +330,78 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 });
             }
         }
+    };
+
+    const handleCancelMerge = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent the cell click handler from firing
+        vscode.postMessage({
+            command: "cancelMerge",
+            content: { cellId: cellIds[0] },
+        } as any);
+    };
+
+    // Handler for merging cell with previous cell
+    const handleMergeWithPrevious = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent the cell click handler from firing
+
+        // Find the current cell index in the unpaginated list
+        const currentCellId = cellIds[0];
+        const currentIndex = translationUnits.findIndex(
+            (unit) => unit.cellMarkers[0] === currentCellId
+        );
+
+        if (currentIndex === -1) {
+            console.error("Current cell not found in translation units");
+            return;
+        }
+
+        if (currentIndex === 0) {
+            // Send error message to VS Code instead of using alert
+            vscode.postMessage({
+                command: "showErrorMessage",
+                text: "Cannot merge: This is the first cell.",
+            } as any);
+            return;
+        }
+
+        // Find the most recent non-merged cell to merge into
+        let targetCellIndex = currentIndex - 1;
+        let targetCell = translationUnits[targetCellIndex];
+
+        // Skip any cells that are already merged
+        while (targetCellIndex >= 0 && targetCell?.merged) {
+            targetCellIndex--;
+            targetCell = translationUnits[targetCellIndex];
+        }
+
+        // Check if we found a valid target cell
+        if (targetCellIndex < 0 || !targetCell) {
+            vscode.postMessage({
+                command: "showErrorMessage",
+                text: "Cannot merge: No non-merged cell found to merge into.",
+            } as any);
+            return;
+        }
+
+        const currentCell = translationUnits[currentIndex];
+
+        if (!targetCell || !currentCell) {
+            console.error("Could not find target or current cell");
+            return;
+        }
+
+        // Send confirmation request to VS Code instead of using window.confirm
+        vscode.postMessage({
+            command: "confirmCellMerge",
+            content: {
+                currentCellId: currentCell.cellMarkers[0],
+                previousCellId: targetCell.cellMarkers[0],
+                currentContent: currentCell.cellContent,
+                previousContent: targetCell.cellContent,
+                message:
+                    "Are you sure you want to merge this cell with the previous non-merged cell? This action cannot be undone.",
+            },
+        } as any);
     };
 
     const displayLabel =
@@ -458,7 +532,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 alignItems: "flex-start",
                 gap: "0.5rem",
                 padding: "0.25rem",
-                cursor: isSourceText ? "default" : "pointer",
+                cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                 border: "1px solid transparent",
                 borderRadius: "4px",
                 overflow: "hidden",
@@ -544,6 +618,52 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             {audioAttachments && audioAttachments[cellIds[0]] && (
                                 <div style={{ flexShrink: 0 }}>
                                     <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
+                                </div>
+                            )}
+
+                            {/* Merge Button - only show in correction editor mode for source text */}
+                            {isSourceText && isCorrectionEditorMode && !cell.merged && (
+                                <div style={{ flexShrink: 0 }}>
+                                    <Button
+                                        variant="ghost"
+                                        style={{
+                                            height: "16px",
+                                            width: "16px",
+                                            padding: 0,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                        }}
+                                        onClick={handleMergeWithPrevious}
+                                        title="Merge with previous cell"
+                                    >
+                                        <i
+                                            className="codicon codicon-merge"
+                                            style={{ fontSize: "12px" }}
+                                        />
+                                    </Button>
+                                </div>
+                            )}
+                            {isSourceText && isCorrectionEditorMode && cell.merged && (
+                                <div style={{ flexShrink: 0 }}>
+                                    <Button
+                                        variant="ghost"
+                                        style={{
+                                            height: "16px",
+                                            width: "16px",
+                                            padding: 0,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                        }}
+                                        onClick={handleCancelMerge}
+                                        title="Cancel merge"
+                                    >
+                                        <i
+                                            className="codicon codicon-debug-step-back"
+                                            style={{ fontSize: "12px" }}
+                                        />
+                                    </Button>
                                 </div>
                             )}
                         </div>

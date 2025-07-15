@@ -3,7 +3,7 @@ import { CodexCellDocument } from "./codexDocument";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
-import { GlobalMessage, EditorPostMessages } from "../../../types";
+import { GlobalMessage, EditorPostMessages, EditHistory } from "../../../types";
 import { EditType } from "../../../types/enums";
 import {
     QuillCellContent,
@@ -175,6 +175,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     saveHtml: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "saveHtml"; }>;
+
         if (document.uri.toString() !== (typedEvent.content.uri || document.uri.toString())) {
             console.warn("Attempted to update content in a different file. This operation is not allowed.");
             return;
@@ -183,19 +184,26 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const oldContent = document.getCellContent(typedEvent.content.cellMarkers[0]);
         const oldText = oldContent?.cellContent || "";
         const newText = typedEvent.content.cellContent || "";
+        const isSourceText = document.uri.toString().includes(".source");
+
 
         if (oldText !== newText) {
-            await vscode.commands.executeCommand(
-                "codex-smart-edits.recordIceEdit",
-                oldText,
-                newText
-            );
+            if (!isSourceText) {
+                await vscode.commands.executeCommand(
+                    "codex-smart-edits.recordIceEdit",
+                    oldText,
+                    newText
+                );
+            }
             provider.updateFileStatus("dirty");
         }
 
+
+        const finalContent = typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent;
+
         document.updateCellContent(
             typedEvent.content.cellMarkers[0],
-            typedEvent.content.cellContent === "<span></span>" ? "" : typedEvent.content.cellContent,
+            finalContent,
             EditType.USER_EDIT
         );
     },
@@ -218,7 +226,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const addContentToValue = typedEvent.content.addContentToValue;
 
         // Add cell to the single cell queue (accumulate cells like autocomplete chapter does)
-        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel);
+        await provider.addCellToSingleCellQueue(cellId, document, webviewPanel, addContentToValue);
 
         // Note: The response is now handled by the queue system's completion callback
         // The old direct response is no longer needed since the queue system manages state
@@ -703,6 +711,52 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         provider.triggerSync();
     },
 
+    toggleCorrectionEditorMode: ({ provider }) => {
+        console.log("toggleCorrectionEditorMode message received");
+        provider.toggleCorrectionEditorMode();
+    },
+
+    cancelMerge: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "cancelMerge"; }>;
+        const cellId = typedEvent.content.cellId;
+
+        console.log("cancelMerge message received for cell:", cellId);
+
+        try {
+            // Get the current cell data and remove the merged flag
+            const currentCellData = document.getCellData(cellId) || {};
+
+            // Remove the merged flag by setting it to false in the current document
+            document.updateCellData(cellId, {
+                ...currentCellData,
+                merged: false
+            });
+
+            // Save the current document
+            await document.save(new vscode.CancellationTokenSource().token);
+
+            console.log(`Successfully unmerged cell in source: ${cellId}`);
+
+            // Also unmerge the corresponding cell in the target file (like merge function does)
+            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+            if (workspaceFolder) {
+                await provider.unmergeMatchingCellsInTargetFile(cellId, document.uri.toString(), workspaceFolder);
+            } else {
+                console.warn("No workspace folder found, skipping target file unmerge");
+                vscode.window.showWarningMessage("Could not unmerge corresponding cell in target file - no workspace folder found");
+            }
+
+            // Refresh the webview to show the updated state
+            provider.refreshWebview(webviewPanel, document);
+
+        } catch (error) {
+            console.error("Error canceling merge for cell:", cellId, error);
+            vscode.window.showErrorMessage(
+                `Failed to unmerge cell: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    },
+
     triggerReindexing: async () => {
         console.log("Triggering reindexing after all translations completed");
         await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
@@ -931,6 +985,224 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         debug("Audio attachment deleted successfully");
+    },
+
+    confirmCellMerge: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "confirmCellMerge"; }>;
+        const { currentCellId, previousCellId, currentContent, previousContent, message } = typedEvent.content;
+
+        console.log("confirmCellMerge message received for cells:", { currentCellId, previousCellId });
+
+        try {
+            // Check if we're working with a source file and need to check for child cells
+            const isSourceFile = document.uri.toString().includes(".source");
+
+            if (isSourceFile) {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
+                }
+
+                // Check for child cells in the target that correspond to the cells being merged
+                const cellsToCheck = [currentCellId, previousCellId];
+                const childCells = await provider.checkForChildCellsInTarget(cellsToCheck, workspaceFolder);
+
+                if (childCells.length > 0) {
+                    // Child cells exist - prevent the merge
+                    const childCellsList = childCells.map(id => `• ${id}`).join('\n');
+                    const errorMessage = `Cannot merge source cells because the following child cells exist in the target file:\n\n${childCellsList}\n\nPlease remove or delete these child cells first before merging the source cells.`;
+
+                    vscode.window.showErrorMessage(errorMessage, { modal: true });
+                    return; // Exit early, don't proceed with merge
+                }
+            }
+
+            // No child cells found, proceed with existing confirmation flow
+            const confirmed = await vscode.window.showWarningMessage(
+                message,
+                { modal: true },
+                "Yes",
+                "No"
+            );
+
+            if (confirmed === "Yes") {
+                // User confirmed, proceed with merge
+                const mergeEvent: EditorPostMessages = {
+                    command: "mergeCellWithPrevious" as const,
+                    content: {
+                        currentCellId,
+                        previousCellId,
+                        currentContent,
+                        previousContent
+                    }
+                };
+
+                // Call the existing merge handler
+                await messageHandlers.mergeCellWithPrevious({
+                    event: mergeEvent,
+                    document,
+                    webviewPanel,
+                    provider,
+                    updateWebview: () => {
+                        provider.refreshWebview(webviewPanel, document);
+                    }
+                });
+
+                // Only merge in target if we're working with a source file
+                if (isSourceFile) {
+                    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (!workspaceFolder) {
+                        throw new Error("No workspace folder found");
+                    }
+                    await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
+                }
+            }
+        } catch (error) {
+            console.error("Error in confirmCellMerge:", error);
+            vscode.window.showErrorMessage(
+                `Failed to confirm cell merge: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    },
+
+    showErrorMessage: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "showErrorMessage"; }>;
+        vscode.window.showErrorMessage(typedEvent.text);
+    },
+
+    mergeCellWithPrevious: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "mergeCellWithPrevious"; }>;
+        const { currentCellId, previousCellId, currentContent, previousContent } = typedEvent.content;
+
+        try {
+            // Get all cell IDs to find the indices
+            const allCellIds = document.getAllCellIds();
+            const previousCellIndex = allCellIds.findIndex(id => id === previousCellId);
+            const currentCellIndex = allCellIds.findIndex(id => id === currentCellId);
+
+            if (previousCellIndex === -1 || currentCellIndex === -1) {
+                console.error("Could not find cells for merge operation");
+                vscode.window.showErrorMessage("Could not find cells for merge operation");
+                return;
+            }
+
+            // Get the actual cell objects
+            const previousCell = document.getCell(previousCellId);
+            const currentCell = document.getCell(currentCellId);
+
+            if (!previousCell || !currentCell) {
+                console.error("Could not retrieve cell objects for merge operation");
+                vscode.window.showErrorMessage("Could not retrieve cell objects for merge operation");
+                return;
+            }
+
+            // Get current user using the provider's auth API
+            let currentUser = "anonymous";
+            try {
+                const authApi = await provider.getAuthApi();
+                const userInfo = await authApi?.getUserInfo();
+                currentUser = userInfo?.username || "anonymous";
+            } catch (error) {
+                console.warn("Could not get user info for merge operation, using 'anonymous':", error);
+            }
+
+            const timestamp = Date.now();
+
+            // Get existing edit history or create new one
+            const existingEdits = previousCell.metadata?.edits || [];
+
+            // 1. Concatenate content and create second edit
+            const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
+            const mergeEdit: EditHistory = {
+                cellValue: mergedContent,
+                timestamp: timestamp + 1,
+                type: EditType.USER_EDIT,
+                author: currentUser,
+                validatedBy: []
+            };
+
+            // 3. Merge cell labels with a hyphen
+            const previousLabel = previousCell.metadata?.cellLabel || "";
+            const currentLabel = currentCell.metadata?.cellLabel || "";
+            let mergedLabel = "";
+
+            if (previousLabel && currentLabel) {
+                mergedLabel = `${previousLabel}-${currentLabel}`;
+            } else if (previousLabel) {
+                mergedLabel = previousLabel;
+            } else if (currentLabel) {
+                mergedLabel = currentLabel;
+            }
+
+            // Update the previous cell content and edit history directly
+            // Since this is a merge operation in source files, we need to bypass normal restrictions
+            const updatedEdits = [...existingEdits, mergeEdit];
+
+            // Update the previous cell content and metadata directly
+            previousCell.value = mergedContent;
+            if (!previousCell.metadata.edits) {
+                previousCell.metadata.edits = [];
+            }
+            previousCell.metadata.edits = updatedEdits;
+
+            // Update the merged cell label
+            if (mergedLabel) {
+                previousCell.metadata.cellLabel = mergedLabel;
+            }
+
+            // 4. Merge time ranges if both cells have timing data
+            const previousData = previousCell.metadata?.data;
+            const currentData = currentCell.metadata?.data;
+
+            if (previousData?.startTime !== undefined && currentData?.endTime !== undefined) {
+                // Take startTime from previous cell and endTime from current cell
+                const mergedStartTime = previousData.startTime;
+                const mergedEndTime = currentData.endTime;
+
+                // Update the previous cell's time range
+                if (!previousCell.metadata.data) {
+                    previousCell.metadata.data = {};
+                }
+
+                previousCell.metadata.data = {
+                    ...previousCell.metadata.data,
+                    startTime: mergedStartTime,
+                    endTime: mergedEndTime
+                };
+
+                console.log("Merged time ranges:", {
+                    previousStartTime: previousData.startTime,
+                    previousEndTime: previousData.endTime,
+                    currentStartTime: currentData.startTime,
+                    currentEndTime: currentData.endTime,
+                    mergedStartTime: mergedStartTime,
+                    mergedEndTime: mergedEndTime,
+                    totalDuration: mergedEndTime - mergedStartTime
+                });
+            }
+
+            // Mark the document as dirty manually since we bypassed the normal update methods
+            (document as any)._isDirty = true;
+
+            // 5. Mark current cell as merged by updating its data
+            const currentCellData = document.getCellData(currentCellId) || {};
+            document.updateCellData(currentCellId, {
+                ...currentCellData,
+                merged: true
+            });
+
+            // Save the document
+            await document.save(new vscode.CancellationTokenSource().token);
+
+            console.log(`Successfully merged cell ${currentCellId} with ${previousCellId}`);
+
+            // Refresh the webview content
+            provider.refreshWebview(webviewPanel, document);
+
+        } catch (error) {
+            console.error("Error merging cells:", error);
+            vscode.window.showErrorMessage(`Failed to merge cells: ${error}`);
+        }
     },
 };
 

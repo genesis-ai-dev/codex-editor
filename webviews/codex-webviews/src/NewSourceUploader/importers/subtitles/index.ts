@@ -201,7 +201,6 @@ const parseFile = async (file: File, onProgress?: ProgressCallback): Promise<Imp
                 type: 'text',
                 startTime: cue.startTime,
                 endTime: cue.endTime,
-                timeStamp: `${cue.startTime} --> ${cue.endTime}`,
                 format: format,
                 originalText: cue.text,
             });

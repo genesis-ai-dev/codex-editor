@@ -722,6 +722,36 @@ export type EditorPostMessages =
             transcribedText: string;
             language: string;
         };
+    }
+    | {
+        command: "mergeCellWithPrevious";
+        content: {
+            currentCellId: string;
+            previousCellId: string;
+            currentContent: string;
+            previousContent: string;
+        };
+    }
+    | { command: "toggleCorrectionEditorMode"; }
+    | {
+        command: "cancelMerge";
+        content: {
+            cellId: string;
+        };
+    }
+    | {
+        command: "confirmCellMerge";
+        content: {
+            currentCellId: string;
+            previousCellId: string;
+            currentContent: string;
+            previousContent: string;
+            message: string;
+        };
+    }
+    | {
+        command: "showErrorMessage";
+        text: string;
     };
 
 type EditorReceiveMessages =
@@ -819,7 +849,7 @@ type EditorReceiveMessages =
         content: { [cellId: string]: number; };
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
-    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; }; }
+    | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
@@ -934,6 +964,10 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "correctionEditorModeChanged";
+        enabled: boolean;
+    }
+    | {
         type: "audioAttachmentSaved";
         content: {
             cellId: string;
@@ -970,7 +1004,7 @@ interface ValidationEntry {
     isDeleted: boolean;
 }
 
-type EditHistory = {
+export type EditHistory = {
     author: string;
     cellValue: string;
     timestamp: number;
@@ -979,8 +1013,11 @@ type EditHistory = {
 };
 
 type CodexData = Timestamps & {
-    [key: string]: any;
+    // [key: string]: any; this makes it very hard to type the data
     footnotes?: Footnote[];
+    book?: string;
+    chapter?: string;
+    verse?: string;
 };
 
 type CustomCellMetaData = {
@@ -1039,6 +1076,7 @@ interface QuillCellContent {
     editHistory: Array<EditHistory>;
     timestamps?: Timestamps;
     cellLabel?: string;
+    merged?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
 }
 

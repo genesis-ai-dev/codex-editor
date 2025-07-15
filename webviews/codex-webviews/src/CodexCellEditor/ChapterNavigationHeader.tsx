@@ -64,6 +64,7 @@ interface ChapterNavigationHeaderProps {
     editorPosition: EditorPosition;
     onClose?: () => void;
     onTriggerSync?: () => void;
+    isCorrectionEditorMode?: boolean;
 }
 
 export function ChapterNavigationHeader({
@@ -107,7 +108,9 @@ export function ChapterNavigationHeader({
     editorPosition,
     onClose,
     onTriggerSync,
-}: ChapterNavigationHeaderProps) {
+    isCorrectionEditorMode,
+}: // Removed onToggleCorrectionEditor since it will be a VS Code command now
+ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [showChapterSelector, setShowChapterSelector] = useState(false);
@@ -275,7 +278,7 @@ export function ChapterNavigationHeader({
     const subsections = getSubsectionsForChapter(chapterNumber);
 
     return (
-        <div className="flex flex-row p-2 border-b">
+        <div className="flex flex-row p-2">
             <div className="flex items-center justify-start">
                 {isSourceText ? (
                     <>
@@ -286,7 +289,18 @@ export function ChapterNavigationHeader({
                                 }`}
                             />
                         </Button>
-                        <span className="ml-2">Source Text</span>
+
+                        {isCorrectionEditorMode ? (
+                            <span
+                                className="ml-2"
+                                style={{ color: "red", fontWeight: "bold" }}
+                                title="Correction Editor Mode is active"
+                            >
+                                Source Editing Mode
+                            </span>
+                        ) : (
+                            <span className="ml-2">Source Text</span>
+                        )}
                     </>
                 ) : (
                     <Button variant="outline" onClick={() => openSourceText(chapterNumber)}>

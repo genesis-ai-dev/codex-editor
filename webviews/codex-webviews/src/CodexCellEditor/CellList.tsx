@@ -39,6 +39,7 @@ export interface CellListProps {
     successfulCompletions?: Set<string>; // Cells that completed successfully
     audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
     isSaving?: boolean;
+    isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
 }
 
 const DEBUG_ENABLED = false;
@@ -71,9 +72,28 @@ const CellList: React.FC<CellListProps> = ({
     successfulCompletions = new Set(),
     audioAttachments,
     isSaving = false,
+    isCorrectionEditorMode = false,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+    // Add state to track completed translations
+    const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
+    const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
+
+    // Filter out merged cells if we're in correction editor mode for source text
+    const filteredTranslationUnits = useMemo(() => {
+        if (isSourceText && isCorrectionEditorMode) {
+            return translationUnits.filter((unit) => {
+                // Check if cell has merged metadata in the data property
+                const cellData = unit.data as any;
+                return !cellData?.merged;
+            });
+        }
+        return translationUnits;
+    }, [translationUnits, isSourceText, isCorrectionEditorMode]);
+    console.log("filteredTranslationUnits", { filteredTranslationUnits, translationUnits });
+    // Use filtered units for all operations
+    const workingTranslationUnits = filteredTranslationUnits;
     // State to track completed translations (only successful ones) - REMOVED: Now handled by parent
     const [lastRequestTime, setLastRequestTime] = useState(0);
 
@@ -84,18 +104,18 @@ const CellList: React.FC<CellListProps> = ({
     // This uses fullDocumentTranslationUnits to count across all subsections within a chapter
     const calculateFootnoteOffset = useCallback(
         (cellIndex: number): number => {
-            if (cellIndex >= translationUnits.length) return 0;
+            if (cellIndex >= workingTranslationUnits.length) return 0;
 
-            const currentCell = translationUnits[cellIndex];
+            const currentCell = workingTranslationUnits[cellIndex];
             const currentCellId = currentCell.cellMarkers[0];
-            
+
             // Extract chapter ID properly: "JUD 1:1" -> "JUD 1"
-            const currentChapterId = currentCellId.split(':')[0]; // Gets "JUD 1" from "JUD 1:1"
+            const currentChapterId = currentCellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
 
             // Use fullDocumentTranslationUnits to count footnotes across the entire chapter
             // Find the current cell's index in the full document
             const fullDocumentCellIndex = fullDocumentTranslationUnits.findIndex(
-                cell => cell.cellMarkers[0] === currentCellId
+                (cell) => cell.cellMarkers[0] === currentCellId
             );
 
             if (fullDocumentCellIndex === -1) return 0;
@@ -105,23 +125,24 @@ const CellList: React.FC<CellListProps> = ({
             for (let i = 0; i < fullDocumentCellIndex; i++) {
                 const cell = fullDocumentTranslationUnits[i];
                 const cellId = cell.cellMarkers[0];
-                const cellChapterId = cellId.split(':')[0]; // Gets "JUD 1" from "JUD 1:1"
-                
+                const cellChapterId = cellId.split(":")[0]; // Gets "JUD 1" from "JUD 1:1"
+
                 // Only count footnotes if the cell is in the same chapter
-                if (cellChapterId === currentChapterId && 
-                    cell.cellType !== CodexCellTypes.PARATEXT) {
-                    
+                if (
+                    cellChapterId === currentChapterId &&
+                    cell.cellType !== CodexCellTypes.PARATEXT
+                ) {
                     // Extract footnotes from this cell's content
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = cell.cellContent || '';
-                    const footnoteMarkers = tempDiv.querySelectorAll('.footnote-marker');
+                    const tempDiv = document.createElement("div");
+                    tempDiv.innerHTML = cell.cellContent || "";
+                    const footnoteMarkers = tempDiv.querySelectorAll(".footnote-marker");
                     footnoteCount += footnoteMarkers.length;
                 }
             }
 
             return footnoteCount;
         },
-        [translationUnits, fullDocumentTranslationUnits]
+        [workingTranslationUnits, fullDocumentTranslationUnits]
     );
 
     // Add debug logging for translation state tracking
@@ -145,7 +166,7 @@ const CellList: React.FC<CellListProps> = ({
         const idCounts = new Map<string, number>();
         const duplicates = new Set<string>();
 
-        translationUnits.forEach(({ cellMarkers }) => {
+        workingTranslationUnits.forEach(({ cellMarkers }) => {
             const id = cellMarkers.join(" ");
             idCounts.set(id, (idCounts.get(id) || 0) + 1);
             if (idCounts.get(id)! > 1) {
@@ -154,7 +175,7 @@ const CellList: React.FC<CellListProps> = ({
         });
 
         return duplicates;
-    }, [translationUnits]);
+    }, [workingTranslationUnits]);
 
     // Convert arrays to Sets for faster lookups
     const translationQueueSet = useMemo(() => new Set(translationQueue), [translationQueue]);
@@ -216,12 +237,7 @@ const CellList: React.FC<CellListProps> = ({
             // Default: no translation state
             return null;
         },
-        [
-            currentProcessingCellId,
-            successfulCompletions,
-            translationQueueSet,
-            autocompleteQueueSet,
-        ]
+        [currentProcessingCellId, successfulCompletions, translationQueueSet, autocompleteQueueSet]
     );
 
     // Handle sparkle button click with throttling
@@ -279,7 +295,9 @@ const CellList: React.FC<CellListProps> = ({
                 // The parent component will handle clearing the borders
             } else {
                 if (DEBUG_ENABLED) {
-                    debug("There are active translations or no successful completions, not all complete.");
+                    debug(
+                        "There are active translations or no successful completions, not all complete."
+                    );
                 }
             }
         } catch (error) {
@@ -338,10 +356,13 @@ const CellList: React.FC<CellListProps> = ({
     const generateCellLabel = useCallback(
         (cell: QuillCellContent, currentCellsArray: QuillCellContent[]): string => {
             // If cell already has a label, use it
+            if (cell.merged) {
+                return "❌";
+            }
+
             if (cell.cellLabel) {
                 return cell.cellLabel;
             }
-
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
                 return "";
@@ -411,7 +432,11 @@ const CellList: React.FC<CellListProps> = ({
             let visibleCellCount = 0;
             for (let i = 0; i <= cellIndex; i++) {
                 const cellIdParts = allCells[i].cellMarkers[0].split(":");
-                if (allCells[i].cellType !== CodexCellTypes.PARATEXT && cellIdParts.length < 3) {
+                if (
+                    allCells[i].cellType !== CodexCellTypes.PARATEXT &&
+                    cellIdParts.length < 3 &&
+                    !allCells[i].merged
+                ) {
                     visibleCellCount++;
                 }
             }
@@ -422,7 +447,7 @@ const CellList: React.FC<CellListProps> = ({
     );
 
     const renderCellGroup = useCallback(
-        (group: typeof translationUnits, startIndex: number) => (
+        (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
                 key={`group-${startIndex}`}
                 className={`verse-group cell-display-${cellDisplayMode}`}
@@ -436,7 +461,7 @@ const CellList: React.FC<CellListProps> = ({
                     const cellId = cell.cellMarkers.join(" ");
                     const hasDuplicateId = duplicateCellIds.has(cellId);
                     // Use the current translationUnits array for context, but generate global labels
-                    const generatedCellLabel = generateCellLabel(cell, translationUnits);
+                    const generatedCellLabel = generateCellLabel(cell, workingTranslationUnits);
                     const cellMarkers = cell.cellMarkers;
                     const cellIdForTranslation = cellMarkers[0];
                     const translationState = getCellTranslationState(cellIdForTranslation);
@@ -451,6 +476,7 @@ const CellList: React.FC<CellListProps> = ({
                                         : "block",
                                 verticalAlign: "middle",
                                 backgroundColor: "transparent",
+                                opacity: cell.merged ? 0.5 : 1,
                             }}
                         >
                             <CellContentDisplay
@@ -472,6 +498,8 @@ const CellList: React.FC<CellListProps> = ({
                                 cellDisplayMode={cellDisplayMode}
                                 audioAttachments={audioAttachments}
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
+                                isCorrectionEditorMode={isCorrectionEditorMode}
+                                translationUnits={workingTranslationUnits}
                             />
                         </span>
                     );
@@ -495,13 +523,17 @@ const CellList: React.FC<CellListProps> = ({
             handleCellTranslation,
             audioAttachments,
             calculateFootnoteOffset,
+            isCorrectionEditorMode,
+            workingTranslationUnits,
         ]
     );
 
     const openCellById = useCallback(
         (cellId: string) => {
-            const cellToOpen = translationUnits.find((unit) => unit.cellMarkers[0] === cellId);
-            if (unsavedChanges || isSourceText) {
+            const cellToOpen = workingTranslationUnits.find(
+                (unit) => unit.cellMarkers[0] === cellId
+            );
+            if (unsavedChanges || (isSourceText && !isCorrectionEditorMode)) {
                 toggleFlashingBorder();
                 return;
             }
@@ -531,7 +563,7 @@ const CellList: React.FC<CellListProps> = ({
                 });
             }
         },
-        [translationUnits, setContentBeingUpdated, vscode]
+        [workingTranslationUnits, setContentBeingUpdated, vscode]
     );
 
     const renderCells = useCallback(() => {
@@ -540,15 +572,15 @@ const CellList: React.FC<CellListProps> = ({
         let groupStartIndex = 0;
         let emptyCellsRendered = 0;
 
-        debug("translationUnits", { translationUnits });
+        debug("workingTranslationUnits", { workingTranslationUnits });
 
-        for (let i = 0; i < translationUnits.length; i++) {
+        for (let i = 0; i < workingTranslationUnits.length; i++) {
             const { cellMarkers, cellContent, cellType, cellLabel, timestamps, editHistory } =
-                translationUnits[i];
+                workingTranslationUnits[i];
 
             const checkIfCurrentCellIsChild = () => {
                 const currentCellId = cellMarkers[0];
-                const translationUnitsWithCurrentCellRemoved = translationUnits.filter(
+                const translationUnitsWithCurrentCellRemoved = workingTranslationUnits.filter(
                     ({ cellMarkers }) => cellMarkers[0] !== currentCellId
                 );
 
@@ -562,7 +594,7 @@ const CellList: React.FC<CellListProps> = ({
             };
 
             if (
-                !isSourceText &&
+                (!isSourceText || (isSourceText && isCorrectionEditorMode)) &&
                 cellMarkers.join(" ") === contentBeingUpdated.cellMarkers?.join(" ")
             ) {
                 if (currentGroup.length > 0) {
@@ -571,7 +603,10 @@ const CellList: React.FC<CellListProps> = ({
                 }
                 const cellIsChild = checkIfCurrentCellIsChild();
                 // Use global line numbering
-                const generatedCellLabel = generateCellLabel(translationUnits[i], translationUnits);
+                const generatedCellLabel = generateCellLabel(
+                    workingTranslationUnits[i],
+                    workingTranslationUnits
+                );
 
                 result.push(
                     <span
@@ -579,7 +614,7 @@ const CellList: React.FC<CellListProps> = ({
                         style={{ display: "inline-flex", alignItems: "center", width: "100%" }}
                     >
                         <CellEditor
-                            cell={translationUnits[i]}
+                            cell={workingTranslationUnits[i]}
                             editHistory={editHistory}
                             spellCheckResponse={spellCheckResponse}
                             cellIsChild={cellIsChild}
@@ -610,13 +645,13 @@ const CellList: React.FC<CellListProps> = ({
                 // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
                 if (
                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
-                    translationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
+                    workingTranslationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
                     i === 0
                 ) {
                     // Use global line numbering
                     const generatedCellLabel = generateCellLabel(
-                        translationUnits[i],
-                        translationUnits
+                        workingTranslationUnits[i],
+                        workingTranslationUnits
                     );
                     const cellIdForTranslation = cellMarkers[0];
                     const isInProcess = isCellInTranslationProcess(cellIdForTranslation);
@@ -758,7 +793,7 @@ const CellList: React.FC<CellListProps> = ({
                 }
                 groupStartIndex = i + 1;
             } else {
-                currentGroup.push(translationUnits[i]);
+                currentGroup.push(workingTranslationUnits[i]);
             }
         }
 
@@ -768,7 +803,7 @@ const CellList: React.FC<CellListProps> = ({
 
         return result;
     }, [
-        translationUnits,
+        workingTranslationUnits,
         contentBeingUpdated,
         isSourceText,
         handleCloseEditor,
@@ -786,14 +821,16 @@ const CellList: React.FC<CellListProps> = ({
         getCellTranslationState,
         successfulCompletions,
         audioAttachments,
+        calculateFootnoteOffset,
+        isCorrectionEditorMode,
     ]);
 
     // Debug log to see the structure of translationUnits
     useEffect(() => {
-        if (DEBUG_ENABLED && translationUnits.length > 0) {
-            console.log("Translation unit structure:", translationUnits[0]);
+        if (DEBUG_ENABLED && workingTranslationUnits.length > 0) {
+            console.log("Translation unit structure:", workingTranslationUnits[0]);
         }
-    }, [translationUnits]);
+    }, [workingTranslationUnits]);
 
     return (
         <div
@@ -807,6 +844,8 @@ const CellList: React.FC<CellListProps> = ({
                 maxWidth: "100%",
                 padding: "0 1rem",
                 boxSizing: "border-box",
+                paddingTop: "1rem",
+                paddingBottom: "4rem",
             }}
         >
             {renderCells()}
