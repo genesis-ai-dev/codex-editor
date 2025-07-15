@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import { getAuthApi } from "../extension";
 import { getNotebookMetadataManager } from "../utils/notebookMetadataManager";
+import { getSQLiteIndexManager } from "../activationHelpers/contextAware/contentIndexes/indexes/sqliteIndexManager";
 
 const DEBUG_MODE = false;
 const debug = (message: string, ...args: any[]) => {
@@ -16,18 +17,30 @@ export interface BookProgress {
     validatedVerses?: number;
 }
 
+export interface BookCompletionData {
+    completionPercentage: number;
+    sourceWords: number;
+    targetWords: number;
+}
+
 export interface ProjectProgressReport {
     projectId: string;
     projectName: string;
     timestamp: string;
     reportId: string;
     translationProgress: {
-        bookCompletionMap: Record<string, number>;
+        bookCompletionMap: Record<string, BookCompletionData>;
         totalVerseCount: number;
         translatedVerseCount: number;
         validatedVerseCount: number;
         wordsTranslated: number;
     };
+    // New structure
+    wordCount: {
+        sourceWords: number;
+        codexWords: number;
+    };
+    // Legacy structure for backward compatibility
     validationStatus: {
         stage: "none" | "initial" | "community" | "expert" | "finished";
         versesPerStage: Record<string, number>;
@@ -293,11 +306,12 @@ export class ProgressReportingService {
             }
 
             const reportId = this.generateUUID();
+            const currentTimestamp = new Date().toISOString();
 
             const report: ProjectProgressReport = {
                 projectId: projectId!,
                 projectName: projectName,
-                timestamp: new Date().toISOString(),
+                timestamp: currentTimestamp,
                 reportId,
                 translationProgress: {
                     bookCompletionMap: {},
@@ -306,13 +320,17 @@ export class ProgressReportingService {
                     validatedVerseCount: 0,
                     wordsTranslated: 0,
                 },
+                wordCount: {
+                    sourceWords: 0,
+                    codexWords: 0,
+                },
                 validationStatus: {
                     stage: "none",
                     versesPerStage: {},
-                    lastValidationTimestamp: new Date().toISOString(),
+                    lastValidationTimestamp: currentTimestamp,
                 },
                 activityMetrics: {
-                    lastEditTimestamp: new Date().toISOString(),
+                    lastEditTimestamp: currentTimestamp,
                     editCountLast24Hours: 0,
                     editCountLastWeek: 0,
                     averageDailyEdits: 0,
@@ -320,15 +338,12 @@ export class ProgressReportingService {
                 qualityMetrics: {
                     spellcheckIssueCount: 0,
                     flaggedSegmentsCount: 0,
-                    consistencyScore: 0,
+                    consistencyScore: 85,
                 },
             };
 
-            // Generate translation progress data
+            // Generate translation progress data using SQLite index
             await this.collectTranslationProgress(report);
-
-            // Generate mock data for other metrics
-            this.generateMockMetrics(report);
 
             debug("📊 Progress report generated successfully");
             return report;
@@ -339,117 +354,304 @@ export class ProgressReportingService {
     }
 
     /**
-     * Collect translation progress data from .codex files
-     */
+ * Collect translation progress data from SQLite database using direct queries
+ */
     private async collectTranslationProgress(report: ProjectProgressReport): Promise<void> {
         try {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
+            const sqliteIndex = getSQLiteIndexManager();
+            if (!sqliteIndex || !sqliteIndex.database) {
+                debug("📊 SQLite database not available, skipping progress collection");
                 return;
             }
 
-            const codexPattern = new vscode.RelativePattern(
-                workspaceFolder.uri.fsPath,
-                "files/target/**/*.codex"
-            );
-            const codexUris = await vscode.workspace.findFiles(codexPattern);
+            const db = sqliteIndex.database;
 
-            const bookCompletionMap: Record<string, number> = {};
-            let totalVerseCount = 0;
-            let translatedVerseCount = 0;
+            // Get basic cell statistics
+            const cellStatsStmt = db.prepare(`
+                SELECT 
+                    COUNT(*) as total_cells,
+                    COUNT(CASE WHEN s_content IS NOT NULL AND s_content != '' THEN 1 END) as source_cells,
+                    COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as target_cells,
+                    COUNT(CASE WHEN s_content IS NOT NULL AND s_content != '' AND t_content IS NOT NULL AND t_content != '' THEN 1 END) as complete_pairs,
+                    COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) as validated_cells,
+                    SUM(COALESCE(s_word_count, 0)) as total_source_words,
+                    SUM(COALESCE(t_word_count, 0)) as total_target_words,
+                    MAX(COALESCE(t_current_edit_timestamp, 0)) as last_edit_timestamp
+                FROM cells
+            `);
 
-            for (const uri of codexUris) {
-                try {
-                    const fileNameAbbr = path.basename(uri.fsPath, ".codex");
-                    const content = await vscode.workspace.fs.readFile(uri);
-                    const contentStr = Buffer.from(content).toString("utf-8");
-
-                    try {
-                        const notebookData = JSON.parse(contentStr);
-                        const cells = notebookData.cells || [];
-                        const totalCells = cells.length;
-
-                        const cellsWithValues = cells.filter((cell: any) => {
-                            const value = cell.value || "";
-                            return value.trim().length > 0 && value !== "<span></span>";
-                        }).length;
-
-                        totalVerseCount += totalCells;
-                        translatedVerseCount += cellsWithValues;
-
-                        const bookProgress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
-                        bookCompletionMap[fileNameAbbr] = Math.round(bookProgress * 100) / 100;
-
-                        debug(
-                            `📊 Processed ${fileNameAbbr}: ${cellsWithValues}/${totalCells} verses translated (${bookProgress.toFixed(2)}%)`
-                        );
-                    } catch (jsonError) {
-                        console.warn(`📊 Failed to parse JSON for ${uri.fsPath}:`, jsonError);
-
-                        // Fallback estimation
-                        const totalCells = Math.ceil(contentStr.length / 500);
-                        const cellsWithValues = Math.ceil(totalCells * 0.5);
-
-                        totalVerseCount += totalCells;
-                        translatedVerseCount += cellsWithValues;
-                        bookCompletionMap[fileNameAbbr] = 50;
-                    }
-                } catch (error) {
-                    console.warn(`📊 Failed to process ${uri.fsPath}:`, error);
-                }
-            }
-
-            // Update the report
-            report.translationProgress.bookCompletionMap = bookCompletionMap;
-            report.translationProgress.totalVerseCount = totalVerseCount;
-            report.translationProgress.translatedVerseCount = translatedVerseCount;
-            report.translationProgress.validatedVerseCount = Math.round(translatedVerseCount * 0.6);
-            report.translationProgress.wordsTranslated = translatedVerseCount * 15;
-
-            // Set validation stage based on progress
-            const progress = totalVerseCount > 0 ? translatedVerseCount / totalVerseCount : 0;
-            if (progress < 0.25) {
-                report.validationStatus.stage = "none";
-            } else if (progress < 0.5) {
-                report.validationStatus.stage = "initial";
-            } else if (progress < 0.75) {
-                report.validationStatus.stage = "community";
-            } else if (progress < 0.95) {
-                report.validationStatus.stage = "expert";
-            } else {
-                report.validationStatus.stage = "finished";
-            }
-
-            report.validationStatus.versesPerStage = {
-                none: totalVerseCount - translatedVerseCount,
-                initial: 0,
-                community: 0,
-                expert: 0,
-                finished: 0,
+            let cellStats = {
+                total_cells: 0,
+                source_cells: 0,
+                target_cells: 0,
+                complete_pairs: 0,
+                validated_cells: 0,
+                total_source_words: 0,
+                total_target_words: 0,
+                last_edit_timestamp: 0
             };
-            report.validationStatus.versesPerStage[report.validationStatus.stage] = translatedVerseCount;
+
+            try {
+                cellStatsStmt.step();
+                const result = cellStatsStmt.getAsObject();
+                cellStats = {
+                    total_cells: (result.total_cells as number) || 0,
+                    source_cells: (result.source_cells as number) || 0,
+                    target_cells: (result.target_cells as number) || 0,
+                    complete_pairs: (result.complete_pairs as number) || 0,
+                    validated_cells: (result.validated_cells as number) || 0,
+                    total_source_words: (result.total_source_words as number) || 0,
+                    total_target_words: (result.total_target_words as number) || 0,
+                    last_edit_timestamp: (result.last_edit_timestamp as number) || 0
+                };
+            } finally {
+                cellStatsStmt.free();
+            }
+
+            console.log("Progress Reporting Service: cellStats", cellStats);
+
+            // Calculate basic metrics
+            report.translationProgress.totalVerseCount = cellStats.total_cells;
+            report.translationProgress.translatedVerseCount = cellStats.complete_pairs;
+            report.translationProgress.validatedVerseCount = cellStats.validated_cells;
+            report.translationProgress.wordsTranslated = cellStats.total_target_words;
+
+            // Set word counts
+            report.wordCount.sourceWords = cellStats.total_source_words;
+            report.wordCount.codexWords = cellStats.total_target_words;
+
+            // First, let's debug what's in the files table
+            const debugFilesStmt = db.prepare(`
+                SELECT id, file_path, file_type, COUNT(*) as count
+                FROM files
+                GROUP BY id, file_path, file_type
+                ORDER BY id
+                LIMIT 10
+            `);
+
+            console.log("Progress Reporting Service: Debug - Files table contents:");
+            try {
+                while (debugFilesStmt.step()) {
+                    const row = debugFilesStmt.getAsObject();
+                    console.log("  File:", row);
+                }
+            } finally {
+                debugFilesStmt.free();
+            }
+
+            // Debug what t_file_id values we have in cells
+            const debugCellFilesStmt = db.prepare(`
+                SELECT t_file_id, COUNT(*) as count
+                FROM cells
+                WHERE t_file_id IS NOT NULL
+                GROUP BY t_file_id
+                ORDER BY t_file_id
+                LIMIT 10
+            `);
+
+            console.log("Progress Reporting Service: Debug - t_file_id values in cells:");
+            try {
+                while (debugCellFilesStmt.step()) {
+                    const row = debugCellFilesStmt.getAsObject();
+                    console.log("  t_file_id:", row);
+                }
+            } finally {
+                debugCellFilesStmt.free();
+            }
+
+            // Try the original query to see what happens
+            const originalBookCompletionStmt = db.prepare(`
+                SELECT 
+                    f.file_path,
+                    COUNT(*) as total_cells,
+                    COUNT(CASE WHEN c.t_content IS NOT NULL AND c.t_content != '' THEN 1 END) as translated_cells,
+                    COUNT(CASE WHEN c.t_is_fully_validated = 1 THEN 1 END) as validated_cells,
+                    SUM(COALESCE(c.s_word_count, 0)) as source_words,
+                    SUM(COALESCE(c.t_word_count, 0)) as target_words
+                FROM files f
+                LEFT JOIN cells c ON f.id = c.t_file_id
+                WHERE f.file_type = 'codex'
+                GROUP BY f.file_path
+                HAVING total_cells > 0
+            `);
+
+            console.log("Progress Reporting Service: Debug - Original query results:");
+            try {
+                while (originalBookCompletionStmt.step()) {
+                    const row = originalBookCompletionStmt.getAsObject();
+                    console.log("  Original query result:", row);
+                }
+            } finally {
+                originalBookCompletionStmt.free();
+            }
+
+            // Now try a different approach - get book completion data by extracting file info from cell IDs
+            // Since cell IDs seem to contain the file/book information
+            const bookCompletionStmt = db.prepare(`
+                SELECT 
+                    -- Extract book name from cell_id (everything before the first space or colon)
+                    CASE 
+                        WHEN cell_id LIKE '%:%' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ':') - 1)
+                        WHEN cell_id LIKE '% %' THEN SUBSTR(cell_id, 1, INSTR(cell_id, ' ') - 1)
+                        ELSE cell_id
+                    END as book_name,
+                    COUNT(*) as total_cells,
+                    COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as translated_cells,
+                    COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) as validated_cells,
+                    SUM(COALESCE(s_word_count, 0)) as source_words,
+                    SUM(COALESCE(t_word_count, 0)) as target_words
+                FROM cells
+                WHERE cell_id IS NOT NULL AND cell_id != ''
+                GROUP BY book_name
+                HAVING total_cells > 0
+                ORDER BY book_name
+            `);
+
+            const bookCompletionMap: Record<string, BookCompletionData> = {};
+            try {
+                while (bookCompletionStmt.step()) {
+                    const row = bookCompletionStmt.getAsObject();
+                    const bookName = row.book_name as string;
+                    const totalCells = (row.total_cells as number) || 0;
+                    const translatedCells = (row.translated_cells as number) || 0;
+                    const sourceWords = (row.source_words as number) || 0;
+                    const targetWords = (row.target_words as number) || 0;
+
+                    if (totalCells > 0 && bookName) {
+                        const completionPercentage = (translatedCells / totalCells) * 100;
+                        bookCompletionMap[bookName] = {
+                            completionPercentage: Math.round(completionPercentage * 100) / 100,
+                            sourceWords: sourceWords,
+                            targetWords: targetWords
+                        };
+                    }
+                }
+            } finally {
+                bookCompletionStmt.free();
+            }
+
+            console.log("Progress Reporting Service: bookCompletionMap", bookCompletionMap);
+
+            report.translationProgress.bookCompletionMap = bookCompletionMap;
+
+            // Calculate activity metrics from actual edit timestamps
+            const now = Date.now();
+            const dayAgo = now - (24 * 60 * 60 * 1000);
+            const weekAgo = now - (7 * 24 * 60 * 60 * 1000);
+
+            const activityStmt = db.prepare(`
+                SELECT 
+                    COUNT(CASE WHEN t_current_edit_timestamp >= ? THEN 1 END) as edits_last_24h,
+                    COUNT(CASE WHEN t_current_edit_timestamp >= ? THEN 1 END) as edits_last_week,
+                    AVG(CASE WHEN t_current_edit_timestamp > 0 THEN 1 ELSE 0 END) as avg_daily_edits
+                FROM cells
+                WHERE t_current_edit_timestamp > 0
+            `);
+
+            let activityStats = {
+                edits_last_24h: 0,
+                edits_last_week: 0,
+                avg_daily_edits: 0
+            };
+
+            try {
+                activityStmt.bind([dayAgo, weekAgo]);
+                activityStmt.step();
+                const result = activityStmt.getAsObject();
+                activityStats = {
+                    edits_last_24h: (result.edits_last_24h as number) || 0,
+                    edits_last_week: (result.edits_last_week as number) || 0,
+                    avg_daily_edits: (result.avg_daily_edits as number) || 0
+                };
+            } finally {
+                activityStmt.free();
+            }
+
+            report.activityMetrics = {
+                lastEditTimestamp: cellStats.last_edit_timestamp > 0 ?
+                    new Date(cellStats.last_edit_timestamp).toISOString() :
+                    new Date().toISOString(),
+                editCountLast24Hours: activityStats.edits_last_24h,
+                editCountLastWeek: activityStats.edits_last_week,
+                averageDailyEdits: Math.round(activityStats.avg_daily_edits * 10) / 10
+            };
+
+            // Calculate quality metrics
+            const qualityStmt = db.prepare(`
+                SELECT 
+                    COUNT(CASE WHEN t_validation_count = 0 AND t_content IS NOT NULL AND t_content != '' THEN 1 END) as unvalidated_segments,
+                    AVG(CASE WHEN t_validation_count > 0 THEN t_validation_count ELSE 0 END) as avg_validation_count,
+                    COUNT(CASE WHEN t_is_fully_validated = 1 THEN 1 END) * 100.0 / COUNT(CASE WHEN t_content IS NOT NULL AND t_content != '' THEN 1 END) as consistency_score
+                FROM cells
+            `);
+
+            let qualityStats = {
+                unvalidated_segments: 0,
+                avg_validation_count: 0,
+                consistency_score: 0
+            };
+
+            try {
+                qualityStmt.step();
+                const result = qualityStmt.getAsObject();
+                qualityStats = {
+                    unvalidated_segments: (result.unvalidated_segments as number) || 0,
+                    avg_validation_count: (result.avg_validation_count as number) || 0,
+                    consistency_score: (result.consistency_score as number) || 0
+                };
+            } finally {
+                qualityStmt.free();
+            }
+
+            report.qualityMetrics = {
+                spellcheckIssueCount: 0, // Not tracked in current schema
+                flaggedSegmentsCount: qualityStats.unvalidated_segments,
+                consistencyScore: Math.round(qualityStats.consistency_score)
+            };
+
+            // Populate legacy validationStatus for backward compatibility
+            const totalVerses = report.translationProgress.totalVerseCount;
+            const translatedVerses = report.translationProgress.translatedVerseCount;
+            const validatedVerses = report.translationProgress.validatedVerseCount;
+
+            const progress = totalVerses > 0 ? translatedVerses / totalVerses : 0;
+
+            // Determine validation stage based on progress
+            let stage: "none" | "initial" | "community" | "expert" | "finished" = "none";
+            if (progress >= 0.95) {
+                stage = "finished";
+            } else if (progress >= 0.75) {
+                stage = "expert";
+            } else if (progress >= 0.5) {
+                stage = "community";
+            } else if (progress >= 0.25) {
+                stage = "initial";
+            }
+
+            report.validationStatus = {
+                stage,
+                versesPerStage: {
+                    none: Math.max(0, totalVerses - translatedVerses),
+                    initial: stage === "initial" ? translatedVerses : 0,
+                    community: stage === "community" ? translatedVerses : 0,
+                    expert: stage === "expert" ? translatedVerses : 0,
+                    finished: stage === "finished" ? translatedVerses : 0,
+                },
+                lastValidationTimestamp: cellStats.last_edit_timestamp > 0 ?
+                    new Date(cellStats.last_edit_timestamp).toISOString() :
+                    new Date().toISOString(),
+            };
+
+            debug(`📊 Translation progress collected: ${report.translationProgress.translatedVerseCount}/${report.translationProgress.totalVerseCount} verses`);
+            debug(`📊 Word counts: ${report.wordCount.sourceWords} source, ${report.wordCount.codexWords} target`);
+            debug(`📊 Book completion map: ${Object.keys(report.translationProgress.bookCompletionMap).length} books`);
+            debug(`📊 Activity: ${report.activityMetrics.editCountLast24Hours} edits (24h), ${report.activityMetrics.editCountLastWeek} edits (week)`);
+            debug(`📊 Quality: ${report.qualityMetrics.consistencyScore}% consistency, ${report.qualityMetrics.flaggedSegmentsCount} flagged segments`);
+            debug(`📊 Validation status: ${report.validationStatus.stage} stage`);
 
         } catch (error) {
             console.error("📊 Error collecting translation progress data:", error);
         }
-    }
-
-    /**
-     * Generate mock metrics for testing
-     */
-    private generateMockMetrics(report: ProjectProgressReport): void {
-        report.activityMetrics = {
-            lastEditTimestamp: new Date().toISOString(),
-            editCountLast24Hours: Math.floor(Math.random() * 50),
-            editCountLastWeek: Math.floor(Math.random() * 200),
-            averageDailyEdits: Math.floor(Math.random() * 30),
-        };
-
-        report.qualityMetrics = {
-            spellcheckIssueCount: Math.floor(Math.random() * 20),
-            flaggedSegmentsCount: Math.floor(Math.random() * 10),
-            consistencyScore: 85 + Math.floor(Math.random() * 15),
-        };
     }
 
     /**

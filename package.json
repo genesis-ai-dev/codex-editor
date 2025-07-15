@@ -132,6 +132,11 @@
         },
         "commands": [
             {
+                "command": "codex-editor-extension.submitProgressReport",
+                "title": "Submit Progress Report",
+                "category": "Codex Editor"
+            },
+            {
                 "command": "codex-editor.testProjectLoadingPerformance",
                 "title": "Test Project Loading Performance",
                 "category": "Codex Debug"

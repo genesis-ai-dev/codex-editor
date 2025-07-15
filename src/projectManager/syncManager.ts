@@ -8,6 +8,7 @@ import { updateSplashScreenSync } from "../providers/SplashScreen/register";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
+import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 
 // Define TranslationProgress interface locally since it's not exported from types
@@ -35,7 +36,7 @@ export interface ProjectProgressReport {
 
     // Translation metrics
     translationProgress: {
-        bookCompletionMap: Record<string, number>; // Book ID -> percentage complete
+        bookCompletionMap: Record<string, BookCompletionData>; // Book ID -> completion data
         totalVerseCount: number; // Total verses in project
         translatedVerseCount: number; // Verses with translations
         validatedVerseCount: number; // Verses passing validation
