@@ -364,12 +364,29 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             return;
         }
 
-        // Find the previous cell
-        const previousCell = translationUnits[currentIndex - 1];
+        // Find the most recent non-merged cell to merge into
+        let targetCellIndex = currentIndex - 1;
+        let targetCell = translationUnits[targetCellIndex];
+
+        // Skip any cells that are already merged
+        while (targetCellIndex >= 0 && targetCell?.merged) {
+            targetCellIndex--;
+            targetCell = translationUnits[targetCellIndex];
+        }
+
+        // Check if we found a valid target cell
+        if (targetCellIndex < 0 || !targetCell) {
+            vscode.postMessage({
+                command: "showErrorMessage",
+                text: "Cannot merge: No non-merged cell found to merge into.",
+            } as any);
+            return;
+        }
+
         const currentCell = translationUnits[currentIndex];
 
-        if (!previousCell || !currentCell) {
-            console.error("Could not find previous or current cell");
+        if (!targetCell || !currentCell) {
+            console.error("Could not find target or current cell");
             return;
         }
 
@@ -378,11 +395,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             command: "confirmCellMerge",
             content: {
                 currentCellId: currentCell.cellMarkers[0],
-                previousCellId: previousCell.cellMarkers[0],
+                previousCellId: targetCell.cellMarkers[0],
                 currentContent: currentCell.cellContent,
-                previousContent: previousCell.cellContent,
+                previousContent: targetCell.cellContent,
                 message:
-                    "Are you sure you want to merge this cell with the previous cell? This action cannot be undone.",
+                    "Are you sure you want to merge this cell with the previous non-merged cell? This action cannot be undone.",
             },
         } as any);
     };
