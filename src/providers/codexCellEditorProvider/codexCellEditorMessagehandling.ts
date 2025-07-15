@@ -1034,7 +1034,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         vscode.window.showErrorMessage(typedEvent.text);
     },
 
-     mergeCellWithPrevious: async ({ event, document, webviewPanel, provider }) => {
+    mergeCellWithPrevious: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "mergeCellWithPrevious"; }>;
         const { currentCellId, previousCellId, currentContent, previousContent } = typedEvent.content;
 
@@ -1084,12 +1084,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 author: currentUser,
                 validatedBy: []
             };
-            
+
             // 3. Merge cell labels with a hyphen
             const previousLabel = previousCell.metadata?.cellLabel || "";
             const currentLabel = currentCell.metadata?.cellLabel || "";
             let mergedLabel = "";
-            
+
             if (previousLabel && currentLabel) {
                 mergedLabel = `${previousLabel}-${currentLabel}`;
             } else if (previousLabel) {
@@ -1108,16 +1108,47 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 previousCell.metadata.edits = [];
             }
             previousCell.metadata.edits = updatedEdits;
-            
+
             // Update the merged cell label
             if (mergedLabel) {
                 previousCell.metadata.cellLabel = mergedLabel;
             }
 
+            // 4. Merge time ranges if both cells have timing data
+            const previousData = previousCell.metadata?.data;
+            const currentData = currentCell.metadata?.data;
+
+            if (previousData?.startTime !== undefined && currentData?.endTime !== undefined) {
+                // Take startTime from previous cell and endTime from current cell
+                const mergedStartTime = previousData.startTime;
+                const mergedEndTime = currentData.endTime;
+
+                // Update the previous cell's time range
+                if (!previousCell.metadata.data) {
+                    previousCell.metadata.data = {};
+                }
+
+                previousCell.metadata.data = {
+                    ...previousCell.metadata.data,
+                    startTime: mergedStartTime,
+                    endTime: mergedEndTime
+                };
+
+                console.log("Merged time ranges:", {
+                    previousStartTime: previousData.startTime,
+                    previousEndTime: previousData.endTime,
+                    currentStartTime: currentData.startTime,
+                    currentEndTime: currentData.endTime,
+                    mergedStartTime: mergedStartTime,
+                    mergedEndTime: mergedEndTime,
+                    totalDuration: mergedEndTime - mergedStartTime
+                });
+            }
+
             // Mark the document as dirty manually since we bypassed the normal update methods
             (document as any)._isDirty = true;
 
-            // 4. Mark current cell as merged by updating its data
+            // 5. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};
             document.updateCellData(currentCellId, {
                 ...currentCellData,
