@@ -622,28 +622,40 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             )}
 
                             {/* Merge Button - only show in correction editor mode for source text */}
-                            {isSourceText && isCorrectionEditorMode && !cell.merged && (
-                                <div style={{ flexShrink: 0 }}>
-                                    <Button
-                                        variant="ghost"
-                                        style={{
-                                            height: "16px",
-                                            width: "16px",
-                                            padding: 0,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                        }}
-                                        onClick={handleMergeWithPrevious}
-                                        title="Merge with previous cell"
-                                    >
-                                        <i
-                                            className="codicon codicon-merge"
-                                            style={{ fontSize: "12px" }}
-                                        />
-                                    </Button>
-                                </div>
-                            )}
+                            {isSourceText &&
+                                isCorrectionEditorMode &&
+                                !cell.merged &&
+                                (() => {
+                                    // Check if this is the first cell - if so, don't show merge button
+                                    const currentCellId = cellIds[0];
+                                    const currentIndex = translationUnits?.findIndex(
+                                        (unit) => unit.cellMarkers[0] === currentCellId
+                                    );
+                                    const isFirstCell = currentIndex === 0;
+
+                                    return !isFirstCell;
+                                })() && (
+                                    <div style={{ flexShrink: 0 }}>
+                                        <Button
+                                            variant="ghost"
+                                            style={{
+                                                height: "16px",
+                                                width: "16px",
+                                                padding: 0,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                            }}
+                                            onClick={handleMergeWithPrevious}
+                                            title="Merge with previous cell"
+                                        >
+                                            <i
+                                                className="codicon codicon-merge"
+                                                style={{ fontSize: "12px" }}
+                                            />
+                                        </Button>
+                                    </div>
+                                )}
                             {isSourceText && isCorrectionEditorMode && cell.merged && (
                                 <div style={{ flexShrink: 0 }}>
                                     <Button
