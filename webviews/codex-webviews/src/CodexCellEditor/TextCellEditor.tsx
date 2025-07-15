@@ -1061,7 +1061,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     return (
         <Card className="w-full max-w-4xl shadow-xl" style={{ direction: textDirection }}>
-            <CardHeader className="border-b p-4">
+            <CardHeader className="border-b p-4 flex flex-row flex-nowrap items-center justify-between">
                 <div className="flex flex-row flex-wrap items-center justify-between">
                     <div className="flex items-center gap-2">
                         {isEditorControlsExpanded ? (
@@ -1204,47 +1204,46 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <Settings className="h-4 w-4" />
                             </Button>
                         )}
-                        {unsavedChanges ? (
-                            <>
-                                <Button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleSaveHtml();
-                                    }}
-                                    variant="default"
-                                    size="icon"
-                                    title={isSaving ? "Saving..." : "Save changes"}
-                                    disabled={isSaving || isEditingFootnoteInline}
-                                >
-                                    {isSaving ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Check className="h-4 w-4" />
-                                    )}
-                                </Button>
-                                <Button
-                                    onClick={handleCloseEditor}
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Discard changes"
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                            </>
-                        ) : (
+                    </div>
+                </div>
+                <div className="flex items-center gap-1">
+                    {unsavedChanges ? (
+                        <>
                             <Button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleCloseEditor();
+                                    handleSaveHtml();
                                 }}
-                                variant="ghost"
+                                variant="default"
                                 size="icon"
-                                title="Close editor"
+                                title={isSaving ? "Saving..." : "Save changes"}
+                                disabled={isSaving || isEditingFootnoteInline}
                             >
-                                <X className="h-4 w-4" />
+                                {isSaving ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <Check className="h-4 w-4" />
+                                )}
                             </Button>
-                        )}
-                    </div>
+                            <ConfirmationButton
+                                icon="trash"
+                                onClick={handleCloseEditor}
+                                disabled={isSaving || isEditingFootnoteInline}
+                            />
+                        </>
+                    ) : (
+                        <Button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleCloseEditor();
+                            }}
+                            variant="ghost"
+                            size="icon"
+                            title="Close editor"
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </CardHeader>
 
