@@ -524,6 +524,7 @@ function MainMenu() {
                                         style={{
                                             backgroundColor: "var(--muted)",
                                             borderColor: "var(--border)",
+                                            display: "none", // TODO: we are removing spell check for now until someone needs it
                                         }}
                                     >
                                         <div className="space-y-1">

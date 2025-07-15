@@ -78,7 +78,9 @@ const CodexCellEditor: React.FC = () => {
 
     // State for tracking translation queue
     const [translationQueue, setTranslationQueue] = useState<string[]>([]);
-    const [singleCellQueueProcessingId, setSingleCellQueueProcessingId] = useState<string | undefined>();
+    const [singleCellQueueProcessingId, setSingleCellQueueProcessingId] = useState<
+        string | undefined
+    >();
     const [isProcessingCell, setIsProcessingCell] = useState(false);
 
     // Keep track of cell content for detecting changes
@@ -365,20 +367,21 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
-    useEffect(() => {
-        checkAlertCodes();
-    }, [translationUnits]);
+    // useEffect(() => {
+    // // TODO: we are removing spell check for now until someone needs it
+    //     checkAlertCodes();
+    // }, [translationUnits]);
 
     // Clear successful completions after a delay when all translations are complete
     useEffect(() => {
-        const noActiveTranslations = 
+        const noActiveTranslations =
             translationQueue.length === 0 &&
             !singleCellQueueProcessingId &&
             !autocompletionState.currentCellId;
 
         if (noActiveTranslations && successfulCompletions.size > 0) {
             debug("translation", "All translations complete, scheduling border clear");
-            
+
             // Clear the successful completions after 1.5 seconds to hide the green borders
             const timer = setTimeout(() => {
                 debug("translation", "Clearing successful completions");
@@ -387,7 +390,12 @@ const CodexCellEditor: React.FC = () => {
 
             return () => clearTimeout(timer);
         }
-    }, [translationQueue, singleCellQueueProcessingId, autocompletionState.currentCellId, successfulCompletions]);
+    }, [
+        translationQueue,
+        singleCellQueueProcessingId,
+        autocompletionState.currentCellId,
+        successfulCompletions,
+    ]);
 
     useVSCodeMessageHandler({
         setContent: (
@@ -480,13 +488,21 @@ const CodexCellEditor: React.FC = () => {
             setIsProcessingCell(state.isProcessing);
         },
 
-        updateCellTranslationCompletion: (cellId: string, success: boolean, cancelled?: boolean, error?: string) => {
-            debug("translation", `Cell ${cellId} translation completion: success=${success}, cancelled=${cancelled}, error=${error}`);
-            
+        updateCellTranslationCompletion: (
+            cellId: string,
+            success: boolean,
+            cancelled?: boolean,
+            error?: string
+        ) => {
+            debug(
+                "translation",
+                `Cell ${cellId} translation completion: success=${success}, cancelled=${cancelled}, error=${error}`
+            );
+
             if (success) {
                 // Cell completed successfully - add to successful completions
                 debug("translation", `Cell ${cellId} completed successfully`);
-                setSuccessfulCompletions(prev => {
+                setSuccessfulCompletions((prev) => {
                     const newSet = new Set(prev);
                     newSet.add(cellId);
                     return newSet;
@@ -494,7 +510,7 @@ const CodexCellEditor: React.FC = () => {
             } else if (cancelled) {
                 // Cell was cancelled - make sure it's not in successful completions
                 debug("translation", `Cell ${cellId} was cancelled`);
-                setSuccessfulCompletions(prev => {
+                setSuccessfulCompletions((prev) => {
                     const newSet = new Set(prev);
                     newSet.delete(cellId);
                     return newSet;
@@ -502,7 +518,7 @@ const CodexCellEditor: React.FC = () => {
             } else if (error) {
                 // Cell had an error - make sure it's not in successful completions
                 debug("translation", `Cell ${cellId} had error: ${error}`);
-                setSuccessfulCompletions(prev => {
+                setSuccessfulCompletions((prev) => {
                     const newSet = new Set(prev);
                     newSet.delete(cellId);
                     return newSet;
@@ -521,7 +537,7 @@ const CodexCellEditor: React.FC = () => {
         },
         setAlertColorCodes: setAlertColorCodes,
         recheckAlertCodes: () => {
-            checkAlertCodes();
+            // checkAlertCodes(); // TODO: we are removing spell check for now until someone needs it
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
@@ -683,8 +699,10 @@ const CodexCellEditor: React.FC = () => {
                 }
 
                 // Stop expanding if we hit another content cell that's not on this page
-                if ((prevCell.cellType as string) !== "paratext" && 
-                    !contentCellIds.has(prevCell.cellMarkers[0])) {
+                if (
+                    (prevCell.cellType as string) !== "paratext" &&
+                    !contentCellIds.has(prevCell.cellMarkers[0])
+                ) {
                     break;
                 }
 
@@ -702,8 +720,10 @@ const CodexCellEditor: React.FC = () => {
                 }
 
                 // Stop expanding if we hit another content cell that's not on this page
-                if ((nextCell.cellType as string) !== "paratext" && 
-                    !contentCellIds.has(nextCell.cellMarkers[0])) {
+                if (
+                    (nextCell.cellType as string) !== "paratext" &&
+                    !contentCellIds.has(nextCell.cellMarkers[0])
+                ) {
                     break;
                 }
 

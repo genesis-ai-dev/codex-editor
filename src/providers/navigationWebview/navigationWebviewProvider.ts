@@ -285,7 +285,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             case "toggleDictionary": {
                 try {
                     const config = vscode.workspace.getConfiguration("codex-project-manager");
-                    const currentState = config.get<boolean>("spellcheckIsEnabled", true);
+                    const currentState = config.get<boolean>("spellcheckIsEnabled", false);
                     await config.update("spellcheckIsEnabled", !currentState, vscode.ConfigurationTarget.Workspace);
 
                     // Refresh dictionary items to update the enabled state
