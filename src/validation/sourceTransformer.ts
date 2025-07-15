@@ -129,7 +129,7 @@ export class SourceTransformer {
                         id: verseRef,
                         type: CodexCellTypes.TEXT,
                         data: {
-                            book: parsed.book,
+                            book: parsed.book as unknown as string,
                             chapter: chapter.chapterNumber,
                             verse: verse.verseNumber,
                         },
@@ -145,7 +145,7 @@ export class SourceTransformer {
                         id: verseRef,
                         type: CodexCellTypes.TEXT,
                         data: {
-                            book: parsed.book,
+                            book: parsed.book as unknown as string,
                             chapter: chapter.chapterNumber,
                             verse: verse.verseNumber,
                         },

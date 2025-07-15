@@ -1015,6 +1015,9 @@ export type EditHistory = {
 type CodexData = Timestamps & {
     // [key: string]: any; this makes it very hard to type the data
     footnotes?: Footnote[];
+    book?: string;
+    chapter?: string;
+    verse?: string;
 };
 
 type CustomCellMetaData = {
