@@ -13,10 +13,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     private lastSentComments: string = "";
     private authApi = getAuthApi();
     private isAuthenticated = false;
+    private stateStoreListener?: () => void; // Add state store listener cleanup function
 
     constructor(context: vscode.ExtensionContext) {
         super(context);
         this.initializeAuthState();
+        this.setupStateStoreListener(); // Initialize state store listener
     }
 
     protected getWebviewId(): string {
@@ -139,6 +141,33 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    private async setupStateStoreListener() {
+        try {
+            const { storeListener } = await initializeStateStore();
+
+            // Set up listener for cellId changes
+            this.stateStoreListener = storeListener(
+                "cellId",
+                (value: CellIdGlobalState | undefined) => {
+                    console.log("[CommentsProvider] Cell ID change detected:", value);
+                    if (value?.cellId && value?.uri && this._view) {
+                        // Send reload message to webview with new cell ID
+                        safePostMessageToView(this._view, {
+                            command: "reload",
+                            data: {
+                                cellId: value.cellId,
+                                uri: value.uri,
+                            },
+                        } as CommentPostMessages);
+                    }
+                }
+            );
+            console.log("[CommentsProvider] State store listener initialized successfully");
+        } catch (error) {
+            console.error("[CommentsProvider] Failed to initialize state store listener:", error);
+        }
+    }
+
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
         console.log("[CommentsProvider] onWebviewResolved called");
 
@@ -160,6 +189,15 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         });
 
         this._context.subscriptions.push(commentsWatcher);
+
+        // Clean up state store listener when webview is disposed
+        webviewView.onDidDispose(() => {
+            if (this.stateStoreListener) {
+                this.stateStoreListener();
+                this.stateStoreListener = undefined;
+                console.log("[CommentsProvider] State store listener disposed");
+            }
+        });
     }
 
     private async initializeWebview(webviewView: vscode.WebviewView): Promise<void> {
