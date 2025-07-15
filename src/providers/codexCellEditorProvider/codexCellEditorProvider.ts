@@ -2800,4 +2800,87 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.error("Error preserving original content in edit history:", error);
         }
     }
+
+    /**
+     * Checks if there are any child cells in the target file for the specified parent cell IDs
+     * @param parentCellIds Array of parent cell IDs to check for children
+     * @param workspaceFolder The workspace folder to look in
+     * @returns Promise<string[]> Array of child cell IDs found, empty if none
+     */
+    public async checkForChildCellsInTarget(parentCellIds: string[], workspaceFolder: vscode.WorkspaceFolder): Promise<string[]> {
+        debug("Checking for child cells in target file:", { parentCellIds });
+
+        try {
+            // Get the current document info to construct target path
+            if (!this.currentDocument) {
+                throw new Error("No current document available");
+            }
+
+            const normalizedPath = this.currentDocument.uri.toString().replace(/\\/g, "/");
+            const baseFileName = path.basename(normalizedPath);
+
+            // Source file -> Target file
+            const targetFileName = baseFileName.replace(".source", ".codex");
+            const targetPath = vscode.Uri.joinPath(workspaceFolder.uri, "files", "target", targetFileName);
+
+            // Try to open or find the target document
+            let targetDocument: CodexCellDocument | undefined;
+
+            // Check if target document is already open
+            const targetDocumentUri = targetPath.toString();
+            for (const [panelUri, panel] of this.webviewPanels.entries()) {
+                if (this.isMatchingFilePair(targetDocumentUri, panelUri)) {
+                    targetDocument = await this.openCustomDocument(
+                        vscode.Uri.parse(panelUri),
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                    break;
+                }
+            }
+
+            if (!targetDocument) {
+                // Try to create a document instance
+                try {
+                    targetDocument = await this.openCustomDocument(
+                        targetPath,
+                        {},
+                        new vscode.CancellationTokenSource().token
+                    );
+                } catch (error) {
+                    // Target file might not exist yet
+                    debug("Target file not found, no child cells to check");
+                    return [];
+                }
+            }
+
+            // Get all cell IDs from the target document
+            const allTargetCellIds = targetDocument.getAllCellIds();
+            const childCellIds: string[] = [];
+
+            // Check each cell ID to see if it's a child of any parent cell
+            for (const cellId of allTargetCellIds) {
+                const cellIdParts = cellId.split(":");
+
+                // Child cells have more than 2 segments
+                if (cellIdParts.length > 2) {
+                    // Get the parent ID (first 2 segments)
+                    const parentId = cellIdParts.slice(0, 2).join(":");
+
+                    // Check if this parent ID is in our list of cells being merged
+                    if (parentCellIds.includes(parentId)) {
+                        childCellIds.push(cellId);
+                    }
+                }
+            }
+
+            debug(`Found ${childCellIds.length} child cells in target:`, childCellIds);
+            return childCellIds;
+
+        } catch (error) {
+            console.error("Error checking for child cells in target:", error);
+            // Return empty array on error - safer to proceed than block
+            return [];
+        }
+    }
 }

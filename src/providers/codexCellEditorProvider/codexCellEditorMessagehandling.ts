@@ -991,41 +991,77 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const typedEvent = event as Extract<EditorPostMessages, { command: "confirmCellMerge"; }>;
         const { currentCellId, previousCellId, currentContent, previousContent, message } = typedEvent.content;
 
-        // Show VS Code confirmation dialog
-        const confirmed = await vscode.window.showWarningMessage(
-            message,
-            { modal: true },
-            "Yes",
-            "No"
-        );
+        console.log("confirmCellMerge message received for cells:", { currentCellId, previousCellId });
 
-        if (confirmed === "Yes") {
-            // User confirmed, proceed with merge
-            const mergeEvent: EditorPostMessages = {
-                command: "mergeCellWithPrevious" as const,
-                content: {
-                    currentCellId,
-                    previousCellId,
-                    currentContent,
-                    previousContent
-                }
-            };
+        try {
+            // Check if we're working with a source file and need to check for child cells
+            const isSourceFile = document.uri.toString().includes(".source");
 
-            // Call the existing merge handler
-            await messageHandlers.mergeCellWithPrevious({
-                event: mergeEvent,
-                document,
-                webviewPanel,
-                provider,
-                updateWebview: () => {
-                    provider.refreshWebview(webviewPanel, document);
+            if (isSourceFile) {
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                if (!workspaceFolder) {
+                    throw new Error("No workspace folder found");
                 }
-            });
-            const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-            if (!workspaceFolder) {
-                throw new Error("No workspace folder found");
+
+                // Check for child cells in the target that correspond to the cells being merged
+                const cellsToCheck = [currentCellId, previousCellId];
+                const childCells = await provider.checkForChildCellsInTarget(cellsToCheck, workspaceFolder);
+
+                if (childCells.length > 0) {
+                    // Child cells exist - prevent the merge
+                    const childCellsList = childCells.map(id => `• ${id}`).join('\n');
+                    const errorMessage = `Cannot merge source cells because the following child cells exist in the target file:\n\n${childCellsList}\n\nPlease remove or delete these child cells first before merging the source cells.`;
+
+                    vscode.window.showErrorMessage(errorMessage, { modal: true });
+                    return; // Exit early, don't proceed with merge
+                }
             }
-            await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
+
+            // No child cells found, proceed with existing confirmation flow
+            const confirmed = await vscode.window.showWarningMessage(
+                message,
+                { modal: true },
+                "Yes",
+                "No"
+            );
+
+            if (confirmed === "Yes") {
+                // User confirmed, proceed with merge
+                const mergeEvent: EditorPostMessages = {
+                    command: "mergeCellWithPrevious" as const,
+                    content: {
+                        currentCellId,
+                        previousCellId,
+                        currentContent,
+                        previousContent
+                    }
+                };
+
+                // Call the existing merge handler
+                await messageHandlers.mergeCellWithPrevious({
+                    event: mergeEvent,
+                    document,
+                    webviewPanel,
+                    provider,
+                    updateWebview: () => {
+                        provider.refreshWebview(webviewPanel, document);
+                    }
+                });
+
+                // Only merge in target if we're working with a source file
+                if (isSourceFile) {
+                    const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+                    if (!workspaceFolder) {
+                        throw new Error("No workspace folder found");
+                    }
+                    await provider.mergeMatchingCellsInTargetFile(currentCellId, previousCellId, document.uri.toString(), workspaceFolder);
+                }
+            }
+        } catch (error) {
+            console.error("Error in confirmCellMerge:", error);
+            vscode.window.showErrorMessage(
+                `Failed to confirm cell merge: ${error instanceof Error ? error.message : String(error)}`
+            );
         }
     },
 
