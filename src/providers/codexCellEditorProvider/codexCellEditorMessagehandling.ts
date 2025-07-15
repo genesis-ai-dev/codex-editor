@@ -1034,7 +1034,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         vscode.window.showErrorMessage(typedEvent.text);
     },
 
-    mergeCellWithPrevious: async ({ event, document, webviewPanel, provider }) => {
+     mergeCellWithPrevious: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "mergeCellWithPrevious"; }>;
         const { currentCellId, previousCellId, currentContent, previousContent } = typedEvent.content;
 
@@ -1075,28 +1075,32 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // Get existing edit history or create new one
             const existingEdits = previousCell.metadata?.edits || [];
 
-            // 1. Add the current content as an edit entry (save original previous content)
-            const firstEdit = {
-                cellValue: previousContent,
-                timestamp: timestamp,
-                type: EditType.USER_EDIT,
-                author: currentUser,
-                validatedBy: []
-            };
-
-            // 2. Concatenate content and create second edit
+            // 1. Concatenate content and create second edit
             const mergedContent = previousContent + "<span>&nbsp;</span>" + currentContent;
-            const secondEdit: EditHistory = {
+            const mergeEdit: EditHistory = {
                 cellValue: mergedContent,
                 timestamp: timestamp + 1,
                 type: EditType.USER_EDIT,
                 author: currentUser,
                 validatedBy: []
             };
+            
+            // 3. Merge cell labels with a hyphen
+            const previousLabel = previousCell.metadata?.cellLabel || "";
+            const currentLabel = currentCell.metadata?.cellLabel || "";
+            let mergedLabel = "";
+            
+            if (previousLabel && currentLabel) {
+                mergedLabel = `${previousLabel}-${currentLabel}`;
+            } else if (previousLabel) {
+                mergedLabel = previousLabel;
+            } else if (currentLabel) {
+                mergedLabel = currentLabel;
+            }
 
             // Update the previous cell content and edit history directly
             // Since this is a merge operation in source files, we need to bypass normal restrictions
-            const updatedEdits = [...existingEdits, firstEdit, secondEdit];
+            const updatedEdits = [...existingEdits, mergeEdit];
 
             // Update the previous cell content and metadata directly
             previousCell.value = mergedContent;
@@ -1104,11 +1108,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 previousCell.metadata.edits = [];
             }
             previousCell.metadata.edits = updatedEdits;
+            
+            // Update the merged cell label
+            if (mergedLabel) {
+                previousCell.metadata.cellLabel = mergedLabel;
+            }
 
             // Mark the document as dirty manually since we bypassed the normal update methods
             (document as any)._isDirty = true;
 
-            // 3. Mark current cell as merged by updating its data
+            // 4. Mark current cell as merged by updating its data
             const currentCellData = document.getCellData(currentCellId) || {};
             document.updateCellData(currentCellId, {
                 ...currentCellData,

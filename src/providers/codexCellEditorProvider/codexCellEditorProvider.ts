@@ -30,7 +30,7 @@ import { safePostMessageToPanel } from "../../utils/webviewUtils";
 import path from "path";
 
 // Enable debug logging if needed
-const DEBUG_MODE = true;
+const DEBUG_MODE = false;
 function debug(...args: any[]) {
     if (DEBUG_MODE) {
         console.log("[CodexCellEditorProvider]", ...args);
