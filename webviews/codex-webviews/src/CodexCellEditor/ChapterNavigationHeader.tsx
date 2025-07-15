@@ -278,7 +278,7 @@ ChapterNavigationHeaderProps) {
     const subsections = getSubsectionsForChapter(chapterNumber);
 
     return (
-        <div className="flex flex-row p-2 border-b">
+        <div className="flex flex-row p-2">
             <div className="flex items-center justify-start">
                 {isSourceText ? (
                     <>

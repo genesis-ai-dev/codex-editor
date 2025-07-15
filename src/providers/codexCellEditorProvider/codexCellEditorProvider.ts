@@ -382,7 +382,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const updateWebview = () => {
             debug("Updating webview");
             const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
-            const processedData = this.processNotebookData(notebookData);
+            const processedData = this.processNotebookData(notebookData, document);
 
             this.postMessageToWebview(webviewPanel, {
                 type: "providerSendsInitialContent",
@@ -1388,7 +1388,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return false;
     }
 
-    private processNotebookData(notebook: vscode.NotebookData) {
+    private processNotebookData(notebook: vscode.NotebookData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
             cellMarkers: [cell.metadata?.id],
@@ -1401,15 +1401,15 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }));
         debug("Translation units:", translationUnits);
 
-        const isSourceText = this.isSourceText(this.currentDocument?.uri.toString() ?? "");
-        console.log("isSourceText dasffae", isSourceText);
+        // Use the passed document if available, otherwise fall back to currentDocument
+        const docToCheck = document || this.currentDocument;
+        const isSourceText = this.isSourceText(docToCheck?.uri.toString() ?? "");
         const processedData = this.mergeRangesAndProcess(translationUnits, this.isCorrectionEditorMode, isSourceText ?? false);
         debug("Notebook data processed", processedData);
         return processedData;
     }
 
     private mergeRangesAndProcess(translationUnits: QuillCellContent[], isCorrectionEditorMode: boolean, isSourceText: boolean) {
-        console.log("isSourceText dasffae", { isSourceText, isCorrectionEditorMode });
         debug("Merging ranges and processing translation units");
         const isSourceAndCorrectionEditorMode = isSourceText && isCorrectionEditorMode;
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
@@ -1459,7 +1459,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public refreshWebview(webviewPanel: vscode.WebviewPanel, document: CodexCellDocument) {
         debug("Refreshing webview");
         const notebookData = this.getDocumentAsJson(document);
-        const processedData = this.processNotebookData(notebookData);
+        const processedData = this.processNotebookData(notebookData, document);
         const isSourceText = this.isSourceText(document.uri);
         const videoUrl = this.getVideoUrl(notebookData.metadata?.videoUrl, webviewPanel);
 

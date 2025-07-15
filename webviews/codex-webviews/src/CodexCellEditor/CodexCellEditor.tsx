@@ -1574,7 +1574,7 @@ const CodexCellEditor: React.FC = () => {
 
             <div className="codex-cell-editor">
                 <div
-                    className="static-header bg-white"
+                    className="static-header bg-background shadow-md"
                     ref={headerRef}
                     style={{ position: "sticky", top: 0, zIndex: 1000 }}
                 >

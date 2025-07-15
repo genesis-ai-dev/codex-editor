@@ -844,6 +844,8 @@ const CellList: React.FC<CellListProps> = ({
                 maxWidth: "100%",
                 padding: "0 1rem",
                 boxSizing: "border-box",
+                paddingTop: "1rem",
+                paddingBottom: "4rem",
             }}
         >
             {renderCells()}
