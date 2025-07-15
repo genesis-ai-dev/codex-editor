@@ -65,7 +65,6 @@ interface ChapterNavigationHeaderProps {
     onClose?: () => void;
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
-    // Removed onToggleCorrectionEditor since it will be a VS Code command now
 }
 
 export function ChapterNavigationHeader({
