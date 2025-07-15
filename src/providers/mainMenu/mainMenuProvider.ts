@@ -42,6 +42,8 @@ class ProjectManagerStore {
         isInitializing: false,
         isSyncInProgress: false,
         syncStage: "",
+        isPublishingInProgress: false,
+        publishingStage: "",
         updateState: null,
         updateVersion: null,
         isCheckingForUpdates: false,
@@ -721,15 +723,21 @@ export class MainMenuProvider extends BaseWebviewProvider {
     }
 
     private async publishProject(): Promise<void> {
+        // Set publishing in progress
+        this.sendPublishStatusUpdate(true, "Preparing to publish...");
+
         try {
             const projectOverview = await getProjectOverview();
             const projectName = projectOverview?.projectName || "";
             const projectId = projectOverview?.projectId || "";
 
             if (!projectName) {
+                this.sendPublishStatusUpdate(false, "");
                 vscode.window.showErrorMessage("No project name found");
                 return;
             }
+
+            this.sendPublishStatusUpdate(true, "Validating project data...");
 
             const sanitizedName = `${projectName}-${projectId}`
                 .toLowerCase()
@@ -737,15 +745,22 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 .replace(/^-+|-+$/g, "")
                 .replace(/\.git$/i, "");
 
+            this.sendPublishStatusUpdate(true, "Publishing to cloud...");
+
             await this.frontierApi?.publishWorkspace({
                 name: sanitizedName,
                 visibility: "private",
             });
 
+            this.sendPublishStatusUpdate(true, "Finalizing...");
+
             // Refresh state after publishing to update UI
             await this.store.refreshState();
+
+            this.sendPublishStatusUpdate(false, "");
             vscode.window.showInformationMessage("Project published successfully!");
         } catch (error) {
+            this.sendPublishStatusUpdate(false, "");
             console.error("Error publishing project:", error);
             vscode.window.showErrorMessage(`Failed to publish project: ${(error as Error).message}`);
         }
@@ -795,6 +810,25 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 data: {
                     isSyncInProgress,
                     syncStage,
+                },
+            } as ProjectManagerMessageToWebview, "MainMenu");
+        }
+    }
+
+    private sendPublishStatusUpdate(isPublishingInProgress: boolean, publishingStage: string = ""): void {
+        // Update the store state
+        this.store.setState({
+            isPublishingInProgress,
+            publishingStage,
+        });
+
+        // Send update to webview
+        if (this._view) {
+            safePostMessageToView(this._view, {
+                command: "publishStatusUpdate",
+                data: {
+                    isPublishingInProgress,
+                    publishingStage,
                 },
             } as ProjectManagerMessageToWebview, "MainMenu");
         }

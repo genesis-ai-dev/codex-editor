@@ -43,6 +43,8 @@ interface ProjectManagerState {
     isInitializing: boolean;
     isSyncInProgress: boolean;
     syncStage: string;
+    isPublishingInProgress: boolean;
+    publishingStage: string;
     updateState:
         | "ready"
         | "downloaded"
@@ -85,6 +87,8 @@ function MainMenu() {
             appVersion: null,
             isSyncInProgress: false,
             syncStage: "",
+            isPublishingInProgress: false,
+            publishingStage: "",
         },
         autoSyncEnabled: true,
         syncDelayMinutes: 5,
@@ -142,6 +146,20 @@ function MainMenu() {
                                 message.data.isSyncInProgress ??
                                 prevState.projectState.isSyncInProgress,
                             syncStage: message.data.syncStage ?? prevState.projectState.syncStage,
+                        },
+                    }));
+                    break;
+                case "publishStatusUpdate":
+                    setState((prevState) => ({
+                        ...prevState,
+                        projectState: {
+                            ...prevState.projectState,
+                            isPublishingInProgress:
+                                message.data.isPublishingInProgress ??
+                                prevState.projectState.isPublishingInProgress,
+                            publishingStage:
+                                message.data.publishingStage ??
+                                prevState.projectState.publishingStage,
                         },
                     }));
                     break;
@@ -524,6 +542,7 @@ function MainMenu() {
                                         style={{
                                             backgroundColor: "var(--muted)",
                                             borderColor: "var(--border)",
+                                            display: "none", // TODO: we are removing spell check for now until someone needs it
                                         }}
                                     >
                                         <div className="space-y-1">
@@ -643,11 +662,23 @@ function MainMenu() {
                                                 onClick={() =>
                                                     handleProjectAction("publishProject")
                                                 }
+                                                disabled={projectState.isPublishingInProgress}
                                                 className="button-primary w-full h-12 font-bold text-base shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200"
                                             >
-                                                <i className="codicon codicon-cloud-upload mr-3 h-5 w-5" />
-                                                Publish to Cloud
-                                                <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                                <i
+                                                    className={`codicon ${
+                                                        projectState.isPublishingInProgress
+                                                            ? "codicon-loading codicon-modifier-spin"
+                                                            : "codicon-cloud-upload"
+                                                    } mr-3 h-5 w-5`}
+                                                />
+                                                {projectState.isPublishingInProgress
+                                                    ? projectState.publishingStage ||
+                                                      "Publishing..."
+                                                    : "Publish to Cloud"}
+                                                {!projectState.isPublishingInProgress && (
+                                                    <i className="codicon codicon-arrow-right ml-3 h-4 w-4" />
+                                                )}
                                             </Button>
                                         </div>
                                     </CardContent>

@@ -4,6 +4,12 @@ import * as vscode from "vscode";
 import { ConflictFile } from "../../../../src/projectManager/utils/merge/types";
 import { ResolvedFile } from "../../../../src/projectManager/utils/merge/resolvers";
 
+export interface BookCompletionData {
+    completionPercentage: number;
+    sourceWords: number;
+    targetWords: number;
+}
+
 // Add ImportType type
 export type ImportType = "source" | "translation" | "bible-download";
 
@@ -161,9 +167,9 @@ interface IFrontierAuthProvider extends vscode.AuthenticationProvider, vscode.Di
 
     // Authentication status
     readonly isAuthenticated: boolean;
-    getAuthStatus(): { isAuthenticated: boolean; gitlabInfo?: any };
+    getAuthStatus(): { isAuthenticated: boolean; gitlabInfo?: any; };
     onAuthStatusChanged(
-        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any }) => void
+        callback: (status: { isAuthenticated: boolean; gitlabInfo?: any; }) => void
     ): vscode.Disposable;
 
     // Token management
@@ -192,7 +198,7 @@ export interface ProjectProgressReport {
 
     // Translation metrics
     translationProgress: {
-        bookCompletionMap: Record<string, number>; // Book ID -> percentage complete
+        bookCompletionMap: Record<string, BookCompletionData>; // Book ID -> completion data
         totalVerseCount: number; // Total verses in project
         translatedVerseCount: number; // Verses with translations
         validatedVerseCount: number; // Verses passing validation
@@ -226,7 +232,7 @@ export interface ProjectProgressAPI {
     // Submit progress report to the database
     submitProgressReport(
         report: ProjectProgressReport
-    ): Promise<{ success: boolean; reportId: string }>;
+    ): Promise<{ success: boolean; reportId: string; }>;
 
     // Retrieve reports for projects user has access to
     getProgressReports(options: {
@@ -261,7 +267,7 @@ export interface FrontierAPI {
         isAuthenticated: boolean;
     };
     onAuthStatusChanged: (
-        callback: (status: { isAuthenticated: boolean }) => void
+        callback: (status: { isAuthenticated: boolean; }) => void
     ) => vscode.Disposable;
     login: (username: string, password: string) => Promise<boolean>;
     register: (username: string, email: string, password: string) => Promise<boolean>;

@@ -375,9 +375,10 @@ const CodexCellEditor: React.FC = () => {
         } as EditorPostMessages);
     };
 
-    useEffect(() => {
-        checkAlertCodes();
-    }, [translationUnits]);
+    // useEffect(() => {
+    // // TODO: we are removing spell check for now until someone needs it
+    //     checkAlertCodes();
+    // }, [translationUnits]);
 
     // Clear successful completions after a delay when all translations are complete
     useEffect(() => {
@@ -545,7 +546,7 @@ const CodexCellEditor: React.FC = () => {
         },
         setAlertColorCodes: setAlertColorCodes,
         recheckAlertCodes: () => {
-            checkAlertCodes();
+            // checkAlertCodes(); // TODO: we are removing spell check for now until someone needs it
         },
         // Use cellError handler instead of showErrorMessage
         cellError: (data) => {
