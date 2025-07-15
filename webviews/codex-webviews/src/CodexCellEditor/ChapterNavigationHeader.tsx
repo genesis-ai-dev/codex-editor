@@ -65,7 +65,7 @@ interface ChapterNavigationHeaderProps {
     onClose?: () => void;
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
-    onToggleCorrectionEditor?: () => void;
+    // Removed onToggleCorrectionEditor since it will be a VS Code command now
 }
 
 export function ChapterNavigationHeader({
@@ -110,8 +110,8 @@ export function ChapterNavigationHeader({
     onClose,
     onTriggerSync,
     isCorrectionEditorMode,
-    onToggleCorrectionEditor,
-}: ChapterNavigationHeaderProps) {
+}: // Removed onToggleCorrectionEditor since it will be a VS Code command now
+ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [showChapterSelector, setShowChapterSelector] = useState(false);
@@ -290,17 +290,17 @@ export function ChapterNavigationHeader({
                                 }`}
                             />
                         </Button>
-                        <span className="ml-2">Source Text</span>
-                        {onToggleCorrectionEditor && (
-                            <Button
-                                variant={isCorrectionEditorMode ? "default" : "outline"}
-                                onClick={onToggleCorrectionEditor}
+
+                        {isCorrectionEditorMode ? (
+                            <span
                                 className="ml-2"
-                                title="Toggle Correction Editor Mode"
+                                style={{ color: "red", fontWeight: "bold" }}
+                                title="Correction Editor Mode is active"
                             >
-                                <i className="codicon codicon-wrench" />
-                                <span className="ml-1">Correction Editor</span>
-                            </Button>
+                                Source Editing Mode
+                            </span>
+                        ) : (
+                            <span className="ml-2">Source Text</span>
                         )}
                     </>
                 ) : (

@@ -152,6 +152,11 @@
                 "category": "Codex Extension"
             },
             {
+                "command": "codex-editor-extension.toggleCorrectionEditorMode",
+                "title": "Toggle Source Editing Mode",
+                "category": "Codex Extension"
+            },
+            {
                 "title": "Start a new Project",
                 "shortTitle": "Start a new Project",
                 "command": "codex-editor-extension.initializeNewProject"

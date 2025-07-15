@@ -1573,7 +1573,11 @@ const CodexCellEditor: React.FC = () => {
             `}</style>
 
             <div className="codex-cell-editor">
-                <div className="static-header" ref={headerRef}>
+                <div
+                    className="static-header bg-white"
+                    ref={headerRef}
+                    style={{ position: "sticky", top: 0, zIndex: 1000 }}
+                >
                     <div ref={navigationRef}>
                         <ChapterNavigationHeader
                             vscode={vscode}
@@ -1651,11 +1655,6 @@ const CodexCellEditor: React.FC = () => {
                             fileStatus={fileStatus}
                             onTriggerSync={handleTriggerSync}
                             isCorrectionEditorMode={isCorrectionEditorMode}
-                            onToggleCorrectionEditor={() =>
-                                vscode.postMessage({
-                                    command: "toggleCorrectionEditorMode",
-                                } as EditorPostMessages)
-                            }
                         />
                     </div>
                 </div>

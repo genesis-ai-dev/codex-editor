@@ -206,6 +206,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             )
         );
+
+        // Register a command to toggle correction editor mode
+        this.context.subscriptions.push(
+            vscode.commands.registerCommand(
+                "codex-editor-extension.toggleCorrectionEditorMode",
+                () => {
+                    this.toggleCorrectionEditorMode();
+                }
+            )
+        );
     }
 
     private async initializeStateStore() {
