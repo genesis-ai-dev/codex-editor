@@ -44,7 +44,6 @@ export function generateSrtData(
         if (!cellId) return;
 
         const text = includeStyles ? unit.value : removeHtmlTags(unit.value);
-        console.log("text", text);
         const startTime = unit.metadata?.data?.startTime;
         const endTime = unit.metadata?.data?.endTime;
 

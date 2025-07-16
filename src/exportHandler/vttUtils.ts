@@ -68,7 +68,6 @@ ${includeStyles ? processVttContent(unit.value) : removeHtmlTags(unit.value)}
     if (cues.length === 0) {
         vscode.window.showInformationMessage("No cues found in the " + filePath);
     }
-    console.log("cues", cues);
     return `WEBVTT
 
 ${cues}`;
