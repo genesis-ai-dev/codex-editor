@@ -12,6 +12,7 @@ package-lock.json
 .project/complete_drafts.txt
 .project/indexes.sqlite
 .project/dictionary.sqlite
+.wdio-vscode-service
 
 # TypeScript build cache
 .tsbuildinfo
