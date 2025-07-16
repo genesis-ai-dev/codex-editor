@@ -2,12 +2,34 @@ import { CodexNotebookAsJSONData } from "@types";
 
 export const removeHtmlTags = (content: string) => {
     return content
-        .replace(/<[^>]*>/g, "") // Remove HTML tags
-        .replace(/&amp;|&lt;|&gt;|&quot;|&#39;/g, "") // Remove common HTML entities
-        .replace(/&nbsp; ?/g, " ") // Remove &nbsp;
+        // Convert block-level elements to newlines before removing tags
+        .replace(/<\/p>/gi, "\n") // End of paragraph
+        .replace(/<p[^>]*>/gi, "\n") // Start of paragraph - add newline before content
+        .replace(/<br\s*\/?>/gi, "\n") // Line breaks
+        .replace(/<\/div>/gi, "\n") // End of div
+        .replace(/<div[^>]*>/gi, "\n") // Start of div - add newline before content
+        .replace(/<\/h[1-6]>/gi, "\n") // End of headings
+        .replace(/<h[1-6][^>]*>/gi, "\n") // Start of headings - add newline before content
+        .replace(/<\/li>/gi, "\n") // End of list items
+        .replace(/<li[^>]*>/gi, "\n• ") // Start of list items with bullet and newline
+        .replace(/<\/ul>|<\/ol>/gi, "\n") // End of lists
+        .replace(/<ul[^>]*>|<ol[^>]*>/gi, "\n") // Start of lists - add newline
+        // Remove all other HTML tags
+        .replace(/<[^>]*>/g, "")
+        // Clean up HTML entities
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&nbsp;/g, " ")
         .replace(/&#\d+;/g, "") // Remove numeric HTML entities
         .replace(/&[a-zA-Z]+;/g, "") // Remove other named HTML entities
-        .trim();
+        // Clean up multiple consecutive newlines and whitespace
+        .replace(/\n\s*\n/g, "\n") // Replace multiple newlines with single newline
+        .replace(/^\s+|\s+$/g, "") // Trim leading/trailing whitespace
+        .replace(/[ \t]+/g, " "); // Replace multiple spaces/tabs with single space
 };
 
 export function generateSrtData(
@@ -22,7 +44,7 @@ export function generateSrtData(
         if (!cellId) return;
 
         const text = includeStyles ? unit.value : removeHtmlTags(unit.value);
-
+        console.log("text", text);
         const startTime = unit.metadata?.data?.startTime;
         const endTime = unit.metadata?.data?.endTime;
 
