@@ -302,13 +302,14 @@ describe('VS Code Extension Testing', () => {
         const foundInputs: string[] = [];
         for (const selector of inputSelectors) {
             try {
-                const inputs = await (await browser.$$(selector)).length;
-                if (inputs && inputs.length > 0) {
+                const inputs = await browser.$$(selector);
+                const inputCount = await inputs.length;
+                if (inputCount > 0) {
                     foundInputs.push(selector);
-                    console.log(`✅ Found ${inputs.length} input(s) with selector: ${selector}`);
+                    console.log(`✅ Found ${inputCount} input(s) with selector: ${selector}`);
 
                     // Log details about the inputs
-                    for (let i = 0; i < inputs.length; i++) {
+                    for (let i = 0; i < inputCount; i++) {
                         try {
                             const inputType = await inputs[i].getAttribute('type');
                             const inputPlaceholder = await inputs[i].getAttribute('placeholder');
