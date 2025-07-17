@@ -316,6 +316,31 @@ function getWebviewContent(
                             </div>
                         </div>
 
+                        <!-- Data Export Section -->
+                        <div class="format-section">
+                            <div class="format-section-header">
+                                <i class="codicon codicon-graph"></i>
+                                <h4>Data Export Options</h4>
+                                <i class="codicon codicon-chevron-down" id="data-section-chevron"></i>
+                            </div>
+                            <div id="data-formats" class="format-section-content" style="display: none;">
+                                <div class="format-option" data-format="csv">
+                                    <div class="format-option-content">
+                                        <strong>CSV (Comma-Separated Values)</strong>
+                                        <p>Export with ID, source, target, and metadata columns for spreadsheet analysis</p>
+                                        <span class="format-tag">Includes Metadata</span>
+                                    </div>
+                                </div>
+                                <div class="format-option" data-format="tsv">
+                                    <div class="format-option-content">
+                                        <strong>TSV (Tab-Separated Values)</strong>
+                                        <p>Export with ID, source, target, and metadata columns using tab delimiters</p>
+                                        <span class="format-tag">Includes Metadata</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Subtitle Export Section -->
                         <div class="format-section">
                             <div class="format-section-header">
@@ -445,18 +470,30 @@ function getWebviewContent(
                         });
                     });
 
-                    // Subtitle section toggle handler
-                    const sectionHeader = document.querySelector('.format-section-header');
-                    if (sectionHeader) {
-                        sectionHeader.addEventListener('click', () => {
-                            const content = document.getElementById('subtitle-formats');
-                            const chevron = document.getElementById('subtitle-section-chevron');
-                            const isHidden = content.style.display === 'none';
+                    // Section toggle handlers
+                    const sectionHeaders = document.querySelectorAll('.format-section-header');
+                    sectionHeaders.forEach(header => {
+                        header.addEventListener('click', () => {
+                            const isSubtitleSection = header.querySelector('#subtitle-section-chevron');
+                            const isDataSection = header.querySelector('#data-section-chevron');
                             
-                            content.style.display = isHidden ? 'block' : 'none';
-                            chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+                            if (isSubtitleSection) {
+                                const content = document.getElementById('subtitle-formats');
+                                const chevron = document.getElementById('subtitle-section-chevron');
+                                const isHidden = content.style.display === 'none';
+                                
+                                content.style.display = isHidden ? 'block' : 'none';
+                                chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+                            } else if (isDataSection) {
+                                const content = document.getElementById('data-formats');
+                                const chevron = document.getElementById('data-section-chevron');
+                                const isHidden = content.style.display === 'none';
+                                
+                                content.style.display = isHidden ? 'block' : 'none';
+                                chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+                            }
                         });
-                    }
+                    });
                 });
 
                 function updateExportButton() {
