@@ -56,6 +56,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                     ? "codicon-loading codicon-modifier-spin"
                                     : "codicon-sync"
                             } mr-2 h-4 w-4`}
+                            style={{ height: "fit-content" }}
                         />
                         <span className="hidden sm:inline">
                             {isSyncInProgress ? syncStage || "Syncing..." : "Sync Now"}
@@ -87,7 +88,13 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             Automatically sync changes to cloud
                         </p>
                     </div>
-                    <Switch checked={autoSyncEnabled} onCheckedChange={onToggleAutoSync} />
+                    <div className="relative">
+                        <Switch
+                            checked={autoSyncEnabled}
+                            onCheckedChange={onToggleAutoSync}
+                            className="shadow-sm border border-border/20"
+                        />
+                    </div>
                 </div>
 
                 {autoSyncEnabled && (
