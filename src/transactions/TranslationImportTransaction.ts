@@ -545,6 +545,7 @@ export class TranslationImportTransaction extends ImportTransaction {
                             startTime: alignedCell.importedContent.startTime,
                             endTime: alignedCell.importedContent.endTime,
                         },
+                        edits: [],
                     },
                 };
                 processedCells.set(paratextId, paratextCell);

@@ -425,6 +425,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
                         id: paratextId,
                         data: {},
                         cellLabel: paratextId.split(":")[1],
+                        edits: [],
                     },
                 });
                 paratextCount++;
@@ -459,7 +460,7 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
                 } else {
                     newCells.push({
                         kind: alignedCell.notebookCell.kind,
-                        languageId: alignedCell.notebookCell.metadata.languageId,
+                        languageId: alignedCell.notebookCell.languageId,
                         value: cellContent,
                         metadata: {
                             ...alignedCell.notebookCell.metadata,

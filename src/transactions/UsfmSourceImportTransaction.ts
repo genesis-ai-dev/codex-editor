@@ -159,6 +159,7 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                                 id: content.id,
                                 data: {},
                                 cellLabel: content.id.split(":")?.[1],
+                                edits: [],
                             }
                         })),
                         metadata: {
@@ -183,6 +184,7 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                                 id: content.id,
                                 data: {},
                                 cellLabel: content.id.split(":")?.[1],
+                                edits: [],
                             }
                         })),
                         metadata: {

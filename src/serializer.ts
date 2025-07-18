@@ -85,6 +85,7 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
                     ...cell.metadata,
                     id: cell.metadata?.id,
                     type: cell.metadata?.type || "default", // FIXME: Add a default type if not present, user?
+                    edits: [],
                 },
             });
         }
