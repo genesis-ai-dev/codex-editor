@@ -276,6 +276,8 @@ export enum CodexExportFormat {
     SUBTITLES_VTT_WITH_STYLES = "subtitles-vtt-with-styles",
     SUBTITLES_VTT_WITHOUT_STYLES = "subtitles-vtt-without-styles",
     XLIFF = "xliff",
+    CSV = "csv",
+    TSV = "tsv",
 }
 
 export interface ExportOptions {
@@ -309,6 +311,12 @@ export async function exportCodexContent(
             break;
         case CodexExportFormat.XLIFF:
             await exportCodexContentAsXliff(userSelectedPath, filesToExport, options);
+            break;
+        case CodexExportFormat.CSV:
+            await exportCodexContentAsCsv(userSelectedPath, filesToExport, options);
+            break;
+        case CodexExportFormat.TSV:
+            await exportCodexContentAsTsv(userSelectedPath, filesToExport, options);
             break;
     }
 }
@@ -1204,8 +1212,8 @@ async function exportCodexContentAsHtml(
 
                     // Filter out merged cells before processing
                     const activeCells = cells.filter((cell) => {
-                        const metadata = cell.metadata as any;
-                        return !metadata?.merged;
+                        const metadata = cell.metadata;
+                        return !metadata?.data?.merged;
                     });
 
                     // First pass: Organize content by chapters
@@ -1558,6 +1566,326 @@ async function exportCodexContentAsXliff(
     } catch (error) {
         console.error("XLIFF Export failed:", error);
         vscode.window.showErrorMessage(`XLIFF Export failed: ${error}`);
+    }
+}
+
+/**
+ * Escapes a string for CSV format
+ * @param value The string to escape
+ * @returns The escaped string
+ */
+function escapeCsvValue(value: string): string {
+    if (!value) return '""';
+
+    // Remove HTML tags
+    const cleanValue = value.replace(/<[^>]*>/g, '');
+
+    // If the value contains quotes, commas, or newlines, wrap in quotes and escape internal quotes
+    if (cleanValue.includes('"') || cleanValue.includes(',') || cleanValue.includes('\n') || cleanValue.includes('\r')) {
+        return '"' + cleanValue.replace(/"/g, '""') + '"';
+    }
+
+    return cleanValue;
+}
+
+/**
+ * Escapes a string for TSV format
+ * @param value The string to escape
+ * @returns The escaped string
+ */
+function escapeTsvValue(value: string): string {
+    if (!value) return '';
+
+    // Remove HTML tags
+    const cleanValue = value.replace(/<[^>]*>/g, '');
+
+    // Replace tabs, newlines, and carriage returns with spaces
+    return cleanValue.replace(/[\t\n\r]/g, ' ');
+}
+
+/**
+ * Formats a timestamp value appropriately
+ * @param fieldName The name of the field being formatted
+ * @param value The value to format
+ * @returns The formatted timestamp or original value
+ */
+function formatTimestampField(fieldName: string, value: any): string {
+    if (value === undefined || value === null || value === '') {
+        return '';
+    }
+
+    // Convert to string for processing
+    const stringValue = String(value);
+
+    // If it's already a formatted timestamp (contains --> or :), leave it as-is
+    if (stringValue.includes('-->') || stringValue.includes(':')) {
+        return stringValue;
+    }
+
+    // Check if field name suggests it's a timestamp and value is numeric
+    const isTimestampField = /^(start|end|begin|stop|duration)Time$/i.test(fieldName) ||
+        /time$/i.test(fieldName) ||
+        /^(start|end|begin|stop)$/i.test(fieldName);
+
+    if (isTimestampField && !isNaN(parseFloat(stringValue))) {
+        const seconds = parseFloat(stringValue);
+
+        // If it looks like milliseconds (very large number), convert to seconds
+        const actualSeconds = seconds > 10000 ? seconds / 1000 : seconds;
+
+        // Format as HH:MM:SS.mmm
+        const hours = Math.floor(actualSeconds / 3600);
+        const minutes = Math.floor((actualSeconds % 3600) / 60);
+        const secs = actualSeconds % 60;
+
+        // Format with leading zeros
+        const hoursStr = hours.toString().padStart(2, '0');
+        const minutesStr = minutes.toString().padStart(2, '0');
+        const secsStr = secs.toFixed(3).padStart(6, '0');
+
+        return `${hoursStr}:${minutesStr}:${secsStr}`;
+    }
+
+    // Return original value if not a timestamp field
+    return stringValue;
+}
+
+async function exportCodexContentAsCsv(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'csv', options);
+}
+
+async function exportCodexContentAsTsv(
+    userSelectedPath: string,
+    filesToExport: string[],
+    options?: ExportOptions
+) {
+    await exportCodexContentAsDelimited(userSelectedPath, filesToExport, 'tsv', options);
+}
+
+async function exportCodexContentAsDelimited(
+    userSelectedPath: string,
+    filesToExport: string[],
+    format: 'csv' | 'tsv',
+    options?: ExportOptions
+) {
+    try {
+        const formatName = format.toUpperCase();
+        debug(`Starting exportCodexContentAs${formatName} function`);
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) {
+            vscode.window.showErrorMessage("No workspace folder found.");
+            return;
+        }
+
+        // Filter codex files based on user selection
+        const selectedFiles = filesToExport.map((path) => vscode.Uri.file(path));
+        debug(`Selected files for export: ${selectedFiles.length}`);
+        if (selectedFiles.length === 0) {
+            vscode.window.showInformationMessage("No files selected for export.");
+            return;
+        }
+
+        const delimiter = format === 'csv' ? ',' : '\t';
+        const escapeFunction = format === 'csv' ? escapeCsvValue : escapeTsvValue;
+        const fileExtension = format === 'csv' ? 'csv' : 'tsv';
+
+        return vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: `Exporting Codex Content as ${formatName}`,
+                cancellable: false,
+            },
+            async (progress) => {
+                let totalCells = 0;
+                let totalVerses = 0;
+                let skippedFiles = 0;
+                let exportedFiles = 0;
+                const increment = 100 / selectedFiles.length;
+
+                // Create export directory if it doesn't exist
+                const exportFolder = vscode.Uri.file(userSelectedPath);
+                await vscode.workspace.fs.createDirectory(exportFolder);
+
+                for (const [index, file] of selectedFiles.entries()) {
+                    progress.report({
+                        message: `Processing file ${index + 1}/${selectedFiles.length}`,
+                        increment,
+                    });
+
+                    try {
+                        debug(`Processing file: ${file.fsPath}`);
+
+                        // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
+                        const currentBookCode = basename(file.fsPath).split(".")[0] || "";
+
+                        // Get the source file path - look in .project/sourceTexts/
+                        const sourceFileName = `${currentBookCode}.source`;
+                        const sourceFile = vscode.Uri.joinPath(
+                            vscode.Uri.file(workspaceFolders[0].uri.fsPath),
+                            ".project",
+                            "sourceTexts",
+                            sourceFileName
+                        );
+
+                        // Read both source and codex files
+                        let sourceData: Uint8Array | null = null;
+                        try {
+                            sourceData = await vscode.workspace.fs.readFile(sourceFile);
+                        } catch (error) {
+                            vscode.window.showWarningMessage(
+                                `Source file not found for ${currentBookCode} at ${sourceFile.fsPath}, skipping...`
+                            );
+                            skippedFiles++;
+                            continue;
+                        }
+
+                        const codexData = await vscode.workspace.fs.readFile(file);
+
+                        const sourceNotebook = JSON.parse(
+                            Buffer.from(sourceData).toString()
+                        ) as CodexNotebookAsJSONData;
+                        const codexNotebook = JSON.parse(
+                            Buffer.from(codexData).toString()
+                        ) as CodexNotebookAsJSONData;
+
+                        debug(`File has ${codexNotebook.cells.length} cells`);
+
+                        // Create maps for quick lookup of cells by ID
+                        const sourceCellsMap = new Map(
+                            sourceNotebook.cells
+                                .filter((cell) => cell.metadata?.id && cell.metadata?.type === CodexCellTypes.TEXT)
+                                .map((cell) => [cell.metadata.id, cell])
+                        );
+
+                        const codexCellsMap = new Map(
+                            codexNotebook.cells
+                                .filter((cell) => cell.metadata?.id && cell.metadata?.type === CodexCellTypes.TEXT)
+                                .map((cell) => [cell.metadata.id, cell])
+                        );
+
+                        // First pass: collect all possible metadata fields (excluding edits)
+                        const allMetadataFields = new Set<string>();
+                        for (const [cellId, codexCell] of codexCellsMap) {
+                            const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
+                            if (cellMetadata.data && typeof cellMetadata.data === 'object') {
+                                Object.keys(cellMetadata.data).forEach(field => {
+                                    if (field !== 'edits') {
+                                        allMetadataFields.add(field);
+                                    }
+                                });
+                            }
+                        }
+
+                        // Sort metadata fields for consistent column order
+                        const sortedMetadataFields = Array.from(allMetadataFields).sort();
+
+                        // Collect all verse data with metadata, preserving original cell order
+                        const verseData: Array<{
+                            id: string;
+                            source: string;
+                            target: string;
+                            metadata: { [key: string]: any; };
+                        }> = [];
+
+                        // Process cells in their original order from the notebook
+                        for (const codexCell of codexNotebook.cells) {
+                            if (codexCell.kind === 2) { // vscode.NotebookCellKind.Code
+                                const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
+
+                                if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
+                                    totalCells++;
+                                    const sourceCell = sourceCellsMap.get(cellMetadata.id);
+
+                                    // Include the verse even if source is missing (will be empty)
+                                    const sourceContent = sourceCell?.value || "";
+                                    const targetContent = codexCell.value || "";
+
+                                    // Extract metadata (excluding edits)
+                                    const metadata: { [key: string]: any; } = {};
+                                    if (cellMetadata.data && typeof cellMetadata.data === 'object') {
+                                        for (const field of sortedMetadataFields) {
+                                            metadata[field] = cellMetadata.data[field] || "";
+                                        }
+                                    }
+
+                                    verseData.push({
+                                        id: cellMetadata.id,
+                                        source: sourceContent,
+                                        target: targetContent,
+                                        metadata: metadata
+                                    });
+
+                                    totalVerses++;
+                                }
+                            }
+                        }
+
+                        // Skip empty files
+                        if (verseData.length === 0) {
+                            debug(`Skipping file with no verses: ${file.fsPath}`);
+                            skippedFiles++;
+                            continue;
+                        }
+
+                        // Data is already in correct order from original notebook
+
+                        // Generate delimited content with metadata columns
+                        const metadataHeaders = sortedMetadataFields.map(field => field).join(delimiter);
+                        const headerRow = metadataHeaders
+                            ? `ID${delimiter}Source${delimiter}Target${delimiter}${metadataHeaders}\n`
+                            : `ID${delimiter}Source${delimiter}Target\n`;
+                        let content = headerRow;
+
+                        for (const verse of verseData) {
+                            const escapedId = escapeFunction(verse.id);
+                            const escapedSource = escapeFunction(verse.source);
+                            const escapedTarget = escapeFunction(verse.target);
+
+                            // Add metadata values with proper timestamp formatting
+                            const metadataValues = sortedMetadataFields.map(field => {
+                                const value = verse.metadata[field];
+                                const formattedValue = formatTimestampField(field, value);
+                                return escapeFunction(formattedValue);
+                            }).join(delimiter);
+
+                            const row = metadataValues
+                                ? `${escapedId}${delimiter}${escapedSource}${delimiter}${escapedTarget}${delimiter}${metadataValues}\n`
+                                : `${escapedId}${delimiter}${escapedSource}${delimiter}${escapedTarget}\n`;
+
+                            content += row;
+                        }
+
+                        // Write file
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                        const exportFileName = `${currentBookCode}_${timestamp}.${fileExtension}`;
+                        const exportFile = vscode.Uri.joinPath(exportFolder, exportFileName);
+                        await vscode.workspace.fs.writeFile(exportFile, Buffer.from(content));
+
+                        exportedFiles++;
+                        debug(`${formatName} file created: ${exportFile.fsPath} with ${verseData.length} verses`);
+                    } catch (error) {
+                        console.error(`Error processing file ${file.fsPath}:`, error);
+                        skippedFiles++;
+                        vscode.window.showErrorMessage(
+                            `Error exporting ${basename(file.fsPath)}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                }
+
+                // Show completion message
+                const skippedMessage = skippedFiles > 0 ? ` (${skippedFiles} files skipped)` : "";
+                vscode.window.showInformationMessage(
+                    `${formatName} Export completed: ${totalVerses} verses from ${exportedFiles} files exported to ${userSelectedPath}${skippedMessage}`
+                );
+            }
+        );
+    } catch (error) {
+        console.error(`${format.toUpperCase()} Export failed:`, error);
+        vscode.window.showErrorMessage(`${format.toUpperCase()} Export failed: ${error}`);
     }
 }
 

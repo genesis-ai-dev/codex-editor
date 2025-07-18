@@ -79,10 +79,18 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
 
                 if (isVTT) {
                     format = "WebVTT";
-                    cueCount = (text.match(/\n\n\d{2}:\d{2}:\d{2}\.\d{3}/g) || []).length;
+                    // Count VTT cues by looking for timestamp patterns
+                    const vttCueMatches = text.match(
+                        /\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}/g
+                    );
+                    cueCount = vttCueMatches ? vttCueMatches.length : 0;
                 } else if (isSRT) {
                     format = "SRT";
-                    cueCount = (text.match(/^\d+\s*$/gm) || []).length;
+                    // Count SRT cues by looking for timestamp patterns
+                    const srtCueMatches = text.match(
+                        /\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}/g
+                    );
+                    cueCount = srtCueMatches ? srtCueMatches.length : 0;
                 }
 
                 // Extract duration from last timestamp
