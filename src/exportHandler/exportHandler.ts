@@ -1757,13 +1757,23 @@ async function exportCodexContentAsDelimited(
                         // Create maps for quick lookup of cells by ID
                         const sourceCellsMap = new Map(
                             sourceNotebook.cells
-                                .filter((cell) => cell.metadata?.id && cell.metadata?.type === CodexCellTypes.TEXT)
+                                .filter((cell) => {
+                                    const metadata = cell.metadata;
+                                    return cell.metadata?.id &&
+                                        cell.metadata?.type === CodexCellTypes.TEXT &&
+                                        !metadata?.data?.merged;
+                                })
                                 .map((cell) => [cell.metadata.id, cell])
                         );
 
                         const codexCellsMap = new Map(
                             codexNotebook.cells
-                                .filter((cell) => cell.metadata?.id && cell.metadata?.type === CodexCellTypes.TEXT)
+                                .filter((cell) => {
+                                    const metadata = cell.metadata;
+                                    return cell.metadata?.id &&
+                                        cell.metadata?.type === CodexCellTypes.TEXT &&
+                                        !metadata?.data?.merged;
+                                })
                                 .map((cell) => [cell.metadata.id, cell])
                         );
 
@@ -1796,7 +1806,9 @@ async function exportCodexContentAsDelimited(
                             if (codexCell.kind === 2) { // vscode.NotebookCellKind.Code
                                 const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
 
-                                if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
+                                if (cellMetadata.type === CodexCellTypes.TEXT &&
+                                    cellMetadata.id &&
+                                    !cellMetadata?.data?.merged) {
                                     totalCells++;
                                     const sourceCell = sourceCellsMap.get(cellMetadata.id);
 
