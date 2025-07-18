@@ -1018,13 +1018,14 @@ type CodexData = Timestamps & {
     book?: string;
     chapter?: string;
     verse?: string;
+    merged?: boolean;
 };
 
 type CustomCellMetaData = {
     id: string;
     type: import("./enums").CodexCellTypes;
     data?: CodexData;
-    edits?: EditHistory[];
+    edits: EditHistory[];
     attachments?: {
         [key: string]: {
             url: string;
@@ -1034,7 +1035,7 @@ type CustomCellMetaData = {
     cellLabel?: string;
 };
 
-type CustomNotebookCellData = vscode.NotebookCellData & {
+type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
     metadata: CustomCellMetaData;
 };
 

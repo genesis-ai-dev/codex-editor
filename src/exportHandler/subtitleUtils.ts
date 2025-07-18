@@ -39,7 +39,13 @@ export function generateSrtData(
     let output = "";
     let index = 1;
 
-    cells.forEach((unit) => {
+    // Filter out merged cells before processing
+    const activeCells = cells.filter((unit) => {
+        const metadata = unit.metadata;
+        return !metadata?.data?.merged;
+    });
+
+    activeCells.forEach((unit) => {
         const cellId = unit.metadata?.id;
         if (!cellId) return;
 

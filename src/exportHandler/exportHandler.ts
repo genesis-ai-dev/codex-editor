@@ -528,11 +528,17 @@ async function exportCodexContentAsPlaintext(
                     let currentChapter = "";
                     let chapterContent = "";
 
-                    for (const cell of cells) {
+                    // Filter out merged cells before processing
+                    const activeCells = cells.filter((cell) => {
+                        const metadata = cell.metadata;
+                        return !metadata?.data?.merged;
+                    });
+
+                    for (const cell of activeCells) {
                         totalCells++;
                         if (cell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            const cellMetadata = cell.metadata;
 
                             if (cellMetadata.type === "paratext" && cell.value.startsWith("<h1>")) {
                                 debug("Found chapter heading cell");
@@ -806,18 +812,21 @@ async function exportCodexContentAsUsfm(
 
                         // Pre-filter cells to only process relevant ones
                         const relevantCells = codexNotebook.cells.filter(
-                            (cell) =>
-                                cell.kind === 2 && // vscode.NotebookCellKind.Code
-                                cell.metadata?.type &&
-                                cell.value.trim().length > 0
+                            (cell) => {
+                                const metadata = cell.metadata as any;
+                                return cell.kind === 2 && // vscode.NotebookCellKind.Code
+                                    cell.metadata?.type &&
+                                    cell.value.trim().length > 0 &&
+                                    !metadata?.merged; // Exclude merged cells
+                            }
                         );
 
                         totalCells += relevantCells.length;
 
                         // First pass: identify all chapters
-                        const chapterCells: { [key: string]: number } = {};
+                        const chapterCells: { [key: string]: number; } = {};
                         for (const cell of relevantCells) {
-                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            const cellMetadata = cell.metadata;
                             const cellContent = cell.value.trim();
 
                             if (
@@ -856,7 +865,7 @@ async function exportCodexContentAsUsfm(
 
                         // Second pass: process cells with proper chapter handling
                         for (const cell of relevantCells) {
-                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            const cellMetadata = cell.metadata;
                             let cellContent = cell.value.trim();
 
                             // Convert HTML to USFM
@@ -1191,14 +1200,20 @@ async function exportCodexContentAsHtml(
 
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
                     const bookCode = basename(file.fsPath).split(".")[0] || "";
-                    const chapters: { [key: string]: string } = {};
+                    const chapters: { [key: string]: string; } = {};
+
+                    // Filter out merged cells before processing
+                    const activeCells = cells.filter((cell) => {
+                        const metadata = cell.metadata as any;
+                        return !metadata?.merged;
+                    });
 
                     // First pass: Organize content by chapters
-                    for (const cell of cells) {
+                    for (const cell of activeCells) {
                         totalCells++;
                         if (cell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata as { type: string; id: string };
+                            const cellMetadata = cell.metadata;
                             const cellContent = cell.value.trim();
 
                             if (!cellContent) continue;
@@ -1304,13 +1319,13 @@ async function exportCodexContentAsHtml(
                         <h1 class="book-title">${bookCode}</h1>
                         <ul class="chapter-list">
                             ${Object.keys(chapters)
-                                .sort((a, b) => parseInt(a) - parseInt(b))
-                                .map(
-                                    (num) => `
+                            .sort((a, b) => parseInt(a) - parseInt(b))
+                            .map(
+                                (num) => `
                                     <li><a class="chapter-link" href="${bookCode}_${num.padStart(3, "0")}.html">Chapter ${num}</a></li>
                                 `
-                                )
-                                .join("")}
+                            )
+                            .join("")}
                         </ul>
                         <div class="metadata">
                             <p>Exported from Codex Translation Editor v${extensionVersion}</p>
@@ -1352,10 +1367,10 @@ async function exportCodexContentAsXliff(
         // Get project configuration for language codes
         const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
         const sourceLanguage = projectConfig.get("sourceLanguage") as
-            | { refName: string }
+            | { refName: string; }
             | undefined;
         const targetLanguage = projectConfig.get("targetLanguage") as
-            | { refName: string }
+            | { refName: string; }
             | undefined;
 
         if (!sourceLanguage?.refName || !targetLanguage?.refName) {
@@ -1432,20 +1447,26 @@ async function exportCodexContentAsXliff(
 
                     const chapters: {
                         [key: string]: {
-                            verses: { [key: string]: { source: string; target: string } };
+                            verses: { [key: string]: { source: string; target: string; }; };
                         };
                     } = {};
 
                     // Create maps for quick lookup of cells by ID
                     const sourceCellsMap = new Map(
                         sourceNotebook.cells
-                            .filter((cell) => cell.metadata?.id)
+                            .filter((cell) => {
+                                const metadata = cell.metadata as any;
+                                return cell.metadata?.id && !metadata?.merged;
+                            })
                             .map((cell) => [cell.metadata.id, cell])
                     );
 
                     const codexCellsMap = new Map(
                         codexNotebook.cells
-                            .filter((cell) => cell.metadata?.id)
+                            .filter((cell) => {
+                                const metadata = cell.metadata as any;
+                                return cell.metadata?.id && !metadata?.merged;
+                            })
                             .map((cell) => [cell.metadata.id, cell])
                     );
 
@@ -1454,7 +1475,7 @@ async function exportCodexContentAsXliff(
                         totalCells++;
                         if (codexCell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = codexCell.metadata as { type: string; id: string };
+                            const cellMetadata = codexCell.metadata;
                             const cellContent = codexCell.value.trim();
 
                             if (!cellContent) continue;
@@ -1497,27 +1518,27 @@ async function exportCodexContentAsXliff(
             </segment>
         </unit>
         ${Object.entries(chapters)
-            .map(
-                ([chapterNum, chapterData]) => `
+                            .map(
+                                ([chapterNum, chapterData]) => `
         <unit id="${currentBookCode}_${chapterNum}">
             <segment>
                 <source>Chapter ${chapterNum}</source>
                 <target>Chapter ${chapterNum}</target>
             </segment>
             ${Object.entries(chapterData.verses)
-                .map(
-                    ([verseNum, content]) => `
+                                        .map(
+                                            ([verseNum, content]) => `
             <unit id="${currentBookCode}_${chapterNum}_${verseNum}">
                 <segment>
                     <source>${content.source}</source>
                     <target>${content.target}</target>
                 </segment>
             </unit>`
-                )
-                .join("")}
+                                        )
+                                        .join("")}
         </unit>`
-            )
-            .join("")}
+                            )
+                            .join("")}
     </file>
 </xliff>`;
 

@@ -11,6 +11,8 @@ import {
     GlobalMessage,
     GlobalContentType,
     CellIdGlobalState,
+    CustomNotebookCellData,
+    CodexNotebookAsJSONData,
 } from "../../../types";
 import { CodexCellDocument } from "./codexDocument";
 import {
@@ -381,7 +383,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Create update function
         const updateWebview = () => {
             debug("Updating webview");
-            const notebookData: vscode.NotebookData = this.getDocumentAsJson(document);
+            const notebookData: CodexNotebookAsJSONData = this.getDocumentAsJson(document);
             const processedData = this.processNotebookData(notebookData, document);
 
             this.postMessageToWebview(webviewPanel, {
@@ -1388,7 +1390,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         return false;
     }
 
-    private processNotebookData(notebook: vscode.NotebookData, document?: CodexCellDocument) {
+    private processNotebookData(notebook: CodexNotebookAsJSONData, document?: CodexCellDocument) {
         debug("Processing notebook data", notebook);
         const translationUnits: QuillCellContent[] = notebook.cells.map((cell) => ({
             cellMarkers: [cell.metadata?.id],

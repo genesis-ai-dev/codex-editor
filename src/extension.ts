@@ -47,9 +47,6 @@ import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 
-import path from "path";
-import fs from "fs";
-
 export interface ActivationTiming {
     step: string;
     duration: number;

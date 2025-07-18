@@ -1095,6 +1095,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 id: cellId,
                 type: CodexCellTypes.TEXT,
                 data: {},
+                edits: [],
             };
         }
 
@@ -1142,6 +1143,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             cell.metadata = {
                 id: cellId,
                 type: CodexCellTypes.TEXT,
+                edits: [],
+                data: {},
             };
         }
 
