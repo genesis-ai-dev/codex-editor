@@ -186,63 +186,78 @@ const subtitlesCellAligner: CellAligner = async (
         );
     });
 
-    // Process each target cell in order to maintain temporal sequence
-    for (const targetCell of targetCells) {
-        const targetStart =
-            typeof targetCell.metadata?.data?.startTime === "string"
-                ? parseFloat(targetCell.metadata.data.startTime)
-                : targetCell.metadata?.data?.startTime;
-        const targetEnd =
-            typeof targetCell.metadata?.data?.endTime === "string"
-                ? parseFloat(targetCell.metadata.data.endTime)
-                : targetCell.metadata?.data?.endTime;
+    // Create a map of best matches: for each import, find target with max overlap
+    const importToBestTarget = new Map<number, { targetIndex: number; overlap: number }>();
 
-        if (!targetStart || !targetEnd) continue;
+    importedContent.forEach((item, importIndex) => {
+        if (!item.content.trim()) return;
 
-        // Find all imported items that overlap with this target cell
-        const overlappingImports = importedContent
-            .map((item, index) => ({ item, index }))
-            .filter(({ item, index }) => {
-                if (usedImportedIndices.has(index) || !item.content.trim()) return false;
+        let maxOverlap = 0;
+        let bestTargetIndex = -1;
 
-                const importStart = convertToSeconds(item.startTime);
-                const importEnd = convertToSeconds(item.endTime);
+        targetCells.forEach((targetCell, targetIndex) => {
+            const targetStart = convertToSeconds(targetCell.metadata?.data?.startTime);
+            const targetEnd = convertToSeconds(targetCell.metadata?.data?.endTime);
+            const importStart = convertToSeconds(item.startTime);
+            const importEnd = convertToSeconds(item.endTime);
 
-                if (isNaN(importStart) || isNaN(importEnd)) return false;
+            if (isNaN(targetStart) || isNaN(targetEnd) || isNaN(importStart) || isNaN(importEnd))
+                return;
 
-                // Normalize timestamps before checking overlap
-                const normalized = normalizeTimestamps(
-                    targetStart,
-                    targetEnd,
-                    importStart,
-                    importEnd
-                );
+            const normalized = normalizeTimestamps(targetStart, targetEnd, importStart, importEnd);
+            const overlap = calculateOverlap(
+                normalized.sourceStart,
+                normalized.sourceEnd,
+                normalized.targetStart,
+                normalized.targetEnd
+            );
 
-                const overlap = calculateOverlap(
-                    normalized.sourceStart,
-                    normalized.sourceEnd,
-                    normalized.targetStart,
-                    normalized.targetEnd
-                );
+            if (overlap > maxOverlap) {
+                maxOverlap = overlap;
+                bestTargetIndex = targetIndex;
+            }
+        });
 
-                return overlap > 0;
+        if (maxOverlap > 0) {
+            importToBestTarget.set(importIndex, {
+                targetIndex: bestTargetIndex,
+                overlap: maxOverlap,
             });
+        }
+    });
 
-        // Add the first as primary match, others as children
-        overlappingImports.forEach(({ item, index }, i) => {
-            usedImportedIndices.add(index);
+    // Group imports by their best target
+    const targetToImports = new Map<number, { importIndex: number; overlap: number }[]>();
+
+    importToBestTarget.forEach((data, importIndex) => {
+        if (!targetToImports.has(data.targetIndex)) {
+            targetToImports.set(data.targetIndex, []);
+        }
+        targetToImports.get(data.targetIndex)!.push({ importIndex, overlap: data.overlap });
+    });
+
+    // Process each target in order
+    targetCells.forEach((targetCell, targetIndex) => {
+        const assignedImports = targetToImports.get(targetIndex) || [];
+
+        // Sort by overlap descending
+        assignedImports.sort((a, b) => b.overlap - a.overlap);
+
+        assignedImports.forEach(({ importIndex, overlap }, i) => {
+            const item = importedContent[importIndex];
+            usedImportedIndices.add(importIndex);
             const targetId = targetCell.metadata.id;
 
             if (i === 0) {
-                // First match - use target ID
+                // Highest overlap - primary match
                 alignedCells.push({
                     notebookCell: targetCell,
                     importedContent: { ...item, id: targetId },
                     alignmentMethod: "timestamp",
-                    confidence: calculateAlignmentConfidence(targetCell, item, 0, 0),
+                    confidence: overlap, // Use overlap as confidence proxy
                 });
             } else {
-                // Additional matches - create child cells
+                // Additional matches - children
                 alignedCells.push({
                     notebookCell: targetCell,
                     importedContent: {
@@ -251,12 +266,12 @@ const subtitlesCellAligner: CellAligner = async (
                     },
                     isAdditionalOverlap: true,
                     alignmentMethod: "timestamp",
-                    confidence: calculateAlignmentConfidence(targetCell, item, 0, i),
+                    confidence: overlap,
                 });
             }
             totalOverlaps++;
         });
-    }
+    });
 
     // Now add any unmatched imported items as paratext in their correct temporal positions
     const remainingImports = importedContent
