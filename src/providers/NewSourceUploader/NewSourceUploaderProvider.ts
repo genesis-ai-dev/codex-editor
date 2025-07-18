@@ -340,23 +340,37 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             }
 
-            // Build the final cell array, preserving order
+            // Build the final cell array, preserving the temporal order from alignedContent
             const newCells: any[] = [];
+            const usedExistingCellIds = new Set<string>();
 
-            // First add all existing cells, updating those that were processed
-            for (const cell of existingNotebook.cells) {
-                const cellId = cell.metadata?.id;
-                if (cellId && processedCells.has(cellId)) {
-                    newCells.push(processedCells.get(cellId)!);
-                    processedCells.delete(cellId);
-                } else {
-                    newCells.push(cell);
+            // Process cells in the order they appear in alignedContent (temporal order)
+            for (const alignedCell of message.alignedContent) {
+                if (alignedCell.isParatext) {
+                    // Add paratext cell
+                    const paratextId = alignedCell.importedContent.id;
+                    const paratextCell = processedCells.get(paratextId);
+                    if (paratextCell) {
+                        newCells.push(paratextCell);
+                    }
+                } else if (alignedCell.notebookCell) {
+                    const targetId = alignedCell.importedContent.id;
+                    const processedCell = processedCells.get(targetId);
+
+                    if (processedCell) {
+                        newCells.push(processedCell);
+                        usedExistingCellIds.add(targetId);
+                    }
                 }
             }
 
-            // Add any remaining processed cells (new paratext, etc.)
-            for (const [, cell] of processedCells) {
-                newCells.push(cell);
+            // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
+            for (const cell of existingNotebook.cells) {
+                const cellId = cell.metadata?.id;
+                if (cellId && !usedExistingCellIds.has(cellId)) {
+                    console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
+                    newCells.push(cell);
+                }
             }
 
             // Update the notebook

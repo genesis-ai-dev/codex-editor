@@ -186,6 +186,7 @@ const AudioPlayButton: React.FC<{
 
 const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     cell,
+    cellType,
     vscode,
     textDirection,
     isSourceText,
@@ -523,7 +524,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     return (
         <div
             ref={cellRef}
-            className={`cell-content-display ${getAnimationClassName()}`}
+            className={`cell-content-display ${getAnimationClassName()} ${
+                cellType === CodexCellTypes.PARATEXT ? "bg-blue-50" : ""
+            }`}
             style={{
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,

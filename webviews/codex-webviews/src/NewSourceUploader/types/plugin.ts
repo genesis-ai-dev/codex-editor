@@ -194,6 +194,12 @@ export interface ImporterComponentProps {
     onCancel: () => void;
 
     /**
+     * Called when the user wants to cancel the entire import process and return to the beginning
+     * Shows confirmation dialog and resets wizard state completely
+     */
+    onCancelImport: () => void;
+
+    /**
      * Optional: List of existing source files in the project
      * Useful for importers that want to add translations/targets to existing sources
      */

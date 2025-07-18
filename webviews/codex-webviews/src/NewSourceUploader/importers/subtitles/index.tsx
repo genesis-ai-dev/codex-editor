@@ -3,8 +3,96 @@ import { Play } from "lucide-react";
 import { SubtitlesImporterForm } from "./SubtitlesImporterForm";
 
 /**
- * Custom alignment function for subtitles using volume-overlap technique
- * Matches subtitle translations based on temporal overlap, accounting for timing differences
+ * Generate a random ID for child cells
+ */
+const generateRandomId = (): string => {
+    return Math.random().toString(36).substring(2, 8) + Date.now().toString(36);
+};
+
+/**
+ * Create empty imported content for unmatched target cells
+ */
+const createEmptyImportedContent = (targetId: string): ImportedContent => ({
+    id: targetId,
+    content: "",
+    startTime: undefined,
+    endTime: undefined,
+});
+
+/**
+ * Helper function to convert timestamps to seconds
+ */
+const convertToSeconds = (timestamp: string | number | undefined): number => {
+    if (!timestamp) return 0;
+    if (typeof timestamp === "number") return timestamp;
+
+    // Handle VTT timestamp format (HH:MM:SS.mmm)
+    const [time, milliseconds] = timestamp.split(".");
+    const [hours, minutes, seconds] = time.split(":").map(Number);
+    return hours * 3600 + minutes * 60 + seconds + Number(milliseconds || 0) / 1000;
+};
+
+/**
+ * Helper function to calculate temporal overlap
+ */
+const calculateOverlap = (
+    sourceStart: number,
+    sourceEnd: number,
+    targetStart: number,
+    targetEnd: number
+): number => {
+    const overlapStart = Math.max(sourceStart, targetStart);
+    const overlapEnd = Math.min(sourceEnd, targetEnd);
+    return Math.max(0, overlapEnd - overlapStart);
+};
+
+/**
+ * Calculate alignment confidence between target cell and imported content
+ */
+const calculateAlignmentConfidence = (
+    targetCell: any,
+    imported: ImportedContent,
+    targetIndex: number,
+    importedIndex: number
+): number => {
+    let confidence = 0;
+
+    // Temporal overlap confidence (primary factor)
+    const targetStart = convertToSeconds(targetCell.metadata?.data?.startTime);
+    const targetEnd = convertToSeconds(targetCell.metadata?.data?.endTime);
+    const importStart = convertToSeconds(imported.startTime);
+    const importEnd = convertToSeconds(imported.endTime);
+
+    if (targetStart && targetEnd && importStart && importEnd) {
+        const overlap = calculateOverlap(targetStart, targetEnd, importStart, importEnd);
+        const targetDuration = targetEnd - targetStart;
+        const importDuration = importEnd - importStart;
+        const avgDuration = (targetDuration + importDuration) / 2;
+
+        if (overlap > 0 && avgDuration > 0) {
+            confidence += Math.min(0.7, (overlap / avgDuration) * 0.7); // Up to 70% from temporal overlap
+        }
+    }
+
+    // Positional proximity confidence (secondary factor)
+    const positionDiff = Math.abs(targetIndex - importedIndex);
+    confidence += Math.max(0, 0.2 - positionDiff * 0.02); // Up to 20% from position proximity
+
+    // Content length similarity (tertiary factor)
+    if (targetCell.content && imported.content) {
+        const targetLen = targetCell.content.length;
+        const importLen = imported.content.length;
+        const lengthSimilarity =
+            1 - Math.abs(targetLen - importLen) / Math.max(targetLen, importLen, 1);
+        confidence += lengthSimilarity * 0.1; // Up to 10% from length similarity
+    }
+
+    return Math.min(1.0, confidence);
+};
+
+/**
+ * Simplified alignment function for subtitles that preserves temporal order
+ * by processing imported content sequentially (like the old implementation)
  */
 const subtitlesCellAligner: CellAligner = async (
     targetCells: any[],
@@ -13,7 +101,6 @@ const subtitlesCellAligner: CellAligner = async (
 ): Promise<AlignedCell[]> => {
     const alignedCells: AlignedCell[] = [];
     let totalOverlaps = 0;
-    const sourceCellOverlapCount: { [key: string]: number } = {};
 
     // Helper function to convert timestamps to seconds
     const convertToSeconds = (timestamp: string | number | undefined): number => {
@@ -72,76 +159,160 @@ const subtitlesCellAligner: CellAligner = async (
         return { sourceStart, sourceEnd, targetStart, targetEnd };
     };
 
-    for (const importedItem of importedContent) {
-        if (!importedItem.content.trim()) continue;
+    const usedImportedIndices = new Set<number>();
 
-        const importStart = convertToSeconds(importedItem.startTime);
-        const importEnd = convertToSeconds(importedItem.endTime);
-        let foundOverlap = false;
+    // Debug logging: Show first 20 target cells with timestamps
+    console.log("=== TARGET CELLS (first 20) ===");
+    targetCells.slice(0, 20).forEach((cell, i) => {
+        const startTime = convertToSeconds(cell.metadata?.data?.startTime);
+        const endTime = convertToSeconds(cell.metadata?.data?.endTime);
+        console.log(
+            `Target ${i}: ${
+                cell.metadata?.id
+            } | ${startTime}s-${endTime}s | "${cell.value?.substring(0, 50)}..."`
+        );
+    });
 
-        // Try to find an overlapping cell in the target notebook
-        const targetCell = targetCells.find((cell) => {
-            const targetStart = convertToSeconds(cell.metadata?.data?.startTime);
-            const targetEnd = convertToSeconds(cell.metadata?.data?.endTime);
+    // Debug logging: Show first 20 imported content with timestamps
+    console.log("=== IMPORTED CONTENT (first 20) ===");
+    importedContent.slice(0, 20).forEach((item, i) => {
+        const startTime = convertToSeconds(item.startTime);
+        const endTime = convertToSeconds(item.endTime);
+        console.log(
+            `Import ${i}: ${item.id} | ${startTime}s-${endTime}s | "${item.content?.substring(
+                0,
+                50
+            )}..."`
+        );
+    });
 
-            if (!targetStart || !targetEnd || isNaN(importStart) || isNaN(importEnd)) {
-                return false;
-            }
+    // Process each target cell in order to maintain temporal sequence
+    for (const targetCell of targetCells) {
+        const targetStart =
+            typeof targetCell.metadata?.data?.startTime === "string"
+                ? parseFloat(targetCell.metadata.data.startTime)
+                : targetCell.metadata?.data?.startTime;
+        const targetEnd =
+            typeof targetCell.metadata?.data?.endTime === "string"
+                ? parseFloat(targetCell.metadata.data.endTime)
+                : targetCell.metadata?.data?.endTime;
 
-            // Normalize timestamps before checking overlap
-            const normalized = normalizeTimestamps(targetStart, targetEnd, importStart, importEnd);
+        if (!targetStart || !targetEnd) continue;
 
-            const overlap = calculateOverlap(
-                normalized.sourceStart,
-                normalized.sourceEnd,
-                normalized.targetStart,
-                normalized.targetEnd
-            );
+        // Find all imported items that overlap with this target cell
+        const overlappingImports = importedContent
+            .map((item, index) => ({ item, index }))
+            .filter(({ item, index }) => {
+                if (usedImportedIndices.has(index) || !item.content.trim()) return false;
 
-            if (overlap > 0) {
-                foundOverlap = true;
-                return true;
-            }
-            return false;
-        });
+                const importStart = convertToSeconds(item.startTime);
+                const importEnd = convertToSeconds(item.endTime);
 
-        if (targetCell) {
-            // Handle overlapping content
+                if (isNaN(importStart) || isNaN(importEnd)) return false;
+
+                // Normalize timestamps before checking overlap
+                const normalized = normalizeTimestamps(
+                    targetStart,
+                    targetEnd,
+                    importStart,
+                    importEnd
+                );
+
+                const overlap = calculateOverlap(
+                    normalized.sourceStart,
+                    normalized.sourceEnd,
+                    normalized.targetStart,
+                    normalized.targetEnd
+                );
+
+                return overlap > 0;
+            });
+
+        // Add the first as primary match, others as children
+        overlappingImports.forEach(({ item, index }, i) => {
+            usedImportedIndices.add(index);
             const targetId = targetCell.metadata.id;
-            if (!sourceCellOverlapCount[targetId]) {
-                sourceCellOverlapCount[targetId] = 1;
+
+            if (i === 0) {
+                // First match - use target ID
                 alignedCells.push({
                     notebookCell: targetCell,
-                    importedContent: { ...importedItem, id: targetId },
+                    importedContent: { ...item, id: targetId },
+                    alignmentMethod: "timestamp",
+                    confidence: calculateAlignmentConfidence(targetCell, item, 0, 0),
                 });
             } else {
-                sourceCellOverlapCount[targetId]++;
-                // Generate child cell ID for additional overlaps
-                const childId = `${targetId}-${sourceCellOverlapCount[targetId]}`;
+                // Additional matches - create child cells
                 alignedCells.push({
                     notebookCell: targetCell,
-                    importedContent: { ...importedItem, id: childId },
+                    importedContent: {
+                        ...item,
+                        id: `${targetId}:${generateRandomId()}`,
+                    },
                     isAdditionalOverlap: true,
+                    alignmentMethod: "timestamp",
+                    confidence: calculateAlignmentConfidence(targetCell, item, 0, i),
                 });
             }
             totalOverlaps++;
-        } else {
-            // Create paratext for non-overlapping content
-            alignedCells.push({
-                notebookCell: null,
-                importedContent: {
-                    ...importedItem,
-                    id: `paratext-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                },
-                isParatext: true,
-            });
-        }
+        });
+    }
+
+    // Now add any unmatched imported items as paratext in their correct temporal positions
+    const remainingImports = importedContent
+        .map((item, index) => ({ item, index }))
+        .filter(({ item, index }) => !usedImportedIndices.has(index) && item.content.trim());
+
+    // Insert paratext items in their correct temporal positions
+    for (const { item } of remainingImports) {
+        const importStart = convertToSeconds(item.startTime);
+
+        // Find the correct position to insert based on temporal order
+        let insertIndex = alignedCells.findIndex((cell) => {
+            const cellStart = convertToSeconds(cell.importedContent.startTime);
+            return cellStart > importStart;
+        });
+
+        if (insertIndex === -1) insertIndex = alignedCells.length;
+
+        alignedCells.splice(insertIndex, 0, {
+            notebookCell: null,
+            importedContent: {
+                ...item,
+                id: `paratext-${generateRandomId()}`,
+            },
+            isParatext: true,
+            alignmentMethod: "timestamp",
+            confidence: 0.0,
+        });
     }
 
     // Only throw if we found no overlaps at all
     if (totalOverlaps === 0 && importedContent.length > 0) {
         throw new Error("No overlapping content found. Please check the selected file.");
     }
+
+    // Debug logging: Show final aligned cells order
+    console.log("=== FINAL ALIGNED CELLS ORDER ===");
+    alignedCells.forEach((cell, i) => {
+        const startTime = convertToSeconds(cell.importedContent.startTime);
+        const isParatext = cell.isParatext ? " [PARATEXT]" : "";
+        const isChild = cell.isAdditionalOverlap ? " [CHILD]" : "";
+        console.log(
+            `Aligned ${i}: ${
+                cell.importedContent.id
+            } | ${startTime}s | "${cell.importedContent.content?.substring(
+                0,
+                50
+            )}..."${isParatext}${isChild}`
+        );
+    });
+
+    console.log(
+        `Simplified subtitle aligner: ${totalOverlaps} overlaps found, ${
+            alignedCells.filter((c) => c.isParatext).length
+        } paratext items`
+    );
 
     return alignedCells;
 };
@@ -152,7 +323,7 @@ export const subtitlesImporterPlugin: ImporterPlugin = {
     description: "Import VTT/SRT subtitle files with timestamp-based cells",
     icon: Play,
     component: SubtitlesImporterForm,
-    cellAligner: subtitlesCellAligner, // Add custom alignment function
+    cellAligner: subtitlesCellAligner,
     supportedExtensions: ["vtt", "srt"],
     enabled: true,
     tags: ["Media", "Timed"],

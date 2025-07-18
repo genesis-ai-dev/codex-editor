@@ -302,12 +302,8 @@ const NewSourceUploader: React.FC = () => {
 
     const handleSelectPlugin = useCallback(
         (pluginId: string) => {
-            if (isDirty) {
-                const confirmLeave = window.confirm(
-                    "You have unsaved changes. Are you sure you want to leave this import?"
-                );
-                if (!confirmLeave) return;
-            }
+            // Note: VS Code webviews don't support window.confirm() due to sandboxing
+            // Skip confirmation dialog - user action is explicit enough
             setWizardState((prev) => ({
                 ...prev,
                 selectedPlugin: pluginId,
@@ -398,10 +394,8 @@ const NewSourceUploader: React.FC = () => {
     );
 
     const handleCancel = useCallback(() => {
-        if (isDirty) {
-            const confirmLeave = window.confirm("Cancel import? Any unsaved changes will be lost.");
-            if (!confirmLeave) return;
-        }
+        // Note: VS Code webviews don't support window.confirm() due to sandboxing
+        // Skip confirmation dialog - user action is explicit enough
         setWizardState((prev) => ({
             ...prev,
             currentStep:
@@ -412,6 +406,23 @@ const NewSourceUploader: React.FC = () => {
         }));
         setIsDirty(false);
     }, [isDirty]);
+
+    const handleCancelImport = useCallback(() => {
+        // Reset entire wizard state to beginning
+        // Note: VS Code webviews don't support window.confirm() due to sandboxing
+        // The "Cancel Import" button text makes the action clear enough
+        setWizardState((prev) => ({
+            ...prev,
+            currentStep: "intent-selection",
+            selectedIntent: null,
+            selectedSourceForTarget: undefined,
+            selectedSourceDetails: undefined,
+            selectedPlugin: undefined,
+            isLoadingFileDetails: false,
+            fileDetailsError: undefined,
+        }));
+        setIsDirty(false);
+    }, []);
 
     const handleBack = useCallback(() => {
         setWizardState((prev) => {
@@ -470,6 +481,7 @@ const NewSourceUploader: React.FC = () => {
         const isTargetImport = wizardState.selectedIntent === "target";
         const componentProps: ImporterComponentProps = {
             onCancel: handleCancel,
+            onCancelImport: handleCancelImport,
             wizardContext,
             // Only provide existingFiles for source imports (not implemented yet for target imports)
             ...(isTargetImport
