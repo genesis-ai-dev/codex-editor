@@ -275,11 +275,45 @@ const subtitlesCellAligner: CellAligner = async (
 
         if (insertIndex === -1) insertIndex = alignedCells.length;
 
+        // Determine the document name and section ID from nearby cells
+        let documentName = "";
+        let sectionId = "1"; // Default to section 1
+
+        // Look for the nearest aligned cell (before or after) to get document/section info
+        const nearestCellBefore = alignedCells[insertIndex - 1];
+        const nearestCellAfter = alignedCells[insertIndex];
+
+        const nearestCell = nearestCellBefore || nearestCellAfter;
+        if (nearestCell && nearestCell.notebookCell) {
+            const nearestCellId = nearestCell.notebookCell.metadata?.id || "";
+            const idParts = nearestCellId.split(" ");
+            if (idParts.length >= 2) {
+                documentName = idParts[0];
+                const sectionParts = idParts[1].split(":");
+                if (sectionParts.length >= 1) {
+                    sectionId = sectionParts[0];
+                }
+            }
+        }
+
+        // If we couldn't find document info from nearby cells, extract from first target cell
+        if (!documentName && targetCells.length > 0) {
+            const firstTargetId = targetCells[0].metadata?.id || "";
+            const idParts = firstTargetId.split(" ");
+            if (idParts.length >= 2) {
+                documentName = idParts[0];
+            }
+        }
+
+        const paratextId = documentName
+            ? `${documentName} ${sectionId}:paratext-${generateRandomId()}`
+            : `paratext-${generateRandomId()}`; // Fallback if no document info found
+
         alignedCells.splice(insertIndex, 0, {
             notebookCell: null,
             importedContent: {
                 ...item,
-                id: `paratext-${generateRandomId()}`,
+                id: paratextId,
             },
             isParatext: true,
             alignmentMethod: "timestamp",

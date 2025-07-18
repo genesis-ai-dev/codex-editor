@@ -698,25 +698,31 @@ const CodexCellEditor: React.FC = () => {
             let startCellIndex = firstContentPosition;
             let endCellIndex = lastContentPosition + 1;
 
-            // Expand backward to include any paratext cells that should be with the first content cell
-            while (startCellIndex > 0) {
-                const prevCell = cellsForChapter[startCellIndex - 1];
+            // Special handling for the first page: include all leading paratext
+            if (i === 0) {
+                // For the first page, start from the beginning to capture all leading paratext
+                startCellIndex = 0;
+            } else {
+                // For subsequent pages, expand backward to include any paratext cells
+                while (startCellIndex > 0) {
+                    const prevCell = cellsForChapter[startCellIndex - 1];
 
-                // Include if it's paratext for this chapter
-                if ((prevCell.cellType as string) === "paratext") {
+                    // Include if it's paratext for this chapter
+                    if ((prevCell.cellType as string) === "paratext") {
+                        startCellIndex--;
+                        continue;
+                    }
+
+                    // Stop expanding if we hit another content cell that's not on this page
+                    if (
+                        (prevCell.cellType as string) !== "paratext" &&
+                        !contentCellIds.has(prevCell.cellMarkers[0])
+                    ) {
+                        break;
+                    }
+
                     startCellIndex--;
-                    continue;
                 }
-
-                // Stop expanding if we hit another content cell that's not on this page
-                if (
-                    (prevCell.cellType as string) !== "paratext" &&
-                    !contentCellIds.has(prevCell.cellMarkers[0])
-                ) {
-                    break;
-                }
-
-                startCellIndex--;
             }
 
             // Expand forward to include any paratext cells that should be with the last content cell
@@ -756,6 +762,15 @@ const CodexCellEditor: React.FC = () => {
     // Get all cells for the current chapter first
     const allCellsForChapter = translationUnits.filter((verse) => {
         const cellId = verse?.cellMarkers?.[0];
+
+        // Handle paratext cells specially - they should be included based on context
+        if (cellId?.startsWith("paratext-")) {
+            // For now, include all paratext cells when viewing any chapter
+            // This ensures leading paratext (like the Tigrinya intro) is visible
+            return true;
+        }
+
+        // For regular cells, check if they belong to the current chapter
         const sectionCellIdParts = cellId?.split(" ")?.[1]?.split(":");
         const sectionCellNumber = sectionCellIdParts?.[0];
         return sectionCellNumber === chapterNumber.toString();
