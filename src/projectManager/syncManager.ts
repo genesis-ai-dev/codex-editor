@@ -282,7 +282,7 @@ export class SyncManager {
     private async rebuildIndexesInBackground(syncResult?: SyncResult): Promise<void> {
         try {
             const indexStartTime = performance.now();
-            console.log("🔧 Starting optimized database synchronization after git sync...");
+            console.log("🤖 AI learning from your latest changes...");
 
             // Log git sync information if available
             if (syncResult && syncResult.totalChanges > 0) {
@@ -301,7 +301,7 @@ export class SyncManager {
                     console.log(`  ✨ New: ${filesToShow.join(", ")}${syncResult.newFiles.length > 10 ? ` and ${syncResult.newFiles.length - 10} more...` : ""}`);
                 }
             } else {
-                console.log("📭 No git changes detected, checking database sync status...");
+                console.log("📭 No git changes detected, checking if AI needs to learn from existing content...");
             }
 
             // Use the new FileSyncManager for efficient file-level synchronization
@@ -319,42 +319,42 @@ export class SyncManager {
             // If we have specific files from git sync, we could potentially optimize further
             // by checking only those files, but for now we'll check all files since
             // git changes might affect relationships between files
-            console.log("🔍 Checking which files need database synchronization...");
+            console.log("🔍 Checking which content AI needs to learn from...");
             const syncStatus = await fileSyncManager.checkSyncStatus();
 
             if (!syncStatus.needsSync) {
-                console.log("✅ Database is already synchronized with file system");
+                console.log("✅ AI is already up to date with all your content");
                 const indexEndTime = performance.now();
                 const indexDuration = indexEndTime - indexStartTime;
-                console.log(`✅ Sync check completed in ${indexDuration.toFixed(2)}ms`);
+                console.log(`✅ Knowledge check completed in ${indexDuration.toFixed(2)}ms`);
                 return;
             }
 
-            console.log(`🔧 Found ${syncStatus.summary.changedFiles + syncStatus.summary.newFiles} files needing database synchronization`);
-            console.log(`📊 Sync summary: ${syncStatus.summary.newFiles} new, ${syncStatus.summary.changedFiles} changed, ${syncStatus.summary.unchangedFiles} unchanged`);
+            console.log(`🔧 Found ${syncStatus.summary.changedFiles + syncStatus.summary.newFiles} files for AI to learn from`);
+            console.log(`📊 AI learning summary: ${syncStatus.summary.newFiles} new, ${syncStatus.summary.changedFiles} changed, ${syncStatus.summary.unchangedFiles} unchanged`);
 
             // Cross-reference with git changes for optimization insights
             if (syncResult && syncResult.totalChanges > 0) {
                 const gitChangedFiles = new Set([...syncResult.changedFiles, ...syncResult.newFiles]);
                 const dbChangedFiles = syncStatus.summary.changedFiles + syncStatus.summary.newFiles;
-                console.log(`🔍 Analysis: Git changed ${gitChangedFiles.size} files, database needs to sync ${dbChangedFiles} files`);
+                console.log(`🔍 Analysis: Git changed ${gitChangedFiles.size} files, AI needs to learn from ${dbChangedFiles} files`);
             }
 
             // Perform optimized synchronization of only changed files
             const fileSyncResult = await fileSyncManager.syncFiles({
                 progressCallback: (message, progress) => {
-                    console.log(`[DatabaseSync] ${message} (${progress}%)`);
+                    console.log(`[AI Learning] ${message} (${progress}%)`);
                 }
             });
 
             const indexEndTime = performance.now();
             const indexDuration = indexEndTime - indexStartTime;
 
-            console.log(`✅ Optimized database sync completed in ${indexDuration.toFixed(2)}ms`);
-            console.log(`📊 Sync results: ${fileSyncResult.syncedFiles} files synced, ${fileSyncResult.unchangedFiles} unchanged, ${fileSyncResult.errors.length} errors`);
+            console.log(`✅ AI learning completed in ${indexDuration.toFixed(2)}ms`);
+            console.log(`📊 Learning results: AI learned from ${fileSyncResult.syncedFiles} files, ${fileSyncResult.unchangedFiles} unchanged, ${fileSyncResult.errors.length} errors`);
 
             if (fileSyncResult.errors.length > 0) {
-                console.warn("⚠️ Some files had sync errors:");
+                console.warn("⚠️ Some files had AI learning errors:");
                 fileSyncResult.errors.forEach(error => {
                     console.warn(`  - ${error.file}: ${error.error}`);
                 });
@@ -362,7 +362,7 @@ export class SyncManager {
 
             // Log detailed file changes for debugging
             if (fileSyncResult.details.size > 0) {
-                console.log("📋 File sync details:");
+                console.log("📋 AI learning details:");
                 for (const [file, detail] of fileSyncResult.details) {
                     if (detail.reason !== "no changes detected") {
                         console.log(`  - ${file}: ${detail.reason}`);
@@ -371,10 +371,10 @@ export class SyncManager {
             }
 
         } catch (error) {
-            console.error("❌ Optimized database sync failed:", error);
+            console.error("❌ AI learning failed:", error);
 
             // Fallback to basic index rebuild if file sync fails
-            console.log("🔄 Falling back to basic index rebuild...");
+            console.log("🔄 Falling back to basic knowledge rebuild...");
             try {
                 await this.fallbackIndexRebuild();
             } catch (fallbackError) {

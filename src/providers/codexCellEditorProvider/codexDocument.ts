@@ -388,7 +388,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 // Sanitize content for search while preserving raw content with HTML
                 const sanitizedContent = this.sanitizeContent(content);
 
-                // IMMEDIATE DATABASE UPDATE with FTS synchronization
+                // IMMEDIATE AI KNOWLEDGE UPDATE with FTS synchronization
                 const result = await this._indexManager.upsertCellWithFTSSync(
                     cellId,
                     fileId,
@@ -441,7 +441,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(text));
 
-        // IMMEDIATE DATABASE SYNC - Update all cells with content to ensure validation changes are persisted
+        // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
         await this.syncAllCellsToDatabase();
 
         this._edits = []; // Clear edits after saving
@@ -456,7 +456,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         const text = JSON.stringify(this._documentData, null, 2);
         await vscode.workspace.fs.writeFile(targetResource, new TextEncoder().encode(text));
 
-        // IMMEDIATE DATABASE SYNC for non-backup saves
+        // IMMEDIATE AI LEARNING for non-backup saves
         if (!backup) {
             await this.syncAllCellsToDatabase();
             this._isDirty = false; // Reset dirty flag
@@ -1220,12 +1220,12 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {
         try {
-            console.log(`[CodexDocument] 🔄 Syncing all cells to database after save...`);
+            console.log(`[CodexDocument] 🤖 AI learning from your updates...`);
 
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();
                 if (!this._indexManager) {
-                    console.warn(`[CodexDocument] Index manager not available for database sync`);
+                    console.warn(`[CodexDocument] Index manager not available for AI learning`);
                     return;
                 }
             }
@@ -1281,7 +1281,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         // Prepare metadata for database - this will handle validation extraction
                         const cellMetadata = {
                             edits: cell.metadata?.edits || [],
-                            type: "database_sync",
+                            type: "ai_learning",
                             lastUpdated: Date.now()
                         };
 
@@ -1294,7 +1294,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
 
                         if (hasValidationData && lastEdit?.validatedBy) {
                             const activeValidations = lastEdit.validatedBy.filter((v: any) => v && !v.isDeleted);
-                            console.log(`[CodexDocument] 🔄 Syncing validation data for cell ${cellId}: ${activeValidations.length} validators`);
+                            console.log(`[CodexDocument] 🔄 AI learning validation data for cell ${cellId}: ${activeValidations.length} validators`);
                             syncedValidations++;
                         }
 
@@ -1315,15 +1315,15 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         syncedCells++;
 
                     } catch (error) {
-                        console.error(`[CodexDocument] Error syncing cell ${cellId} to database:`, error);
+                        console.error(`[CodexDocument] Error during AI learning for cell ${cellId}:`, error);
                     }
                 }
             }
 
-            console.log(`[CodexDocument] ✅ Database sync complete: ${syncedCells} cells synced, ${syncedValidations} cells with validation data`);
+            console.log(`[CodexDocument] ✅ AI knowledge updated: AI learned from ${syncedCells} cells, ${syncedValidations} cells with validation data`);
 
         } catch (error) {
-            console.error(`[CodexDocument] Error during database sync:`, error);
+            console.error(`[CodexDocument] Error during AI learning:`, error);
         }
     }
 }
