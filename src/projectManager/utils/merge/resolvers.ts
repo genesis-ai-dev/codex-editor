@@ -42,6 +42,16 @@ export async function resolveConflictFile(
         debugLog("Strategy:", strategy);
         let resolvedContent: string;
 
+        // Ensure we have fresh content by re-reading the file
+        const filePath = vscode.Uri.joinPath(vscode.Uri.file(workspaceDir), conflict.filepath);
+        try {
+            // Note: this is to ensure we have the latest content so recent user edits are not lost
+            const latestFileContent = await vscode.workspace.fs.readFile(filePath);
+            conflict.ours = Buffer.from(latestFileContent).toString('utf8');
+        } catch (error) {
+            debugLog(`Could not read fresh content for ${conflict.filepath}, using existing content:`, error);
+        }
+
         switch (strategy) {
             case ConflictResolutionStrategy.IGNORE:
                 debugLog("Ignoring conflict for:", conflict.filepath);

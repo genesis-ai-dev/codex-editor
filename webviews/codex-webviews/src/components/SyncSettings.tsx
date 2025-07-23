@@ -121,7 +121,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
 
                 {autoSyncEnabled && isOnline && (
                     <div
-                        className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300"
+                        className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300 flex-wrap gap-2"
                         style={{
                             backgroundColor: "var(--muted)",
                             borderColor: "var(--border)",
