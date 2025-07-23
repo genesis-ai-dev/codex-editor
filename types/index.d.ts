@@ -359,7 +359,7 @@ export type MessagesToStartupFlowProvider =
     | { command: "startup.dismiss"; }
     | { command: "webview.ready"; }
     | { command: "navigateToMainMenu"; }
-    | { command: "zipProject"; projectName: string; projectPath: string; };
+    | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; };
 
 export type GitLabProject = {
     id: number;
@@ -1019,6 +1019,7 @@ type CodexData = Timestamps & {
     chapter?: string;
     verse?: string;
     merged?: boolean;
+    deleted?: boolean;
 };
 
 type CustomCellMetaData = {
@@ -1078,6 +1079,7 @@ interface QuillCellContent {
     timestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;
+    deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
 }
 

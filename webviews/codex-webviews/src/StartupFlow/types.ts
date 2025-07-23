@@ -297,9 +297,10 @@ export interface FrontierAPI {
         username: string;
     }>;
     getLlmEndpoint: () => Promise<string | undefined>;
-    syncChanges: () => Promise<{
+    syncChanges: (options?: { commitMessage?: string }) => Promise<{
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
+        offline?: boolean;
     }>;
     completeMerge: (resolvedFiles: ResolvedFile[]) => Promise<void>;
 

@@ -1416,17 +1416,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const isSourceAndCorrectionEditorMode = isSourceText && isCorrectionEditorMode;
         const translationUnitsWithMergedRanges: QuillCellContent[] = [];
 
-        translationUnits.forEach((verse, index) => {
+        translationUnits.forEach((cell, index) => {
             const rangeMarker = "<range>";
-            if (verse.cellContent?.trim() === rangeMarker) {
+            if (cell.cellContent?.trim() === rangeMarker) {
                 return;
             }
-            if (verse.merged && !isSourceAndCorrectionEditorMode) {
+            if (cell.merged && !isSourceAndCorrectionEditorMode) {
+                return;
+            }
+
+            if (cell.deleted) {
                 return;
             }
 
             let forwardIndex = 1;
-            const cellMarkers = [...verse.cellMarkers];
+            const cellMarkers = [...cell.cellMarkers];
             let nextCell = translationUnits[index + forwardIndex];
 
             while (nextCell?.cellContent?.trim() === rangeMarker) {
@@ -1436,16 +1440,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
             // Check if cell content is an empty span and convert to empty string
             const processedCellContent =
-                verse.cellContent?.trim() === "<span></span>" ? "" : verse.cellContent;
+                cell.cellContent?.trim() === "<span></span>" ? "" : cell.cellContent;
 
             translationUnitsWithMergedRanges.push({
                 cellMarkers,
                 cellContent: processedCellContent,
-                cellType: verse.cellType,
-                editHistory: verse.editHistory,
-                timestamps: verse.timestamps,
-                cellLabel: verse.cellLabel,
-                merged: verse.merged,
+                cellType: cell.cellType,
+                editHistory: cell.editHistory,
+                timestamps: cell.timestamps,
+                cellLabel: cell.cellLabel,
+                merged: cell.merged,
             });
         });
 

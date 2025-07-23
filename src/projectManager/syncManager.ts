@@ -10,7 +10,6 @@ import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
-
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -152,8 +151,7 @@ export class SyncManager {
             }
             return;
         }
-
-        // Check authentication status first
+        // Check authentication status
         const authApi = getAuthApi();
         if (!authApi) {
             console.log("Auth API not available, cannot sync");
@@ -227,6 +225,12 @@ export class SyncManager {
             this.currentSyncStage = "Synchronizing changes...";
             this.notifySyncStatusListeners();
             const syncResult = await stageAndCommitAllAndSync(commitMessage, false); // Don't show user messages during background sync
+            if (syncResult.offline) {
+                this.currentSyncStage = "Synchronization skipped! (offline)";
+                this.notifySyncStatusListeners();
+                updateSplashScreenSync(100, "Synchronization skipped (offline)");
+                return;
+            }
 
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;

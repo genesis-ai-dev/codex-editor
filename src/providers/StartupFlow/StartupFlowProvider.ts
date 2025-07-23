@@ -1650,7 +1650,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "zipProject": {
-                const { projectName, projectPath } = message;
+                const { projectName, projectPath, includeGit = false } = message;
 
                 try {
                     // Show file picker for save location
@@ -1683,6 +1683,11 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 const entries = await vscode.workspace.fs.readDirectory(currentUri);
 
                                 for (const [name, type] of entries) {
+                                    // Skip .git folder unless includeGit is true
+                                    if (name === ".git" && !includeGit) {
+                                        continue;
+                                    }
+
                                     const entryUri = vscode.Uri.joinPath(currentUri, name);
 
                                     if (type === vscode.FileType.File) {
@@ -1712,8 +1717,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         }
                     );
 
+                    const gitMessage = includeGit ? " (including git history)" : "";
                     vscode.window.showInformationMessage(
-                        `Project "${message.projectName}" has been zipped successfully!`
+                        `Project "${message.projectName}" has been zipped successfully${gitMessage}!`
                     );
                 } catch (error) {
                     debugLog("Error zipping project:", error);

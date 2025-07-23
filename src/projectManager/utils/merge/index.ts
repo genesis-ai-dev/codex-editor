@@ -27,6 +27,7 @@ export interface SyncResult {
     newFiles: string[];
     deletedFiles: string[];
     totalChanges: number;
+    offline?: boolean;
 }
 
 export async function stageAndCommitAllAndSync(
@@ -68,7 +69,8 @@ export async function stageAndCommitAllAndSync(
         conflictFiles: [],
         newFiles: [],
         deletedFiles: [],
-        totalChanges: 0
+        totalChanges: 0,
+        offline: false
     };
 
     try {
@@ -87,7 +89,11 @@ export async function stageAndCommitAllAndSync(
 
         // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
         // which handles authentication properly
-        const conflictsResponse = await authApi.syncChanges();
+        const conflictsResponse = await authApi.syncChanges({ commitMessage });
+        if (conflictsResponse?.offline) {
+            syncResult.offline = true;
+            return syncResult;
+        }
 
         if (conflictsResponse?.hasConflicts) {
             const conflicts = conflictsResponse.conflicts || [];

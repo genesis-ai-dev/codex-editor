@@ -37,7 +37,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
             }}
         >
             <CardHeader className="pb-4 mb-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                     <CardTitle
                         className="text-base font-semibold flex items-center gap-2"
                         style={{ color: "var(--foreground)" }}
@@ -86,7 +86,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </Alert>
                 )}
                 <div
-                    className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200"
+                    className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200 flex-wrap gap-2"
                     style={{
                         backgroundColor: "var(--muted)",
                         borderColor: "var(--border)",
