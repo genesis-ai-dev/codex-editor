@@ -116,7 +116,13 @@ export class SyncManager {
         // Get current configuration
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        const syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+        // Ensure minimum sync delay is 5 minutes
+        if (syncDelayMinutes < 5) {
+            syncDelayMinutes = 5;
+            console.log("Sync delay was less than 5 minutes, adjusting to 5 minutes");
+        }
 
         // Clear any pending sync operation
         this.clearPendingSync();
@@ -464,7 +470,13 @@ export class SyncManager {
         // This method will be called when configuration changes
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-        const syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+        let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+        // Ensure minimum sync delay is 5 minutes
+        if (syncDelayMinutes < 5) {
+            syncDelayMinutes = 5;
+            console.log("Sync delay was less than 5 minutes, adjusting to 5 minutes");
+        }
 
         console.log(
             `SyncManager configuration updated: autoSyncEnabled=${autoSyncEnabled}, syncDelayMinutes=${syncDelayMinutes}`

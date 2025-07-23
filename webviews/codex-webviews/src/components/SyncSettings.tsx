@@ -156,11 +156,6 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="1">
-                                    <span className="flex items-center gap-2">
-                                        <i className="codicon codicon-dashboard" />1 min
-                                    </span>
-                                </SelectItem>
                                 <SelectItem value="5">
                                     <span className="flex items-center gap-2">
                                         <i className="codicon codicon-dashboard" />5 min

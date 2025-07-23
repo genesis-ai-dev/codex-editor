@@ -580,7 +580,18 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "getSyncSettings": {
                 const config = vscode.workspace.getConfiguration("codex-project-manager");
                 const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-                const syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+                let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+                // Ensure minimum sync delay is 5 minutes
+                if (syncDelayMinutes < 5) {
+                    syncDelayMinutes = 5;
+                    // Update the configuration to persist the corrected value
+                    await config.update(
+                        "syncDelayMinutes",
+                        syncDelayMinutes,
+                        vscode.ConfigurationTarget.Workspace
+                    );
+                }
 
                 if (this._view) {
                     safePostMessageToView(this._view, {

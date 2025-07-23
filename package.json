@@ -502,7 +502,6 @@
                     "codex-project-manager.syncDelayMinutes": {
                         "type": "number",
                         "enum": [
-                            1,
                             5,
                             15,
                             30,
