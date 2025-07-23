@@ -218,6 +218,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             )
         );
+
     }
 
     private async initializeStateStore() {
@@ -447,6 +448,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     updateWebview();
                 }
 
+                // Update file status when document changes
+                this.updateFileStatus("dirty");
+
                 this._onDidChangeCustomDocument.fire({ document });
             })
         );
@@ -598,6 +602,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             // Save the document
             await document.save(cancellation);
+            debug("Document save completed, isDirty should be false:", document.isDirty);
 
             // Get the SyncManager singleton
             const syncManager = SyncManager.getInstance();
@@ -608,10 +613,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
             // Update the file status based on source control (will check if still dirty)
             setTimeout(() => this.updateFileStatus(), 500);
+
         } catch (error) {
             console.error("Error saving document:", error);
-            // If save fails, check status
-            this.updateFileStatus();
+            // If save fails, set status to dirty
+            this.updateFileStatus("dirty");
             throw error;
         }
     }
@@ -2622,58 +2628,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     return;
                 }
 
-                // Otherwise, determine status from VS Code's source control
+                // Otherwise, determine status from document state
                 try {
-                    const scm = vscode.scm.createSourceControl("git", "Git");
-                    const gitExt = vscode.extensions.getExtension("vscode.git")?.exports;
-
-                    if (gitExt) {
-                        // Get the repository that contains this file
-                        const api = gitExt.getAPI(1);
-                        const repos = api.repositories;
-
-                        if (repos.length > 0) {
-                            // Find the repository that contains this file
-                            const repo = repos.find((r: any) =>
-                                docUri.toString().startsWith(r.rootUri.toString())
-                            );
-
-                            if (repo) {
-                                // Check if the file is dirty in the source control
-                                const fileStatus = repo.state.workingTreeChanges.find(
-                                    (change: any) => change.uri.toString() === docUri.toString()
-                                );
-
-                                if (fileStatus) {
-                                    // The file has uncommitted changes
-                                    this.postMessageToWebview(panel, {
-                                        type: "updateFileStatus",
-                                        status: "dirty",
-                                    });
-                                } else {
-                                    // The file is in sync with the repository
-                                    this.postMessageToWebview(panel, {
-                                        type: "updateFileStatus",
-                                        status: "synced",
-                                    });
-                                }
-                                return;
-                            }
-                        }
-                    }
-
-                    // Default to checking if the document is dirty in the editor
-                    const isDirty = vscode.workspace.textDocuments.some(
+                    // Check if the document is dirty in the editor
+                    const isDirty = this.currentDocument.isDirty || vscode.workspace.textDocuments.some(
                         (doc) => doc.uri.toString() === docUri.toString() && doc.isDirty
                     );
 
+                    const determinedStatus = isDirty ? "dirty" : "synced";
+
                     this.postMessageToWebview(panel, {
                         type: "updateFileStatus",
-                        status: isDirty ? "dirty" : "synced",
+                        status: determinedStatus,
                     });
                 } catch (error) {
                     console.error("Error determining file status:", error);
-                    // In case of error, don't update the status
+                    // Don't update status on error to prevent potential loops
                 }
             }
         }
@@ -2698,16 +2668,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 syncManager
                     .executeSync(`manual sync for ${fileName}`)
                     .then(() => {
-                        // Update status after sync completes
-                        setTimeout(() => this.updateFileStatus(), 500);
+                        // FIXED: Don't automatically call updateFileStatus here
+                        // Let the sync completion handle status updates
+                        console.log("Manual sync completed for:", fileName);
                     })
                     .catch((error) => {
                         console.error("Error during manual sync:", error);
-                        this.updateFileStatus();
+                        // Only update to dirty on actual error
+                        this.updateFileStatus("dirty");
                     });
             } catch (error) {
                 console.error("Error triggering sync:", error);
-                this.updateFileStatus();
+                this.updateFileStatus("dirty");
             }
         }
     }

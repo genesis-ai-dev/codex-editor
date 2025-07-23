@@ -438,14 +438,38 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     public async save(cancellation: vscode.CancellationToken): Promise<void> {
-        const text = JSON.stringify(this._documentData, null, 2);
-        await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(text));
+        const currentFileContent = await this.readCurrentFileContent();
+        if (!currentFileContent) {
+            throw new Error("Could not read current file content for merge");
+        }
+        const ourContent = JSON.stringify(this._documentData, null, 2);
+
+        const { resolveCodexCustomMerge } = await import("../../projectManager/utils/merge/resolvers");
+        const mergedContent = await resolveCodexCustomMerge(ourContent, currentFileContent);
+        await vscode.workspace.fs.writeFile(this.uri, new TextEncoder().encode(mergedContent));
+
 
         // IMMEDIATE AI LEARNING - Update all cells with content to ensure validation changes are persisted
         await this.syncAllCellsToDatabase();
 
         this._edits = []; // Clear edits after saving
         this._isDirty = false; // Reset dirty flag
+    }
+
+    /**
+     * Reads the current content of the file from disk
+     * Returns null if the file doesn't exist or there's an error reading it
+     */
+    private async readCurrentFileContent(): Promise<string | null> {
+        try {
+            const fileData = await vscode.workspace.fs.readFile(this.uri);
+            const decoder = new TextDecoder("utf-8");
+            return decoder.decode(fileData);
+        } catch (error) {
+            // File might not exist yet (new file) or there might be a read error
+            console.log("[CodexDocument] Could not read current file content:", error);
+            return null;
+        }
     }
 
     public async saveAs(
@@ -462,6 +486,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             this._isDirty = false; // Reset dirty flag
         }
     }
+
 
     public async revert(cancellation?: vscode.CancellationToken): Promise<void> {
         const diskContent = await vscode.workspace.fs.readFile(this.uri);

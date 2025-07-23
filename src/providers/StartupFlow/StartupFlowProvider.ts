@@ -1430,29 +1430,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Fetching projects sync status");
                 try {
                     // Get workspace folders to check local repositories
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
                     const localRepos = new Set<string>();
 
-                    if (workspaceFolders) {
-                        // Get all git repositories in the workspace
-                        const gitExtension = vscode.extensions.getExtension("vscode.git")?.exports;
-                        const git = gitExtension?.getAPI(1);
-
-                        if (git) {
-                            const repositories = git.repositories;
-                            for (const repo of repositories) {
-                                try {
-                                    // Get remote URL
-                                    const remoteUrl = await repo.getConfig("remote.origin.url");
-                                    if (remoteUrl) {
-                                        localRepos.add(remoteUrl.value);
-                                    }
-                                } catch (error) {
-                                    debugLog("Error getting remote URL for repo:", error);
-                                }
-                            }
-                        }
-                    }
 
                     // Get GitLab projects
                     const projects = (await this.frontierApi?.listProjects(false)) || [];
