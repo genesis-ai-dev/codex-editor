@@ -8,7 +8,7 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
 
-const DEBUG_MODE = false;
+const DEBUG_MODE = true;
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Resolvers]", ...args);
@@ -677,7 +677,7 @@ export async function resolveConflictFiles(
     const authApi = getAuthApi();
     if (authApi && resolvedFiles.length > 0) {
         try {
-            await authApi.completeMerge(resolvedFiles);
+            await authApi.completeMerge(resolvedFiles, workspaceDir);
         } catch (e) {
             console.error("Failed to complete merge:", e);
             vscode.window.showErrorMessage("Failed to complete merge after resolving conflicts");

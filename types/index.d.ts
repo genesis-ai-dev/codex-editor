@@ -359,7 +359,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "startup.dismiss"; }
     | { command: "webview.ready"; }
     | { command: "navigateToMainMenu"; }
-    | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; };
+    | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
+    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; };
 
 export type GitLabProject = {
     id: number;

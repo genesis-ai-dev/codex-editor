@@ -114,7 +114,7 @@ export async function stageAndCommitAllAndSync(
 
             const resolvedFiles = await resolveConflictFiles(conflicts, workspaceFolder);
             if (resolvedFiles.length > 0) {
-                await authApi.completeMerge(resolvedFiles);
+                await authApi.completeMerge(resolvedFiles, undefined);
                 console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
             }
         }

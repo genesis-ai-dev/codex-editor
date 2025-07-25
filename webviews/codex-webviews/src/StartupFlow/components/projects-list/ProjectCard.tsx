@@ -277,6 +277,26 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                         Delete
                                     </Button>
                                 )}
+                                {(project.syncStatus === "downloadedAndSynced" ||
+                                    project.syncStatus === "error") && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                            vscode.postMessage({
+                                                command: "project.heal",
+                                                projectName: project.name,
+                                                projectPath: project.path,
+                                                gitOriginUrl: project.gitOriginUrl,
+                                            });
+                                        }}
+                                        className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
+                                        title="Heal project by backing up, re-cloning, and merging local changes"
+                                    >
+                                        <i className="codicon codicon-wand mr-1" />
+                                        Heal
+                                    </Button>
+                                )}
                             </div>
                         </div>
                     )}

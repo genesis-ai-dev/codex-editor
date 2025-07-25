@@ -285,7 +285,7 @@ export interface FrontierAPI {
             owner: string;
         }>
     >;
-    cloneRepository: (repositoryUrl: string, cloneToPath?: string) => Promise<boolean>;
+    cloneRepository: (repositoryUrl: string, cloneToPath?: string, openWorkspace?: boolean) => Promise<boolean>;
     publishWorkspace: (options?: {
         name: string;
         description?: string;
@@ -297,12 +297,12 @@ export interface FrontierAPI {
         username: string;
     }>;
     getLlmEndpoint: () => Promise<string | undefined>;
-    syncChanges: (options?: { commitMessage?: string }) => Promise<{
+    syncChanges: (options?: { commitMessage?: string; }) => Promise<{
         hasConflicts: boolean;
         conflicts?: Array<ConflictFile>;
         offline?: boolean;
     }>;
-    completeMerge: (resolvedFiles: ResolvedFile[]) => Promise<void>;
+    completeMerge: (resolvedFiles: ResolvedFile[], workspacePath: string | undefined) => Promise<void>;
 
     // Progress reporting API methods
     submitProgressReport: (report: ProjectProgressReport) => Promise<{
