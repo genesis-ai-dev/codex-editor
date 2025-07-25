@@ -1173,6 +1173,26 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
     }
 
+    // Helper function to detect binary files
+    private isBinaryFile(filePath: string): boolean {
+        const binaryExtensions = [
+            // Audio formats
+            '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm', '.opus', '.amr', '.3gp',
+            // Video formats
+            '.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg',
+            // Image formats
+            '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.svg', '.webp',
+            // Document formats
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            // Archive formats
+            '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2',
+            // Other binary formats
+            '.exe', '.dll', '.so', '.dylib', '.bin', '.dat'
+        ];
+        const ext = path.extname(filePath).toLowerCase();
+        return binaryExtensions.includes(ext);
+    }
+
     private async handleMessage(
         message:
             | MessagesToStartupFlowProvider
@@ -1883,8 +1903,16 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // Import the type separately
                                 type ConflictFile = import("../../projectManager/utils/merge/types").ConflictFile;
 
+                                // Enhanced ConflictFile type to handle binary files
+                                interface EnhancedConflictFile extends Omit<ConflictFile, 'ours' | 'theirs' | 'base'> {
+                                    ours: string | Uint8Array;
+                                    theirs: string | Uint8Array;
+                                    base: string | Uint8Array;
+                                    isBinary?: boolean;
+                                }
+
                                 // Get list of files from temp folder to merge
-                                const conflicts: ConflictFile[] = [];
+                                const conflicts: EnhancedConflictFile[] = [];
 
                                 const collectConflicts = async (tempUri: vscode.Uri, relativePath: string = "") => {
                                     try {
@@ -1910,38 +1938,64 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                                 try {
                                                     // Read content from temp file
                                                     const tempContent = await vscode.workspace.fs.readFile(tempEntryUri);
-                                                    const tempContentStr = Buffer.from(tempContent).toString('utf8');
+                                                    const isBinary = this.isBinaryFile(relativeFilePath);
 
                                                     // Check if file exists in newly cloned project
                                                     const clonedFileUri = vscode.Uri.joinPath(clonedProjectUri, relativeFilePath);
-                                                    let clonedContentStr = "";
+                                                    let clonedContent: Uint8Array | undefined;
                                                     let fileExists = true;
 
                                                     try {
-                                                        const clonedContent = await vscode.workspace.fs.readFile(clonedFileUri);
-                                                        clonedContentStr = Buffer.from(clonedContent).toString('utf8');
+                                                        clonedContent = await vscode.workspace.fs.readFile(clonedFileUri);
                                                     } catch {
                                                         fileExists = false;
                                                     }
 
-                                                    debugLog("Collected conflict:", {
-                                                        filepath: relativeFilePath,
-                                                        ours: tempContentStr.substring(0, 100) + (tempContentStr.length > 100 ? '...' : ''),  // Show only first 100 chars
-                                                        theirs: clonedContentStr.substring(0, 100) + (clonedContentStr.length > 100 ? '...' : ''),  // Show only first 100 chars
-                                                        base: "",
-                                                        isNew: !fileExists,
-                                                        isDeleted: false
-                                                    });
+                                                    if (isBinary) {
+                                                        // Handle binary files - keep as raw bytes
+                                                        debugLog("Collected binary conflict:", {
+                                                            filepath: relativeFilePath,
+                                                            ours: `<binary file ${tempContent.length} bytes>`,
+                                                            theirs: clonedContent ? `<binary file ${clonedContent.length} bytes>` : "<not found>",
+                                                            isNew: !fileExists,
+                                                            isDeleted: false,
+                                                            isBinary: true
+                                                        });
 
-                                                    // Create conflict entry
-                                                    conflicts.push({
-                                                        filepath: relativeFilePath.replace(/\\/g, '/'), // Normalize path separators
-                                                        ours: tempContentStr,  // Our local changes
-                                                        theirs: clonedContentStr,  // Remote version
-                                                        base: "",  // No base version in this case
-                                                        isNew: !fileExists,
-                                                        isDeleted: false
-                                                    });
+                                                        conflicts.push({
+                                                            filepath: relativeFilePath.replace(/\\/g, '/'),
+                                                            ours: tempContent,  // Keep as Uint8Array
+                                                            theirs: clonedContent || new Uint8Array(),  // Keep as Uint8Array
+                                                            base: new Uint8Array(),
+                                                            isNew: !fileExists,
+                                                            isDeleted: false,
+                                                            isBinary: true
+                                                        });
+                                                    } else {
+                                                        // Handle text files - convert to strings
+                                                        const tempContentStr = Buffer.from(tempContent).toString('utf8');
+                                                        const clonedContentStr = clonedContent ? Buffer.from(clonedContent).toString('utf8') : "";
+
+                                                        debugLog("Collected text conflict:", {
+                                                            filepath: relativeFilePath,
+                                                            ours: tempContentStr.substring(0, 100) + (tempContentStr.length > 100 ? '...' : ''),
+                                                            theirs: clonedContentStr.substring(0, 100) + (clonedContentStr.length > 100 ? '...' : ''),
+                                                            base: "",
+                                                            isNew: !fileExists,
+                                                            isDeleted: false,
+                                                            isBinary: false
+                                                        });
+
+                                                        conflicts.push({
+                                                            filepath: relativeFilePath.replace(/\\/g, '/'),
+                                                            ours: tempContentStr,  // String content
+                                                            theirs: clonedContentStr,  // String content
+                                                            base: "",
+                                                            isNew: !fileExists,
+                                                            isDeleted: false,
+                                                            isBinary: false
+                                                        });
+                                                    }
                                                 } catch (fileError) {
                                                     debugLog(`Error processing file ${relativeFilePath}:`, fileError);
                                                     console.error(`Error processing file ${relativeFilePath}:`, fileError);
@@ -2049,7 +2103,15 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                             if (conflict.isNew || conflict.ours !== conflict.theirs) {
                                                 // Write our version (from temp) to the cloned project
                                                 debugLog(`Writing file: ${conflict.filepath}`);
-                                                await vscode.workspace.fs.writeFile(filePath, Buffer.from(conflict.ours, 'utf8'));
+
+                                                // Handle both binary and text files
+                                                if (conflict.isBinary) {
+                                                    // Write binary files directly
+                                                    await vscode.workspace.fs.writeFile(filePath, conflict.ours as Uint8Array);
+                                                } else {
+                                                    // Write text files with UTF-8 encoding
+                                                    await vscode.workspace.fs.writeFile(filePath, Buffer.from(conflict.ours as string, 'utf8'));
+                                                }
                                             } else {
                                                 debugLog(`Skipping unchanged file: ${conflict.filepath}`);
                                             }
