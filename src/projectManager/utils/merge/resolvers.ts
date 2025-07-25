@@ -8,7 +8,7 @@ import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
 
-const DEBUG_MODE = true;
+const DEBUG_MODE = false;
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Resolvers]", ...args);

@@ -125,7 +125,7 @@ type StartupFlowEvent =
         type: StartupFlowEvents.PROJECT_MISSING_CRITICAL_DATA;
     };
 
-const DEBUG_MODE = true; // Set to true to enable debug logging
+const DEBUG_MODE = false; // Set to true to enable debug logging
 
 function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
