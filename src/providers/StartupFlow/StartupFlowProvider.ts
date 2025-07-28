@@ -1894,6 +1894,33 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                         },
                         async (progress) => {
                             try {
+                                // Check if frontier extension is available and at required version
+                                const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+                                if (!frontierExtension) {
+                                    throw new Error("Frontier Authentication extension is not installed. Please install it to use the heal feature.");
+                                }
+
+                                const requiredVersion = "0.4.11";
+                                const currentVersion = frontierExtension.packageJSON.version;
+
+                                // Simple version comparison (assumes semantic versioning)
+                                const compareVersions = (current: string, required: string): number => {
+                                    const currentParts = current.split('.').map(Number);
+                                    const requiredParts = required.split('.').map(Number);
+
+                                    for (let i = 0; i < Math.max(currentParts.length, requiredParts.length); i++) {
+                                        const currentPart = currentParts[i] || 0;
+                                        const requiredPart = requiredParts[i] || 0;
+
+                                        if (currentPart > requiredPart) return 1;
+                                        if (currentPart < requiredPart) return -1;
+                                    }
+                                    return 0;
+                                };
+
+                                if (compareVersions(currentVersion, requiredVersion) < 0) {
+                                    throw new Error(`Frontier Authentication extension version ${requiredVersion} or later is required. Current version: ${currentVersion}. Please update the extension.`);
+                                }
                                 // Step 1: Create backup
                                 progress.report({ increment: 10, message: "Creating backup..." });
 
