@@ -1871,7 +1871,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 const yesConfirm = "Yes, Heal Project";
 
-                let confirm = await vscode.window.showWarningMessage(
+                const confirm = await vscode.window.showWarningMessage(
                     `This will heal the project "${projectName}" by:\n\n` +
                     "1. Creating a backup ZIP\n" +
                     "2. Saving your local changes temporarily\n" +
