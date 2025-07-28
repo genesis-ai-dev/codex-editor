@@ -834,6 +834,30 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         return temp.textContent || temp.innerText || "";
     };
 
+    // Function to get clean text from selection, excluding footnote markers
+    const getCleanTextFromSelection = (selection: any): string => {
+        if (!quillRef.current || !selection || selection.length === 0) {
+            return "";
+        }
+
+        const quill = quillRef.current;
+        
+        // Get the HTML content of the selection
+        const htmlContent = quill.getSemanticHTML(selection.index, selection.length);
+        
+        // Create a temporary div to parse the HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent;
+        
+        // Remove all footnote markers from the content
+        tempDiv.querySelectorAll('sup.footnote-marker').forEach(marker => {
+            marker.remove();
+        });
+        
+        // Return the clean text content
+        return (tempDiv.textContent || tempDiv.innerText || '').trim();
+    };
+
     // Add function to generate diff HTML
     const generateDiffHtml = (oldText: string, newText: string): string => {
         // Strip HTML from both texts before comparing
@@ -882,10 +906,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
             // Check if there's selected text
             if (selection.length > 0) {
-                // Get the selected text and trim trailing spaces
-                selectedText = quill.getText(selection.index, selection.length);
-                const trimmedText = selectedText.trimEnd();
-                const spacesRemoved = selectedText.length - trimmedText.length;
+                // Get clean text from selection, excluding any footnote markers
+                // This handles the case where selected text contains existing footnotes
+                const cleanedText = getCleanTextFromSelection(selection);
+                
+                const trimmedText = cleanedText.trimEnd();
+                const spacesRemoved = cleanedText.length - trimmedText.length;
                 selectedText = trimmedText;
 
                 // Adjust cursor position to account for removed trailing spaces
