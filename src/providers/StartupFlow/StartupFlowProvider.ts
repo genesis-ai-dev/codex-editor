@@ -1193,6 +1193,159 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         return binaryExtensions.includes(ext);
     }
 
+    /**
+     * Generate timestamp string for file naming
+     */
+    private generateTimestamp(): string {
+        return new Date().toISOString().replace(/[:.]/g, "-");
+    }
+
+    /**
+     * Recursively add files to a JSZip instance
+     * @param currentUri - The directory to add files from
+     * @param zipFolder - The JSZip folder to add files to
+     * @param options - Options for filtering files
+     */
+    private async addFilesToZip(
+        currentUri: vscode.Uri,
+        zipFolder: JSZip,
+        options: { excludeGit?: boolean; } = { excludeGit: true }
+    ): Promise<void> {
+        const entries = await vscode.workspace.fs.readDirectory(currentUri);
+
+        for (const [name, type] of entries) {
+            // Skip .git folder based on options
+            if (name === ".git" && options.excludeGit) {
+                continue;
+            }
+
+            const entryUri = vscode.Uri.joinPath(currentUri, name);
+
+            if (type === vscode.FileType.File) {
+                const fileData = await vscode.workspace.fs.readFile(entryUri);
+                zipFolder.file(name, fileData);
+            } else if (type === vscode.FileType.Directory) {
+                const newFolder = zipFolder.folder(name);
+                if (newFolder) {
+                    await this.addFilesToZip(entryUri, newFolder, options);
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively copy files from source to destination
+     * @param sourceUri - Source directory
+     * @param destUri - Destination directory
+     * @param options - Options for filtering files
+     */
+    private async copyDirectory(
+        sourceUri: vscode.Uri,
+        destUri: vscode.Uri,
+        options: { excludeGit?: boolean; excludePatterns?: string[]; } = { excludeGit: true }
+    ): Promise<void> {
+        const entries = await vscode.workspace.fs.readDirectory(sourceUri);
+
+        for (const [name, type] of entries) {
+            // Skip .git folder based on options
+            if (name === ".git" && options.excludeGit) {
+                continue;
+            }
+
+            // Skip based on exclude patterns
+            if (options.excludePatterns?.some(pattern => name.match(pattern))) {
+                continue;
+            }
+
+            const sourceEntryUri = vscode.Uri.joinPath(sourceUri, name);
+            const destEntryUri = vscode.Uri.joinPath(destUri, name);
+
+            if (type === vscode.FileType.File) {
+                const fileData = await vscode.workspace.fs.readFile(sourceEntryUri);
+                await vscode.workspace.fs.writeFile(destEntryUri, fileData);
+            } else if (type === vscode.FileType.Directory) {
+                await vscode.workspace.fs.createDirectory(destEntryUri);
+                await this.copyDirectory(sourceEntryUri, destEntryUri, options);
+            }
+        }
+    }
+
+    /**
+     * Create a directory with proper error handling
+     * @param dirUri - Directory URI to create
+     * @returns true if created or already exists, false on error
+     */
+    private async ensureDirectoryExists(dirUri: vscode.Uri): Promise<boolean> {
+        try {
+            await vscode.workspace.fs.createDirectory(dirUri);
+            return true;
+        } catch (error) {
+            // Check if directory already exists
+            try {
+                await vscode.workspace.fs.stat(dirUri);
+                return true; // Directory already exists
+            } catch {
+                debugLog(`Failed to create directory: ${dirUri.fsPath}`, error);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Create a backup zip of a project
+     * @param projectPath - Path to the project
+     * @param projectName - Name of the project
+     * @param includeGit - Whether to include .git folder
+     * @returns URI of the created backup zip
+     */
+    private async createProjectBackup(
+        projectPath: string,
+        projectName: string,
+        includeGit: boolean = false
+    ): Promise<vscode.Uri> {
+        const timestamp = this.generateTimestamp();
+        const codexProjectsDir = await getCodexProjectsDirectory();
+        const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsDir, "archived_projects");
+
+        // Ensure archived_projects directory exists
+        await this.ensureDirectoryExists(archivedProjectsDir);
+
+        // Create backup zip
+        const backupFileName = `${projectName}_backup_${timestamp}.zip`;
+        const backupUri = vscode.Uri.joinPath(archivedProjectsDir, backupFileName);
+
+        // Create JSZip instance
+        const zip = new JSZip();
+
+        // Add project files to zip
+        const projectUri = vscode.Uri.file(projectPath);
+        await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
+
+        // Generate and save zip
+        const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+        await vscode.workspace.fs.writeFile(backupUri, zipContent);
+
+        return backupUri;
+    }
+
+    /**
+     * Write file content with proper handling for binary vs text files
+     * @param fileUri - The file URI to write to
+     * @param content - The content to write (string for text, Uint8Array for binary)
+     * @param isBinary - Whether the file is binary
+     */
+    private async writeFileContent(
+        fileUri: vscode.Uri,
+        content: string | Uint8Array,
+        isBinary: boolean
+    ): Promise<void> {
+        if (isBinary) {
+            await vscode.workspace.fs.writeFile(fileUri, content as Uint8Array);
+        } else {
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content as string, 'utf8'));
+        }
+    }
+
     private async handleMessage(
         message:
             | MessagesToStartupFlowProvider
@@ -1515,7 +1668,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         await vscode.workspace.fs.stat(projectDir);
                         // If we get here, the directory exists
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                        const timestamp = this.generateTimestamp();
                         const newProjectName = `${projectName}-${timestamp}`;
                         projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
                     } catch {
@@ -1678,34 +1831,9 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Create JSZip instance
                             const zip = new JSZip();
 
-                            // Recursive function to add files and folders to zip
-                            async function addToZip(currentUri: vscode.Uri, zipFolder: JSZip) {
-                                const entries = await vscode.workspace.fs.readDirectory(currentUri);
-
-                                for (const [name, type] of entries) {
-                                    // Skip .git folder unless includeGit is true
-                                    if (name === ".git" && !includeGit) {
-                                        continue;
-                                    }
-
-                                    const entryUri = vscode.Uri.joinPath(currentUri, name);
-
-                                    if (type === vscode.FileType.File) {
-                                        const fileData =
-                                            await vscode.workspace.fs.readFile(entryUri);
-                                        zipFolder.file(name, fileData);
-                                    } else if (type === vscode.FileType.Directory) {
-                                        const newFolder = zipFolder.folder(name);
-                                        if (newFolder) {
-                                            await addToZip(entryUri, newFolder);
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Start adding files from the project root
-                            const projectUri = vscode.Uri.file(message.projectPath);
-                            await addToZip(projectUri, zip);
+                            // Use shared method to add files to zip
+                            const projectUri = vscode.Uri.file(projectPath);
+                            await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
 
                             progress.report({ increment: 50 });
 
@@ -1719,7 +1847,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                     const gitMessage = includeGit ? " (including git history)" : "";
                     vscode.window.showInformationMessage(
-                        `Project "${message.projectName}" has been zipped successfully${gitMessage}!`
+                        `Project "${projectName}" has been zipped successfully${gitMessage}!`
                     );
                 } catch (error) {
                     debugLog("Error zipping project:", error);
@@ -1769,91 +1897,25 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                 // Step 1: Create backup
                                 progress.report({ increment: 10, message: "Creating backup..." });
 
-                                const codexProjectsDir = await getCodexProjectsDirectory();
-                                const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsDir, "archived_projects");
-
-                                // Ensure archived_projects directory exists
-                                try {
-                                    await vscode.workspace.fs.createDirectory(archivedProjectsDir);
-                                } catch {
-                                    // Directory might already exist
-                                }
-
-                                // Create backup zip
-                                const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-                                const backupFileName = `${projectName}_backup_${timestamp}.zip`;
-                                const backupUri = vscode.Uri.joinPath(archivedProjectsDir, backupFileName);
-
-                                // Create JSZip instance for backup
-                                const zip = new JSZip();
-
-                                // Recursive function to add files to zip
-                                const addToZip = async (currentUri: vscode.Uri, zipFolder: JSZip) => {
-                                    const entries = await vscode.workspace.fs.readDirectory(currentUri);
-
-                                    for (const [name, type] of entries) {
-                                        // Skip .git folder in backup
-                                        if (name === ".git") {
-                                            continue;
-                                        }
-
-                                        const entryUri = vscode.Uri.joinPath(currentUri, name);
-
-                                        if (type === vscode.FileType.File) {
-                                            const fileData = await vscode.workspace.fs.readFile(entryUri);
-                                            zipFolder.file(name, fileData);
-                                        } else if (type === vscode.FileType.Directory) {
-                                            const newFolder = zipFolder.folder(name);
-                                            if (newFolder) {
-                                                await addToZip(entryUri, newFolder);
-                                            }
-                                        }
-                                    }
-                                };
-
-                                // Add project files to backup zip
-                                const projectUri = vscode.Uri.file(projectPath);
-                                await addToZip(projectUri, zip);
-
-                                // Generate and save backup zip
-                                const zipContent = await zip.generateAsync({ type: "nodebuffer" });
-                                await vscode.workspace.fs.writeFile(backupUri, zipContent);
+                                const backupUri = await this.createProjectBackup(projectPath, projectName, false);
+                                const backupFileName = path.basename(backupUri.fsPath);
 
                                 debugLog(`Backup created at: ${backupUri.fsPath}`);
 
                                 // Step 2: Copy files to temporary folder
                                 progress.report({ increment: 20, message: "Saving local changes..." });
 
+                                const timestamp = this.generateTimestamp();
+                                const codexProjectsDir = await getCodexProjectsDirectory();
                                 const tempFolderName = `${projectName}_temp_${timestamp}`;
                                 const tempFolderUri = vscode.Uri.joinPath(codexProjectsDir, tempFolderName);
 
                                 // Create temp directory
                                 await vscode.workspace.fs.createDirectory(tempFolderUri);
 
-                                // Copy all files except .git to temp folder
-                                const copyToTemp = async (sourceUri: vscode.Uri, destUri: vscode.Uri) => {
-                                    const entries = await vscode.workspace.fs.readDirectory(sourceUri);
-
-                                    for (const [name, type] of entries) {
-                                        // Skip .git folder
-                                        if (name === ".git") {
-                                            continue;
-                                        }
-
-                                        const sourceEntryUri = vscode.Uri.joinPath(sourceUri, name);
-                                        const destEntryUri = vscode.Uri.joinPath(destUri, name);
-
-                                        if (type === vscode.FileType.File) {
-                                            const fileData = await vscode.workspace.fs.readFile(sourceEntryUri);
-                                            await vscode.workspace.fs.writeFile(destEntryUri, fileData);
-                                        } else if (type === vscode.FileType.Directory) {
-                                            await vscode.workspace.fs.createDirectory(destEntryUri);
-                                            await copyToTemp(sourceEntryUri, destEntryUri);
-                                        }
-                                    }
-                                };
-
-                                await copyToTemp(projectUri, tempFolderUri);
+                                // Use shared copy method
+                                const projectUri = vscode.Uri.file(projectPath);
+                                await this.copyDirectory(projectUri, tempFolderUri, { excludeGit: true });
                                 debugLog(`Temporary files saved to: ${tempFolderUri.fsPath}`);
 
                                 // Step 3: Delete the unhealthy project
@@ -2069,25 +2131,13 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                         const dir = sortedDirs[i];
                                         debugLog(`Creating directory ${i + 1}/${sortedDirs.length}: ${dir}`);
 
-                                        try {
-                                            const dirUri = vscode.Uri.joinPath(clonedProjectUri, ...dir.split(path.sep));
-                                            debugLog(`Directory URI: ${dirUri.fsPath}`);
-                                            await vscode.workspace.fs.createDirectory(dirUri);
-                                            debugLog(`Successfully created directory: ${dir}`);
-                                        } catch (error) {
-                                            // Directory might already exist, which is fine
-                                            const errorMessage = error instanceof Error ? error.message : String(error);
-                                            debugLog(`Failed to create directory: ${dir}, error: ${errorMessage}`);
+                                        const dirUri = vscode.Uri.joinPath(clonedProjectUri, ...dir.split(path.sep));
+                                        const created = await this.ensureDirectoryExists(dirUri);
 
-                                            // Check if directory exists
-                                            try {
-                                                const dirUri = vscode.Uri.joinPath(clonedProjectUri, ...dir.split(path.sep));
-                                                await vscode.workspace.fs.stat(dirUri);
-                                                debugLog(`Directory already exists: ${dir}`);
-                                            } catch (statError) {
-                                                debugLog(`Directory does not exist and could not be created: ${dir}`);
-                                                console.error(`Critical error: Cannot create directory ${dir}:`, error);
-                                            }
+                                        if (created) {
+                                            debugLog(`Successfully created or verified directory: ${dir}`);
+                                        } else {
+                                            console.error(`Critical error: Cannot create directory ${dir}`);
                                         }
                                     }
 
@@ -2103,15 +2153,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                                             if (conflict.isNew || conflict.ours !== conflict.theirs) {
                                                 // Write our version (from temp) to the cloned project
                                                 debugLog(`Writing file: ${conflict.filepath}`);
-
-                                                // Handle both binary and text files
-                                                if (conflict.isBinary) {
-                                                    // Write binary files directly
-                                                    await vscode.workspace.fs.writeFile(filePath, conflict.ours as Uint8Array);
-                                                } else {
-                                                    // Write text files with UTF-8 encoding
-                                                    await vscode.workspace.fs.writeFile(filePath, Buffer.from(conflict.ours as string, 'utf8'));
-                                                }
+                                                await this.writeFileContent(filePath, conflict.ours, conflict.isBinary || false);
                                             } else {
                                                 debugLog(`Skipping unchanged file: ${conflict.filepath}`);
                                             }
