@@ -1321,8 +1321,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         const projectUri = vscode.Uri.file(projectPath);
         await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
 
-        // Generate and save zip
-        const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+        // Generate and save zip with compression
+        const zipContent = await zip.generateAsync({
+            type: "nodebuffer",
+            compression: "DEFLATE",
+            compressionOptions: {
+                level: 9 // Maximum compression (1-9)
+            }
+        });
         await vscode.workspace.fs.writeFile(backupUri, zipContent);
 
         return backupUri;
@@ -1836,8 +1842,14 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                             progress.report({ increment: 50 });
 
-                            // Generate zip content and write directly to target location
-                            const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+                            // Generate zip content with compression and write directly to target location
+                            const zipContent = await zip.generateAsync({
+                                type: "nodebuffer",
+                                compression: "DEFLATE",
+                                compressionOptions: {
+                                    level: 9 // Maximum compression (1-9)
+                                }
+                            });
                             await vscode.workspace.fs.writeFile(saveUri, zipContent);
 
                             progress.report({ increment: 100 });
