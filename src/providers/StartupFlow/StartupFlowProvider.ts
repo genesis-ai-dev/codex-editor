@@ -1756,8 +1756,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const confirmResult = await vscode.window.showWarningMessage(
                         confirmMessage,
                         { modal: true },
-                        actionButtonText,
-                        "Cancel"
+                        actionButtonText
                     );
 
                     if (confirmResult === actionButtonText) {
@@ -1872,7 +1871,6 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
 
                 const yesConfirm = "Yes, Heal Project";
 
-                // Try modal dialog first (stays on top and blocks other interactions)
                 let confirm = await vscode.window.showWarningMessage(
                     `This will heal the project "${projectName}" by:\n\n` +
                     "1. Creating a backup ZIP\n" +
@@ -1881,18 +1879,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     "4. Merging your local changes back\n\n" +
                     "This process may take several minutes. Continue?",
                     { modal: true },
-                    yesConfirm,
-                    "Cancel"
+                    yesConfirm
                 );
-
-                // Fallback to regular dialog if modal returned undefined
-                if (confirm === undefined) {
-                    confirm = await vscode.window.showWarningMessage(
-                        `Heal project "${projectName}"? This process may take several minutes.`,
-                        yesConfirm,
-                        "Cancel"
-                    );
-                }
 
                 if (confirm !== yesConfirm) {
                     return;
