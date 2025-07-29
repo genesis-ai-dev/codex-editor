@@ -10,6 +10,7 @@ import fs from "fs";
 import http from "isomorphic-git/http/web";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
+import { CommentsMigrator } from "../utils/commentsMigrationUtils";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -227,6 +228,27 @@ export class SyncManager {
             this.notifySyncStatusListeners();
             updateSplashScreenSync(60, this.currentSyncStage);
 
+            // Migrate comments before sync if needed
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                const needsMigration = await CommentsMigrator.needsMigration(workspaceFolders[0].uri);
+                const inSourceControl = await CommentsMigrator.areCommentsFilesInSourceControl(workspaceFolders[0].uri);
+
+                if (needsMigration && inSourceControl) {
+                    this.currentSyncStage = "Migrating legacy comments...";
+                    this.notifySyncStatusListeners();
+                    updateSplashScreenSync(65, this.currentSyncStage);
+
+                    try {
+                        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
+                        console.log("[SyncManager] Pre-sync migration completed");
+                    } catch (error) {
+                        console.error("[SyncManager] Error during pre-sync migration:", error);
+                        // Don't fail sync due to migration errors
+                    }
+                }
+            }
+
             // Sync all changes in background
             this.currentSyncStage = "Synchronizing changes...";
             this.notifySyncStatusListeners();
@@ -241,6 +263,26 @@ export class SyncManager {
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;
             console.log(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
+
+            // Migrate comments after sync if new legacy files were pulled
+            if (workspaceFolders && workspaceFolders.length > 0) {
+                const needsPostSyncMigration = await CommentsMigrator.needsMigration(workspaceFolders[0].uri);
+                const inSourceControl = await CommentsMigrator.areCommentsFilesInSourceControl(workspaceFolders[0].uri);
+
+                if (needsPostSyncMigration && inSourceControl) {
+                    this.currentSyncStage = "Cleaning up legacy files...";
+                    this.notifySyncStatusListeners();
+                    updateSplashScreenSync(95, this.currentSyncStage);
+
+                    try {
+                        await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
+                        console.log("[SyncManager] Post-sync migration completed");
+                    } catch (error) {
+                        console.error("[SyncManager] Error during post-sync migration:", error);
+                        // Don't fail sync completion due to migration errors
+                    }
+                }
+            }
 
             // Update sync stage and splash screen
             this.currentSyncStage = "Synchronization complete!";

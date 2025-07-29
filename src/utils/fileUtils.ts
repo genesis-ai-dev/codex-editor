@@ -111,6 +111,26 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
         const rawComments = JSON.parse(fileContent);
 
+        // Check if structural migration is needed and trigger it
+        const { CommentsMigrator } = await import("./commentsMigrationUtils");
+        const needsStructuralMigration = CommentsMigrator.needsStructuralMigration(rawComments);
+
+        if (needsStructuralMigration) {
+            console.log("[getCommentsFromFile] Structural migration needed, triggering migration");
+            try {
+                // Trigger async migration but don't wait for it to complete
+                CommentsMigrator.migrateProjectComments(workspaceUri).then(migrationOccurred => {
+                    if (migrationOccurred) {
+                        console.log("[getCommentsFromFile] Triggered structural migration successfully");
+                    }
+                }).catch(error => {
+                    console.error("[getCommentsFromFile] Error during triggered migration:", error);
+                });
+            } catch (error) {
+                console.error("[getCommentsFromFile] Error triggering migration:", error);
+            }
+        }
+
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Always clean up legacy fields when reading
         const cleanedComments = rawComments.map((thread: any) => {

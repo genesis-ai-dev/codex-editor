@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment } from "../../../types";
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
+import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import { Uri, window, workspace } from "vscode";
 import { BaseWebviewProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
@@ -73,7 +74,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             }
 
             // Check for and migrate legacy file-comments.json if it exists
-            await this.migrateLegacyFileComments(folders[0].uri, projectDir);
+            await CommentsMigrator.migrateProjectComments(folders[0].uri);
 
             // Then check/create comments file
             try {
@@ -94,163 +95,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
-    /**
-     * Migrates legacy file-comments.json to .project/comments.json and deletes the old file
-     */
-    private async migrateLegacyFileComments(workspaceUri: vscode.Uri, projectDir: vscode.Uri): Promise<void> {
-        const legacyFilePath = vscode.Uri.joinPath(workspaceUri, "file-comments.json");
-
-        try {
-            // Check if legacy file exists
-            await vscode.workspace.fs.stat(legacyFilePath);
-            console.log("[CommentsProvider] Found legacy file-comments.json, starting migration");
-
-            // Read legacy file content
-            const legacyFileContent = await vscode.workspace.fs.readFile(legacyFilePath);
-            const fileContentString = new TextDecoder().decode(legacyFileContent).trim();
-
-            // If legacy file is completely empty or just whitespace, delete it
-            if (!fileContentString) {
-                console.log("[CommentsProvider] Legacy file-comments.json is completely empty, deleting");
-                await vscode.workspace.fs.delete(legacyFilePath);
-                return;
-            }
-
-            let legacyComments;
-            try {
-                legacyComments = JSON.parse(fileContentString);
-            } catch (parseError) {
-                console.error("[CommentsProvider] Legacy file-comments.json contains invalid JSON, deleting", parseError);
-                await vscode.workspace.fs.delete(legacyFilePath);
-                return;
-            }
-
-            // If legacy file is empty array, just delete it
-            if (!Array.isArray(legacyComments) || legacyComments.length === 0) {
-                console.log("[CommentsProvider] Legacy file-comments.json is empty array, deleting");
-                await vscode.workspace.fs.delete(legacyFilePath);
-                return;
-            }
-
-            // Read existing comments.json if it exists
-            let existingComments: any[] = [];
-            const newCommentsFilePath = vscode.Uri.joinPath(projectDir, "comments.json");
-
-            try {
-                const existingFileContent = await vscode.workspace.fs.readFile(newCommentsFilePath);
-                existingComments = JSON.parse(new TextDecoder().decode(existingFileContent));
-            } catch (error) {
-                // File doesn't exist yet, which is fine
-                console.log("[CommentsProvider] No existing comments.json found, creating new one with legacy data");
-            }
-
-            // Merge legacy comments with existing ones
-            const mergedComments = this.mergeLegacyComments(existingComments, legacyComments);
-
-            // Write merged comments to new location
-            const mergedContent = JSON.stringify(mergedComments, null, 4);
-            await vscode.workspace.fs.writeFile(newCommentsFilePath, new TextEncoder().encode(mergedContent));
-
-            // Delete legacy file after successful migration
-            await vscode.workspace.fs.delete(legacyFilePath);
-
-            console.log(`[CommentsProvider] Successfully migrated ${legacyComments.length} comment threads from file-comments.json to .project/comments.json`);
-            vscode.window.showInformationMessage(`Migrated ${legacyComments.length} comment threads from old format to new location.`);
-
-        } catch (error) {
-            if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-                // Legacy file doesn't exist, nothing to migrate
-                return;
-            } else {
-                console.error("[CommentsProvider] Error migrating legacy file-comments.json:", error);
-                // Don't throw - we want the rest of initialization to continue
-            }
-        }
-    }
-
-    /**
-     * Merges legacy comments with existing comments, avoiding duplicates
-     */
-    private mergeLegacyComments(existingComments: any[], legacyComments: any[]): any[] {
-        const threadMap = new Map<string, any>();
-
-        // Add existing comments first
-        existingComments.forEach(thread => {
-            threadMap.set(thread.id, thread);
-        });
-
-        // Process and add legacy comments
-        legacyComments.forEach(legacyThread => {
-            // Clean and migrate the legacy thread
-            const migratedThread = this.migrateSingleThread(legacyThread);
-
-            // Check if thread with same ID already exists
-            const existingThread = threadMap.get(migratedThread.id);
-            if (existingThread) {
-                // Merge comments from legacy thread into existing thread
-                const mergedComments = this.mergeCommentsFromThreads(existingThread.comments, migratedThread.comments);
-                existingThread.comments = mergedComments;
-                console.log(`[CommentsProvider] Merged legacy comments into existing thread ${migratedThread.id}`);
-            } else {
-                // Add new thread
-                threadMap.set(migratedThread.id, migratedThread);
-                console.log(`[CommentsProvider] Added new thread from legacy file: ${migratedThread.id}`);
-            }
-        });
-
-        return Array.from(threadMap.values());
-    }
-
-    /**
-     * Migrates a single thread from legacy format to new format
-     */
-    private migrateSingleThread(thread: any): NotebookCommentThread {
-        let result = { ...thread };
-
-        // Remove legacy fields
-        delete result.version;
-        delete result.uri; // Remove redundant uri field
-
-        // Migrate comments if needed
-        if (result.comments) {
-            result.comments = result.comments.map((comment: any, index: number) => {
-                delete comment.contextValue; // Remove legacy contextValue
-                return this.migrateComment(comment, thread.threadTitle, index);
-            });
-        }
-
-        // Convert URIs to relative paths
-        result = this.convertThreadToRelativePaths(result);
-
-        return result;
-    }
-
-    /**
-     * Merges comments from two threads, avoiding duplicates based on body and author
-     */
-    private mergeCommentsFromThreads(existingComments: any[], legacyComments: any[]): any[] {
-        const commentMap = new Map<string, any>();
-        const processedBodies = new Set<string>();
-
-        // Add existing comments first
-        existingComments.forEach(comment => {
-            commentMap.set(comment.id, comment);
-            const key = `${comment.body}|${comment.author.name}`;
-            processedBodies.add(key);
-        });
-
-        // Add legacy comments that don't duplicate existing ones
-        legacyComments.forEach(comment => {
-            const key = `${comment.body}|${comment.author.name}`;
-            if (!processedBodies.has(key) && !commentMap.has(comment.id)) {
-                commentMap.set(comment.id, comment);
-                processedBodies.add(key);
-            }
-        });
-
-        // Sort comments by timestamp
-        return Array.from(commentMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-    }
+    // Legacy migration methods moved to CommentsMigrator utility class
     // ============= END MIGRATION CLEANUP =============
 
     private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
@@ -351,7 +196,40 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             }
         });
 
-        this._context.subscriptions.push(commentsWatcher);
+        // Watch for legacy file-comments.json and trigger migration immediately
+        const legacyCommentsWatcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(vscode.workspace.workspaceFolders![0], "file-comments.json")
+        );
+
+        legacyCommentsWatcher.onDidCreate(async () => {
+            console.log("[CommentsProvider] Legacy file-comments.json detected, triggering migration");
+            try {
+                const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+                if (migrationOccurred) {
+                    console.log("[CommentsProvider] Migration completed after legacy file creation");
+                    // Refresh the webview to show migrated content
+                    this.sendCommentsToWebview(webviewView);
+                }
+            } catch (error) {
+                console.error("[CommentsProvider] Error during legacy file migration:", error);
+            }
+        });
+
+        legacyCommentsWatcher.onDidChange(async () => {
+            console.log("[CommentsProvider] Legacy file-comments.json changed, triggering migration");
+            try {
+                const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+                if (migrationOccurred) {
+                    console.log("[CommentsProvider] Migration completed after legacy file change");
+                    // Refresh the webview to show migrated content
+                    this.sendCommentsToWebview(webviewView);
+                }
+            } catch (error) {
+                console.error("[CommentsProvider] Error during legacy file migration:", error);
+            }
+        });
+
+        this._context.subscriptions.push(commentsWatcher, legacyCommentsWatcher);
 
         // Clean up state store listener when webview is disposed
         webviewView.onDidDispose(() => {
