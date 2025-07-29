@@ -289,19 +289,10 @@ export async function createProjectCommentFiles({
 }: {
     shouldOverWrite?: boolean;
 } = {}) {
-    // Save the notebook using generateFiles
-    const commentsFilePath = `comments.json`;
-    const notebookCommentsFilePath = `file-comments.json`;
-    await generateFile({
-        filepath: commentsFilePath,
-        fileContent: new TextEncoder().encode("[]"),
-        shouldOverWrite,
-    });
-    await generateFile({
-        filepath: notebookCommentsFilePath,
-        fileContent: new TextEncoder().encode("[]"),
-        shouldOverWrite,
-    });
+    // Note: Comments are now stored in .project/comments.json and created by CustomWebviewProvider
+    // This function is kept for backward compatibility but no longer creates files
+    // The actual comments file is created by CustomWebviewProvider.initializeCommentsFile()
+    console.log("[createProjectCommentFiles] Comments file is now managed by CustomWebviewProvider");
 }
 
 export async function importLocalUsfmSourceBible(

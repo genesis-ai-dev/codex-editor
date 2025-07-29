@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread } from "../../../types";
+import { CommentPostMessages, CellIdGlobalState, NotebookCommentThread, NotebookComment } from "../../../types";
 import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { Uri, window, workspace } from "vscode";
@@ -295,30 +295,25 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
                     console.log("[CommentsProvider] Found existing threads:", existingCommentsThreads.length);
 
-                    // NOTE: When the panel fist load the cellId defaults to null but there is no way for the webview to know the uri
-                    if (!message.commentThread.uri) {
-                        console.log("[CommentsProvider] No URI in comment thread, trying to get from cellId");
-                        const uriForCellId = message.commentThread.cellId.uri;
-                        if (!uriForCellId) {
-                            console.error("[CommentsProvider] No URI found for cellId:", message.commentThread.cellId);
-                            vscode.window.showInformationMessage(
-                                `No file found with the cellId: ${message.commentThread.cellId}`
-                            );
-                            return;
-                        }
-                        console.log("[CommentsProvider] Setting URI from cellId:", uriForCellId);
-                        message.commentThread.uri = uriForCellId;
-                        await serializeCommentsToDisk(
-                            existingCommentsThreads,
-                            message.commentThread
+                    // Migrate existing comments if needed before merging
+                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
+
+                    // Validate that cellId has a URI
+                    if (!message.commentThread.cellId.uri) {
+                        console.error("[CommentsProvider] No URI found in cellId:", message.commentThread.cellId);
+                        vscode.window.showInformationMessage(
+                            `No file found with the cellId: ${message.commentThread.cellId}`
                         );
-                    } else {
-                        console.log("[CommentsProvider] URI already present in comment thread:", message.commentThread.uri);
-                        await serializeCommentsToDisk(
-                            existingCommentsThreads,
-                            message.commentThread
-                        );
+                        return;
                     }
+
+                    console.log("[CommentsProvider] Using URI from cellId:", message.commentThread.cellId.uri);
+                    // Convert to relative paths before saving
+                    const threadWithRelativePaths = this.convertThreadToRelativePaths(message.commentThread);
+                    await serializeCommentsToDisk(
+                        migratedExistingThreads,
+                        threadWithRelativePaths
+                    );
                     console.log("[CommentsProvider] Sending updated comments to webview");
                     this.sendCommentsToWebview(this._view!);
                     break;
@@ -326,12 +321,14 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 case "deleteCommentThread": {
                     const commentThreadId = message.commentThreadId;
                     const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    const indexOfCommentToMarkAsDeleted = existingCommentsThreads.findIndex(
+                    // Migrate existing comments if needed before updating
+                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
+                    const indexOfCommentToMarkAsDeleted = migratedExistingThreads.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
                     const commentThreadToMarkAsDeleted =
-                        existingCommentsThreads[indexOfCommentToMarkAsDeleted];
-                    await serializeCommentsToDisk(existingCommentsThreads, {
+                        migratedExistingThreads[indexOfCommentToMarkAsDeleted];
+                    await serializeCommentsToDisk(migratedExistingThreads, {
                         ...commentThreadToMarkAsDeleted,
                         deleted: true,
                         comments: [],
@@ -343,17 +340,19 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const commentId = message.args.commentId;
                     const commentThreadId = message.args.commentThreadId;
                     const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    const threadIndex = existingCommentsThreads.findIndex(
+                    // Migrate existing comments if needed before updating
+                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
+                    const threadIndex = migratedExistingThreads.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
 
                     if (threadIndex !== -1) {
-                        const thread = existingCommentsThreads[threadIndex];
+                        const thread = migratedExistingThreads[threadIndex];
                         const updatedComments = thread.comments.map((comment: any) =>
                             comment.id === commentId ? { ...comment, deleted: true } : comment
                         );
 
-                        await serializeCommentsToDisk(existingCommentsThreads, {
+                        await serializeCommentsToDisk(migratedExistingThreads, {
                             ...thread,
                             comments: updatedComments,
                         });
@@ -366,17 +365,19 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     const commentId = message.args.commentId;
                     const commentThreadId = message.args.commentThreadId;
                     const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    const threadIndex = existingCommentsThreads.findIndex(
+                    // Migrate existing comments if needed before updating
+                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
+                    const threadIndex = migratedExistingThreads.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
 
                     if (threadIndex !== -1) {
-                        const thread = existingCommentsThreads[threadIndex];
+                        const thread = migratedExistingThreads[threadIndex];
                         const updatedComments = thread.comments.map((comment: any) =>
                             comment.id === commentId ? { ...comment, deleted: false } : comment
                         );
 
-                        await serializeCommentsToDisk(existingCommentsThreads, {
+                        await serializeCommentsToDisk(migratedExistingThreads, {
                             ...thread,
                             comments: updatedComments,
                         });
@@ -420,6 +421,178 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
     }
 
+    private generateCommentId(): string {
+        return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    private threadTitleToTimestamp(threadTitle: string): number | null {
+        try {
+            // Parse date string like "7/28/2025, 1:34:46 PM"
+            const date = new Date(threadTitle);
+            if (!isNaN(date.getTime())) {
+                return date.getTime();
+            }
+        } catch (error) {
+            console.log("[CommentsProvider] Failed to parse thread title date:", threadTitle, error);
+        }
+        return null;
+    }
+
+    private migrateComment(comment: any, threadTitle?: string, commentIndex: number = 0): NotebookComment {
+        // If already has string ID and timestamp, it's already migrated
+        if (typeof comment.id === 'string' && typeof comment.timestamp === 'number') {
+            return comment as NotebookComment;
+        }
+
+        // Generate unique ID
+        const newId = this.generateCommentId();
+
+        // Calculate timestamp
+        let timestamp: number;
+        if (comment.timestamp) {
+            timestamp = comment.timestamp;
+        } else if (threadTitle) {
+            const baseTimestamp = this.threadTitleToTimestamp(threadTitle);
+            if (baseTimestamp) {
+                // Add 5ms * (index + 1) to space out comments
+                timestamp = baseTimestamp + (5 * (commentIndex + 1));
+            } else {
+                // Fallback to current time minus some offset
+                timestamp = Date.now() - (1000 * 60 * 60 * 24) - (5 * (commentIndex + 1));
+            }
+        } else {
+            // Ultimate fallback
+            timestamp = Date.now() - (1000 * 60 * 60 * 24) - (5 * (commentIndex + 1));
+        }
+
+        return {
+            id: newId,
+            timestamp,
+            body: comment.body,
+            mode: comment.mode || 1,
+            deleted: comment.deleted || false,
+            author: comment.author || { name: "Unknown" }
+        };
+    }
+
+    private convertToRelativePath(uri: string | undefined): string | undefined {
+        if (!uri) return uri;
+
+        try {
+            // First decode any URL encoding
+            const decodedUri = decodeURIComponent(uri);
+
+            // Extract the path from the file:/// URI
+            let filePath = decodedUri;
+            if (filePath.startsWith('file:///')) {
+                filePath = filePath.substring(8);
+
+                // On Windows, we might have a drive letter like C:
+                // Remove the drive portion to get to the actual path
+                if (/^[a-zA-Z]:/.test(filePath)) {
+                    filePath = filePath.substring(2);
+                }
+            }
+
+            // Find the project folder name in the path
+            // We look for the pattern /.codex-projects/PROJECT_NAME/ or just /PROJECT_NAME/
+            const pathParts = filePath.split('/');
+
+            // Find where .codex-projects appears or where we transition to project content
+            let projectStartIndex = -1;
+            for (let i = 0; i < pathParts.length; i++) {
+                if (pathParts[i] === '.codex-projects' && i + 1 < pathParts.length) {
+                    // Skip .codex-projects and the project name
+                    projectStartIndex = i + 2;
+                    break;
+                } else if (pathParts[i] === 'files' || pathParts[i] === '.project') {
+                    // We found project content, so the previous part was likely the project name
+                    projectStartIndex = i;
+                    break;
+                }
+            }
+
+            if (projectStartIndex > 0 && projectStartIndex < pathParts.length) {
+                // Return the relative path from the project root
+                return pathParts.slice(projectStartIndex).join('/');
+            }
+
+            // If we couldn't parse it properly, return the original
+            console.log("[CommentsProvider] Could not convert to relative path:", uri);
+            return uri;
+        } catch (error) {
+            console.log("[CommentsProvider] Error converting to relative path:", uri, error);
+            return uri;
+        }
+    }
+
+    private convertThreadToRelativePaths(thread: NotebookCommentThread): NotebookCommentThread {
+        return {
+            ...thread,
+            cellId: thread.cellId ? {
+                ...thread.cellId,
+                uri: this.convertToRelativePath(thread.cellId.uri) || thread.cellId.uri
+            } : thread.cellId
+        };
+    }
+
+    private migrateCommentsIfNeeded(threads: any[]): NotebookCommentThread[] {
+        // Check if ANY comment needs migration (missing timestamp or has numeric ID)
+        const needsMigration = threads.some(thread =>
+            thread.comments && thread.comments.some((comment: any) =>
+                typeof comment.timestamp !== 'number' || typeof comment.id === 'number'
+            )
+        );
+
+        // Also check if any thread has version field, legacy uri field, contextValue fields, encoded URIs, or absolute paths
+        const needsCleanup = threads.some(thread =>
+            thread.version !== undefined ||
+            thread.uri !== undefined || // Remove legacy uri field
+            (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://'))) ||
+            (thread.comments && thread.comments.some((comment: any) => comment.contextValue !== undefined)) // Check for contextValue
+        );
+
+        if (!needsMigration && !needsCleanup) {
+            console.log("[CommentsProvider] No migration or cleanup needed");
+            return threads;
+        }
+
+        console.log("[CommentsProvider] Migrating/cleaning comments");
+
+        return threads.map(thread => {
+            // Check if this specific thread needs migration
+            const threadNeedsMigration = thread.comments.some((comment: any) =>
+                typeof comment.timestamp !== 'number' || typeof comment.id === 'number'
+            );
+
+            let result = { ...thread };
+
+            // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
+            // Remove legacy fields if they exist
+            delete result.version;
+            delete result.uri; // Remove redundant uri field
+
+            // Clean up legacy contextValue from all comments
+            if (result.comments) {
+                result.comments.forEach((comment: any) => {
+                    delete comment.contextValue;
+                });
+            }
+            // ============= END MIGRATION CLEANUP =============
+
+            if (threadNeedsMigration) {
+                result.comments = thread.comments.map((comment: any, index: number) =>
+                    this.migrateComment(comment, thread.threadTitle, index)
+                );
+            }
+
+            // Convert to relative paths
+            result = this.convertThreadToRelativePaths(result);
+
+            return result;
+        });
+    }
+
     private async sendCommentsToWebview(webviewView: vscode.WebviewView) {
         if (!this.commentsFilePath) {
             console.error("Comments file path not initialized");
@@ -430,12 +603,30 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
             const fileContent = new TextDecoder().decode(fileContentUint8Array);
 
-            safePostMessageToView(webviewView, {
-                command: "commentsFromWorkspace",
-                content: fileContent,
-            } as CommentPostMessages);
+            // Parse and migrate if needed
+            let comments = JSON.parse(fileContent);
+            const migratedComments = this.migrateCommentsIfNeeded(comments);
 
-            this.lastSentComments = fileContent;
+            // If migration happened, save the migrated version
+            if (migratedComments !== comments) {
+                const migratedContent = JSON.stringify(migratedComments, null, 4);
+                await writeSerializedData(migratedContent, this.commentsFilePath.fsPath);
+                console.log("[CommentsProvider] Saved migrated comments to disk");
+
+                safePostMessageToView(webviewView, {
+                    command: "commentsFromWorkspace",
+                    content: migratedContent,
+                } as CommentPostMessages);
+
+                this.lastSentComments = migratedContent;
+            } else {
+                safePostMessageToView(webviewView, {
+                    command: "commentsFromWorkspace",
+                    content: fileContent,
+                } as CommentPostMessages);
+
+                this.lastSentComments = fileContent;
+            }
         } catch (error) {
             // If file doesn't exist, send empty comments array instead of showing error
             console.log("Comments file not found, sending empty comments array");

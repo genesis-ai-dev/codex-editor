@@ -182,13 +182,12 @@ function App() {
         if (!replyText[threadId]?.trim() || !currentUser.isAuthenticated) return;
 
         const existingThread = commentThreadArray.find((thread) => thread.id === threadId);
-        const newCommentId = existingThread
-            ? Math.max(...existingThread.comments.map((c) => c.id)) + 1
-            : 1;
+        const timestamp = Date.now();
+        const newCommentId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
         const comment: Comment = {
             id: newCommentId,
-            contextValue: "canDelete",
+            timestamp: timestamp,
             body: replyText[threadId],
             mode: 1,
             author: { name: currentUser.username },
@@ -198,7 +197,6 @@ function App() {
         const updatedThread: NotebookCommentThread = {
             ...(existingThread || {
                 id: threadId,
-                uri: uri,
                 canReply: true,
                 cellId: cellId,
                 collapsibleState: 0,
@@ -206,7 +204,7 @@ function App() {
                 deleted: false,
                 resolved: false,
             }),
-            comments: existingThread ? [...existingThread.comments, comment] : [comment],
+            comments: existingThread ? [...existingThread.comments, comment] : [comment]
         };
 
         vscode.postMessage({
@@ -225,14 +223,14 @@ function App() {
         } as CommentPostMessages);
     };
 
-    const handleCommentDeletion = (commentId: number, commentThreadId: string) => {
+    const handleCommentDeletion = (commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "deleteComment",
             args: { commentId, commentThreadId },
         } as CommentPostMessages);
     };
 
-    const handleUndoCommentDeletion = (commentId: number, commentThreadId: string) => {
+    const handleUndoCommentDeletion = (commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "undoCommentDeletion",
             args: { commentId, commentThreadId },
@@ -245,10 +243,11 @@ function App() {
         // Generate a timestamp for the default title
         const now = new Date();
         const defaultTitle = now.toLocaleString();
+        const timestamp = Date.now();
+        const commentId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
         const newThread: NotebookCommentThread = {
             id: uuidv4(),
-            uri: uri,
             canReply: true,
             cellId: cellId,
             collapsibleState: 0,
@@ -257,8 +256,8 @@ function App() {
             resolved: false,
             comments: [
                 {
-                    id: 1,
-                    contextValue: "canDelete",
+                    id: commentId,
+                    timestamp: timestamp,
                     body: newCommentText.trim(),
                     mode: 1,
                     author: { name: currentUser.username },
