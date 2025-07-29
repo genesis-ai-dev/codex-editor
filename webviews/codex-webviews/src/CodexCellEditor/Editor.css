@@ -11,3 +11,7 @@ sup.footnote-marker {
     vertical-align: super;
     font-size: smaller;
 }
+
+sup {
+    top: -0.2em;
+}
