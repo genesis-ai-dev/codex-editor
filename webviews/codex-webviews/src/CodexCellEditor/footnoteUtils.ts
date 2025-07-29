@@ -27,7 +27,10 @@ export function processHtmlContent(html: string): string {
     // Step 1: Remove contiguous spans (replacement for HACKY function)
     removeContiguousSpans(tempDiv);
 
-    // Step 2: Process footnote spacing
+    // Step 2: Clean footnote spaces (move spaces from inside markers to outside)
+    cleanFootnoteSpaces(tempDiv);
+
+    // Step 3: Process footnote spacing
     processFootnoteSpacing(tempDiv);
 
     return tempDiv.innerHTML;
@@ -96,9 +99,22 @@ function areFootnotesAdjacent(current: Element, next: Element): boolean {
     let walker = current.nextSibling;
 
     while (walker && walker !== next) {
-        // If we find meaningful text content, they're not adjacent
-        if (walker.nodeType === Node.TEXT_NODE && walker.textContent?.trim()) {
-            return false;
+        // Check if it's a text node with actual space characters
+        if (walker.nodeType === Node.TEXT_NODE) {
+            const textContent = walker.textContent || '';
+            // If there's any non-empty text (including spaces), they're not adjacent
+            if (textContent.length > 0) {
+                // Check if it contains actual visible characters (not just whitespace)
+                if (textContent.trim().length > 0) {
+                    // Contains visible text, definitely not adjacent
+                    return false;
+                }
+                // Contains only whitespace - check if it includes actual spaces
+                if (textContent.includes(' ') || textContent.includes('\u00A0')) {
+                    // Has regular spaces or non-breaking spaces, not adjacent
+                    return false;
+                }
+            }
         }
 
         // If we find other meaningful elements, they're not adjacent
@@ -135,6 +151,49 @@ function insertSpacingBetweenFootnotes(current: Element, next: Element): void {
         const spacingNode = document.createTextNode('\u2009'); // Thin space (much smaller than non-breaking space)
         current.parentNode?.insertBefore(spacingNode, next);
     }
+}
+
+/**
+ * Moves spaces from inside footnote markers to outside of them
+ * This fixes the issue where Quill puts user-typed spaces inside the <sup> element
+ */
+function cleanFootnoteSpaces(container: Element): void {
+    const footnoteMarkers = container.querySelectorAll('sup.footnote-marker');
+
+    footnoteMarkers.forEach((marker) => {
+        // Check if the footnote marker contains spaces at the end
+        const textContent = marker.textContent || '';
+        const trimmedText = textContent.trimEnd();
+        const trailingSpaces = textContent.slice(trimmedText.length);
+
+        if (trailingSpaces.length > 0) {
+            // Remove the trailing spaces from the footnote marker
+            const numberPart = trimmedText;
+            marker.textContent = numberPart;
+
+            // Create a text node with the spaces and insert it after the marker
+            const spacesNode = document.createTextNode(trailingSpaces);
+            if (marker.parentNode) {
+                marker.parentNode.insertBefore(spacesNode, marker.nextSibling);
+            }
+        }
+
+        // Also check for leading spaces (less common but possible)
+        const leadingSpaces = textContent.match(/^\s+/);
+        if (leadingSpaces) {
+            const spacesToMove = leadingSpaces[0];
+            const restOfText = textContent.slice(spacesToMove.length);
+
+            // Update the footnote marker content
+            marker.textContent = restOfText;
+
+            // Create a text node with the leading spaces and insert it before the marker
+            const leadingSpacesNode = document.createTextNode(spacesToMove);
+            if (marker.parentNode) {
+                marker.parentNode.insertBefore(leadingSpacesNode, marker);
+            }
+        }
+    });
 }
 
 /**
