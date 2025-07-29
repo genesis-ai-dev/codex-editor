@@ -533,7 +533,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                         if (quillRef.current && props.onChange) {
                             const content = quillRef.current.root.innerHTML;
                             const cleanedContents = getCleanedHtml(content);
-                            props.onChange({ html: cleanedContents });
+                            const processedContents = processHtmlContent(cleanedContents);
+                            props.onChange({ html: processedContents });
                         }
 
                         // Renumber remaining footnotes (now preserves cursor automatically)
@@ -666,9 +667,14 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     setUnsavedChanges(true);
                     if (props.onChange) {
                         const contentIsEmpty = isQuillEmpty(quill);
+                        
+                        // Clean the content to remove VSCode selection styles and other unwanted formatting
+                        const cleanedContent = getCleanedHtml(content);
+                        const processedContent = processHtmlContent(cleanedContent);
+                        
                         const finalContent = contentIsEmpty
                             ? ""
-                            : processQuillContentForSaving(getCleanedHtml(content));
+                            : processQuillContentForSaving(processedContent);
 
                         debug("finalContent", { finalContent, contentIsEmpty });
 
@@ -816,7 +822,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     // Validate that the completion is for the current cell
                     if (completionCellId === props.currentLineId) {
                         quill.root.innerHTML = completionText; // Clear existing content
-                        props.onChange?.({ html: quill.root.innerHTML });
+                        const cleanedContent = getCleanedHtml(quill.root.innerHTML);
+                        const processedContent = processHtmlContent(cleanedContent);
+                        props.onChange?.({ html: processedContent });
                         setUnsavedChanges(true);
                     } else {
                         console.warn(
@@ -1119,7 +1127,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
         // Trigger the onChange callback to notify the parent
         if (props.onChange) {
-            props.onChange({ html: quill.root.innerHTML });
+            const cleanedContent = getCleanedHtml(quill.root.innerHTML);
+            const processedContent = processHtmlContent(cleanedContent);
+            props.onChange({ html: processedContent });
         }
 
         // Reset editing state
@@ -1194,7 +1204,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
                 // Trigger the onChange callback to notify the parent
                 if (props.onChange) {
-                    props.onChange({ html: content });
+                    const cleanedContent = getCleanedHtml(content);
+                    const processedContent = processHtmlContent(cleanedContent);
+                    props.onChange({ html: processedContent });
                 }
 
                 // Update header label after content change
@@ -1207,7 +1219,9 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // Trigger change event and callback after renumbering
             setUnsavedChanges(true);
             if (props.onChange && quillRef.current) {
-                props.onChange({ html: quillRef.current.root.innerHTML });
+                const cleanedContent = getCleanedHtml(quillRef.current.root.innerHTML);
+                const processedContent = processHtmlContent(cleanedContent);
+                props.onChange({ html: processedContent });
             }
         },
     }));

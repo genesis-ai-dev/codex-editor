@@ -24,13 +24,53 @@ export function processHtmlContent(html: string): string {
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
 
-    // Step 1: Remove contiguous spans (replacement for HACKY function)
+    // Step 1: Remove VSCode selection background styles
+    removeVSCodeSelectionStyles(tempDiv);
+
+    // Step 2: Remove contiguous spans (replacement for HACKY function)
     removeContiguousSpans(tempDiv);
 
-    // Step 2: Process footnote spacing
+    // Step 3: Process footnote spacing
     processFootnoteSpacing(tempDiv);
 
     return tempDiv.innerHTML;
+}
+
+/**
+ * Removes VSCode selection background and foreground styles that can get persisted
+ * when users save while the editor has selection highlighting active.
+ * 
+ * This fixes an issue where pressing backspace near footnotes can cause Quill/VSCode
+ * to add selection highlighting styles (--vscode-editor-selectionBackground, 
+ * --vscode-editor-selectionForeground) that get saved into the cell content.
+ * 
+ * Example of styles removed:
+ * - background-color: var(--vscode-editor-selectionBackground, #0078d4);
+ * - color: var(--vscode-editor-selectionForeground, white);
+ */
+function removeVSCodeSelectionStyles(container: Element): void {
+    // Find all elements with style attributes
+    const elementsWithStyle = container.querySelectorAll('[style]');
+    
+    elementsWithStyle.forEach(element => {
+        const styleAttr = element.getAttribute('style');
+        if (styleAttr) {
+            // Remove VSCode selection background and foreground styles
+            const cleanedStyle = styleAttr
+                .replace(/background-color:\s*var\(--vscode-editor-selectionBackground[^)]*\)[^;]*;?/gi, '')
+                .replace(/color:\s*var\(--vscode-editor-selectionForeground[^)]*\)[^;]*;?/gi, '')
+                .trim()
+                // Clean up any leftover semicolons or whitespace
+                .replace(/^;+|;+$/g, '')
+                .replace(/;{2,}/g, ';');
+            
+            if (cleanedStyle) {
+                element.setAttribute('style', cleanedStyle);
+            } else {
+                element.removeAttribute('style');
+            }
+        }
+    });
 }
 
 /**
