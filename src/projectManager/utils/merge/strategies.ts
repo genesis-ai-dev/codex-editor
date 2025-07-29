@@ -3,7 +3,10 @@ import { ConflictResolutionStrategy } from "./types";
 // Define which files use which strategies
 export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]> = {
     // Codex notebook files - special merge process for cell arrays
-    [ConflictResolutionStrategy.CODEX_CUSTOM_MERGE]: ["files/target/*.codex"],
+    [ConflictResolutionStrategy.CODEX_CUSTOM_MERGE]: [
+        "files/target/*.codex",
+        "**/*.source"
+    ],
 
     // Simple JSON override files - keep newest version
     [ConflictResolutionStrategy.OVERRIDE]: [
@@ -24,8 +27,8 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     // Special JSON merges - merge based on timestamps
     [ConflictResolutionStrategy.SPECIAL]: ["files/smart_edits.json"],
 
-    // Source files - keep newest version
-    [ConflictResolutionStrategy.SOURCE]: [".project/sourceTexts/*.source"],
+    // Source files - keep newest version (DEPRECATED: now using CODEX_CUSTOM_MERGE)
+    [ConflictResolutionStrategy.SOURCE]: [],
 
     // Files to ignore
     [ConflictResolutionStrategy.IGNORE]: ["complete_drafts.txt"],
@@ -53,7 +56,18 @@ export function determineStrategy(filePath: string): ConflictResolutionStrategy 
 
             // For other strategies, use the existing wildcard matching
             if (pattern.includes("*")) {
-                const regex = new RegExp(pattern.replace("*", ".*"));
+                // Convert glob pattern to regex
+                let regexPattern = pattern
+                    .replace(/\./g, "\\.") // Escape dots
+                    .replace(/\*\*/g, ".*") // Convert ** to .*
+                    .replace(/\*/g, "[^/]*"); // Convert * to [^/]*
+                
+                // Special handling for **/*.source pattern
+                if (pattern === "**/*.source") {
+                    regexPattern = ".*\\.source$";
+                }
+                
+                const regex = new RegExp(regexPattern);
                 if (regex.test(normalizedPath)) return strategy as ConflictResolutionStrategy;
             } else if (
                 normalizedPath.endsWith("/" + normalizedPattern) ||
