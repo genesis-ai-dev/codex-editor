@@ -14,7 +14,7 @@ import registerQuillSpellChecker, {
     QuillSpellChecker,
 } from "./react-quill-spellcheck";
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
-// import "./TextEditor.css"; // Override the default Quill styles so spans flow
+import "./Editor.css"; // Editor styles including footnote selection
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import ReactPlayer from "react-player";
 import { diffWords } from "diff";
@@ -113,8 +113,8 @@ export interface EditorHandles {
 }
 
 /**
- * Processes Quill content for saving by converting paragraphs to spans properly
- * This replaces the problematic string-based paragraph processing
+ * Processes Quill content for saving, converting first paragraph to span
+ * and preserving subsequent paragraphs
  */
 function processQuillContentForSaving(htmlContent: string): string {
     if (!htmlContent || htmlContent.trim() === "") {
@@ -127,6 +127,21 @@ function processQuillContentForSaving(htmlContent: string): string {
         // Create a temporary DOM element for proper HTML parsing
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = htmlContent;
+
+        // Clean up any inline styles and selection classes from footnote markers
+        const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
+        footnoteMarkers.forEach((marker) => {
+            const htmlMarker = marker as HTMLElement;
+            // Remove inline styles that might have been added during selection
+            htmlMarker.style.backgroundColor = "";
+            htmlMarker.style.color = "";
+            // Remove the style attribute entirely if it's empty
+            if (htmlMarker.getAttribute("style") === "") {
+                htmlMarker.removeAttribute("style");
+            }
+            // Also remove the selection class in case it persists
+            htmlMarker.classList.remove("footnote-selected");
+        });
 
         // Get all paragraph elements
         const paragraphs = tempDiv.querySelectorAll("p");
@@ -537,17 +552,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 event.preventDefault();
                 selectedFootnoteMarker = footnoteMarker;
 
-                // Add visual selection styling
-                const htmlElement = footnoteMarker as HTMLElement;
-                htmlElement.style.backgroundColor =
-                    "var(--vscode-editor-selectionBackground, #0078d4)";
-                htmlElement.style.color = "var(--vscode-editor-selectionForeground, white)";
+                // Add visual selection styling using CSS class
+                footnoteMarker.classList.add("footnote-selected");
 
                 // Clear selection after a delay if no further deletion occurs
                 setTimeout(() => {
                     if (selectedFootnoteMarker === footnoteMarker) {
-                        htmlElement.style.backgroundColor = "";
-                        htmlElement.style.color = "";
+                        footnoteMarker.classList.remove("footnote-selected");
                         selectedFootnoteMarker = null;
                     }
                 }, 3000); // Clear selection after 3 seconds
@@ -561,9 +572,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 } else {
                     // Clear footnote selection on any other key press
                     if (selectedFootnoteMarker) {
-                        const htmlElement = selectedFootnoteMarker as HTMLElement;
-                        htmlElement.style.backgroundColor = "";
-                        htmlElement.style.color = "";
+                        selectedFootnoteMarker.classList.remove("footnote-selected");
                         selectedFootnoteMarker = null;
                     }
                 }
@@ -574,9 +583,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // Clear footnote selection on click
             const clearFootnoteSelection = () => {
                 if (selectedFootnoteMarker) {
-                    const htmlElement = selectedFootnoteMarker as HTMLElement;
-                    htmlElement.style.backgroundColor = "";
-                    htmlElement.style.color = "";
+                    selectedFootnoteMarker.classList.remove("footnote-selected");
                     selectedFootnoteMarker = null;
                 }
             };
@@ -688,6 +695,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             return [...prev, newEntry];
                         });
                     }
+
+                    // Clear any selected footnotes
+                    const selectedFootnotes = quillRef.current.root.querySelectorAll(".footnote-selected");
+                    selectedFootnotes.forEach((footnote) => {
+                        footnote.classList.remove("footnote-selected");
+                    });
 
                     // Clean up spell checker
                     const spellChecker = quillRef.current.getModule(
