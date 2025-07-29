@@ -535,7 +535,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                 border: "1px solid transparent",
                 borderRadius: "4px",
-                overflow: "hidden",
+                overflow: "visible",
                 maxWidth: "100%",
                 boxSizing: "border-box",
                 transition: "border 0.3s ease",
