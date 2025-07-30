@@ -19,7 +19,7 @@ import { usfmImporterPlugin } from "./usfm/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
 import { obsImporterPlugin } from "./obs/index.tsx";
-import { smartImportPlugin } from "./recursiveTextSplitter/index.tsx";
+import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 
 // Import placeholder components - these will be created for each importer
@@ -35,16 +35,61 @@ const createPlaceholderComponent = (name: string) => {
 
 /**
  * Registry of all available importer plugins
+ * Organized with Essential tools first (general-purpose, broad appeal)
+ * followed by Specialized tools (domain-specific)
  */
 export const importerPlugins: ImporterPlugin[] = [
-    smartImportPlugin, // Smart Import first - it's the most flexible
-    docxImporterPlugin,
-    markdownImporterPlugin,
-    usfmImporterPlugin,
-    paratextImporterPlugin,
-    ebibleDownloadImporterPlugin,
-    subtitlesImporterPlugin,
-    obsImporterPlugin,
+    // Essential Tools - General purpose importers for broad appeal
+    {
+        ...smartSegmenterPlugin,
+        name: "Smart Segmenter",
+        description: "Works with any text file",
+        tags: [...(smartSegmenterPlugin.tags || []), "Essential", "Universal", "Text"],
+    },
+    {
+        ...docxImporterPlugin,
+        name: "Word Documents",
+        description: "Microsoft Word files with images",
+        tags: [...(docxImporterPlugin.tags || []), "Essential", "Documents", "Microsoft"],
+    },
+    {
+        ...markdownImporterPlugin,
+        name: "Markdown",
+        description: "GitHub-style markdown files",
+        tags: [...(markdownImporterPlugin.tags || []), "Essential", "Documentation", "GitHub"],
+    },
+    {
+        ...subtitlesImporterPlugin,
+        name: "Subtitles",
+        description: "Video captions with timestamps",
+        tags: [...(subtitlesImporterPlugin.tags || []), "Essential", "Media", "Video"],
+    },
+
+    // Specialized Tools - Domain-specific importers for Bible translation
+    {
+        ...usfmImporterPlugin,
+        name: "USFM Files",
+        description: "Unified Standard Format Marker files",
+        tags: [...(usfmImporterPlugin.tags || []), "Specialized", "Bible", "USFM"],
+    },
+    {
+        ...paratextImporterPlugin,
+        name: "Paratext Projects",
+        description: "Translation projects with settings",
+        tags: [...(paratextImporterPlugin.tags || []), "Specialized", "Bible", "Paratext"],
+    },
+    {
+        ...ebibleDownloadImporterPlugin,
+        name: "eBible Download",
+        description: "Download directly from eBible.org",
+        tags: [...(ebibleDownloadImporterPlugin.tags || []), "Specialized", "Bible", "Download"],
+    },
+    {
+        ...obsImporterPlugin,
+        name: "Bible Stories",
+        description: "Open Bible Stories format",
+        tags: [...(obsImporterPlugin.tags || []), "Specialized", "Bible", "Stories"],
+    },
 ];
 
 /**
@@ -82,4 +127,46 @@ export const getSupportedExtensions = (): string[] => {
     });
 
     return Array.from(extensions).sort();
+};
+
+/**
+ * Get Essential importers (general-purpose, broad appeal)
+ */
+export const getEssentialImporters = (): ImporterPlugin[] => {
+    return importerPlugins.filter((plugin) => plugin.tags?.includes("Essential"));
+};
+
+/**
+ * Get Specialized importers (domain-specific tools)
+ */
+export const getSpecializedImporters = (): ImporterPlugin[] => {
+    return importerPlugins.filter((plugin) => plugin.tags?.includes("Specialized"));
+};
+
+/**
+ * Search plugins by name, description, or tags
+ */
+export const searchPlugins = (
+    query: string,
+    plugins: ImporterPlugin[] = importerPlugins
+): ImporterPlugin[] => {
+    if (!query.trim()) return plugins;
+
+    const searchTerms = query
+        .toLowerCase()
+        .split(" ")
+        .filter((term) => term.length > 0);
+
+    return plugins.filter((plugin) => {
+        const searchableText = [
+            plugin.name,
+            plugin.description,
+            ...(plugin.tags || []),
+            ...(plugin.supportedExtensions || []),
+        ]
+            .join(" ")
+            .toLowerCase();
+
+        return searchTerms.every((term) => searchableText.includes(term));
+    });
 };

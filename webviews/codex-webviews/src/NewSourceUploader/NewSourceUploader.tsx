@@ -450,7 +450,6 @@ const NewSourceUploader: React.FC = () => {
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
                     <p className="text-muted-foreground">Loading project inventory...</p>
                 </div>
-                {JSON.stringify(wizardState)}
             </div>
         );
     }
@@ -464,7 +463,6 @@ const NewSourceUploader: React.FC = () => {
                     <p className="text-center text-red-600">
                         Error: Plugin '{wizardState.selectedPlugin}' not found
                     </p>
-                    {JSON.stringify(wizardState)}
                 </div>
             );
         }
@@ -500,80 +498,60 @@ const NewSourceUploader: React.FC = () => {
                   }),
         };
 
-        return (
-            <>
-                <PluginComponent {...componentProps} />
-                {JSON.stringify(wizardState)}
-            </>
-        );
+        return <PluginComponent {...componentProps} />;
     }
 
     // Render wizard steps
     switch (wizardState.currentStep) {
         case "intent-selection":
             return (
-                <>
-                    <IntentSelection
-                        onSelectIntent={handleSelectIntent}
-                        sourceFileCount={wizardState.projectInventory.sourceFiles.length}
-                        targetFileCount={wizardState.projectInventory.targetFiles.length}
-                        translationPairCount={wizardState.projectInventory.translationPairs.length}
-                    />
-                    {JSON.stringify(wizardState)}
-                </>
+                <IntentSelection
+                    onSelectIntent={handleSelectIntent}
+                    sourceFileCount={wizardState.projectInventory.sourceFiles.length}
+                    targetFileCount={wizardState.projectInventory.targetFiles.length}
+                    translationPairCount={wizardState.projectInventory.translationPairs.length}
+                />
             );
 
         case "source-import":
             return (
-                <>
-                    <PluginSelection
-                        plugins={importerPlugins}
-                        intent="source"
-                        existingSourceCount={wizardState.projectInventory.sourceFiles.length}
-                        onSelectPlugin={handleSelectPlugin}
-                        onBack={handleBack}
-                    />
-                    {JSON.stringify(wizardState)}
-                </>
+                <PluginSelection
+                    plugins={importerPlugins}
+                    intent="source"
+                    existingSourceCount={wizardState.projectInventory.sourceFiles.length}
+                    onSelectPlugin={handleSelectPlugin}
+                    onBack={handleBack}
+                />
             );
 
         case "target-selection":
             // Check if there are source files
             if (wizardState.projectInventory.sourceFiles.length === 0) {
                 return (
-                    <>
-                        <EmptySourceState
-                            onImportSources={() => handleSelectIntent("source")}
-                            onBack={handleBack}
-                        />
-                        {JSON.stringify(wizardState)}
-                    </>
+                    <EmptySourceState
+                        onImportSources={() => handleSelectIntent("source")}
+                        onBack={handleBack}
+                    />
                 );
             }
             return (
-                <>
-                    <SourceFileSelection
-                        sourceFiles={wizardState.projectInventory.sourceFiles}
-                        onSelectSource={handleSelectSource}
-                        onBack={handleBack}
-                    />
-                    {JSON.stringify(wizardState)}
-                </>
+                <SourceFileSelection
+                    sourceFiles={wizardState.projectInventory.sourceFiles}
+                    onSelectSource={handleSelectSource}
+                    onBack={handleBack}
+                />
             );
 
         case "target-import":
             return (
-                <>
-                    <PluginSelection
-                        plugins={importerPlugins}
-                        intent="target"
-                        selectedSource={wizardState.selectedSourceDetails}
-                        existingSourceCount={wizardState.projectInventory.sourceFiles.length}
-                        onSelectPlugin={handleSelectPlugin}
-                        onBack={handleBack}
-                    />
-                    {JSON.stringify(wizardState)}
-                </>
+                <PluginSelection
+                    plugins={importerPlugins}
+                    intent="target"
+                    selectedSource={wizardState.selectedSourceDetails}
+                    existingSourceCount={wizardState.projectInventory.sourceFiles.length}
+                    onSelectPlugin={handleSelectPlugin}
+                    onBack={handleBack}
+                />
             );
 
         default:
