@@ -169,31 +169,45 @@ export class CommentsMigrator {
     }
 
     /**
-     * Enhanced comment deduplication that compares user, body, AND cellId
-     */
+ * Enhanced comment deduplication that preserves all unique comment IDs
+ * Uses smart deduplication: content-based for legacy, ID-based for modern
+ */
     private static mergeCommentsWithEnhancedDeduplication(existingComments: any[], legacyComments: any[], cellId: any): any[] {
         const commentMap = new Map<string, any>();
-        const processedComments = new Set<string>();
+        const processedLegacyContent = new Set<string>();
 
         // Add existing comments first
         existingComments.forEach(comment => {
             commentMap.set(comment.id, comment);
-            // Create enhanced deduplication key: body + author + cellId + (partial timestamp for loose matching)
-            const key = CommentsMigrator.createCommentDeduplicationKey(comment, cellId);
-            processedComments.add(key);
+
+            // Track legacy content for deduplication
+            if (CommentsMigrator.isLegacyComment(comment)) {
+                const legacyKey = `${comment.body}|${comment.author?.name}`;
+                processedLegacyContent.add(legacyKey);
+            }
         });
 
-        // Add legacy comments that don't duplicate existing ones
+        // Add legacy comments with smart deduplication
         legacyComments.forEach(comment => {
-            const key = CommentsMigrator.createCommentDeduplicationKey(comment, cellId);
-
-            // Only add if we haven't seen this combination AND the ID isn't already used
-            if (!processedComments.has(key) && !commentMap.has(comment.id)) {
-                commentMap.set(comment.id, comment);
-                processedComments.add(key);
-            } else {
-                console.log(`[CommentsMigrator] Skipping duplicate comment: ${comment.body.substring(0, 50)}...`);
+            // Always preserve if the comment has a unique ID
+            if (commentMap.has(comment.id)) {
+                console.log(`[CommentsMigrator] Skipping comment with duplicate ID: ${comment.id}`);
+                return;
             }
+
+            // For legacy comments, check content duplication
+            if (CommentsMigrator.isLegacyComment(comment)) {
+                const legacyKey = `${comment.body}|${comment.author?.name}`;
+                if (processedLegacyContent.has(legacyKey)) {
+                    console.log(`[CommentsMigrator] Skipping duplicate legacy comment content: ${comment.body.substring(0, 50)}...`);
+                    return;
+                }
+                processedLegacyContent.add(legacyKey);
+            }
+
+            // Add the comment
+            commentMap.set(comment.id, comment);
+            console.log(`[CommentsMigrator] Added comment with ID: ${comment.id}`);
         });
 
         // Sort comments by timestamp
@@ -202,6 +216,7 @@ export class CommentsMigrator {
 
     /**
      * Creates an enhanced deduplication key that includes cellId context
+     * Note: This method is now used only for legacy migration scenarios
      */
     private static createCommentDeduplicationKey(comment: any, cellId: any): string {
         const body = comment.body || '';
@@ -282,6 +297,24 @@ export class CommentsMigrator {
      */
     private static generateCommentId(): string {
         return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    /**
+     * Determines if a comment was recently migrated from legacy format
+     */
+    private static isLegacyComment(comment: any): boolean {
+        // If the comment has a UUID-style ID that was generated during migration,
+        // and the timestamp was calculated (not user-entered), it's likely legacy
+        if (typeof comment.id === 'string' && comment.id.includes('-')) {
+            // Check if the timestamp is very close to the ID timestamp (indicating generated)
+            const idTimestamp = parseInt(comment.id.split('-')[0]);
+            if (!isNaN(idTimestamp) && Math.abs((comment.timestamp || 0) - idTimestamp) < 100) {
+                return true;
+            }
+        }
+
+        // Also check if it still has numeric ID (shouldn't happen but be safe)
+        return typeof comment.id === 'number';
     }
 
     /**

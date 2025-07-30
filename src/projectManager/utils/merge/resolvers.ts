@@ -110,6 +110,25 @@ function needsMigration(threads: any[]): boolean {
 }
 
 /**
+ * Determines if a comment was recently migrated from legacy format
+ * Legacy comments have generated UUIDs with timestamp-based IDs and calculated timestamps
+ */
+function isLegacyComment(comment: any): boolean {
+    // If the comment has a UUID-style ID that was generated during migration,
+    // and the timestamp was calculated (not user-entered), it's likely legacy
+    if (typeof comment.id === 'string' && comment.id.includes('-')) {
+        // Check if the timestamp is very close to the ID timestamp (indicating generated)
+        const idTimestamp = parseInt(comment.id.split('-')[0]);
+        if (!isNaN(idTimestamp) && Math.abs(comment.timestamp - idTimestamp) < 100) {
+            return true;
+        }
+    }
+
+    // Also check if it still has numeric ID (shouldn't happen but be safe)
+    return typeof comment.id === 'number';
+}
+
+/**
  * Checks if two comments are duplicates
  */
 function areCommentsDuplicate(comment1: NotebookComment, comment2: NotebookComment): boolean {
@@ -602,38 +621,59 @@ async function resolveCommentThreadsConflict(
             // New thread, just add it
             threadMap.set(migratedTheirThread.id, migratedTheirThread);
         } else {
-            // Merge comments for existing thread
+            // Merge comments for existing thread AND preserve latest thread metadata
             const allComments = new Map<string, NotebookComment>();
-            const processedBodies = new Set<string>();
+            const processedLegacyComments = new Set<string>();
 
-            // Add our comments
+            // Add our comments first
             existingThread.comments.forEach((comment) => {
                 allComments.set(comment.id, { ...comment });
-                // Track body+author combination for deduplication
-                const key = `${comment.body}|${comment.author.name}`;
-                processedBodies.add(key);
+
+                // Track legacy comments by content for deduplication
+                if (isLegacyComment(comment)) {
+                    const legacyKey = `${comment.body}|${comment.author.name}`;
+                    processedLegacyComments.add(legacyKey);
+                }
             });
 
-            // Add/merge their comments
+            // Add their comments with smart deduplication
             migratedTheirThread.comments.forEach((comment) => {
-                const key = `${comment.body}|${comment.author.name}`;
-
-                // Skip if we already have this exact comment (by body and author)
-                if (processedBodies.has(key)) {
-                    debugLog(`Skipping duplicate comment: ${key}`);
+                // Always preserve if we already have this exact comment ID
+                if (allComments.has(comment.id)) {
+                    debugLog(`Skipping comment with duplicate ID: ${comment.id}`);
                     return;
                 }
 
-                // Add comment if it's not a duplicate by ID or content
-                if (!allComments.has(comment.id)) {
-                    allComments.set(comment.id, { ...comment });
-                    processedBodies.add(key);
+                // For legacy comments (recently migrated from numeric IDs), check content duplication
+                if (isLegacyComment(comment)) {
+                    const legacyKey = `${comment.body}|${comment.author.name}`;
+                    if (processedLegacyComments.has(legacyKey)) {
+                        debugLog(`Skipping duplicate legacy comment content: ${comment.body.substring(0, 50)}...`);
+                        return;
+                    }
+                    processedLegacyComments.add(legacyKey);
                 }
+
+                // Add the comment
+                allComments.set(comment.id, { ...comment });
+                debugLog(`Added comment with ID: ${comment.id}`);
             });
 
-            // Sort comments by timestamp
-            existingThread.comments = Array.from(allComments.values())
+            // Merge thread metadata - prefer the most recent thread state based on latest comment
+            const ourLatestCommentTime = Math.max(...existingThread.comments.map(c => c.timestamp));
+            const theirLatestCommentTime = Math.max(...migratedTheirThread.comments.map(c => c.timestamp));
+
+            const mergedThread = theirLatestCommentTime > ourLatestCommentTime
+                ? { ...migratedTheirThread } // Use their thread metadata if they have newer comments
+                : { ...existingThread };    // Use our thread metadata if we have newer comments
+
+            // Always use the merged comments array
+            mergedThread.comments = Array.from(allComments.values())
                 .sort((a, b) => a.timestamp - b.timestamp);
+
+            // Update the thread in the map
+            threadMap.set(mergedThread.id, mergedThread);
+            debugLog(`Merged thread ${mergedThread.id} with ${mergedThread.comments.length} total comments`);
         }
     });
 
