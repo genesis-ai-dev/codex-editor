@@ -5,7 +5,7 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     // Codex notebook files - special merge process for cell arrays
     [ConflictResolutionStrategy.CODEX_CUSTOM_MERGE]: [
         "files/target/*.codex",
-        "**/*.source"
+        ".project/sourceTexts/*.source"
     ],
 
     // Simple JSON override files - keep newest version
@@ -61,11 +61,6 @@ export function determineStrategy(filePath: string): ConflictResolutionStrategy 
                     .replace(/\./g, "\\.") // Escape dots
                     .replace(/\*\*/g, ".*") // Convert ** to .*
                     .replace(/\*/g, "[^/]*"); // Convert * to [^/]*
-                
-                // Special handling for **/*.source pattern
-                if (pattern === "**/*.source") {
-                    regexPattern = ".*\\.source$";
-                }
                 
                 const regex = new RegExp(regexPattern);
                 if (regex.test(normalizedPath)) return strategy as ConflictResolutionStrategy;
