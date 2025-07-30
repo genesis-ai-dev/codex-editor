@@ -122,18 +122,6 @@ export class CommentsMigrator {
             const migratedContent = JSON.stringify(migratedComments, null, 4);
             await vscode.workspace.fs.writeFile(newCommentsFilePath, new TextEncoder().encode(migratedContent));
 
-            const totalMigrated = legacyComments.length;
-            const structureMigrated = commentsNeedsMigration ? existingComments.length : 0;
-
-            console.log(`[CommentsMigrator] Migration completed: ${totalMigrated} from legacy file + ${structureMigrated} structure updates`);
-
-            // Show notification for significant migrations
-            if (totalMigrated > 0 || structureMigrated > 0) {
-                const message = totalMigrated > 0
-                    ? `Migrated ${totalMigrated} comment threads and updated data structure.`
-                    : `Updated comment data structure for better reliability.`;
-                vscode.window.showInformationMessage(message);
-            }
 
             return true;
 
