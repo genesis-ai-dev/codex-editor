@@ -124,8 +124,9 @@ export async function stageAndCommitAllAndSync(
                     if (retryCount < 3) {
                         console.log(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
 
-                        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-                        const backoffMs = Math.pow(2, retryCount) * 1000;
+                        // Exponential backoff starting at 30s: 30s, 60s, 120s
+                        const backoffMs = 30 * Math.pow(2, retryCount) * 1000;
+                        console.log(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
                         await new Promise(resolve => setTimeout(resolve, backoffMs));
 
                         return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
