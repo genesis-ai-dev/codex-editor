@@ -742,7 +742,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthExtensionInstalled: true,
                             isAuthenticated: false,
                             isLoading: false,
-                            error: error instanceof Error ? error.message : "Login failed",
+                            error: this.getFormattedAuthError(error instanceof Error ? error.message : "Login failed"),
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
@@ -805,7 +805,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             isAuthExtensionInstalled: true,
                             isAuthenticated: false,
                             isLoading: false,
-                            error: error instanceof Error ? error.message : "Registration failed",
+                            error: this.getFormattedAuthError(error instanceof Error ? error.message : "Registration failed"),
                             workspaceState: {
                                 isWorkspaceOpen: this.preflightState.workspaceState.isOpen,
                                 isProjectInitialized:
@@ -2455,6 +2455,31 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             console.error("Error finding local Codex projects:", error);
             return [];
         }
+    }
+
+    /**
+     * Formats authentication error messages to be more user-friendly
+     */
+    private getFormattedAuthError(errorMessage: string): string {
+        const lowerMessage = errorMessage.toLowerCase();
+
+        // Check for common "user exists" error patterns and make them more user-friendly
+        if (lowerMessage.includes('user already exists') ||
+            lowerMessage.includes('user exists') ||
+            lowerMessage.includes('username already exists') ||
+            lowerMessage.includes('already exists')) {
+            return "Username has already been taken. Please choose a different username.";
+        }
+
+        // Check for other common patterns
+        if (lowerMessage.includes('invalid credentials') ||
+            lowerMessage.includes('wrong password') ||
+            lowerMessage.includes('incorrect password')) {
+            return "Invalid username or password. Please check your credentials and try again.";
+        }
+
+        // Return the original message if no pattern matches
+        return errorMessage;
     }
 }
 
