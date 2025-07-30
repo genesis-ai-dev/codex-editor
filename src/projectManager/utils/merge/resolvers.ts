@@ -515,7 +515,7 @@ export async function resolveCodexCustomMerge(
                 ...ourCell,
                 value: finalValue,
                 metadata: {
-                    ...ourCell.metadata,
+                    ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
                     id: cellId,
                     edits: finalEdits,
                     type: ourCell.metadata?.type || CodexCellTypes.TEXT,
@@ -993,17 +993,6 @@ export async function resolveConflictFiles(
             }
         }
     );
-
-    // Only call completeMerge if we actually resolved something
-    const authApi = getAuthApi();
-    if (authApi && resolvedFiles.length > 0) {
-        try {
-            await authApi.completeMerge(resolvedFiles, workspaceDir);
-        } catch (e) {
-            console.error("Failed to complete merge:", e);
-            vscode.window.showErrorMessage("Failed to complete merge after resolving conflicts");
-        }
-    }
 
     return resolvedFiles;
 }

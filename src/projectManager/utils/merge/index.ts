@@ -32,7 +32,8 @@ export interface SyncResult {
 
 export async function stageAndCommitAllAndSync(
     commitMessage: string,
-    showCompletionMessage: boolean = true
+    showCompletionMessage: boolean = true,
+    retryCount: number = 0
 ): Promise<SyncResult> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
@@ -114,8 +115,30 @@ export async function stageAndCommitAllAndSync(
 
             const resolvedFiles = await resolveConflictFiles(conflicts, workspaceFolder);
             if (resolvedFiles.length > 0) {
-                await authApi.completeMerge(resolvedFiles, undefined);
-                console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+                try {
+                    await authApi.completeMerge(resolvedFiles, undefined);
+                    console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+                } catch (completeMergeError) {
+                    const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
+
+                    if (errorMessage.includes("not a simple fast-forward") && retryCount < 3) {
+                        console.log(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
+
+                        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                        const backoffMs = Math.pow(2, retryCount) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, backoffMs));
+
+                        return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
+                    } else if (retryCount >= 3) {
+                        vscode.window.showErrorMessage(
+                            `Failed to complete merge after 3 retries: ${errorMessage}`
+                        );
+                        throw completeMergeError;
+                    } else {
+                        // Re-throw if it's not a fast-forward error or we've exhausted retries
+                        throw completeMergeError;
+                    }
+                }
             }
         }
 
