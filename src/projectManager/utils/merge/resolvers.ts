@@ -30,6 +30,19 @@ function isValidValidationEntry(value: any): value is ValidationEntry {
 }
 
 /**
+ * Type guard to check if a conflict object is valid
+ */
+function isValidConflict(conflict: any): conflict is ConflictFile {
+    return (
+        conflict &&
+        typeof conflict.filepath === "string" &&
+        typeof conflict.ours === "string" &&
+        typeof conflict.theirs === "string" &&
+        typeof conflict.base === "string"
+    );
+}
+
+/**
  * Generates a unique ID for comments
  */
 function generateCommentId(): string {
@@ -993,15 +1006,5 @@ export async function resolveConflictFiles(
     }
 
     return resolvedFiles;
-}
-
-function isValidConflict(conflict: any): conflict is ConflictFile {
-    return (
-        conflict &&
-        typeof conflict.filepath === "string" &&
-        typeof conflict.ours === "string" &&
-        typeof conflict.theirs === "string" &&
-        typeof conflict.base === "string"
-    );
 }
 
