@@ -169,29 +169,45 @@ export class CommentsMigrator {
     }
 
     /**
- * Simple ID-based comment deduplication - preserves all unique comment IDs (any format)
- */
+     * Enhanced comment deduplication - uses ID for modern comments and content for legacy comments
+     */
     private static mergeCommentsWithEnhancedDeduplication(existingComments: any[], legacyComments: any[], cellId: any): any[] {
         const commentMap = new Map<string, any>();
+        const seenContentSignatures = new Set<string>();
+
+        // Helper function to create content signature for legacy comment deduplication
+        const getContentSignature = (comment: any): string => {
+            return `${comment.body}|${comment.author?.name || 'Unknown'}`;
+        };
 
         // Add existing comments first
         existingComments.forEach(comment => {
-            const commentId = String(comment.id); // Normalize to string
-            commentMap.set(commentId, comment);
-            console.log(`[CommentsMigrator] Added existing comment with ID: ${commentId} (original: ${comment.id})`);
+            commentMap.set(comment.id, comment);
+            // Track content signature for legacy deduplication
+            const signature = getContentSignature(comment);
+            seenContentSignatures.add(signature);
+            console.log(`[CommentsMigrator] Added existing comment with ID: ${comment.id}`);
         });
 
-        // Add legacy comments - only skip if ID already exists (any format)
+        // Add legacy comments with proper deduplication
         legacyComments.forEach(comment => {
-            const commentId = String(comment.id); // Normalize to string
-            if (commentMap.has(commentId)) {
-                console.log(`[CommentsMigrator] Skipping comment with duplicate ID: ${commentId} (original: ${comment.id})`);
+            // First check if exact ID already exists (for modern comments)
+            if (commentMap.has(comment.id)) {
+                console.log(`[CommentsMigrator] Skipping comment with duplicate ID: ${comment.id}`);
                 return;
             }
 
-            // Add the comment (ID is unique)
-            commentMap.set(commentId, comment);
-            console.log(`[CommentsMigrator] Added legacy comment with ID: ${commentId} (original: ${comment.id})`);
+            // For potential legacy comments, check content signature
+            const signature = getContentSignature(comment);
+            if (seenContentSignatures.has(signature)) {
+                console.log(`[CommentsMigrator] Skipping comment with duplicate content: ${signature}`);
+                return;
+            }
+
+            // Add the comment (unique by both ID and content)
+            commentMap.set(comment.id, comment);
+            seenContentSignatures.add(signature);
+            console.log(`[CommentsMigrator] Added legacy comment with ID: ${comment.id}`);
         });
 
         // Sort comments by timestamp

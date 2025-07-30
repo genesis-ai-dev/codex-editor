@@ -66,20 +66,8 @@ function migrateComment(
         return comment as NotebookComment;
     }
 
-    // For legacy numeric IDs, preserve the original ID in a deterministic way
-    // This ensures the same numeric ID always generates the same UUID
-    const originalId = comment.id;
-    let newId: string;
-
-    if (typeof originalId === 'number') {
-        // Create deterministic ID based on original numeric ID + thread info
-        // This ensures comment with original ID "1" always gets the same UUID in the same thread
-        const threadHash = threadTitle ? threadTitle.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8) : 'unknown';
-        newId = `legacy-${originalId}-${threadHash}`;
-    } else {
-        // Generate unique ID for other cases
-        newId = generateCommentId();
-    }
+    // Generate new UUID in the same format as modern comments
+    const newId = generateCommentId();
 
     // Calculate timestamp
     let timestamp: number;
@@ -641,22 +629,40 @@ async function resolveCommentThreadsConflict(
         } else {
             // Merge comments for existing thread AND preserve latest thread metadata
             const allComments = new Map<string, NotebookComment>();
+            const seenContentSignatures = new Set<string>();
+
+            // Helper function to create content signature for legacy comment deduplication
+            const getContentSignature = (comment: any): string => {
+                return `${comment.body}|${comment.author?.name || 'Unknown'}`;
+            };
 
             // Add our comments first
             existingThread.comments.forEach((comment) => {
                 allComments.set(comment.id, { ...comment });
+                // Track content signature for legacy deduplication
+                const signature = getContentSignature(comment);
+                seenContentSignatures.add(signature);
                 debugLog(`Added our comment with ID: ${comment.id}`);
             });
 
-            // Add their comments - skip if ID already exists (including deterministic legacy IDs)
+            // Add their comments with proper deduplication
             migratedTheirThread.comments.forEach((comment) => {
+                // First check if exact ID already exists (for modern comments)
                 if (allComments.has(comment.id)) {
                     debugLog(`Skipping comment with duplicate ID: ${comment.id}`);
                     return;
                 }
 
-                // Add the comment (ID is unique)
+                // For potential legacy comments, check content signature
+                const signature = getContentSignature(comment);
+                if (seenContentSignatures.has(signature)) {
+                    debugLog(`Skipping comment with duplicate content: ${signature}`);
+                    return;
+                }
+
+                // Add the comment (unique by both ID and content)
                 allComments.set(comment.id, { ...comment });
+                seenContentSignatures.add(signature);
                 debugLog(`Added their comment with ID: ${comment.id}`);
             });
 
