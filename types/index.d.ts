@@ -44,7 +44,6 @@ interface ChatMessageThread {
 
 interface NotebookCommentThread {
     id: string;
-    uri?: string;
     cellId: CellIdGlobalState;
     comments: NotebookComment[];
     collapsibleState: number;
@@ -55,10 +54,10 @@ interface NotebookCommentThread {
 }
 
 interface NotebookComment {
-    id: number;
+    id: string; // Changed from number to string for unique IDs
+    timestamp: number; // Added timestamp in milliseconds since epoch
     body: string;
     mode: number;
-    contextValue: "canDelete";
     deleted: boolean;
     author: {
         name: string;
@@ -162,8 +161,8 @@ type CommentPostMessages =
     | { command: "reload"; data?: { cellId: string; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
-    | { command: "deleteComment"; args: { commentId: number; commentThreadId: string; }; }
-    | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string; }; }
+    | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
+    | { command: "undoCommentDeletion"; args: { commentId: string; commentThreadId: string; }; }
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }

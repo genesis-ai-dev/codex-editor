@@ -150,15 +150,17 @@ function processQuillContentForSaving(htmlContent: string): string {
 
         if (paragraphs.length === 0) {
             // No paragraphs found, wrap content in span
-            const result = tempDiv.innerHTML.trim() ? `<span>${tempDiv.innerHTML}</span>` : "";
+            const result = tempDiv.innerHTML ? `<span>${tempDiv.innerHTML}</span>` : "";
             console.log("[processQuillContentForSaving] No paragraphs, result:", result);
             return result;
         }
 
         if (paragraphs.length === 1) {
             // Single paragraph: convert to span
-            const content = paragraphs[0].innerHTML.trim();
-            const result = content ? `<span>${content}</span>` : "";
+            const content = paragraphs[0].innerHTML;
+            // Check if there's actual content beyond just spaces
+            const hasRealContent = content.trim().length > 0;
+            const result = hasRealContent ? `<span>${content}</span>` : "";
             console.log("[processQuillContentForSaving] Single paragraph, result:", result);
             return result;
         }
@@ -167,9 +169,11 @@ function processQuillContentForSaving(htmlContent: string): string {
         const processedElements: string[] = [];
 
         paragraphs.forEach((p, index) => {
-            const content = p.innerHTML.trim();
+            const content = p.innerHTML;
+            // Only include paragraphs that have actual content beyond spaces
+            const hasRealContent = content.trim().length > 0;
             console.log(`[processQuillContentForSaving] Processing paragraph ${index}:`, content);
-            if (content) {
+            if (hasRealContent) {
                 if (index === 0) {
                     // First paragraph becomes a span
                     const spanElement = `<span>${content}</span>`;
@@ -211,8 +215,10 @@ function processQuillContentForSaving(htmlContent: string): string {
             // Single paragraph case
             const match = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/);
             if (match) {
-                const content = match[1].trim();
-                return content ? `<span>${content}</span>` : "";
+                const content = match[1];
+                // Check if there's actual content beyond just spaces
+                const hasRealContent = content.trim().length > 0;
+                return hasRealContent ? `<span>${content}</span>` : "";
             }
             return cleaned ? `<span>${cleaned}</span>` : "";
         }
@@ -223,8 +229,10 @@ function processQuillContentForSaving(htmlContent: string): string {
                 .map((paragraph, index) => {
                     const match = paragraph.match(/<p[^>]*>([\s\S]*?)<\/p>/);
                     if (match) {
-                        const content = match[1].trim();
-                        if (content) {
+                        const content = match[1];
+                        // Only include paragraphs with real content
+                        const hasRealContent = content.trim().length > 0;
+                        if (hasRealContent) {
                             return index === 0 ? `<span>${content}</span>` : `<p>${content}</p>`;
                         }
                     }
@@ -697,7 +705,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                     }
 
                     // Clear any selected footnotes
-                    const selectedFootnotes = quillRef.current.root.querySelectorAll(".footnote-selected");
+                    const selectedFootnotes =
+                        quillRef.current.root.querySelectorAll(".footnote-selected");
                     selectedFootnotes.forEach((footnote) => {
                         footnote.classList.remove("footnote-selected");
                     });
@@ -854,21 +863,21 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         }
 
         const quill = quillRef.current;
-        
+
         // Get the HTML content of the selection
         const htmlContent = quill.getSemanticHTML(selection.index, selection.length);
-        
+
         // Create a temporary div to parse the HTML
-        const tempDiv = document.createElement('div');
+        const tempDiv = document.createElement("div");
         tempDiv.innerHTML = htmlContent;
-        
+
         // Remove all footnote markers from the content
-        tempDiv.querySelectorAll('sup.footnote-marker').forEach(marker => {
+        tempDiv.querySelectorAll("sup.footnote-marker").forEach((marker) => {
             marker.remove();
         });
-        
+
         // Return the clean text content
-        return (tempDiv.textContent || tempDiv.innerText || '').trim();
+        return (tempDiv.textContent || tempDiv.innerText || "").trim();
     };
 
     // Add function to generate diff HTML
@@ -922,7 +931,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 // Get clean text from selection, excluding any footnote markers
                 // This handles the case where selected text contains existing footnotes
                 const cleanedText = getCleanTextFromSelection(selection);
-                
+
                 const trimmedText = cleanedText.trimEnd();
                 const spacesRemoved = cleanedText.length - trimmedText.length;
                 selectedText = trimmedText;
@@ -1091,6 +1100,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             quill.insertText(cursorPositionForFootnote, editingFootnoteId, {
                 footnote: currentFootnoteContent,
             });
+
+            // Set cursor after the footnote
             quill.setSelection(cursorPositionForFootnote + editingFootnoteId.length);
         } else {
             // Editing existing footnote - restore original content first

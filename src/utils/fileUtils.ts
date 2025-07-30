@@ -109,7 +109,49 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         console.log(`[getCommentsFromFile] Reading from: ${uri.fsPath}`);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
-        return JSON.parse(fileContent);
+        const rawComments = JSON.parse(fileContent);
+
+        // Check if structural migration is needed and trigger it
+        const { CommentsMigrator } = await import("./commentsMigrationUtils");
+        const needsStructuralMigration = CommentsMigrator.needsStructuralMigration(rawComments);
+
+        if (needsStructuralMigration) {
+            console.log("[getCommentsFromFile] Structural migration needed, triggering migration");
+            try {
+                // Trigger async migration but don't wait for it to complete
+                CommentsMigrator.migrateProjectComments(workspaceUri).then(migrationOccurred => {
+                    if (migrationOccurred) {
+                        console.log("[getCommentsFromFile] Triggered structural migration successfully");
+                    }
+                }).catch(error => {
+                    console.error("[getCommentsFromFile] Error during triggered migration:", error);
+                });
+            } catch (error) {
+                console.error("[getCommentsFromFile] Error triggering migration:", error);
+            }
+        }
+
+        // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
+        // Always clean up legacy fields when reading
+        const cleanedComments = rawComments.map((thread: any) => {
+            let result = { ...thread };
+
+            // Remove legacy fields if they exist
+            delete result.version;
+            delete result.uri; // Remove redundant uri field
+
+            // Clean up legacy contextValue from all comments
+            if (result.comments) {
+                result.comments.forEach((comment: any) => {
+                    delete comment.contextValue;
+                });
+            }
+
+            return result;
+        });
+        // ============= END MIGRATION CLEANUP =============
+
+        return cleanedComments;
     } catch (error) {
         console.error(`[getCommentsFromFile] Error reading file:`, error);
         throw new Error("Failed to parse notebook comments from file");

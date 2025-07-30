@@ -19,7 +19,7 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     ],
 
     // Mergeable Comment arrays on commentThread array - combine recursively and deduplicate
-    [ConflictResolutionStrategy.ARRAY]: ["file-comments.json"],
+    [ConflictResolutionStrategy.ARRAY]: [".project/comments.json"],
 
     // JSONL files - combine and deduplicate
     [ConflictResolutionStrategy.JSONL]: ["files/project.dictionary"],
