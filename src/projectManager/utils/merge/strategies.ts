@@ -56,13 +56,7 @@ export function determineStrategy(filePath: string): ConflictResolutionStrategy 
 
             // For other strategies, use the existing wildcard matching
             if (pattern.includes("*")) {
-                // Convert glob pattern to regex
-                let regexPattern = pattern
-                    .replace(/\./g, "\\.") // Escape dots
-                    .replace(/\*\*/g, ".*") // Convert ** to .*
-                    .replace(/\*/g, "[^/]*"); // Convert * to [^/]*
-                
-                const regex = new RegExp(regexPattern);
+                const regex = new RegExp(pattern.replace("*", ".*"));
                 if (regex.test(normalizedPath)) return strategy as ConflictResolutionStrategy;
             } else if (
                 normalizedPath.endsWith("/" + normalizedPattern) ||
