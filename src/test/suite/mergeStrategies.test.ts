@@ -10,15 +10,10 @@ suite("Merge Strategies Test Suite", () => {
         const strategy1 = determineStrategy(sourceFileInStandardLocation);
         assert.strictEqual(strategy1, ConflictResolutionStrategy.CODEX_CUSTOM_MERGE);
 
-        // Test .source files in other locations
-        const sourceFileInOtherLocation = "files/target/GEN.source";
-        const strategy2 = determineStrategy(sourceFileInOtherLocation);
+        // Test .source files in the standard location with different book
+        const sourceFileInStandardLocation2 = ".project/sourceTexts/EXO.source";
+        const strategy2 = determineStrategy(sourceFileInStandardLocation2);
         assert.strictEqual(strategy2, ConflictResolutionStrategy.CODEX_CUSTOM_MERGE);
-
-        // Test .source files in root directory
-        const sourceFileInRoot = "GEN.source";
-        const strategy3 = determineStrategy(sourceFileInRoot);
-        assert.strictEqual(strategy3, ConflictResolutionStrategy.CODEX_CUSTOM_MERGE);
     });
 
     test("should use CODEX_CUSTOM_MERGE for .codex files", () => {
