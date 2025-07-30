@@ -31,13 +31,13 @@ This document outlines the strategy for resolving merge conflicts in Codex proje
 ### 3. Mergeable JSON Arrays
 
 - **Files**:
-    - `file-comments.json`
+    - `.project/comments.json`
     - `files/project.dictionary`
 - **Strategy**:
     1. Parse both versions as JSON arrays
     2. Combine arrays
-    3. Deduplicate exact matches only
-    4. Preserve order where possible
+    3. Deduplicate by thread ID and comment content
+    4. Preserve all unique threads and comments
 
 ### 4. Special JSON Merges
 

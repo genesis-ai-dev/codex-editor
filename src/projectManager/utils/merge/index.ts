@@ -27,11 +27,13 @@ export interface SyncResult {
     newFiles: string[];
     deletedFiles: string[];
     totalChanges: number;
+    offline?: boolean;
 }
 
 export async function stageAndCommitAllAndSync(
     commitMessage: string,
-    showCompletionMessage: boolean = true
+    showCompletionMessage: boolean = true,
+    retryCount: number = 0
 ): Promise<SyncResult> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!workspaceFolder) {
@@ -68,7 +70,8 @@ export async function stageAndCommitAllAndSync(
         conflictFiles: [],
         newFiles: [],
         deletedFiles: [],
-        totalChanges: 0
+        totalChanges: 0,
+        offline: false
     };
 
     try {
@@ -87,7 +90,11 @@ export async function stageAndCommitAllAndSync(
 
         // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
         // which handles authentication properly
-        const conflictsResponse = await authApi.syncChanges();
+        const conflictsResponse = await authApi.syncChanges({ commitMessage });
+        if (conflictsResponse?.offline) {
+            syncResult.offline = true;
+            return syncResult;
+        }
 
         if (conflictsResponse?.hasConflicts) {
             const conflicts = conflictsResponse.conflicts || [];
@@ -108,8 +115,30 @@ export async function stageAndCommitAllAndSync(
 
             const resolvedFiles = await resolveConflictFiles(conflicts, workspaceFolder);
             if (resolvedFiles.length > 0) {
-                await authApi.completeMerge(resolvedFiles);
-                console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+                try {
+                    await authApi.completeMerge(resolvedFiles, undefined);
+                    console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+                } catch (completeMergeError) {
+                    const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
+                    console.log("errorMessage in retry", errorMessage);
+                    if (retryCount < 3) {
+                        console.log(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
+
+                        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+                        const backoffMs = Math.pow(2, retryCount) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, backoffMs));
+
+                        return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
+                    } else if (retryCount >= 3) {
+                        vscode.window.showErrorMessage(
+                            `Failed to complete merge after 3 retries: ${errorMessage}`
+                        );
+                        throw completeMergeError;
+                    } else {
+                        // Re-throw if it's not a fast-forward error or we've exhausted retries
+                        throw completeMergeError;
+                    }
+                }
             }
         }
 

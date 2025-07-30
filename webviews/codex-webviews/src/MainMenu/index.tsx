@@ -330,7 +330,7 @@ function MainMenu() {
                                 />
                             </div>
                             <div className="flex-1 space-y-1">
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-row flex-wrap items-center justify-between gap-2">
                                     <h3
                                         className="font-semibold text-sm"
                                         style={{ color: "var(--foreground)" }}

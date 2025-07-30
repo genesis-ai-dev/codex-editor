@@ -536,11 +536,17 @@ async function exportCodexContentAsPlaintext(
                     let currentChapter = "";
                     let chapterContent = "";
 
-                    for (const cell of cells) {
+                    // Filter out merged cells before processing
+                    const activeCells = cells.filter((cell) => {
+                        const metadata = cell.metadata;
+                        return !metadata?.data?.merged;
+                    });
+
+                    for (const cell of activeCells) {
                         totalCells++;
                         if (cell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata as { type: string; id: string; };
+                            const cellMetadata = cell.metadata;
 
                             if (cellMetadata.type === "paratext" && cell.value.startsWith("<h1>")) {
                                 debug("Found chapter heading cell");
@@ -814,10 +820,13 @@ async function exportCodexContentAsUsfm(
 
                         // Pre-filter cells to only process relevant ones
                         const relevantCells = codexNotebook.cells.filter(
-                            (cell) =>
-                                cell.kind === 2 && // vscode.NotebookCellKind.Code
-                                cell.metadata?.type &&
-                                cell.value.trim().length > 0
+                            (cell) => {
+                                const metadata = cell.metadata as any;
+                                return cell.kind === 2 && // vscode.NotebookCellKind.Code
+                                    cell.metadata?.type &&
+                                    cell.value.trim().length > 0 &&
+                                    !metadata?.merged; // Exclude merged cells
+                            }
                         );
 
                         totalCells += relevantCells.length;
@@ -825,7 +834,7 @@ async function exportCodexContentAsUsfm(
                         // First pass: identify all chapters
                         const chapterCells: { [key: string]: number; } = {};
                         for (const cell of relevantCells) {
-                            const cellMetadata = cell.metadata as { type: string; id: string; };
+                            const cellMetadata = cell.metadata;
                             const cellContent = cell.value.trim();
 
                             if (
@@ -864,7 +873,7 @@ async function exportCodexContentAsUsfm(
 
                         // Second pass: process cells with proper chapter handling
                         for (const cell of relevantCells) {
-                            const cellMetadata = cell.metadata as { type: string; id: string; };
+                            const cellMetadata = cell.metadata;
                             let cellContent = cell.value.trim();
 
                             // Convert HTML to USFM
@@ -1201,12 +1210,18 @@ async function exportCodexContentAsHtml(
                     const bookCode = basename(file.fsPath).split(".")[0] || "";
                     const chapters: { [key: string]: string; } = {};
 
+                    // Filter out merged cells before processing
+                    const activeCells = cells.filter((cell) => {
+                        const metadata = cell.metadata;
+                        return !metadata?.data?.merged;
+                    });
+
                     // First pass: Organize content by chapters
-                    for (const cell of cells) {
+                    for (const cell of activeCells) {
                         totalCells++;
                         if (cell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = cell.metadata as { type: string; id: string; };
+                            const cellMetadata = cell.metadata;
                             const cellContent = cell.value.trim();
 
                             if (!cellContent) continue;
@@ -1447,13 +1462,19 @@ async function exportCodexContentAsXliff(
                     // Create maps for quick lookup of cells by ID
                     const sourceCellsMap = new Map(
                         sourceNotebook.cells
-                            .filter((cell) => cell.metadata?.id)
+                            .filter((cell) => {
+                                const metadata = cell.metadata as any;
+                                return cell.metadata?.id && !metadata?.merged;
+                            })
                             .map((cell) => [cell.metadata.id, cell])
                     );
 
                     const codexCellsMap = new Map(
                         codexNotebook.cells
-                            .filter((cell) => cell.metadata?.id)
+                            .filter((cell) => {
+                                const metadata = cell.metadata as any;
+                                return cell.metadata?.id && !metadata?.merged;
+                            })
                             .map((cell) => [cell.metadata.id, cell])
                     );
 
@@ -1462,7 +1483,7 @@ async function exportCodexContentAsXliff(
                         totalCells++;
                         if (codexCell.kind === 2) {
                             // vscode.NotebookCellKind.Code
-                            const cellMetadata = codexCell.metadata as { type: string; id: string; };
+                            const cellMetadata = codexCell.metadata;
                             const cellContent = codexCell.value.trim();
 
                             if (!cellContent) continue;
@@ -1736,13 +1757,23 @@ async function exportCodexContentAsDelimited(
                         // Create maps for quick lookup of cells by ID
                         const sourceCellsMap = new Map(
                             sourceNotebook.cells
-                                .filter((cell) => cell.metadata?.id && cell.metadata?.type === CodexCellTypes.TEXT)
+                                .filter((cell) => {
+                                    const metadata = cell.metadata;
+                                    return cell.metadata?.id &&
+                                        cell.metadata?.type === CodexCellTypes.TEXT &&
+                                        !metadata?.data?.merged;
+                                })
                                 .map((cell) => [cell.metadata.id, cell])
                         );
 
                         const codexCellsMap = new Map(
                             codexNotebook.cells
-                                .filter((cell) => cell.metadata?.id && cell.metadata?.type === CodexCellTypes.TEXT)
+                                .filter((cell) => {
+                                    const metadata = cell.metadata;
+                                    return cell.metadata?.id &&
+                                        cell.metadata?.type === CodexCellTypes.TEXT &&
+                                        !metadata?.data?.merged;
+                                })
                                 .map((cell) => [cell.metadata.id, cell])
                         );
 
@@ -1775,7 +1806,9 @@ async function exportCodexContentAsDelimited(
                             if (codexCell.kind === 2) { // vscode.NotebookCellKind.Code
                                 const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
 
-                                if (cellMetadata.type === CodexCellTypes.TEXT && cellMetadata.id) {
+                                if (cellMetadata.type === CodexCellTypes.TEXT &&
+                                    cellMetadata.id &&
+                                    !cellMetadata?.data?.merged) {
                                     totalCells++;
                                     const sourceCell = sourceCellsMap.get(cellMetadata.id);
 

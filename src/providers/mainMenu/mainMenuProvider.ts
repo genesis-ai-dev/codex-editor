@@ -20,6 +20,7 @@ import * as fs from "fs";
 import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager";
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
+import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -372,8 +373,20 @@ export class MainMenuProvider extends BaseWebviewProvider {
     private setupWorkspaceWatchers() {
         // Watch for workspace folder changes
         this.disposables.push(
-            vscode.workspace.onDidChangeWorkspaceFolders(() => {
+            vscode.workspace.onDidChangeWorkspaceFolders(async () => {
                 this.store.refreshState();
+
+                // Trigger migration when workspace changes
+                if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+                    try {
+                        const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+                        if (migrationOccurred) {
+                            console.log("[MainMenu] Comments migration completed after workspace change");
+                        }
+                    } catch (error) {
+                        console.error("[MainMenu] Error during workspace change migration:", error);
+                    }
+                }
             })
         );
 
@@ -580,7 +593,18 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "getSyncSettings": {
                 const config = vscode.workspace.getConfiguration("codex-project-manager");
                 const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
-                const syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+                let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+                // Ensure minimum sync delay is 5 minutes
+                if (syncDelayMinutes < 5) {
+                    syncDelayMinutes = 5;
+                    // Update the configuration to persist the corrected value
+                    await config.update(
+                        "syncDelayMinutes",
+                        syncDelayMinutes,
+                        vscode.ConfigurationTarget.Workspace
+                    );
+                }
 
                 if (this._view) {
                     safePostMessageToView(this._view, {

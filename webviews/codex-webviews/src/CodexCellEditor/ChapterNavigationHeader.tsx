@@ -169,6 +169,8 @@ ChapterNavigationHeaderProps) {
         }
     };
 
+
+
     // Determine the display name using the map
     const getDisplayTitle = () => {
         const firstMarker = translationUnitsForSection[0]?.cellMarkers?.[0]?.split(":")[0]; // e.g., "GEN 1"
@@ -495,7 +497,15 @@ ChapterNavigationHeaderProps) {
                             <i className="codicon codicon-settings-gear" />
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuContent 
+                        side="bottom" 
+                        align="end" 
+                        sideOffset={8}
+                        className="w-56"
+                        style={{
+                            zIndex: 99999
+                        }}
+                    >
                         <DropdownMenuItem
                             onClick={() =>
                                 onSetTextDirection(textDirection === "ltr" ? "rtl" : "ltr")

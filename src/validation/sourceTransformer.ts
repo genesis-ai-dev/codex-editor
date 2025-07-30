@@ -133,6 +133,7 @@ export class SourceTransformer {
                             chapter: chapter.chapterNumber,
                             verse: verse.verseNumber,
                         },
+                        edits: [],
                     },
                 });
 
@@ -149,6 +150,7 @@ export class SourceTransformer {
                             chapter: chapter.chapterNumber,
                             verse: verse.verseNumber,
                         },
+                        edits: [],
                     },
                 });
             }
@@ -182,6 +184,7 @@ export class SourceTransformer {
                     type: CodexCellTypes.TEXT,
                     data: {},
                     cellLabel: verseRef,
+                    edits: [],
                 },
             });
 
@@ -195,6 +198,7 @@ export class SourceTransformer {
                     type: CodexCellTypes.TEXT,
                     data: {},
                     cellLabel: verseRef,
+                    edits: [],
                 },
             });
         }

@@ -23,6 +23,7 @@ import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel, safeIsVisible, safeSetHtml, safeSetOptions } from "../../utils/webviewUtils";
 import * as path from "path";
 import * as fs from "fs";
+import git from "isomorphic-git";
 
 // Add global state tracking for startup flow
 export class StartupFlowGlobalState {
@@ -1172,6 +1173,185 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         });
     }
 
+    // Helper function to detect binary files
+    private isBinaryFile(filePath: string): boolean {
+        const binaryExtensions = [
+            // Audio formats
+            '.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm', '.opus', '.amr', '.3gp',
+            // Video formats
+            '.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg',
+            // Image formats
+            '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.ico', '.svg', '.webp',
+            // Document formats
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            // Archive formats
+            '.zip', '.tar', '.gz', '.rar', '.7z', '.bz2',
+            // Other binary formats
+            '.exe', '.dll', '.so', '.dylib', '.bin', '.dat'
+        ];
+        const ext = path.extname(filePath).toLowerCase();
+        return binaryExtensions.includes(ext);
+    }
+
+    /**
+     * Generate timestamp string for file naming
+     */
+    private generateTimestamp(): string {
+        return new Date().toISOString().replace(/[:.]/g, "-");
+    }
+
+    /**
+     * Recursively add files to a JSZip instance
+     * @param currentUri - The directory to add files from
+     * @param zipFolder - The JSZip folder to add files to
+     * @param options - Options for filtering files
+     */
+    private async addFilesToZip(
+        currentUri: vscode.Uri,
+        zipFolder: JSZip,
+        options: { excludeGit?: boolean; } = { excludeGit: true }
+    ): Promise<void> {
+        const entries = await vscode.workspace.fs.readDirectory(currentUri);
+
+        for (const [name, type] of entries) {
+            // Skip .git folder based on options
+            if (name === ".git" && options.excludeGit) {
+                continue;
+            }
+
+            const entryUri = vscode.Uri.joinPath(currentUri, name);
+
+            if (type === vscode.FileType.File) {
+                const fileData = await vscode.workspace.fs.readFile(entryUri);
+                zipFolder.file(name, fileData);
+            } else if (type === vscode.FileType.Directory) {
+                const newFolder = zipFolder.folder(name);
+                if (newFolder) {
+                    await this.addFilesToZip(entryUri, newFolder, options);
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively copy files from source to destination
+     * @param sourceUri - Source directory
+     * @param destUri - Destination directory
+     * @param options - Options for filtering files
+     */
+    private async copyDirectory(
+        sourceUri: vscode.Uri,
+        destUri: vscode.Uri,
+        options: { excludeGit?: boolean; excludePatterns?: string[]; } = { excludeGit: true }
+    ): Promise<void> {
+        const entries = await vscode.workspace.fs.readDirectory(sourceUri);
+
+        for (const [name, type] of entries) {
+            // Skip .git folder based on options
+            if (name === ".git" && options.excludeGit) {
+                continue;
+            }
+
+            // Skip based on exclude patterns
+            if (options.excludePatterns?.some(pattern => name.match(pattern))) {
+                continue;
+            }
+
+            const sourceEntryUri = vscode.Uri.joinPath(sourceUri, name);
+            const destEntryUri = vscode.Uri.joinPath(destUri, name);
+
+            if (type === vscode.FileType.File) {
+                const fileData = await vscode.workspace.fs.readFile(sourceEntryUri);
+                await vscode.workspace.fs.writeFile(destEntryUri, fileData);
+            } else if (type === vscode.FileType.Directory) {
+                await vscode.workspace.fs.createDirectory(destEntryUri);
+                await this.copyDirectory(sourceEntryUri, destEntryUri, options);
+            }
+        }
+    }
+
+    /**
+     * Create a directory with proper error handling
+     * @param dirUri - Directory URI to create
+     * @returns true if created or already exists, false on error
+     */
+    private async ensureDirectoryExists(dirUri: vscode.Uri): Promise<boolean> {
+        try {
+            await vscode.workspace.fs.createDirectory(dirUri);
+            return true;
+        } catch (error) {
+            // Check if directory already exists
+            try {
+                await vscode.workspace.fs.stat(dirUri);
+                return true; // Directory already exists
+            } catch {
+                debugLog(`Failed to create directory: ${dirUri.fsPath}`, error);
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Create a backup zip of a project
+     * @param projectPath - Path to the project
+     * @param projectName - Name of the project
+     * @param includeGit - Whether to include .git folder
+     * @returns URI of the created backup zip
+     */
+    private async createProjectBackup(
+        projectPath: string,
+        projectName: string,
+        includeGit: boolean = false
+    ): Promise<vscode.Uri> {
+        const timestamp = this.generateTimestamp();
+        const codexProjectsDir = await getCodexProjectsDirectory();
+        const archivedProjectsDir = vscode.Uri.joinPath(codexProjectsDir, "archived_projects");
+
+        // Ensure archived_projects directory exists
+        await this.ensureDirectoryExists(archivedProjectsDir);
+
+        // Create backup zip
+        const backupFileName = `${projectName}_backup_${timestamp}.zip`;
+        const backupUri = vscode.Uri.joinPath(archivedProjectsDir, backupFileName);
+
+        // Create JSZip instance
+        const zip = new JSZip();
+
+        // Add project files to zip
+        const projectUri = vscode.Uri.file(projectPath);
+        await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
+
+        // Generate and save zip with compression
+        const zipContent = await zip.generateAsync({
+            type: "nodebuffer",
+            compression: "DEFLATE",
+            compressionOptions: {
+                level: 9 // Maximum compression (1-9)
+            }
+        });
+        await vscode.workspace.fs.writeFile(backupUri, zipContent);
+
+        return backupUri;
+    }
+
+    /**
+     * Write file content with proper handling for binary vs text files
+     * @param fileUri - The file URI to write to
+     * @param content - The content to write (string for text, Uint8Array for binary)
+     * @param isBinary - Whether the file is binary
+     */
+    private async writeFileContent(
+        fileUri: vscode.Uri,
+        content: string | Uint8Array,
+        isBinary: boolean
+    ): Promise<void> {
+        if (isBinary) {
+            await vscode.workspace.fs.writeFile(fileUri, content as Uint8Array);
+        } else {
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(content as string, 'utf8'));
+        }
+    }
+
     private async handleMessage(
         message:
             | MessagesToStartupFlowProvider
@@ -1430,29 +1610,8 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 debugLog("Fetching projects sync status");
                 try {
                     // Get workspace folders to check local repositories
-                    const workspaceFolders = vscode.workspace.workspaceFolders;
                     const localRepos = new Set<string>();
 
-                    if (workspaceFolders) {
-                        // Get all git repositories in the workspace
-                        const gitExtension = vscode.extensions.getExtension("vscode.git")?.exports;
-                        const git = gitExtension?.getAPI(1);
-
-                        if (git) {
-                            const repositories = git.repositories;
-                            for (const repo of repositories) {
-                                try {
-                                    // Get remote URL
-                                    const remoteUrl = await repo.getConfig("remote.origin.url");
-                                    if (remoteUrl) {
-                                        localRepos.add(remoteUrl.value);
-                                    }
-                                } catch (error) {
-                                    debugLog("Error getting remote URL for repo:", error);
-                                }
-                            }
-                        }
-                    }
 
                     // Get GitLab projects
                     const projects = (await this.frontierApi?.listProjects(false)) || [];
@@ -1515,7 +1674,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     try {
                         await vscode.workspace.fs.stat(projectDir);
                         // If we get here, the directory exists
-                        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                        const timestamp = this.generateTimestamp();
                         const newProjectName = `${projectName}-${timestamp}`;
                         projectDir = vscode.Uri.joinPath(codexProjectsDir, newProjectName);
                     } catch {
@@ -1603,8 +1762,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                     const confirmResult = await vscode.window.showWarningMessage(
                         confirmMessage,
                         { modal: true },
-                        actionButtonText,
-                        "Cancel"
+                        actionButtonText
                     );
 
                     if (confirmResult === actionButtonText) {
@@ -1650,7 +1808,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                 break;
             }
             case "zipProject": {
-                const { projectName, projectPath } = message;
+                const { projectName, projectPath, includeGit = false } = message;
 
                 try {
                     // Show file picker for save location
@@ -1678,47 +1836,84 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
                             // Create JSZip instance
                             const zip = new JSZip();
 
-                            // Recursive function to add files and folders to zip
-                            async function addToZip(currentUri: vscode.Uri, zipFolder: JSZip) {
-                                const entries = await vscode.workspace.fs.readDirectory(currentUri);
-
-                                for (const [name, type] of entries) {
-                                    const entryUri = vscode.Uri.joinPath(currentUri, name);
-
-                                    if (type === vscode.FileType.File) {
-                                        const fileData =
-                                            await vscode.workspace.fs.readFile(entryUri);
-                                        zipFolder.file(name, fileData);
-                                    } else if (type === vscode.FileType.Directory) {
-                                        const newFolder = zipFolder.folder(name);
-                                        if (newFolder) {
-                                            await addToZip(entryUri, newFolder);
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Start adding files from the project root
-                            const projectUri = vscode.Uri.file(message.projectPath);
-                            await addToZip(projectUri, zip);
+                            // Use shared method to add files to zip
+                            const projectUri = vscode.Uri.file(projectPath);
+                            await this.addFilesToZip(projectUri, zip, { excludeGit: !includeGit });
 
                             progress.report({ increment: 50 });
 
-                            // Generate zip content and write directly to target location
-                            const zipContent = await zip.generateAsync({ type: "nodebuffer" });
+                            // Generate zip content with compression and write directly to target location
+                            const zipContent = await zip.generateAsync({
+                                type: "nodebuffer",
+                                compression: "DEFLATE",
+                                compressionOptions: {
+                                    level: 9 // Maximum compression (1-9)
+                                }
+                            });
                             await vscode.workspace.fs.writeFile(saveUri, zipContent);
 
                             progress.report({ increment: 100 });
                         }
                     );
 
+                    const gitMessage = includeGit ? " (including git history)" : "";
                     vscode.window.showInformationMessage(
-                        `Project "${message.projectName}" has been zipped successfully!`
+                        `Project "${projectName}" has been zipped successfully${gitMessage}!`
                     );
                 } catch (error) {
                     debugLog("Error zipping project:", error);
                     vscode.window.showErrorMessage(
                         `Failed to zip project: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+                break;
+            }
+            case "project.heal": {
+                const { projectName, projectPath, gitOriginUrl } = message;
+
+                if (!gitOriginUrl) {
+                    vscode.window.showErrorMessage(
+                        "Cannot heal project: No remote repository URL found. This project may not be connected to a remote repository."
+                    );
+                    return;
+                }
+
+                // Show notification first so user knows the process is starting
+                vscode.window.showInformationMessage("Heal process starting - check for confirmation dialog");
+
+                const yesConfirm = "Yes, Heal Project";
+
+                const confirm = await vscode.window.showWarningMessage(
+                    `This will heal the project "${projectName}" by:\n\n` +
+                    "1. Creating a backup ZIP\n" +
+                    "2. Saving your local changes temporarily\n" +
+                    "3. Re-cloning from the remote repository\n" +
+                    "4. Merging your local changes back\n\n" +
+                    "This process may take several minutes. Continue?",
+                    { modal: true },
+                    yesConfirm
+                );
+
+                if (confirm !== yesConfirm) {
+                    return;
+                }
+
+                // Execute the healing process
+                try {
+                    await vscode.window.withProgress(
+                        {
+                            location: vscode.ProgressLocation.Notification,
+                            title: `Healing project "${projectName}"...`,
+                            cancellable: false,
+                        },
+                        async (progress) => {
+                            await this.performProjectHeal(progress, projectName, projectPath, gitOriginUrl);
+                        }
+                    );
+                } catch (error) {
+                    console.error("Project healing failed:", error);
+                    vscode.window.showErrorMessage(
+                        `Failed to heal project: ${error instanceof Error ? error.message : String(error)}`
                     );
                 }
                 break;
@@ -1763,6 +1958,324 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
             await this.sendList(this.webviewPanel!);
         }
 
+    }
+
+    /**
+     * Perform project healing operation
+     */
+    private async performProjectHeal(
+        progress: vscode.Progress<{ message?: string; increment?: number; }>,
+        projectName: string,
+        projectPath: string,
+        gitOriginUrl: string
+    ): Promise<void> {
+        // Check if frontier extension is available and at required version
+        const frontierExtension = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        if (!frontierExtension) {
+            throw new Error("Frontier Authentication extension is not installed. Please install it to use the heal feature.");
+        }
+
+        const requiredVersion = "0.4.11";
+        const currentVersion = frontierExtension.packageJSON.version;
+
+        // Simple version comparison (assumes semantic versioning)
+        const compareVersions = (current: string, required: string): number => {
+            const currentParts = current.split('.').map(Number);
+            const requiredParts = required.split('.').map(Number);
+
+            for (let i = 0; i < Math.max(currentParts.length, requiredParts.length); i++) {
+                const currentPart = currentParts[i] || 0;
+                const requiredPart = requiredParts[i] || 0;
+
+                if (currentPart > requiredPart) return 1;
+                if (currentPart < requiredPart) return -1;
+            }
+            return 0;
+        };
+
+        if (compareVersions(currentVersion, requiredVersion) < 0) {
+            throw new Error(`Frontier Authentication extension version ${requiredVersion} or later is required. Current version: ${currentVersion}. Please update the extension.`);
+        }
+
+        // Step 1: Create backup
+        progress.report({ increment: 10, message: "Creating backup..." });
+        const backupUri = await this.createProjectBackup(projectPath, projectName, false);
+        const backupFileName = path.basename(backupUri.fsPath);
+        debugLog(`Backup created at: ${backupUri.fsPath}`);
+
+        // Step 2: Copy files to temporary folder
+        progress.report({ increment: 20, message: "Saving local changes..." });
+        const timestamp = this.generateTimestamp();
+        const codexProjectsDir = await getCodexProjectsDirectory();
+        const tempFolderName = `${projectName}_temp_${timestamp}`;
+        const tempFolderUri = vscode.Uri.joinPath(codexProjectsDir, tempFolderName);
+
+        // Create temp directory and copy files
+        await vscode.workspace.fs.createDirectory(tempFolderUri);
+        const projectUri = vscode.Uri.file(projectPath);
+        await this.copyDirectory(projectUri, tempFolderUri, { excludeGit: true });
+        debugLog(`Temporary files saved to: ${tempFolderUri.fsPath}`);
+
+        // Step 3: Delete the unhealthy project
+        progress.report({ increment: 10, message: "Removing corrupted project..." });
+        await vscode.workspace.fs.delete(projectUri, { recursive: true, useTrash: false });
+        debugLog(`Deleted project at: ${projectPath}`);
+
+        // Step 4: Re-clone the project
+        progress.report({ increment: 20, message: "Re-cloning from remote..." });
+        const cloneSuccess = await this.frontierApi?.cloneRepository(gitOriginUrl, projectPath, false);
+        if (!cloneSuccess) {
+            throw new Error("Failed to clone repository");
+        }
+
+        // Wait for clone to complete
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Step 5: Merge temporary files back
+        progress.report({ increment: 20, message: "Merging local changes..." });
+        const clonedProjectUri = vscode.Uri.file(projectPath);
+
+        // Verify the cloned project exists
+        await vscode.workspace.fs.stat(clonedProjectUri);
+        debugLog("Cloned project directory exists");
+
+        // Import types for conflict resolution
+        type ConflictFile = import("../../projectManager/utils/merge/types").ConflictFile;
+
+        // Enhanced ConflictFile type to handle binary files
+        interface EnhancedConflictFile extends Omit<ConflictFile, 'ours' | 'theirs' | 'base'> {
+            ours: string | Uint8Array;
+            theirs: string | Uint8Array;
+            base: string | Uint8Array;
+            isBinary?: boolean;
+        }
+
+        // Collect conflicts from temp folder
+        const conflicts: EnhancedConflictFile[] = [];
+        await this.collectConflictsRecursively(tempFolderUri, clonedProjectUri, conflicts);
+
+        debugLog("Conflicts collected:", {
+            totalConflicts: conflicts.length,
+            conflicts: conflicts.map(c => ({ filepath: c.filepath, isNew: c.isNew }))
+        });
+
+        // Resolve conflicts if any exist
+        if (conflicts.length > 0) {
+            debugLog(`Merging ${conflicts.length} files...`);
+            await this.resolveProjectConflicts(clonedProjectUri, conflicts);
+            debugLog("All conflicts resolved");
+        }
+
+        // Step 6: Clean up temporary files
+        progress.report({ increment: 10, message: "Cleaning up..." });
+        await vscode.workspace.fs.delete(tempFolderUri, { recursive: true, useTrash: false });
+        debugLog(`Cleaned up temp folder: ${tempFolderUri.fsPath}`);
+
+        // Step 7: Commit the merged changes
+        progress.report({ increment: 10, message: "Finalizing healed project..." });
+        await this.commitHealedChanges(projectPath);
+
+        // Success notification and cleanup
+        vscode.window.showInformationMessage(
+            `Project "${projectName}" has been healed successfully! Backup saved to: ${backupFileName}`
+        );
+
+        this.safeSendMessage({
+            command: "forceRefreshProjectsList",
+        });
+    }
+
+    /**
+     * Recursively collect conflicts from temp folder
+     */
+    private async collectConflictsRecursively(
+        tempUri: vscode.Uri,
+        clonedProjectUri: vscode.Uri,
+        conflicts: any[],
+        relativePath: string = ""
+    ): Promise<void> {
+        const entries = await vscode.workspace.fs.readDirectory(tempUri);
+        debugLog(`Collecting conflicts from: ${tempUri.fsPath}, relativePath: "${relativePath}", entries: ${entries.length}`);
+
+        for (const [name, type] of entries) {
+            const tempEntryUri = vscode.Uri.joinPath(tempUri, name);
+            const relativeFilePath = relativePath ? path.join(relativePath, name) : name;
+
+            // Check if we should process this path
+            const normalizedPath = relativeFilePath.replace(/\\/g, '/');
+            const shouldProcess =
+                // .codex files in files/target folder
+                (normalizedPath.startsWith('files/target/') && normalizedPath.endsWith('.codex')) ||
+                // Any content in .project/attachments folder
+                normalizedPath.startsWith('.project/attachments/') ||
+                normalizedPath === '.project/attachments';
+
+            debugLog(`Processing entry: ${name}, type: ${type === vscode.FileType.Directory ? 'Directory' : 'File'}, relativeFilePath: ${relativeFilePath}, shouldProcess: ${shouldProcess}`);
+
+            if (type === vscode.FileType.File && shouldProcess) {
+                await this.processConflictFile(tempEntryUri, clonedProjectUri, relativeFilePath, conflicts);
+            } else if (type === vscode.FileType.Directory) {
+                // Only recurse into directories that might contain files we want
+                const normalizedDirPath = relativeFilePath.replace(/\\/g, '/');
+                const shouldRecurse =
+                    normalizedDirPath === '' || // Root directory
+                    normalizedDirPath === 'files' ||
+                    normalizedDirPath === 'files/target' ||
+                    normalizedDirPath === '.project' ||
+                    normalizedDirPath === '.project/attachments' ||
+                    normalizedDirPath.startsWith('.project/attachments/');
+
+                if (shouldRecurse) {
+                    debugLog(`Recursing into directory: ${relativeFilePath}`);
+                    await this.collectConflictsRecursively(tempEntryUri, clonedProjectUri, conflicts, relativeFilePath);
+                } else {
+                    debugLog(`Skipping directory: ${relativeFilePath}`);
+                }
+            }
+        }
+    }
+
+    /**
+     * Process a single conflict file
+     */
+    private async processConflictFile(
+        tempEntryUri: vscode.Uri,
+        clonedProjectUri: vscode.Uri,
+        relativeFilePath: string,
+        conflicts: any[]
+    ): Promise<void> {
+        const tempContent = await vscode.workspace.fs.readFile(tempEntryUri);
+        const isBinary = this.isBinaryFile(relativeFilePath);
+
+        // Check if file exists in newly cloned project
+        const clonedFileUri = vscode.Uri.joinPath(clonedProjectUri, relativeFilePath);
+        let clonedContent: Uint8Array | undefined;
+        let fileExists = true;
+
+        try {
+            clonedContent = await vscode.workspace.fs.readFile(clonedFileUri);
+        } catch {
+            fileExists = false;
+        }
+
+        if (isBinary) {
+            // Handle binary files - keep as raw bytes
+            debugLog("Collected binary conflict:", {
+                filepath: relativeFilePath,
+                ours: `<binary file ${tempContent.length} bytes>`,
+                theirs: clonedContent ? `<binary file ${clonedContent.length} bytes>` : "<not found>",
+                isNew: !fileExists,
+                isDeleted: false,
+                isBinary: true
+            });
+
+            conflicts.push({
+                filepath: relativeFilePath.replace(/\\/g, '/'),
+                ours: tempContent,  // Keep as Uint8Array
+                theirs: clonedContent || new Uint8Array(),  // Keep as Uint8Array
+                base: new Uint8Array(),
+                isNew: !fileExists,
+                isDeleted: false,
+                isBinary: true
+            });
+        } else {
+            // Handle text files - convert to strings
+            const tempContentStr = Buffer.from(tempContent).toString('utf8');
+            const clonedContentStr = clonedContent ? Buffer.from(clonedContent).toString('utf8') : "";
+
+            debugLog("Collected text conflict:", {
+                filepath: relativeFilePath,
+                ours: tempContentStr.substring(0, 100) + (tempContentStr.length > 100 ? '...' : ''),
+                theirs: clonedContentStr.substring(0, 100) + (clonedContentStr.length > 100 ? '...' : ''),
+                base: "",
+                isNew: !fileExists,
+                isDeleted: false,
+                isBinary: false
+            });
+
+            conflicts.push({
+                filepath: relativeFilePath.replace(/\\/g, '/'),
+                ours: tempContentStr,  // String content
+                theirs: clonedContentStr,  // String content
+                base: "",
+                isNew: !fileExists,
+                isDeleted: false,
+                isBinary: false
+            });
+        }
+    }
+
+    /**
+     * Resolve conflicts by creating directories and writing files
+     */
+    private async resolveProjectConflicts(clonedProjectUri: vscode.Uri, conflicts: any[]): Promise<void> {
+        // Ensure all parent directories exist before resolving conflicts
+        const uniqueDirs = new Set<string>();
+        for (const conflict of conflicts) {
+            const normalizedPath = conflict.filepath.replace(/\//g, path.sep);
+            const dir = path.dirname(normalizedPath);
+            if (dir && dir !== '.' && dir !== path.sep) {
+                uniqueDirs.add(dir);
+            }
+        }
+
+        // Create directories in order (parent directories first)
+        const sortedDirs = Array.from(uniqueDirs).sort((a, b) => a.split(path.sep).length - b.split(path.sep).length);
+        debugLog("Creating directories:", { sortedDirs });
+
+        for (const dir of sortedDirs) {
+            const dirUri = vscode.Uri.joinPath(clonedProjectUri, ...dir.split(path.sep));
+            const created = await this.ensureDirectoryExists(dirUri);
+            if (!created) {
+                throw new Error(`Failed to create directory: ${dir}`);
+            }
+        }
+
+        // Write conflict files
+        for (const conflict of conflicts) {
+            const filePath = vscode.Uri.joinPath(clonedProjectUri, ...conflict.filepath.split('/'));
+
+            if (conflict.isNew || conflict.ours !== conflict.theirs) {
+                debugLog(`Writing file: ${conflict.filepath}`);
+                await this.writeFileContent(filePath, conflict.ours, conflict.isBinary || false);
+            } else {
+                debugLog(`Skipping unchanged file: ${conflict.filepath}`);
+            }
+        }
+    }
+
+    /**
+     * Commit healed changes to git
+     */
+    private async commitHealedChanges(projectPath: string): Promise<void> {
+        try {
+            const author = {
+                name: this.frontierApi?.getUserInfo ?
+                    (await this.frontierApi.getUserInfo()).username : "Unknown",
+                email: this.frontierApi?.getUserInfo ?
+                    (await this.frontierApi.getUserInfo()).email : "unknown@unknown.com"
+            };
+
+            // Stage all changes
+            await git.add({
+                fs,
+                dir: projectPath,
+                filepath: "."
+            });
+
+            // Commit the healed changes
+            await git.commit({
+                fs,
+                dir: projectPath,
+                message: "Healed project: merged local changes after re-clone",
+                author
+            });
+
+            debugLog("Committed healed project changes");
+        } catch (error) {
+            console.warn("Error committing healed changes (non-critical):", error);
+            // Non-critical error, don't fail the heal operation
+        }
     }
 
     private async sendList(webviewPanel: vscode.WebviewPanel) {

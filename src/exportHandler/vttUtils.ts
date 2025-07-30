@@ -53,7 +53,11 @@ export const generateVttData = (
     };
 
     const cues = cells
-        .filter((unit) => !!unit.metadata?.data?.startTime)
+        // Filter out merged cells before processing
+        .filter((unit) => {
+            const metadata = unit.metadata;
+            return !metadata?.data?.merged && !!unit.metadata?.data?.startTime;
+        })
         .map((unit, index) => {
             const startTime = unit.metadata?.data?.startTime ?? index;
             const endTime = unit.metadata?.data?.endTime ?? index + 1;

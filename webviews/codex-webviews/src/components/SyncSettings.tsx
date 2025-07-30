@@ -1,8 +1,10 @@
 import React from "react";
+import { useNetworkState } from "@uidotdev/usehooks";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Alert, AlertDescription } from "./ui/alert";
 
 interface SyncSettingsProps {
     autoSyncEnabled: boolean;
@@ -23,6 +25,8 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
     onChangeSyncDelay,
     onTriggerSync,
 }) => {
+    const network = useNetworkState();
+    const isOnline = network?.online ?? true; // Default to true if network state is unavailable
     return (
         <Card
             className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
@@ -33,7 +37,7 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
             }}
         >
             <CardHeader className="pb-4 mb-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                     <CardTitle
                         className="text-base font-semibold flex items-center gap-2"
                         style={{ color: "var(--foreground)" }}
@@ -46,9 +50,9 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                     </CardTitle>
                     <Button
                         onClick={onTriggerSync}
-                        disabled={isSyncInProgress}
+                        disabled={isSyncInProgress || !isOnline}
                         size="default"
-                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[140px] xl:max-w-none"
+                        className="button-primary font-semibold px-3 py-2 text-sm xl:px-4 xl:text-base shadow-md hover:shadow-lg transform hover:scale-105 transition-all duration-200 min-w-[100px] max-w-[140px] xl:max-w-none disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
                         <i
                             className={`codicon ${
@@ -56,17 +60,33 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                     ? "codicon-loading codicon-modifier-spin"
                                     : "codicon-sync"
                             } mr-2 h-4 w-4`}
+                            style={{ height: "fit-content" }}
                         />
                         <span className="hidden sm:inline">
-                            {isSyncInProgress ? syncStage || "Syncing..." : "Sync Now"}
+                            {!isOnline
+                                ? "Offline"
+                                : isSyncInProgress
+                                ? syncStage || "Syncing..."
+                                : "Sync Now"}
                         </span>
-                        <span className="sm:hidden">{isSyncInProgress ? "Syncing" : "Sync"}</span>
+                        <span className="sm:hidden">
+                            {!isOnline ? "Offline" : isSyncInProgress ? "Syncing" : "Sync"}
+                        </span>
                     </Button>
                 </div>
             </CardHeader>
             <CardContent className="space-y-6">
+                {!isOnline && (
+                    <Alert variant="destructive">
+                        <i className="codicon codicon-warning h-4 w-4" />
+                        <AlertDescription>
+                            Network connection unavailable. Sync functionality is disabled until
+                            connection is restored.
+                        </AlertDescription>
+                    </Alert>
+                )}
                 <div
-                    className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200"
+                    className="flex items-center justify-between p-3 rounded-lg border transition-all duration-200 flex-wrap gap-2"
                     style={{
                         backgroundColor: "var(--muted)",
                         borderColor: "var(--border)",
@@ -84,15 +104,24 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                             Auto-sync
                         </label>
                         <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-                            Automatically sync changes to cloud
+                            {!isOnline
+                                ? "Requires network connection"
+                                : "Automatically sync changes to cloud"}
                         </p>
                     </div>
-                    <Switch checked={autoSyncEnabled} onCheckedChange={onToggleAutoSync} />
+                    <div className="relative">
+                        <Switch
+                            checked={autoSyncEnabled && isOnline}
+                            onCheckedChange={isOnline ? onToggleAutoSync : undefined}
+                            disabled={!isOnline}
+                            className="shadow-sm border border-border/20"
+                        />
+                    </div>
                 </div>
 
-                {autoSyncEnabled && (
+                {autoSyncEnabled && isOnline && (
                     <div
-                        className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300"
+                        className="flex items-center justify-between p-3 rounded-lg border animate-in slide-in-from-top-2 duration-300 flex-wrap gap-2"
                         style={{
                             backgroundColor: "var(--muted)",
                             borderColor: "var(--border)",
@@ -127,11 +156,6 @@ export const SyncSettings: React.FC<SyncSettingsProps> = ({
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="1">
-                                    <span className="flex items-center gap-2">
-                                        <i className="codicon codicon-dashboard" />1 min
-                                    </span>
-                                </SelectItem>
                                 <SelectItem value="5">
                                     <span className="flex items-center gap-2">
                                         <i className="codicon codicon-dashboard" />5 min

@@ -1,0 +1,14 @@
+/* Editor component styles */
+
+/* Footnote marker selection state */
+sup.footnote-marker.footnote-selected {
+    background-color: var(--vscode-editor-selectionBackground, #0078d4);
+    color: var(--vscode-editor-selectionForeground, white);
+}
+
+/* Ensure footnote markers maintain their superscript styling */
+sup.footnote-marker {
+    vertical-align: super;
+    font-size: smaller;
+    top: -0.2em;
+}

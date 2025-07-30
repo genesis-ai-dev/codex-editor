@@ -63,8 +63,8 @@ export const createCodexNotebook = async (
     const cellData =
         cells.length > 0
             ? cells.map(
-                  (cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html") as CodexCell
-              )
+                (cell) => new vscode.NotebookCellData(cell.kind, cell.value, "html") as CodexCell
+            )
             : [];
     const data = new vscode.NotebookData(cellData);
     const doc = await vscode.workspace.openNotebookDocument(NOTEBOOK_TYPE, data);
@@ -152,9 +152,10 @@ export async function updateProjectNotebooksToUseCellsForVerseContent({
             }
 
             const navigationCells: NavigationCell[] = [];
-
+            // @ts-expect-error: perf is not defined in the type because it is the old type
             if (notebookData.cells[0].metadata.perf) {
                 // add the performance data to the top of the notebook in the notebook metadata
+                // @ts-expect-error: perf is not defined in the type because it is the old type
                 notebookData.metadata.perf = notebookData.cells[0].metadata.perf;
             }
 
@@ -288,19 +289,10 @@ export async function createProjectCommentFiles({
 }: {
     shouldOverWrite?: boolean;
 } = {}) {
-    // Save the notebook using generateFiles
-    const commentsFilePath = `comments.json`;
-    const notebookCommentsFilePath = `file-comments.json`;
-    await generateFile({
-        filepath: commentsFilePath,
-        fileContent: new TextEncoder().encode("[]"),
-        shouldOverWrite,
-    });
-    await generateFile({
-        filepath: notebookCommentsFilePath,
-        fileContent: new TextEncoder().encode("[]"),
-        shouldOverWrite,
-    });
+    // Note: Comments are now stored in .project/comments.json and created by CustomWebviewProvider
+    // This function is kept for backward compatibility but no longer creates files
+    // The actual comments file is created by CustomWebviewProvider.initializeCommentsFile()
+    console.log("[createProjectCommentFiles] Comments file is now managed by CustomWebviewProvider");
 }
 
 export async function importLocalUsfmSourceBible(
@@ -372,8 +364,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
             jsonOutput = relaxedUsfmParser.toJSON() as any as ParsedUSFM;
         } catch (error) {
             vscode.window.showErrorMessage(
-                `Error parsing USFM file ${fileUri.fsPath}: ${
-                    error instanceof Error ? error.message : String(error)
+                `Error parsing USFM file ${fileUri.fsPath}: ${error instanceof Error ? error.message : String(error)
                 }`
             );
             return notebookId || "";
@@ -454,8 +445,7 @@ async function processUsfmFile(fileUri: vscode.Uri, notebookId?: string): Promis
     } catch (error) {
         console.error(`Error processing file ${fileUri.fsPath}:`, error);
         vscode.window.showErrorMessage(
-            `Error processing file ${fileUri.fsPath}: ${
-                error instanceof Error ? error.message : String(error)
+            `Error processing file ${fileUri.fsPath}: ${error instanceof Error ? error.message : String(error)
             }`
         );
         return notebookId || "";

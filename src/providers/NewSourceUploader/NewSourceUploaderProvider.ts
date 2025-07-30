@@ -178,6 +178,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 id: processedCell.id,
                 type: CodexCellTypes.TEXT,
                 data: processedCell.metadata || {},
+                edits: [],
             }
         }));
 

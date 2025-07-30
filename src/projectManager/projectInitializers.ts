@@ -157,30 +157,6 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                 }
 
                 progress.report({ increment: 50, message: "Setting up GitHub repository..." });
-                try {
-                    const gitExtension = vscode.extensions.getExtension("vscode.git");
-                    if (gitExtension) {
-                        await gitExtension.activate();
-                        const workspaceFolders = vscode.workspace.workspaceFolders;
-                        if (workspaceFolders && workspaceFolders.length > 0) {
-                            const rootPath = workspaceFolders[0].uri.fsPath;
-                            await vscode.commands.executeCommand("git.init", rootPath);
-                            vscode.window.showInformationMessage(
-                                "GitHub repository initialized successfully"
-                            );
-                        } else {
-                            vscode.window.showErrorMessage(
-                                "No workspace folder found to initialize the GitHub repository."
-                            );
-                        }
-                    } else {
-                        vscode.window.showErrorMessage("Git extension is not available.");
-                    }
-                } catch (error) {
-                    vscode.window.showErrorMessage(
-                        `Failed to initialize new GitHub repository: ${error}`
-                    );
-                }
 
                 const shouldOverWrite =
                     overwriteSelection === ConfirmationOptions.Yes ||

@@ -46,9 +46,7 @@ import {
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
-
-import path from "path";
-import fs from "fs";
+import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 
 export interface ActivationTiming {
     step: string;
@@ -255,6 +253,21 @@ export async function activate(context: vscode.ExtensionContext) {
         notebookMetadataManager = NotebookMetadataManager.getInstance(context);
         await notebookMetadataManager.initialize();
         stepStart = trackTiming("Loading Project Metadata", metadataStart);
+
+        // Migrate comments early during project startup
+        const migrationStart = globalThis.performance.now();
+        if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            try {
+                const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+                if (migrationOccurred) {
+                    console.log("[Extension] Comments migration completed during startup");
+                }
+            } catch (error) {
+                console.error("[Extension] Error during startup comments migration:", error);
+                // Don't fail startup due to migration errors
+            }
+        }
+        stepStart = trackTiming("Migrating Legacy Comments", migrationStart);
 
         // Initialize Frontier API first - needed before startup flow
         const authStart = globalThis.performance.now();

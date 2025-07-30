@@ -44,7 +44,6 @@ interface ChatMessageThread {
 
 interface NotebookCommentThread {
     id: string;
-    uri?: string;
     cellId: CellIdGlobalState;
     comments: NotebookComment[];
     collapsibleState: number;
@@ -55,10 +54,10 @@ interface NotebookCommentThread {
 }
 
 interface NotebookComment {
-    id: number;
+    id: string; // Changed from number to string for unique IDs
+    timestamp: number; // Added timestamp in milliseconds since epoch
     body: string;
     mode: number;
-    contextValue: "canDelete";
     deleted: boolean;
     author: {
         name: string;
@@ -162,8 +161,8 @@ type CommentPostMessages =
     | { command: "reload"; data?: { cellId: string; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }
-    | { command: "deleteComment"; args: { commentId: number; commentThreadId: string; }; }
-    | { command: "undoCommentDeletion"; args: { commentId: number; commentThreadId: string; }; }
+    | { command: "deleteComment"; args: { commentId: string; commentThreadId: string; }; }
+    | { command: "undoCommentDeletion"; args: { commentId: string; commentThreadId: string; }; }
     | { command: "getCurrentCellId"; }
     | { command: "fetchComments"; }
     | { command: "updateUserInfo"; userInfo?: { username: string; email: string; }; }
@@ -359,7 +358,8 @@ export type MessagesToStartupFlowProvider =
     | { command: "startup.dismiss"; }
     | { command: "webview.ready"; }
     | { command: "navigateToMainMenu"; }
-    | { command: "zipProject"; projectName: string; projectPath: string; };
+    | { command: "zipProject"; projectName: string; projectPath: string; includeGit?: boolean; }
+    | { command: "project.heal"; projectName: string; projectPath: string; gitOriginUrl?: string; };
 
 export type GitLabProject = {
     id: number;
@@ -1018,13 +1018,15 @@ type CodexData = Timestamps & {
     book?: string;
     chapter?: string;
     verse?: string;
+    merged?: boolean;
+    deleted?: boolean;
 };
 
 type CustomCellMetaData = {
     id: string;
     type: import("./enums").CodexCellTypes;
     data?: CodexData;
-    edits?: EditHistory[];
+    edits: EditHistory[];
     attachments?: {
         [key: string]: {
             url: string;
@@ -1034,7 +1036,7 @@ type CustomCellMetaData = {
     cellLabel?: string;
 };
 
-type CustomNotebookCellData = vscode.NotebookCellData & {
+type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
     metadata: CustomCellMetaData;
 };
 
@@ -1077,6 +1079,7 @@ interface QuillCellContent {
     timestamps?: Timestamps;
     cellLabel?: string;
     merged?: boolean;
+    deleted?: boolean;
     data?: { [key: string]: any; footnotes?: Footnote[]; };
 }
 

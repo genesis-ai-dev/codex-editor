@@ -441,6 +441,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                             id: verse.vref,
                             data: {},
                             cellLabel: verse.vref.split(":")?.[1],
+                            edits: [],
                         },
                     })),
                     // @ts-expect-error - will be populated shortly
@@ -459,6 +460,7 @@ export class DownloadBibleTransaction extends BaseTransaction {
                             id: verse.vref,
                             data: {},
                             cellLabel: verse.vref.split(":")?.[1],
+                            edits: [],
                         },
                     })),
                     // @ts-expect-error - will be populated shortly

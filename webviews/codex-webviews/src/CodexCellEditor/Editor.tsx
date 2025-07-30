@@ -14,7 +14,7 @@ import registerQuillSpellChecker, {
     QuillSpellChecker,
 } from "./react-quill-spellcheck";
 import { EditHistory, EditorPostMessages, SpellCheckResponse } from "../../../../types";
-// import "./TextEditor.css"; // Override the default Quill styles so spans flow
+import "./Editor.css"; // Editor styles including footnote selection
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
 import ReactPlayer from "react-player";
 import { diffWords } from "diff";
@@ -113,8 +113,8 @@ export interface EditorHandles {
 }
 
 /**
- * Processes Quill content for saving by converting paragraphs to spans properly
- * This replaces the problematic string-based paragraph processing
+ * Processes Quill content for saving, converting first paragraph to span
+ * and preserving subsequent paragraphs
  */
 function processQuillContentForSaving(htmlContent: string): string {
     if (!htmlContent || htmlContent.trim() === "") {
@@ -128,6 +128,21 @@ function processQuillContentForSaving(htmlContent: string): string {
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = htmlContent;
 
+        // Clean up any inline styles and selection classes from footnote markers
+        const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
+        footnoteMarkers.forEach((marker) => {
+            const htmlMarker = marker as HTMLElement;
+            // Remove inline styles that might have been added during selection
+            htmlMarker.style.backgroundColor = "";
+            htmlMarker.style.color = "";
+            // Remove the style attribute entirely if it's empty
+            if (htmlMarker.getAttribute("style") === "") {
+                htmlMarker.removeAttribute("style");
+            }
+            // Also remove the selection class in case it persists
+            htmlMarker.classList.remove("footnote-selected");
+        });
+
         // Get all paragraph elements
         const paragraphs = tempDiv.querySelectorAll("p");
 
@@ -135,15 +150,17 @@ function processQuillContentForSaving(htmlContent: string): string {
 
         if (paragraphs.length === 0) {
             // No paragraphs found, wrap content in span
-            const result = tempDiv.innerHTML.trim() ? `<span>${tempDiv.innerHTML}</span>` : "";
+            const result = tempDiv.innerHTML ? `<span>${tempDiv.innerHTML}</span>` : "";
             console.log("[processQuillContentForSaving] No paragraphs, result:", result);
             return result;
         }
 
         if (paragraphs.length === 1) {
             // Single paragraph: convert to span
-            const content = paragraphs[0].innerHTML.trim();
-            const result = content ? `<span>${content}</span>` : "";
+            const content = paragraphs[0].innerHTML;
+            // Check if there's actual content beyond just spaces
+            const hasRealContent = content.trim().length > 0;
+            const result = hasRealContent ? `<span>${content}</span>` : "";
             console.log("[processQuillContentForSaving] Single paragraph, result:", result);
             return result;
         }
@@ -152,9 +169,11 @@ function processQuillContentForSaving(htmlContent: string): string {
         const processedElements: string[] = [];
 
         paragraphs.forEach((p, index) => {
-            const content = p.innerHTML.trim();
+            const content = p.innerHTML;
+            // Only include paragraphs that have actual content beyond spaces
+            const hasRealContent = content.trim().length > 0;
             console.log(`[processQuillContentForSaving] Processing paragraph ${index}:`, content);
-            if (content) {
+            if (hasRealContent) {
                 if (index === 0) {
                     // First paragraph becomes a span
                     const spanElement = `<span>${content}</span>`;
@@ -196,8 +215,10 @@ function processQuillContentForSaving(htmlContent: string): string {
             // Single paragraph case
             const match = cleaned.match(/<p[^>]*>([\s\S]*?)<\/p>/);
             if (match) {
-                const content = match[1].trim();
-                return content ? `<span>${content}</span>` : "";
+                const content = match[1];
+                // Check if there's actual content beyond just spaces
+                const hasRealContent = content.trim().length > 0;
+                return hasRealContent ? `<span>${content}</span>` : "";
             }
             return cleaned ? `<span>${cleaned}</span>` : "";
         }
@@ -208,8 +229,10 @@ function processQuillContentForSaving(htmlContent: string): string {
                 .map((paragraph, index) => {
                     const match = paragraph.match(/<p[^>]*>([\s\S]*?)<\/p>/);
                     if (match) {
-                        const content = match[1].trim();
-                        if (content) {
+                        const content = match[1];
+                        // Only include paragraphs with real content
+                        const hasRealContent = content.trim().length > 0;
+                        if (hasRealContent) {
                             return index === 0 ? `<span>${content}</span>` : `<p>${content}</p>`;
                         }
                     }
@@ -537,17 +560,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 event.preventDefault();
                 selectedFootnoteMarker = footnoteMarker;
 
-                // Add visual selection styling
-                const htmlElement = footnoteMarker as HTMLElement;
-                htmlElement.style.backgroundColor =
-                    "var(--vscode-editor-selectionBackground, #0078d4)";
-                htmlElement.style.color = "var(--vscode-editor-selectionForeground, white)";
+                // Add visual selection styling using CSS class
+                footnoteMarker.classList.add("footnote-selected");
 
                 // Clear selection after a delay if no further deletion occurs
                 setTimeout(() => {
                     if (selectedFootnoteMarker === footnoteMarker) {
-                        htmlElement.style.backgroundColor = "";
-                        htmlElement.style.color = "";
+                        footnoteMarker.classList.remove("footnote-selected");
                         selectedFootnoteMarker = null;
                     }
                 }, 3000); // Clear selection after 3 seconds
@@ -561,9 +580,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                 } else {
                     // Clear footnote selection on any other key press
                     if (selectedFootnoteMarker) {
-                        const htmlElement = selectedFootnoteMarker as HTMLElement;
-                        htmlElement.style.backgroundColor = "";
-                        htmlElement.style.color = "";
+                        selectedFootnoteMarker.classList.remove("footnote-selected");
                         selectedFootnoteMarker = null;
                     }
                 }
@@ -574,9 +591,7 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             // Clear footnote selection on click
             const clearFootnoteSelection = () => {
                 if (selectedFootnoteMarker) {
-                    const htmlElement = selectedFootnoteMarker as HTMLElement;
-                    htmlElement.style.backgroundColor = "";
-                    htmlElement.style.color = "";
+                    selectedFootnoteMarker.classList.remove("footnote-selected");
                     selectedFootnoteMarker = null;
                 }
             };
@@ -688,6 +703,13 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
                             return [...prev, newEntry];
                         });
                     }
+
+                    // Clear any selected footnotes
+                    const selectedFootnotes =
+                        quillRef.current.root.querySelectorAll(".footnote-selected");
+                    selectedFootnotes.forEach((footnote) => {
+                        footnote.classList.remove("footnote-selected");
+                    });
 
                     // Clean up spell checker
                     const spellChecker = quillRef.current.getModule(
@@ -834,6 +856,30 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
         return temp.textContent || temp.innerText || "";
     };
 
+    // Function to get clean text from selection, excluding footnote markers
+    const getCleanTextFromSelection = (selection: any): string => {
+        if (!quillRef.current || !selection || selection.length === 0) {
+            return "";
+        }
+
+        const quill = quillRef.current;
+
+        // Get the HTML content of the selection
+        const htmlContent = quill.getSemanticHTML(selection.index, selection.length);
+
+        // Create a temporary div to parse the HTML
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = htmlContent;
+
+        // Remove all footnote markers from the content
+        tempDiv.querySelectorAll("sup.footnote-marker").forEach((marker) => {
+            marker.remove();
+        });
+
+        // Return the clean text content
+        return (tempDiv.textContent || tempDiv.innerText || "").trim();
+    };
+
     // Add function to generate diff HTML
     const generateDiffHtml = (oldText: string, newText: string): string => {
         // Strip HTML from both texts before comparing
@@ -882,10 +928,12 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
 
             // Check if there's selected text
             if (selection.length > 0) {
-                // Get the selected text and trim trailing spaces
-                selectedText = quill.getText(selection.index, selection.length);
-                const trimmedText = selectedText.trimEnd();
-                const spacesRemoved = selectedText.length - trimmedText.length;
+                // Get clean text from selection, excluding any footnote markers
+                // This handles the case where selected text contains existing footnotes
+                const cleanedText = getCleanTextFromSelection(selection);
+
+                const trimmedText = cleanedText.trimEnd();
+                const spacesRemoved = cleanedText.length - trimmedText.length;
                 selectedText = trimmedText;
 
                 // Adjust cursor position to account for removed trailing spaces
@@ -1052,6 +1100,8 @@ const Editor = forwardRef<EditorHandles, EditorProps>((props, ref) => {
             quill.insertText(cursorPositionForFootnote, editingFootnoteId, {
                 footnote: currentFootnoteContent,
             });
+
+            // Set cursor after the footnote
             quill.setSelection(cursorPositionForFootnote + editingFootnoteId.length);
         } else {
             // Editing existing footnote - restore original content first

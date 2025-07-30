@@ -9,7 +9,7 @@
         "url": "https://github.com/genesis-ai-dev/codex-editor"
     },
     "license": "MIT",
-    "version": "0.6.9",
+    "version": "0.6.12",
     "engines": {
         "node": ">=16.17.1",
         "vscode": "^1.78.0"
@@ -502,7 +502,6 @@
                     "codex-project-manager.syncDelayMinutes": {
                         "type": "number",
                         "enum": [
-                            1,
                             5,
                             15,
                             30,

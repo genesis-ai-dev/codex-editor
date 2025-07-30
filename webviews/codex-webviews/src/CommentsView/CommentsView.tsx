@@ -85,9 +85,9 @@ function App() {
         isAuthenticated: false,
     });
 
-    // Log current user state whenever it changes
+    // Track current user state changes
     useEffect(() => {
-        console.log("[CommentsWebview] Current user state updated:", currentUser);
+        // User state updated
     }, [currentUser]);
 
     const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
@@ -100,12 +100,10 @@ function App() {
     const handleMessage = useCallback(
         (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
-            console.log("[CommentsWebview] Received message:", message);
 
             switch (message.command) {
                 case "commentsFromWorkspace": {
                     if (message.content) {
-                        console.log("[CommentsWebview] Received comments:", message.content);
                         try {
                             const comments = JSON.parse(message.content);
                             setCommentThread(comments);
@@ -117,7 +115,6 @@ function App() {
                     break;
                 }
                 case "reload": {
-                    console.log("[CommentsWebview] Reload message received:", message.data);
                     if (message.data?.cellId) {
                         setCellId({ cellId: message.data.cellId, uri: message.data.uri || "" });
                         if (viewMode === "cell") {
@@ -130,14 +127,12 @@ function App() {
                     break;
                 }
                 case "updateUserInfo": {
-                    console.log("[CommentsWebview] updateUserInfo received:", message.userInfo);
                     if (message.userInfo) {
                         const newUser = {
                             username: message.userInfo.username,
                             email: message.userInfo.email,
                             isAuthenticated: true,
                         };
-                        console.log("[CommentsWebview] Setting authenticated user:", newUser);
                         setCurrentUser(newUser);
                     } else {
                         const newUser = {
@@ -145,35 +140,30 @@ function App() {
                             email: "",
                             isAuthenticated: false,
                         };
-                        console.log("[CommentsWebview] Setting unauthenticated user:", newUser);
                         setCurrentUser(newUser);
                     }
                     break;
                 }
                 default:
-                    console.log("[CommentsWebview] Unknown message command:", message.command);
+                    // Unknown message command
             }
         },
         [viewMode]
     );
 
     useEffect(() => {
-        console.log("[CommentsWebview] Setting up message listener and requesting initial data...");
         window.addEventListener("message", handleMessage);
 
         // Request initial data
-        console.log("[CommentsWebview] Requesting initial comments...");
         vscode.postMessage({
             command: "fetchComments",
         } as CommentPostMessages);
 
-        console.log("[CommentsWebview] Requesting current cell ID...");
         vscode.postMessage({
             command: "getCurrentCellId",
         } as CommentPostMessages);
 
         return () => {
-            console.log("[CommentsWebview] Cleaning up message listener...");
             window.removeEventListener("message", handleMessage);
         };
     }, [handleMessage]);
@@ -182,13 +172,12 @@ function App() {
         if (!replyText[threadId]?.trim() || !currentUser.isAuthenticated) return;
 
         const existingThread = commentThreadArray.find((thread) => thread.id === threadId);
-        const newCommentId = existingThread
-            ? Math.max(...existingThread.comments.map((c) => c.id)) + 1
-            : 1;
+        const timestamp = Date.now();
+        const newCommentId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
         const comment: Comment = {
             id: newCommentId,
-            contextValue: "canDelete",
+            timestamp: timestamp,
             body: replyText[threadId],
             mode: 1,
             author: { name: currentUser.username },
@@ -198,7 +187,6 @@ function App() {
         const updatedThread: NotebookCommentThread = {
             ...(existingThread || {
                 id: threadId,
-                uri: uri,
                 canReply: true,
                 cellId: cellId,
                 collapsibleState: 0,
@@ -206,7 +194,7 @@ function App() {
                 deleted: false,
                 resolved: false,
             }),
-            comments: existingThread ? [...existingThread.comments, comment] : [comment],
+            comments: existingThread ? [...existingThread.comments, comment] : [comment]
         };
 
         vscode.postMessage({
@@ -225,14 +213,14 @@ function App() {
         } as CommentPostMessages);
     };
 
-    const handleCommentDeletion = (commentId: number, commentThreadId: string) => {
+    const handleCommentDeletion = (commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "deleteComment",
             args: { commentId, commentThreadId },
         } as CommentPostMessages);
     };
 
-    const handleUndoCommentDeletion = (commentId: number, commentThreadId: string) => {
+    const handleUndoCommentDeletion = (commentId: string, commentThreadId: string) => {
         vscode.postMessage({
             command: "undoCommentDeletion",
             args: { commentId, commentThreadId },
@@ -245,10 +233,11 @@ function App() {
         // Generate a timestamp for the default title
         const now = new Date();
         const defaultTitle = now.toLocaleString();
+        const timestamp = Date.now();
+        const commentId = `${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
         const newThread: NotebookCommentThread = {
             id: uuidv4(),
-            uri: uri,
             canReply: true,
             cellId: cellId,
             collapsibleState: 0,
@@ -257,8 +246,8 @@ function App() {
             resolved: false,
             comments: [
                 {
-                    id: 1,
-                    contextValue: "canDelete",
+                    id: commentId,
+                    timestamp: timestamp,
                     body: newCommentText.trim(),
                     mode: 1,
                     author: { name: currentUser.username },

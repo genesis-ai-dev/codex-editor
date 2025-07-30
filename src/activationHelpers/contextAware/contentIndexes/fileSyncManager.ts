@@ -201,13 +201,13 @@ export class FileSyncManager {
             }
 
             // Force save to ensure all changes are persisted
-            progressCallback?.("Finalizing sync...", 95);
+            progressCallback?.("Finalizing AI learning...", 95);
             await this.sqliteIndex.forceSave();
 
             const duration = performance.now() - syncStart;
-            progressCallback?.("Sync complete", 100);
+            progressCallback?.("AI learning complete", 100);
 
-            debug(`[FileSyncManager] Optimized sync completed in ${duration.toFixed(2)}ms`);
+            debug(`[FileSyncManager] AI learning completed in ${duration.toFixed(2)}ms`);
             debug(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
 
             return {
@@ -466,9 +466,9 @@ export class FileSyncManager {
             await this.sqliteIndex.forceSave();
 
             const duration = performance.now() - syncStart;
-            progressCallback?.("Targeted sync complete", 100);
+            progressCallback?.("Targeted AI learning complete", 100);
 
-            debug(`[FileSyncManager] Targeted sync completed in ${duration.toFixed(2)}ms`);
+            debug(`[FileSyncManager] Targeted AI learning completed in ${duration.toFixed(2)}ms`);
             debug(`[FileSyncManager] Results: ${syncedFiles} synced, ${unchangedFiles} unchanged, ${errors.length} errors`);
 
             return {

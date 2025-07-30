@@ -93,7 +93,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
 
         return (
             <div
-                key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}
+                key={`${project.name}-${project.gitOriginUrl || "no-url"}`}
                 className={cn(
                     "flex items-center justify-between py-2 px-3 hover:bg-muted/30 transition-colors duration-200 border-b last:border-b-0",
                     isNewlyAdded && "bg-blue-50/50",
@@ -216,7 +216,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                             </div>
                             {uniqueId && (
                                 <div className="flex items-center justify-between">
-                                    <span className="text-xs text-muted-foreground">#{uniqueId}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                        #{uniqueId}
+                                    </span>
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -233,6 +235,42 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                         <div className="flex items-center justify-between gap-2">
                             <span className="text-xs">{project.name}</span>
                             <div className="flex gap-2">
+                                {(project.syncStatus === "downloadedAndSynced" ||
+                                    project.syncStatus === "error") && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                            vscode.postMessage({
+                                                command: "project.heal",
+                                                projectName: project.name,
+                                                projectPath: project.path,
+                                                gitOriginUrl: project.gitOriginUrl,
+                                            });
+                                        }}
+                                        className="h-6 text-xs text-yellow-600 hover:text-yellow-700"
+                                        title="Heal project by backing up, re-cloning, and merging local changes"
+                                    >
+                                        <i className="codicon codicon-heart mr-1" />
+                                        Heal
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                        vscode.postMessage({
+                                            command: "zipProject",
+                                            projectName: project.name,
+                                            projectPath: project.path,
+                                            includeGit: true,
+                                        });
+                                    }}
+                                    className="h-6 text-xs"
+                                >
+                                    <i className="codicon codicon-package mr-1" />
+                                    ZIP (with git)
+                                </Button>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -245,8 +283,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
                                     }}
                                     className="h-6 text-xs"
                                 >
-                                    <i className="codicon codicon-package mr-1" />
-                                    ZIP
+                                    <i className="codicon codicon-file-zip mr-1" />
+                                    Mini ZIP
                                 </Button>
                                 {onDeleteProject && (
                                     <Button
@@ -268,7 +306,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     };
 
     return (
-        <div key={`${project.name}-${project.gitOriginUrl || 'no-url'}`}>
+        <div key={`${project.name}-${project.gitOriginUrl || "no-url"}`}>
             {renderProjectCard()}
             {renderProjectDetails()}
         </div>
