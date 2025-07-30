@@ -1,13 +1,14 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteConfirmationMessage, OverwriteResponseMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
 import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
+import { createStandardizedFilename } from "../../utils/bookNameUtils";
 
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
@@ -46,21 +47,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                         inventory: inventory,
                     });
                 } else if (message.command === "writeNotebooks") {
-                    await this.handleWriteNotebooks(message as WriteNotebooksMessage, token);
+                    await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
 
-                    // Send success notification
-                    webviewPanel.webview.postMessage({
-                        command: "notification",
-                        type: "success",
-                        message: "Notebooks created successfully!"
-                    });
-
-                    // Send updated inventory after successful import
-                    const inventory = await this.fetchProjectInventory();
-                    webviewPanel.webview.postMessage({
-                        command: "projectInventory",
-                        inventory: inventory,
-                    });
+                    // Success notification and inventory update are now handled in handleWriteNotebooks
+                } else if (message.command === "overwriteResponse") {
+                    const response = message as OverwriteResponseMessage;
+                    if (response.confirmed) {
+                        // User confirmed overwrite, proceed with the original write operation
+                        await this.handleWriteNotebooksForced(response.originalMessage, token, webviewPanel);
+                    } else {
+                        // User cancelled, send cancellation message
+                        webviewPanel.webview.postMessage({
+                            command: "notification",
+                            type: "info",
+                            message: "Import cancelled by user"
+                        });
+                    }
                 } else if (message.command === "writeTranslation") {
                     await this.handleWriteTranslation(message as WriteTranslationMessage, token);
 
@@ -202,7 +204,48 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
     private async handleWriteNotebooks(
         message: WriteNotebooksMessage,
-        token: vscode.CancellationToken
+        token: vscode.CancellationToken,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        // Check for file conflicts before proceeding
+        const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
+
+        if (conflicts.length > 0) {
+            // Show confirmation dialog
+            const filesList = conflicts.map(conflict => {
+                const parts = [];
+                if (conflict.sourceExists) parts.push("source file");
+                if (conflict.targetExists) parts.push("target file");
+                if (conflict.hasTranslations) parts.push("with translations");
+                return `• ${conflict.name} (${parts.join(", ")})`;
+            }).join("\n");
+
+            const action = await vscode.window.showWarningMessage(
+                `The following files already exist and will be overwritten:\n\n${filesList}\n\nThis will permanently delete any existing translations for this file. Do you want to continue?`,
+                { modal: true },
+                "Overwrite Files",
+                "Abort Import"
+            );
+
+            if (action !== "Overwrite Files") {
+                // User cancelled
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "info",
+                    message: "Import cancelled by user"
+                });
+                return;
+            }
+        }
+
+        // No conflicts or user confirmed, proceed with import
+        await this.handleWriteNotebooksForced(message, token, webviewPanel);
+    }
+
+    private async handleWriteNotebooksForced(
+        message: WriteNotebooksMessage,
+        token: vscode.CancellationToken,
+        webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
         // Debug logging
         console.log("Received notebook pairs:", message.notebookPairs.length);
@@ -238,6 +281,20 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 ? `Successfully imported "${firstNotebookName}"!`
                 : `Successfully imported ${count} ${notebooksText}!`
         );
+
+        // Send success notification to webview
+        webviewPanel.webview.postMessage({
+            command: "notification",
+            type: "success",
+            message: "Notebooks created successfully!"
+        });
+
+        // Send updated inventory after successful import
+        const inventory = await this.fetchProjectInventory();
+        webviewPanel.webview.postMessage({
+            command: "projectInventory",
+            inventory: inventory,
+        });
 
         // Use incremental indexing for just the newly created files
         if (createdFiles && createdFiles.length > 0) {
@@ -341,23 +398,37 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 }
             }
 
-            // Build the final cell array, preserving order
+            // Build the final cell array, preserving the temporal order from alignedContent
             const newCells: any[] = [];
+            const usedExistingCellIds = new Set<string>();
 
-            // First add all existing cells, updating those that were processed
-            for (const cell of existingNotebook.cells) {
-                const cellId = cell.metadata?.id;
-                if (cellId && processedCells.has(cellId)) {
-                    newCells.push(processedCells.get(cellId)!);
-                    processedCells.delete(cellId);
-                } else {
-                    newCells.push(cell);
+            // Process cells in the order they appear in alignedContent (temporal order)
+            for (const alignedCell of message.alignedContent) {
+                if (alignedCell.isParatext) {
+                    // Add paratext cell
+                    const paratextId = alignedCell.importedContent.id;
+                    const paratextCell = processedCells.get(paratextId);
+                    if (paratextCell) {
+                        newCells.push(paratextCell);
+                    }
+                } else if (alignedCell.notebookCell) {
+                    const targetId = alignedCell.importedContent.id;
+                    const processedCell = processedCells.get(targetId);
+
+                    if (processedCell) {
+                        newCells.push(processedCell);
+                        usedExistingCellIds.add(targetId);
+                    }
                 }
             }
 
-            // Add any remaining processed cells (new paratext, etc.)
-            for (const [, cell] of processedCells) {
-                newCells.push(cell);
+            // Add any existing cells that weren't in the aligned content (shouldn't happen normally)
+            for (const cell of existingNotebook.cells) {
+                const cellId = cell.metadata?.id;
+                if (cellId && !usedExistingCellIds.has(cellId)) {
+                    console.warn(`Cell ${cellId} was not in aligned content, appending at end`);
+                    newCells.push(cell);
+                }
             }
 
             // Update the notebook
@@ -383,6 +454,87 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             console.error("Error in translation import:", error);
             throw error;
         }
+    }
+
+    /**
+     * Check if importing these notebooks would overwrite existing files
+     */
+    private async checkForFileConflicts(sourceNotebooks: ProcessedNotebook[]): Promise<Array<{
+        name: string;
+        sourceExists: boolean;
+        targetExists: boolean;
+        hasTranslations: boolean;
+    }>> {
+        const conflicts = [];
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+
+        if (!workspaceFolder) {
+            return [];
+        }
+
+        for (const notebook of sourceNotebooks) {
+            const sourceFilename = await createStandardizedFilename(notebook.name, ".source");
+            const codexFilename = await createStandardizedFilename(notebook.name, ".codex");
+
+            const sourceUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                ".project",
+                "sourceTexts",
+                sourceFilename
+            );
+            const codexUri = vscode.Uri.joinPath(
+                workspaceFolder.uri,
+                "files",
+                "target",
+                codexFilename
+            );
+
+            // Check if files exist
+            let sourceExists = false;
+            let targetExists = false;
+            let hasTranslations = false;
+
+            try {
+                await vscode.workspace.fs.stat(sourceUri);
+                sourceExists = true;
+            } catch {
+                // File doesn't exist
+            }
+
+            try {
+                const targetStat = await vscode.workspace.fs.stat(codexUri);
+                targetExists = true;
+
+                // Check if target file has any content (translations)
+                if (targetStat.size > 0) {
+                    try {
+                        const targetContent = await vscode.workspace.fs.readFile(codexUri);
+                        const targetNotebook = JSON.parse(new TextDecoder().decode(targetContent));
+
+                        // Check if any cells have non-empty content
+                        hasTranslations = targetNotebook.cells?.some((cell: any) =>
+                            cell.value && cell.value.trim() !== ""
+                        ) || false;
+                    } catch {
+                        // Error reading target file, assume no translations
+                    }
+                }
+            } catch {
+                // File doesn't exist
+            }
+
+            // Only add to conflicts if at least one file exists
+            if (sourceExists || targetExists) {
+                conflicts.push({
+                    name: notebook.name,
+                    sourceExists,
+                    targetExists,
+                    hasTranslations
+                });
+            }
+        }
+
+        return conflicts;
     }
 
     private async checkForExistingFiles(): Promise<Array<{

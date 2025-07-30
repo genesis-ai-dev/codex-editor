@@ -776,7 +776,7 @@
             },
             {
                 "viewType": "newSourceUploaderProvider",
-                "displayName": "New Source Uploader",
+                "displayName": "Source Uploader",
                 "selector": [
                     {
                         "filenamePattern": "*.newSourceUploaderProvider",
