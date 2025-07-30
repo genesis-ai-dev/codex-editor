@@ -83,7 +83,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             } catch (error) {
                 if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
                     console.log("[CommentsProvider] Creating comments file");
-                    await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode("[]"));
+                    await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode(CommentsMigrator.formatCommentsForStorage([])));
                 } else {
                     throw error;
                 }
@@ -304,7 +304,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 }
 
                 await writeSerializedData(
-                    JSON.stringify(existingCommentsThreads, null, 4),
+                    CommentsMigrator.formatCommentsForStorage(existingCommentsThreads),
                     this.commentsFilePath!.fsPath
                 );
             } catch (error) {
@@ -628,7 +628,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
             // If migration happened, save the migrated version
             if (migratedComments !== comments) {
-                const migratedContent = JSON.stringify(migratedComments, null, 4);
+                const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
                 await writeSerializedData(migratedContent, this.commentsFilePath.fsPath);
                 console.log("[CommentsProvider] Saved migrated comments to disk");
 

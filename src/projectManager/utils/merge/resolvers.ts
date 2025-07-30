@@ -4,6 +4,7 @@ import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { NotebookCommentThread, NotebookComment } from "../../../../types";
+import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
@@ -698,7 +699,7 @@ async function resolveCommentThreadsConflict(
     });
 
     const mergedThreads = Array.from(threadMap.values());
-    return JSON.stringify(mergedThreads, null, 2);
+    return CommentsMigrator.formatCommentsForStorage(mergedThreads);
 }
 
 /**

@@ -10,6 +10,45 @@ import { writeSerializedData } from "./fileUtils";
 export class CommentsMigrator {
 
     /**
+ * Ensures consistent JSON formatting for minimal git diffs
+ * IMPORTANT: Does NOT reorder existing threads to preserve git history
+ */
+    static formatCommentsForStorage(comments: NotebookCommentThread[]): string {
+        // DO NOT sort threads - preserve existing order to minimize git diffs
+        // Only ensure consistent key ordering within each thread
+        const orderedThreads = comments.map(thread => {
+            const orderedThread: any = {
+                id: thread.id,
+                canReply: thread.canReply,
+                cellId: {
+                    cellId: thread.cellId.cellId,
+                    uri: thread.cellId.uri
+                },
+                collapsibleState: thread.collapsibleState,
+                threadTitle: thread.threadTitle,
+                deleted: thread.deleted,
+                resolved: thread.resolved,
+                comments: thread.comments
+                    .slice() // Create a copy to avoid mutating the original
+                    .sort((a, b) => a.timestamp - b.timestamp) // Sort comments by timestamp
+                    .map(comment => ({
+                        id: comment.id,
+                        timestamp: comment.timestamp,
+                        body: comment.body,
+                        mode: comment.mode,
+                        author: {
+                            name: comment.author.name
+                        },
+                        deleted: comment.deleted
+                    }))
+            };
+            return orderedThread;
+        });
+
+        return JSON.stringify(orderedThreads, null, 4);
+    }
+
+    /**
      * Main migration function that can be called from any context
      */
     static async migrateProjectComments(workspaceUri: vscode.Uri): Promise<boolean> {
@@ -119,7 +158,7 @@ export class CommentsMigrator {
             const migratedComments = CommentsMigrator.migrateCommentsStructure(allComments);
 
             // Write migrated comments
-            const migratedContent = JSON.stringify(migratedComments, null, 4);
+            const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
             await vscode.workspace.fs.writeFile(newCommentsFilePath, new TextEncoder().encode(migratedContent));
 
 
