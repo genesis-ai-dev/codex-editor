@@ -83,7 +83,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             } catch (error) {
                 if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
                     console.log("[CommentsProvider] Creating comments file");
-                    await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode("[]"));
+                    await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode(CommentsMigrator.formatCommentsForStorage([])));
                 } else {
                     throw error;
                 }
@@ -243,22 +243,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
     private async initializeWebview(webviewView: vscode.WebviewView): Promise<void> {
         try {
-            console.log("[CommentsProvider] Initializing webview...");
             // Ensure comments file exists before trying to read it
             await this.initializeCommentsFile();
 
             // Give the webview a moment to fully load before sending messages
-            console.log("[CommentsProvider] Waiting for webview to be ready...");
             await new Promise(resolve => setTimeout(resolve, 100));
 
             // Now safely initialize other components
-            console.log("[CommentsProvider] About to send user info...");
             await this.sendCurrentUserInfo(webviewView);
-            console.log("[CommentsProvider] About to send comments...");
             await this.sendCommentsToWebview(webviewView);
-            console.log("[CommentsProvider] About to send cell ID...");
             await this.sendCurrentCellId(webviewView);
-            console.log("[CommentsProvider] Webview initialization complete");
         } catch (error) {
             console.error("[CommentsProvider] Error initializing comments webview:", error);
         }
@@ -293,18 +287,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             newCommentThread: NotebookCommentThread
         ) => {
             try {
-                console.log("[CommentsProvider] Serializing comment to disk:", {
-                    threadId: newCommentThread.id,
-                    existingThreadsCount: existingCommentsThreads.length
-                });
-
                 const threadIndex = existingCommentsThreads.findIndex(
                     (thread) => thread.id === newCommentThread.id
                 );
 
                 if (threadIndex !== -1) {
                     // Update existing thread
-                    console.log("[CommentsProvider] Updating existing thread at index:", threadIndex);
                     existingCommentsThreads[threadIndex] = {
                         ...existingCommentsThreads[threadIndex],
                         ...newCommentThread,
@@ -312,16 +300,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             newCommentThread.comments || existingCommentsThreads[threadIndex].comments,
                     };
                 } else {
-                    console.log("[CommentsProvider] Adding new thread");
                     existingCommentsThreads.push(newCommentThread);
                 }
 
-                console.log("[CommentsProvider] Writing to file:", this.commentsFilePath!.fsPath);
                 await writeSerializedData(
-                    JSON.stringify(existingCommentsThreads, null, 4),
+                    CommentsMigrator.formatCommentsForStorage(existingCommentsThreads),
                     this.commentsFilePath!.fsPath
                 );
-                console.log("[CommentsProvider] Successfully wrote comments to file");
             } catch (error) {
                 console.error("[CommentsProvider] Error serializing comments to disk:", error);
                 throw error;
@@ -329,12 +314,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         };
 
         try {
-            console.log("[CommentsProvider] Handling message:", message.command);
             switch (message.command) {
                 case "updateCommentThread": {
-                    console.log("[CommentsProvider] updateCommentThread - getting existing comments from:", this.commentsFilePath!.fsPath);
                     const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    console.log("[CommentsProvider] Found existing threads:", existingCommentsThreads.length);
 
                     // Migrate existing comments if needed before merging
                     const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
@@ -348,14 +330,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         return;
                     }
 
-                    console.log("[CommentsProvider] Using URI from cellId:", message.commentThread.cellId.uri);
                     // Convert to relative paths before saving
                     const threadWithRelativePaths = this.convertThreadToRelativePaths(message.commentThread);
                     await serializeCommentsToDisk(
                         migratedExistingThreads,
                         threadWithRelativePaths
                     );
-                    console.log("[CommentsProvider] Sending updated comments to webview");
                     this.sendCommentsToWebview(this._view!);
                     break;
                 }
@@ -428,14 +408,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     break;
                 }
                 case "fetchComments": {
-                    console.log("[CommentsProvider] fetchComments - also sending user info");
                     this.sendCommentsToWebview(this._view!);
                     // Also send user info in case initialization hasn't completed
                     await this.sendCurrentUserInfo(this._view!);
                     break;
                 }
                 case "getCurrentCellId": {
-                    console.log("[CommentsProvider] getCurrentCellId - also sending user info");
                     // Also send user info in case initialization hasn't completed
                     await this.sendCurrentUserInfo(this._view!);
 
@@ -650,7 +628,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
             // If migration happened, save the migrated version
             if (migratedComments !== comments) {
-                const migratedContent = JSON.stringify(migratedComments, null, 4);
+                const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
                 await writeSerializedData(migratedContent, this.commentsFilePath.fsPath);
                 console.log("[CommentsProvider] Saved migrated comments to disk");
 
