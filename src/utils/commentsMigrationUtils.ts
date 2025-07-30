@@ -169,45 +169,29 @@ export class CommentsMigrator {
     }
 
     /**
- * Enhanced comment deduplication that preserves all unique comment IDs
- * Uses smart deduplication: content-based for legacy, ID-based for modern
+ * Simple ID-based comment deduplication - preserves all unique comment IDs (any format)
  */
     private static mergeCommentsWithEnhancedDeduplication(existingComments: any[], legacyComments: any[], cellId: any): any[] {
         const commentMap = new Map<string, any>();
-        const processedLegacyContent = new Set<string>();
 
         // Add existing comments first
         existingComments.forEach(comment => {
-            commentMap.set(comment.id, comment);
-
-            // Track legacy content for deduplication
-            if (CommentsMigrator.isLegacyComment(comment)) {
-                const legacyKey = `${comment.body}|${comment.author?.name}`;
-                processedLegacyContent.add(legacyKey);
-            }
+            const commentId = String(comment.id); // Normalize to string
+            commentMap.set(commentId, comment);
+            console.log(`[CommentsMigrator] Added existing comment with ID: ${commentId} (original: ${comment.id})`);
         });
 
-        // Add legacy comments with smart deduplication
+        // Add legacy comments - only skip if ID already exists (any format)
         legacyComments.forEach(comment => {
-            // Always preserve if the comment has a unique ID
-            if (commentMap.has(comment.id)) {
-                console.log(`[CommentsMigrator] Skipping comment with duplicate ID: ${comment.id}`);
+            const commentId = String(comment.id); // Normalize to string
+            if (commentMap.has(commentId)) {
+                console.log(`[CommentsMigrator] Skipping comment with duplicate ID: ${commentId} (original: ${comment.id})`);
                 return;
             }
 
-            // For legacy comments, check content duplication
-            if (CommentsMigrator.isLegacyComment(comment)) {
-                const legacyKey = `${comment.body}|${comment.author?.name}`;
-                if (processedLegacyContent.has(legacyKey)) {
-                    console.log(`[CommentsMigrator] Skipping duplicate legacy comment content: ${comment.body.substring(0, 50)}...`);
-                    return;
-                }
-                processedLegacyContent.add(legacyKey);
-            }
-
-            // Add the comment
-            commentMap.set(comment.id, comment);
-            console.log(`[CommentsMigrator] Added comment with ID: ${comment.id}`);
+            // Add the comment (ID is unique)
+            commentMap.set(commentId, comment);
+            console.log(`[CommentsMigrator] Added legacy comment with ID: ${commentId} (original: ${comment.id})`);
         });
 
         // Sort comments by timestamp
@@ -300,21 +284,27 @@ export class CommentsMigrator {
     }
 
     /**
-     * Determines if a comment was recently migrated from legacy format
-     */
+ * Determines if a comment was recently migrated from legacy format
+ */
     private static isLegacyComment(comment: any): boolean {
-        // If the comment has a UUID-style ID that was generated during migration,
-        // and the timestamp was calculated (not user-entered), it's likely legacy
+        // Check if it still has numeric ID (definitely legacy)
+        if (typeof comment.id === 'number') {
+            return true;
+        }
+
+        // For timestamp-based IDs, check the relationship between ID timestamp and comment timestamp
         if (typeof comment.id === 'string' && comment.id.includes('-')) {
-            // Check if the timestamp is very close to the ID timestamp (indicating generated)
             const idTimestamp = parseInt(comment.id.split('-')[0]);
-            if (!isNaN(idTimestamp) && Math.abs((comment.timestamp || 0) - idTimestamp) < 100) {
-                return true;
+            if (!isNaN(idTimestamp)) {
+                const timeDiff = Math.abs((comment.timestamp || 0) - idTimestamp);
+
+                // Modern comments: ID timestamp = comment timestamp (same moment)
+                // Legacy comments: ID timestamp ≠ comment timestamp (calculated during migration)
+                return timeDiff >= 100; // Different times = legacy migration
             }
         }
 
-        // Also check if it still has numeric ID (shouldn't happen but be safe)
-        return typeof comment.id === 'number';
+        return false;
     }
 
     /**

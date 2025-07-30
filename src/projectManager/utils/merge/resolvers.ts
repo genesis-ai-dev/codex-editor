@@ -66,8 +66,20 @@ function migrateComment(
         return comment as NotebookComment;
     }
 
-    // Generate unique ID
-    const newId = generateCommentId();
+    // For legacy numeric IDs, preserve the original ID in a deterministic way
+    // This ensures the same numeric ID always generates the same UUID
+    const originalId = comment.id;
+    let newId: string;
+
+    if (typeof originalId === 'number') {
+        // Create deterministic ID based on original numeric ID + thread info
+        // This ensures comment with original ID "1" always gets the same UUID in the same thread
+        const threadHash = threadTitle ? threadTitle.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8) : 'unknown';
+        newId = `legacy-${originalId}-${threadHash}`;
+    } else {
+        // Generate unique ID for other cases
+        newId = generateCommentId();
+    }
 
     // Calculate timestamp
     let timestamp: number;
@@ -114,18 +126,24 @@ function needsMigration(threads: any[]): boolean {
  * Legacy comments have generated UUIDs with timestamp-based IDs and calculated timestamps
  */
 function isLegacyComment(comment: any): boolean {
-    // If the comment has a UUID-style ID that was generated during migration,
-    // and the timestamp was calculated (not user-entered), it's likely legacy
+    // Check if it still has numeric ID (definitely legacy)
+    if (typeof comment.id === 'number') {
+        return true;
+    }
+
+    // For timestamp-based IDs, check the relationship between ID timestamp and comment timestamp
     if (typeof comment.id === 'string' && comment.id.includes('-')) {
-        // Check if the timestamp is very close to the ID timestamp (indicating generated)
         const idTimestamp = parseInt(comment.id.split('-')[0]);
-        if (!isNaN(idTimestamp) && Math.abs(comment.timestamp - idTimestamp) < 100) {
-            return true;
+        if (!isNaN(idTimestamp)) {
+            const timeDiff = Math.abs(comment.timestamp - idTimestamp);
+
+            // Modern comments: ID timestamp = comment timestamp (same moment)
+            // Legacy comments: ID timestamp ≠ comment timestamp (calculated during migration)
+            return timeDiff >= 100; // Different times = legacy migration
         }
     }
 
-    // Also check if it still has numeric ID (shouldn't happen but be safe)
-    return typeof comment.id === 'number';
+    return false;
 }
 
 /**
@@ -623,40 +641,23 @@ async function resolveCommentThreadsConflict(
         } else {
             // Merge comments for existing thread AND preserve latest thread metadata
             const allComments = new Map<string, NotebookComment>();
-            const processedLegacyComments = new Set<string>();
 
             // Add our comments first
             existingThread.comments.forEach((comment) => {
                 allComments.set(comment.id, { ...comment });
-
-                // Track legacy comments by content for deduplication
-                if (isLegacyComment(comment)) {
-                    const legacyKey = `${comment.body}|${comment.author.name}`;
-                    processedLegacyComments.add(legacyKey);
-                }
+                debugLog(`Added our comment with ID: ${comment.id}`);
             });
 
-            // Add their comments with smart deduplication
+            // Add their comments - skip if ID already exists (including deterministic legacy IDs)
             migratedTheirThread.comments.forEach((comment) => {
-                // Always preserve if we already have this exact comment ID
                 if (allComments.has(comment.id)) {
                     debugLog(`Skipping comment with duplicate ID: ${comment.id}`);
                     return;
                 }
 
-                // For legacy comments (recently migrated from numeric IDs), check content duplication
-                if (isLegacyComment(comment)) {
-                    const legacyKey = `${comment.body}|${comment.author.name}`;
-                    if (processedLegacyComments.has(legacyKey)) {
-                        debugLog(`Skipping duplicate legacy comment content: ${comment.body.substring(0, 50)}...`);
-                        return;
-                    }
-                    processedLegacyComments.add(legacyKey);
-                }
-
-                // Add the comment
+                // Add the comment (ID is unique)
                 allComments.set(comment.id, { ...comment });
-                debugLog(`Added comment with ID: ${comment.id}`);
+                debugLog(`Added their comment with ID: ${comment.id}`);
             });
 
             // Merge thread metadata - prefer the most recent thread state based on latest comment
@@ -997,3 +998,4 @@ function isValidConflict(conflict: any): conflict is ConflictFile {
         typeof conflict.base === "string"
     );
 }
+
