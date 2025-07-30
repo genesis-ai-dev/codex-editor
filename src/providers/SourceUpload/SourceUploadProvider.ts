@@ -1,3 +1,18 @@
+/**
+ * DEPRECATED: This SourceUploadProvider is being replaced by NewSourceUploaderProvider.
+ * 
+ * The NewSourceUploaderProvider offers:
+ * - Better performance and reliability
+ * - Improved user experience with modern UI components
+ * - Enhanced file type support and validation
+ * - More robust error handling and progress reporting
+ * 
+ * This file is kept for backward compatibility but new development should use:
+ * src/providers/NewSourceUploader/NewSourceUploaderProvider.ts
+ * 
+ * The main command "codex-project-manager.openSourceUpload" now opens the new provider by default.
+ */
+
 import * as vscode from "vscode";
 import { importTranslations } from "../../projectManager/fileTypeMap_deprecated";
 import {

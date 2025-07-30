@@ -304,4 +304,21 @@ export interface ImportBookNamesMessage {
     nameType?: 'long' | 'short' | 'abbr';
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage; 
+export interface OverwriteConfirmationMessage {
+    command: 'overwriteConfirmation';
+    conflictingFiles: Array<{
+        name: string;
+        sourceExists: boolean;
+        targetExists: boolean;
+        hasTranslations: boolean;
+    }>;
+    originalMessage: WriteNotebooksMessage;
+}
+
+export interface OverwriteResponseMessage {
+    command: 'overwriteResponse';
+    confirmed: boolean;
+    originalMessage: WriteNotebooksMessage;
+}
+
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage; 

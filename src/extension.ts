@@ -15,7 +15,6 @@ import {
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
-import { registerNewSourceUploadCommands } from "./providers/NewSourceUploader/registerCommands";
 import { migrateSourceFiles } from "./utils/codexNotebookUtils";
 import { StatusBarItem } from "vscode";
 import { Database } from "fts5-sql-bundle";
@@ -371,7 +370,6 @@ export async function activate(context: vscode.ExtensionContext) {
         await Promise.all([
             registerSmartEditCommands(context),
             registerSourceUploadCommands(context),
-            registerNewSourceUploadCommands(context),
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
