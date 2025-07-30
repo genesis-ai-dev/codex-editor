@@ -6,6 +6,10 @@ import {
     VSCodeBadge,
 } from "@vscode/webview-ui-toolkit/react";
 import { LoginRegisterStepProps } from "../types";
+import { 
+    PasswordDotsIndicator, 
+    validateVisualPassword
+} from "../../components/PasswordDotsIndicator";
 
 export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     // authState,
@@ -21,11 +25,11 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [email, setEmail] = useState("");
     const [passwordError, setPasswordError] = useState("");
     const [showPassword, setShowPassword] = useState(false);
-    const [passwordStrength, setPasswordStrength] = useState(0);
-    const [isPasswordFocused, setIsPasswordFocused] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [authError, setAuthError] = useState<string | null>(null);
+    
+
 
     useEffect(() => {
         const handleOnlineStatusChange = () => {
@@ -42,13 +46,14 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     }, []);
 
     const validatePassword = (pass: string) => {
-        if (pass.length < 16) {
-            setPasswordError("Password must be at least 16 characters long");
+        const { isValid, issues } = validateVisualPassword(pass, email);
+        
+        if (!isValid) {
+            setPasswordError(issues.join(', '));
             return false;
-        } else if (pass.length > 16) {
-            setPasswordError("");
-            return true;
         }
+        
+        setPasswordError("");
         return true;
     };
 
@@ -107,12 +112,13 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newPassword = e.target.value;
         setPassword(newPassword);
-        const strength = Math.min((newPassword.length / 16) * 100, 100);
-        setPasswordStrength(strength);
     };
 
     const handleUsernameChange = (e: React.FormEvent<HTMLElement>) => {
-        setUsername((e.target as HTMLInputElement).value);
+        const value = (e.target as HTMLInputElement).value;
+        // Automatically replace spaces with underscores
+        const cleanedUsername = value.replace(/\s/g, '_');
+        setUsername(cleanedUsername);
     };
 
     const handleEmailChange = (e: React.FormEvent<HTMLElement>) => {
@@ -174,12 +180,27 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                 >
                     <VSCodeTextField
                         value={username}
-                        onInput={(e) => setUsername((e.target as HTMLInputElement).value)}
+                        onInput={(e) => {
+                            const value = (e.target as HTMLInputElement).value;
+                            // Automatically replace spaces with underscores
+                            const cleanedUsername = value.replace(/\s/g, '_');
+                            setUsername(cleanedUsername);
+                        }}
                         placeholder="Username"
                         required
                         style={{ width: "100%" }}
                         disabled={isLoading}
                     />
+                    {isRegistering && (
+                        <div style={{ 
+                            fontSize: '0.85em', 
+                            color: 'var(--vscode-descriptionForeground)', 
+                            marginTop: '4px',
+                            width: '100%'
+                        }}>
+                            Spaces will be automatically replaced with underscores
+                        </div>
+                    )}
                     {isRegistering && (
                         <VSCodeTextField
                             type="email"
@@ -213,8 +234,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 onInput={(e) =>
                                     handlePasswordChange(e as React.ChangeEvent<HTMLInputElement>)
                                 }
-                                onFocus={() => setIsPasswordFocused(true)}
-                                onBlur={() => setIsPasswordFocused(false)}
                                 placeholder="Password"
                                 required
                                 style={{ width: "100%" }}
@@ -232,54 +251,13 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                                 ></i>
                             </VSCodeButton>
                         </div>
-                        {isRegistering && isPasswordFocused && (
-                            <div
-                                data-name="password-strength-indicator"
-                                style={{
-                                    position: "absolute",
-                                    top: "100%",
-                                    left: "0",
-                                    right: "0",
-                                    background: "var(--vscode-menu-background)",
-                                    border: "1px solid var(--vscode-menu-border)",
-                                    borderRadius: "4px",
-                                    padding: "8px",
-                                    marginTop: "4px",
-                                    zIndex: 1000,
-                                    boxShadow: "0 2px 8px var(--vscode-widget-shadow)",
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        height: "4px",
-                                        background: "var(--vscode-textBlockQuote-background)",
-                                        borderRadius: "2px",
-                                        overflow: "hidden",
-                                        marginBottom: "8px",
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            width: `${passwordStrength}%`,
-                                            height: "100%",
-                                            background: `${
-                                                passwordStrength < 100
-                                                    ? "var(--vscode-errorForeground)"
-                                                    : "var(--vscode-testing-iconPassed)"
-                                            }`,
-                                            transition: "width 0.3s ease-in-out",
-                                        }}
-                                    />
-                                </div>
-                                <span
-                                    style={{
-                                        fontSize: "0.8em",
-                                        color: "var(--vscode-descriptionForeground)",
-                                    }}
-                                >
-                                    {password.length}/16 characters required
-                                </span>
-                            </div>
+                        {isRegistering && (
+                            <PasswordDotsIndicator
+                                password={password}
+                                email={email}
+                                minLength={15}
+                                showIndicator={true}
+                            />
                         )}
                     </div>
                     {confirmPassword !== password && isRegistering && (

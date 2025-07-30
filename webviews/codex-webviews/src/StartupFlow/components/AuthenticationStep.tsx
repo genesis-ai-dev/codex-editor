@@ -6,6 +6,10 @@ import {
 } from "@vscode/webview-ui-toolkit/react";
 import { AuthState } from "../types";
 import { MessagesToStartupFlowProvider, SourceUploadPostMessages } from "types";
+import { 
+    PasswordDotsIndicator, 
+    validateVisualPassword
+} from "../../components/PasswordDotsIndicator";
 
 interface AuthenticationStepProps {
     authState: AuthState;
@@ -26,6 +30,8 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     const [isRegistering, setIsRegistering] = useState(false);
     const [passwordError, setPasswordError] = useState<string>("");
     const [isLoading, setIsLoading] = useState(false);
+    
+
 
     useEffect(() => {
         if (authState.isAuthenticated) {
@@ -34,19 +40,20 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
         }
     }, [authState.isAuthenticated, onAuthComplete]);
 
+    const handleUsernameChange = (value: string): void => {
+        // Automatically replace spaces with underscores
+        const cleanedUsername = value.replace(/\s/g, '_');
+        setUsername(cleanedUsername);
+    };
+
     const validatePassword = (password: string): boolean => {
-        if (password.length < 10) {
-            setPasswordError("Password must be at least 10 characters long");
+        const { isValid, issues } = validateVisualPassword(password, email);
+        
+        if (!isValid) {
+            setPasswordError(issues.join(', '));
             return false;
         }
-        if (!/[A-Z]/.test(password)) {
-            setPasswordError("Password must contain at least one capital letter");
-            return false;
-        }
-        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-            setPasswordError("Password must contain at least one special character");
-            return false;
-        }
+        
         setPasswordError("");
         return true;
     };
@@ -58,10 +65,12 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
 
         if (isRegistering) {
             if (!validatePassword(password)) {
+                setIsLoading(false);
                 return;
             }
             if (password !== confirmPassword) {
                 setPasswordError("Passwords do not match");
+                setIsLoading(false);
                 return;
             }
             vscode.postMessage({
@@ -119,11 +128,23 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                     <VSCodeTextField
                         type="text"
                         value={username}
-                        onChange={(e) => setUsername((e.target as HTMLInputElement).value)}
+                        onChange={(e) => {
+                            const newUsername = (e.target as HTMLInputElement).value;
+                            handleUsernameChange(newUsername);
+                        }}
                         placeholder="Username"
                         required
                         style={{ width: "100%" }}
                     />
+                    {isRegistering && (
+                        <div style={{ 
+                            fontSize: '0.85em', 
+                            color: 'var(--vscode-descriptionForeground)', 
+                            marginTop: '4px' 
+                        }}>
+                            Spaces will be automatically replaced with underscores
+                        </div>
+                    )}
                 </div>
                 {isRegistering && (
                     <div style={{ marginBottom: "1rem" }}>
@@ -152,6 +173,14 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                         required
                         style={{ width: "100%" }}
                     />
+                    {isRegistering && (
+                        <PasswordDotsIndicator
+                            password={password}
+                            email={email}
+                            minLength={15}
+                            showIndicator={true}
+                        />
+                    )}
                 </div>
                 {isRegistering && (
                     <div style={{ marginBottom: "1rem" }}>
