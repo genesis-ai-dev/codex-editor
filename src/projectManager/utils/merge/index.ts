@@ -120,8 +120,8 @@ export async function stageAndCommitAllAndSync(
                     console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
                 } catch (completeMergeError) {
                     const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
-
-                    if (errorMessage.includes("not a simple fast-forward") && retryCount < 3) {
+                    console.log("errorMessage in retry", errorMessage);
+                    if (retryCount < 3) {
                         console.log(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
 
                         // Exponential backoff: 1s, 2s, 4s, 8s, 16s
