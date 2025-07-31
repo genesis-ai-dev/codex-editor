@@ -257,10 +257,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const migrationStart = globalThis.performance.now();
         if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
             try {
-                const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
-                if (migrationOccurred) {
-                    console.log("[Extension] Comments migration completed during startup");
-                }
+                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
             } catch (error) {
                 console.error("[Extension] Error during startup comments migration:", error);
                 // Don't fail startup due to migration errors
@@ -433,6 +430,8 @@ export async function activate(context: vscode.ExtensionContext) {
             openCellLabelImporter(context)
         )
     );
+
+
 
 
 }

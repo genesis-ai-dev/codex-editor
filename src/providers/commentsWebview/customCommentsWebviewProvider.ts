@@ -202,30 +202,22 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         );
 
         legacyCommentsWatcher.onDidCreate(async () => {
-            console.log("[CommentsProvider] Legacy file-comments.json detected, triggering migration");
             try {
-                const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
-                if (migrationOccurred) {
-                    console.log("[CommentsProvider] Migration completed after legacy file creation");
-                    // Refresh the webview to show migrated content
-                    this.sendCommentsToWebview(webviewView);
-                }
+                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+                // Refresh the webview to show migrated content
+                this.sendCommentsToWebview(webviewView);
             } catch (error) {
-                console.error("[CommentsProvider] Error during legacy file migration:", error);
+                // Silent fallback
             }
         });
 
         legacyCommentsWatcher.onDidChange(async () => {
-            console.log("[CommentsProvider] Legacy file-comments.json changed, triggering migration");
             try {
-                const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
-                if (migrationOccurred) {
-                    console.log("[CommentsProvider] Migration completed after legacy file change");
-                    // Refresh the webview to show migrated content
-                    this.sendCommentsToWebview(webviewView);
-                }
+                await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+                // Refresh the webview to show migrated content
+                this.sendCommentsToWebview(webviewView);
             } catch (error) {
-                console.error("[CommentsProvider] Error during legacy file migration:", error);
+                // Silent fallback
             }
         });
 
@@ -351,7 +343,11 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         migratedExistingThreads[indexOfCommentToMarkAsDeleted];
                     await serializeCommentsToDisk(migratedExistingThreads, {
                         ...commentThreadToMarkAsDeleted,
-                        deleted: true,
+                        deletionEvent: [{
+                            timestamp: Date.now(),
+                            author: { name: await this.getCurrentUserName() },
+                            valid: true
+                        }],
                         comments: [],
                     });
                     this.sendCommentsToWebview(this._view!);
@@ -563,20 +559,21 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             )
         );
 
-        // Also check if any thread has version field, legacy uri field, contextValue fields, encoded URIs, or absolute paths
+        // Also check if any thread has version field, legacy uri field, contextValue fields, encoded URIs, absolute paths, old deleted/resolved fields, or missing new fields
         const needsCleanup = threads.some(thread =>
             thread.version !== undefined ||
             thread.uri !== undefined || // Remove legacy uri field
+            thread.deleted !== undefined || // Old boolean field
+            thread.resolved !== undefined || // Old boolean field
+            thread.deletionEvent === undefined || // Missing new field
+            thread.resolvedEvent === undefined || // Missing new field
             (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://'))) ||
             (thread.comments && thread.comments.some((comment: any) => comment.contextValue !== undefined)) // Check for contextValue
         );
 
         if (!needsMigration && !needsCleanup) {
-            console.log("[CommentsProvider] No migration or cleanup needed");
             return threads;
         }
-
-        console.log("[CommentsProvider] Migrating/cleaning comments");
 
         return threads.map(thread => {
             // Check if this specific thread needs migration
@@ -666,6 +663,33 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 data: { cellId: cellId.cellId },
             } as CommentPostMessages);
         }
+    }
+
+    private async getCurrentUserName(): Promise<string> {
+        try {
+            // First try authenticated user
+            if (this.isAuthenticated && this.authApi) {
+                const user = await this.authApi.getUserInfo();
+                if (user && user.username) {
+                    return user.username;
+                }
+            }
+
+            // Try git username
+            const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+            if (gitUsername) return gitUsername;
+
+            // Try VS Code authentication
+            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+            if (session && session.account) {
+                return session.account.label;
+            }
+        } catch (error) {
+            // Silent fallback
+        }
+
+        // Fallback
+        return "unknown";
     }
 }
 

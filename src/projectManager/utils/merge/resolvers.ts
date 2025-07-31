@@ -17,6 +17,32 @@ function debugLog(...args: any[]): void {
 }
 
 /**
+ * Gets the current user name from git config or VS Code settings
+ */
+async function getCurrentUserName(): Promise<string> {
+    try {
+        // Try git username first
+        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+        if (gitUsername) return gitUsername;
+
+        // Try VS Code authentication session
+        try {
+            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+            if (session && session.account) {
+                return session.account.label;
+            }
+        } catch (e) {
+            // Auth provider might not be available
+        }
+    } catch (error) {
+        // Silent fallback
+    }
+
+    // Fallback
+    return "unknown";
+}
+
+/**
  * Type guard to check if a value is a ValidationEntry
  */
 function isValidValidationEntry(value: any): value is ValidationEntry {
@@ -116,10 +142,13 @@ function migrateComment(
  */
 function needsMigration(threads: any[]): boolean {
     // Check if ANY comment is missing a timestamp or has a numeric ID
+    // or if thread has old deleted/resolved boolean fields
     return threads.some(thread =>
-        thread.comments && thread.comments.some((comment: any) =>
+        ('deleted' in thread) ||
+        ('resolved' in thread) ||
+        (thread.comments && thread.comments.some((comment: any) =>
             typeof comment.timestamp !== 'number' || typeof comment.id === 'number'
-        )
+        ))
     );
 }
 
@@ -598,12 +627,49 @@ async function resolveCommentThreadsConflict(
     const threadMap = new Map<string, NotebookCommentThread>();
 
     // Process our threads first
-    ourThreads.forEach((thread) => {
+    await Promise.all(ourThreads.map(async (thread) => {
         let migratedThread = { ...thread };
 
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Remove legacy uri field if it exists
         delete (migratedThread as any).uri;
+
+        // Migrate old deleted/resolved booleans to new event arrays
+        if ('deleted' in migratedThread) {
+            if ((migratedThread as any).deleted === true) {
+                const timestamp = migratedThread.comments.length > 0
+                    ? migratedThread.comments[migratedThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedThread.deletionEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedThread.deletionEvent = [];
+            }
+            delete (migratedThread as any).deleted;
+        } else if (!migratedThread.deletionEvent) {
+            migratedThread.deletionEvent = [];
+        }
+
+        if ('resolved' in migratedThread) {
+            if ((migratedThread as any).resolved === true) {
+                const timestamp = migratedThread.comments.length > 0
+                    ? migratedThread.comments[migratedThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedThread.resolvedEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedThread.resolvedEvent = [];
+            }
+            delete (migratedThread as any).resolved;
+        } else if (!migratedThread.resolvedEvent) {
+            migratedThread.resolvedEvent = [];
+        }
 
         // Clean up legacy contextValue from all comments
         if (migratedThread.comments) {
@@ -624,10 +690,10 @@ async function resolveCommentThreadsConflict(
         migratedThread = convertThreadToRelativePaths(migratedThread);
 
         threadMap.set(migratedThread.id, migratedThread);
-    });
+    }));
 
     // Merge their threads, combining comments when thread IDs match
-    theirThreads.forEach((theirThread) => {
+    await Promise.all(theirThreads.map(async (theirThread) => {
         const existingThread = threadMap.get(theirThread.id);
 
         // Migrate their thread if needed
@@ -636,6 +702,43 @@ async function resolveCommentThreadsConflict(
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Remove legacy uri field if it exists
         delete (migratedTheirThread as any).uri;
+
+        // Migrate old deleted/resolved booleans to new event arrays
+        if ('deleted' in migratedTheirThread) {
+            if ((migratedTheirThread as any).deleted === true) {
+                const timestamp = migratedTheirThread.comments.length > 0
+                    ? migratedTheirThread.comments[migratedTheirThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedTheirThread.deletionEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedTheirThread.deletionEvent = [];
+            }
+            delete (migratedTheirThread as any).deleted;
+        } else if (!migratedTheirThread.deletionEvent) {
+            migratedTheirThread.deletionEvent = [];
+        }
+
+        if ('resolved' in migratedTheirThread) {
+            if ((migratedTheirThread as any).resolved === true) {
+                const timestamp = migratedTheirThread.comments.length > 0
+                    ? migratedTheirThread.comments[migratedTheirThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedTheirThread.resolvedEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedTheirThread.resolvedEvent = [];
+            }
+            delete (migratedTheirThread as any).resolved;
+        } else if (!migratedTheirThread.resolvedEvent) {
+            migratedTheirThread.resolvedEvent = [];
+        }
 
         // Clean up legacy contextValue from all comments
         if (migratedTheirThread.comments) {
@@ -709,14 +812,58 @@ async function resolveCommentThreadsConflict(
             mergedThread.comments = Array.from(allComments.values())
                 .sort((a, b) => a.timestamp - b.timestamp);
 
+            // Merge deletion and resolved events
+            mergedThread.deletionEvent = mergeDeletionEvents(existingThread.deletionEvent, migratedTheirThread.deletionEvent);
+            mergedThread.resolvedEvent = mergeResolvedEvents(existingThread.resolvedEvent, migratedTheirThread.resolvedEvent);
+
             // Update the thread in the map
             threadMap.set(mergedThread.id, mergedThread);
             debugLog(`Merged thread ${mergedThread.id} with ${mergedThread.comments.length} total comments`);
         }
-    });
+    }));
 
     const mergedThreads = Array.from(threadMap.values());
     return CommentsMigrator.formatCommentsForStorage(mergedThreads);
+}
+
+/**
+ * Merges deletion events, taking the latest valid one
+ */
+function mergeDeletionEvents(ourEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>,
+    theirEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>)
+    : Array<{ timestamp: number; author: { name: string; }; valid: boolean; }> | undefined {
+
+    if (!ourEvents && !theirEvents) return undefined;
+
+    const allEvents = [...(ourEvents || []), ...(theirEvents || [])];
+    if (allEvents.length === 0) return undefined;
+
+    // Sort by timestamp descending
+    allEvents.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Return only the latest valid event, or all events if none are valid
+    const latestValid = allEvents.find(e => e.valid);
+    return latestValid ? [latestValid] : allEvents;
+}
+
+/**
+ * Merges resolved events, taking the latest valid one
+ */
+function mergeResolvedEvents(ourEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>,
+    theirEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>)
+    : Array<{ timestamp: number; author: { name: string; }; valid: boolean; }> | undefined {
+
+    if (!ourEvents && !theirEvents) return undefined;
+
+    const allEvents = [...(ourEvents || []), ...(theirEvents || [])];
+    if (allEvents.length === 0) return undefined;
+
+    // Sort by timestamp descending
+    allEvents.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Return only the latest valid event, or all events if none are valid
+    const latestValid = allEvents.find(e => e.valid);
+    return latestValid ? [latestValid] : allEvents;
 }
 
 /**
