@@ -662,9 +662,9 @@ const notebookPair = {
 
 The provider automatically adds `.source` and `.codex` extensions when writing files.
 
-## Smart Import JSON Parsing
+## Smart Segmenter JSON Parsing
 
-When Smart Import detects a JSON file, it intelligently parses the structure:
+When Smart Segmenter detects a JSON file, it intelligently parses the structure:
 
 ### **Array of Objects**
 
@@ -679,7 +679,7 @@ Each object becomes its own section with incremented section IDs:
 
 ### **Field Recognition**
 
-Smart Import recognizes common field patterns:
+Smart Segmenter recognizes common field patterns:
 
 -   **Title fields**: `title`, `name`, `heading`, `label`, `id`
 -   **Content fields**: `content`, `text`, `body`, `description`, `lyrics`, `message`, `value`
@@ -769,7 +769,7 @@ describe("YourFileTypeImporter", () => {
 -   **eBible Download**: Download Bible text from eBible repository (with Macula Hebrew/Greek support) ✅ **IMPLEMENTED**
 -   **USFM**: Biblical markup parsing with usfm-grammar, chapter/verse structure ✅ **IMPLEMENTED**
 -   **Paratext Project**: Both folder-based projects (.SFM files, Settings.xml, BookNames.xml) and ZIP archives ✅ **IMPLEMENTED**
--   **Smart Import**: Universal text importer with intelligent features ✅ **IMPLEMENTED**
+-   **Smart Segmenter**: Universal text importer with intelligent features ✅ **IMPLEMENTED**
     -   **Structure-aware splitting**: Respects paragraphs, sentences, and document boundaries
     -   **JSON parsing**: Automatically detects and parses JSON files into logical sections
     -   **Flexible sizing**: Allows sections to vary in size for better semantic grouping
@@ -800,7 +800,7 @@ All major transaction-based importers have been successfully migrated to the new
 | USFM Import        | `UsfmSourceImportTransaction` | `usfmImporter`           | ✅ Complete |
 | Paratext Projects  | N/A (new)                     | `paratextImporter`       | ✅ Complete |
 | eBible Download    | `DownloadBibleTransaction`    | `ebibleDownloadImporter` | ✅ Complete |
-| Smart Import       | `SourceImportTransaction`     | `smartImportPlugin`      | ✅ Complete |
+| Smart Segmenter       | `SourceImportTransaction`     | `smartSegmenterPlugin`      | ✅ Complete |
 | Subtitles/VTT      | N/A (new)                     | `subtitlesImporter`      | ✅ Complete |
 | Open Bible Stories | N/A (new)                     | `obsImporter`            | ✅ Complete |
 | Markdown           | N/A (new)                     | `markdownImporter`       | ✅ Complete |

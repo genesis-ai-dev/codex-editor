@@ -10,6 +10,67 @@ import { writeSerializedData } from "./fileUtils";
 export class CommentsMigrator {
 
     /**
+ * Ensures consistent JSON formatting for minimal git diffs
+ * IMPORTANT: Does NOT reorder existing threads to preserve git history
+ */
+    static formatCommentsForStorage(comments: NotebookCommentThread[]): string {
+        // DO NOT sort threads - preserve existing order to minimize git diffs
+        // Only ensure consistent key ordering within each thread
+        const orderedThreads = comments.map(thread => {
+            const orderedThread: any = {
+                id: thread.id,
+                canReply: thread.canReply,
+                cellId: {
+                    cellId: thread.cellId.cellId,
+                    uri: thread.cellId.uri
+                },
+                collapsibleState: thread.collapsibleState,
+                threadTitle: thread.threadTitle
+            };
+
+            // Always include deletionEvent (empty array if none)
+            orderedThread.deletionEvent = thread.deletionEvent
+                ? thread.deletionEvent.map(event => ({
+                    timestamp: event.timestamp,
+                    author: {
+                        name: event.author.name
+                    },
+                    valid: event.valid
+                }))
+                : [];
+
+            // Always include resolvedEvent (empty array if none)
+            orderedThread.resolvedEvent = thread.resolvedEvent
+                ? thread.resolvedEvent.map(event => ({
+                    timestamp: event.timestamp,
+                    author: {
+                        name: event.author.name
+                    },
+                    valid: event.valid
+                }))
+                : [];
+
+            orderedThread.comments = thread.comments
+                .slice() // Create a copy to avoid mutating the original
+                .sort((a, b) => a.timestamp - b.timestamp) // Sort comments by timestamp
+                .map(comment => ({
+                    id: comment.id,
+                    timestamp: comment.timestamp,
+                    body: comment.body,
+                    mode: comment.mode,
+                    author: {
+                        name: comment.author.name
+                    },
+                    deleted: comment.deleted
+                }));
+
+            return orderedThread;
+        });
+
+        return JSON.stringify(orderedThreads, null, 4);
+    }
+
+    /**
      * Main migration function that can be called from any context
      */
     static async migrateProjectComments(workspaceUri: vscode.Uri): Promise<boolean> {
@@ -116,24 +177,12 @@ export class CommentsMigrator {
             }
 
             // Apply structural migration to all comments (existing + legacy)
-            const migratedComments = CommentsMigrator.migrateCommentsStructure(allComments);
+            const migratedComments = await CommentsMigrator.migrateCommentsStructure(allComments);
 
             // Write migrated comments
-            const migratedContent = JSON.stringify(migratedComments, null, 4);
+            const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
             await vscode.workspace.fs.writeFile(newCommentsFilePath, new TextEncoder().encode(migratedContent));
 
-            const totalMigrated = legacyComments.length;
-            const structureMigrated = commentsNeedsMigration ? existingComments.length : 0;
-
-            console.log(`[CommentsMigrator] Migration completed: ${totalMigrated} from legacy file + ${structureMigrated} structure updates`);
-
-            // Show notification for significant migrations
-            if (totalMigrated > 0 || structureMigrated > 0) {
-                const message = totalMigrated > 0
-                    ? `Migrated ${totalMigrated} comment threads and updated data structure.`
-                    : `Updated comment data structure for better reliability.`;
-                vscode.window.showInformationMessage(message);
-            }
 
             return true;
 
@@ -181,31 +230,45 @@ export class CommentsMigrator {
     }
 
     /**
-     * Enhanced comment deduplication that compares user, body, AND cellId
+     * Enhanced comment deduplication - uses ID for modern comments and content for legacy comments
      */
     private static mergeCommentsWithEnhancedDeduplication(existingComments: any[], legacyComments: any[], cellId: any): any[] {
         const commentMap = new Map<string, any>();
-        const processedComments = new Set<string>();
+        const seenContentSignatures = new Set<string>();
+
+        // Helper function to create content signature for legacy comment deduplication
+        const getContentSignature = (comment: any): string => {
+            return `${comment.body}|${comment.author?.name || 'Unknown'}`;
+        };
 
         // Add existing comments first
         existingComments.forEach(comment => {
             commentMap.set(comment.id, comment);
-            // Create enhanced deduplication key: body + author + cellId + (partial timestamp for loose matching)
-            const key = CommentsMigrator.createCommentDeduplicationKey(comment, cellId);
-            processedComments.add(key);
+            // Track content signature for legacy deduplication
+            const signature = getContentSignature(comment);
+            seenContentSignatures.add(signature);
+            console.log(`[CommentsMigrator] Added existing comment with ID: ${comment.id}`);
         });
 
-        // Add legacy comments that don't duplicate existing ones
+        // Add legacy comments with proper deduplication
         legacyComments.forEach(comment => {
-            const key = CommentsMigrator.createCommentDeduplicationKey(comment, cellId);
-
-            // Only add if we haven't seen this combination AND the ID isn't already used
-            if (!processedComments.has(key) && !commentMap.has(comment.id)) {
-                commentMap.set(comment.id, comment);
-                processedComments.add(key);
-            } else {
-                console.log(`[CommentsMigrator] Skipping duplicate comment: ${comment.body.substring(0, 50)}...`);
+            // First check if exact ID already exists (for modern comments)
+            if (commentMap.has(comment.id)) {
+                console.log(`[CommentsMigrator] Skipping comment with duplicate ID: ${comment.id}`);
+                return;
             }
+
+            // For potential legacy comments, check content signature
+            const signature = getContentSignature(comment);
+            if (seenContentSignatures.has(signature)) {
+                console.log(`[CommentsMigrator] Skipping comment with duplicate content: ${signature}`);
+                return;
+            }
+
+            // Add the comment (unique by both ID and content)
+            commentMap.set(comment.id, comment);
+            seenContentSignatures.add(signature);
+            console.log(`[CommentsMigrator] Added legacy comment with ID: ${comment.id}`);
         });
 
         // Sort comments by timestamp
@@ -214,6 +277,7 @@ export class CommentsMigrator {
 
     /**
      * Creates an enhanced deduplication key that includes cellId context
+     * Note: This method is now used only for legacy migration scenarios
      */
     private static createCommentDeduplicationKey(comment: any, cellId: any): string {
         const body = comment.body || '';
@@ -294,6 +358,72 @@ export class CommentsMigrator {
      */
     private static generateCommentId(): string {
         return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    /**
+ * Gets the timestamp from a thread, using the last comment's timestamp or current time
+ */
+    private static getThreadTimestamp(thread: any): number {
+        // Try to get timestamp from last comment
+        if (thread.comments && Array.isArray(thread.comments) && thread.comments.length > 0) {
+            const lastComment = thread.comments[thread.comments.length - 1];
+            if (lastComment.timestamp && typeof lastComment.timestamp === 'number') {
+                return lastComment.timestamp;
+            }
+        }
+
+        // Fallback to current time
+        return Date.now();
+    }
+
+    /**
+     * Gets the current user name from git config or VS Code settings
+     */
+    private static async getCurrentUser(): Promise<string> {
+        try {
+            // Try git username first
+            const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+            if (gitUsername) return gitUsername;
+
+            // Try VS Code authentication session
+            try {
+                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                if (session && session.account) {
+                    return session.account.label;
+                }
+            } catch (e) {
+                // Auth provider might not be available
+            }
+        } catch (error) {
+            // Silent fallback
+        }
+
+        // Fallback
+        return "unknown";
+    }
+
+    /**
+ * Determines if a comment was recently migrated from legacy format
+ */
+    private static isLegacyComment(comment: any): boolean {
+        // Check if it still has numeric ID (definitely legacy)
+        if (typeof comment.id === 'number') {
+            return true;
+        }
+
+        // For timestamp-based IDs, check the relationship between ID timestamp and comment timestamp
+        if (typeof comment.id === 'string' && comment.id.includes('-')) {
+            const idTimestamp = parseInt(comment.id.split('-')[0]);
+            if (!isNaN(idTimestamp)) {
+                const timeDiff = Math.abs((comment.timestamp || 0) - idTimestamp);
+
+                // Modern comments: ID timestamp = comment timestamp (same moment)
+                // Legacy comments: ID timestamp ≠ comment timestamp (calculated during migration)
+                return timeDiff >= 100; // Different times = legacy migration
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -415,10 +545,14 @@ export class CommentsMigrator {
             return false;
         }
 
-        return comments.some(thread => {
-            // Check for old thread structure
+        const needsMigration = comments.some(thread => {
+            // Check for old thread structure or missing new fields
             if (thread.version !== undefined ||
                 thread.uri !== undefined ||
+                thread.deleted !== undefined ||  // Old boolean field
+                thread.resolved !== undefined || // Old boolean field
+                thread.deletionEvent === undefined || // Missing new field
+                thread.resolvedEvent === undefined || // Missing new field
                 (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://')))) {
                 return true;
             }
@@ -434,23 +568,64 @@ export class CommentsMigrator {
 
             return false;
         });
+
+        return needsMigration;
     }
 
     /**
      * Migrates the structure of all comments to the new format
      */
-    static migrateCommentsStructure(comments: any[]): NotebookCommentThread[] {
+    static async migrateCommentsStructure(comments: any[]): Promise<NotebookCommentThread[]> {
         if (!Array.isArray(comments)) {
             return [];
         }
 
-        return comments.map(thread => {
+        return Promise.all(comments.map(async thread => {
             let result = { ...thread };
 
             // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
             // Remove legacy fields if they exist
             delete result.version;
             delete result.uri; // Remove redundant uri field
+
+            // Migrate old deleted/resolved booleans to new event arrays
+            if ('deleted' in result) {
+                if (result.deleted === true) {
+                    // Use timestamp from last comment or current time
+                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
+                    result.deletionEvent = [{
+                        timestamp,
+                        author: { name: await CommentsMigrator.getCurrentUser() },
+                        valid: true
+                    }];
+                } else {
+                    // Was false, so no deletion event
+                    result.deletionEvent = [];
+                }
+                delete result.deleted;
+            } else if (!result.deletionEvent) {
+                // Ensure field exists even if no old field
+                result.deletionEvent = [];
+            }
+
+            if ('resolved' in result) {
+                if (result.resolved === true) {
+                    // Use timestamp from last comment or current time
+                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
+                    result.resolvedEvent = [{
+                        timestamp,
+                        author: { name: await CommentsMigrator.getCurrentUser() },
+                        valid: true
+                    }];
+                } else {
+                    // Was false, so no resolved event
+                    result.resolvedEvent = [];
+                }
+                delete result.resolved;
+            } else if (!result.resolvedEvent) {
+                // Ensure field exists even if no old field
+                result.resolvedEvent = [];
+            }
 
             // Clean up legacy contextValue from all comments
             if (result.comments && Array.isArray(result.comments)) {
@@ -465,7 +640,7 @@ export class CommentsMigrator {
             result = CommentsMigrator.convertThreadToRelativePaths(result);
 
             return result;
-        });
+        }));
     }
 
     /**

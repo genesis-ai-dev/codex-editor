@@ -1020,7 +1020,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             // No child cells found, proceed with existing confirmation flow
             const confirmed = await vscode.window.showWarningMessage(
                 message,
-                { modal: true },
+                { modal: false },
                 "Yes",
                 "No"
             );

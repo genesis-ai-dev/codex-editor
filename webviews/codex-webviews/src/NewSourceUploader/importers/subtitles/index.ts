@@ -8,11 +8,13 @@ import {
 } from '../../types/common';
 import {
     createProgress,
-    createStandardCellId,
     createProcessedCell,
     validateFileExtension,
 } from '../../utils/workflowHelpers';
 import { WebVTTParser } from 'webvtt-parser';
+import { englishSubtitlesRaw, tigrinyaSubtitlesRaw, sourceOfTruthMapping } from './testData';
+// Remove automatic import of compile-time tests to avoid circular dependency
+// Import './compiletimeTests' manually when needed for testing
 
 const SUPPORTED_EXTENSIONS = ['vtt', 'srt', 'ass', 'sub'];
 
@@ -57,21 +59,6 @@ const convertSRTTimeToSeconds = (timeStr: string): number => {
     const [time, milliseconds] = timeStr.split(',');
     const [hours, minutes, seconds] = time.split(':').map(Number);
     return hours * 3600 + minutes * 60 + seconds + Number(milliseconds) / 1000;
-};
-
-/**
- * Formats duration in seconds to readable string
- */
-const formatDuration = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    if (hours > 0) {
-        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    } else {
-        return `${minutes}:${secs.toString().padStart(2, '0')}`;
-    }
 };
 
 // Legacy interface - keeping for compatibility
@@ -276,4 +263,55 @@ export const subtitlesImporter: ImporterPlugin = {
     description: 'Import subtitle/caption files (VTT, SRT) with timestamp-based cells',
     validateFile,
     parseFile,
-}; 
+};
+
+// Test function to assert mapping
+function testMapping() {
+    const parser = new WebVTTParser();
+    const englishParsed = parser.parse(englishSubtitlesRaw);
+    const tigrinyaParsed = parser.parse(tigrinyaSubtitlesRaw);
+    const englishCues: any[] = englishParsed.cues;
+    const tigrinyaCues: any[] = tigrinyaParsed.cues.filter((cue: any) => cue.startTime >= 50);
+    englishCues.forEach((cue, index) => {
+        cue.myId = cue.id || `E${index + 1}`;
+    });
+    tigrinyaCues.forEach((cue, index) => {
+        cue.myId = `T${index + 1}`;
+    });
+    const assignments = new Map<string, string[]>();
+    for (const tCue of tigrinyaCues) {
+        let bestEnglish = null;
+        let maxOverlap = 0;
+        for (const eCue of englishCues) {
+            const overlap = Math.max(0, Math.min(eCue.endTime, tCue.endTime) - Math.max(eCue.startTime, tCue.startTime));
+            if (overlap > maxOverlap) {
+                maxOverlap = overlap;
+                bestEnglish = eCue;
+            }
+        }
+        if (maxOverlap > 0 && bestEnglish) {
+            const eId = bestEnglish.myId;
+            if (!assignments.has(eId)) assignments.set(eId, []);
+            assignments.get(eId)!.push(tCue.myId);
+        }
+    }
+    for (const arr of assignments.values()) {
+        arr.sort((a, b) => parseInt(a.substring(1)) - parseInt(b.substring(1)));
+    }
+    const computed: Record<string, string[]> = {};
+    const sortedKeys = Array.from(assignments.keys()).sort((a, b) => parseInt(a) - parseInt(b));
+    for (const key of sortedKeys) {
+        computed[key] = assignments.get(key)!;
+    }
+    const isEqual = JSON.stringify(computed) === JSON.stringify(sourceOfTruthMapping);
+    if (!isEqual) {
+        console.error('Computed:', computed);
+        console.error('Expected:', sourceOfTruthMapping);
+        throw new Error('Mapping assertion failed');
+    } else {
+        console.log('Mapping assertion passed');
+    }
+}
+
+// Run the test to verify mapping algorithm
+testMapping(); 

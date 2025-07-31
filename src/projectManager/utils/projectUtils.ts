@@ -923,7 +923,7 @@ export async function findAllCodexProjects(): Promise<Array<LocalProject>> {
             await vscode.workspace.fs.stat(vscode.Uri.file(folder));
             validFolders.push(folder);
         } catch (error) {
-
+            debug(`Error checking folder ${folder}:`, error);
         }
     }
 
