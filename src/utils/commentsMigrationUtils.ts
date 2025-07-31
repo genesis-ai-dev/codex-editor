@@ -25,23 +25,45 @@ export class CommentsMigrator {
                     uri: thread.cellId.uri
                 },
                 collapsibleState: thread.collapsibleState,
-                threadTitle: thread.threadTitle,
-                deleted: thread.deleted,
-                resolved: thread.resolved,
-                comments: thread.comments
-                    .slice() // Create a copy to avoid mutating the original
-                    .sort((a, b) => a.timestamp - b.timestamp) // Sort comments by timestamp
-                    .map(comment => ({
-                        id: comment.id,
-                        timestamp: comment.timestamp,
-                        body: comment.body,
-                        mode: comment.mode,
-                        author: {
-                            name: comment.author.name
-                        },
-                        deleted: comment.deleted
-                    }))
+                threadTitle: thread.threadTitle
             };
+
+            // Always include deletionEvent (empty array if none)
+            orderedThread.deletionEvent = thread.deletionEvent
+                ? thread.deletionEvent.map(event => ({
+                    timestamp: event.timestamp,
+                    author: {
+                        name: event.author.name
+                    },
+                    valid: event.valid
+                }))
+                : [];
+
+            // Always include resolvedEvent (empty array if none)
+            orderedThread.resolvedEvent = thread.resolvedEvent
+                ? thread.resolvedEvent.map(event => ({
+                    timestamp: event.timestamp,
+                    author: {
+                        name: event.author.name
+                    },
+                    valid: event.valid
+                }))
+                : [];
+
+            orderedThread.comments = thread.comments
+                .slice() // Create a copy to avoid mutating the original
+                .sort((a, b) => a.timestamp - b.timestamp) // Sort comments by timestamp
+                .map(comment => ({
+                    id: comment.id,
+                    timestamp: comment.timestamp,
+                    body: comment.body,
+                    mode: comment.mode,
+                    author: {
+                        name: comment.author.name
+                    },
+                    deleted: comment.deleted
+                }));
+
             return orderedThread;
         });
 
@@ -155,7 +177,7 @@ export class CommentsMigrator {
             }
 
             // Apply structural migration to all comments (existing + legacy)
-            const migratedComments = CommentsMigrator.migrateCommentsStructure(allComments);
+            const migratedComments = await CommentsMigrator.migrateCommentsStructure(allComments);
 
             // Write migrated comments
             const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
@@ -339,6 +361,48 @@ export class CommentsMigrator {
     }
 
     /**
+ * Gets the timestamp from a thread, using the last comment's timestamp or current time
+ */
+    private static getThreadTimestamp(thread: any): number {
+        // Try to get timestamp from last comment
+        if (thread.comments && Array.isArray(thread.comments) && thread.comments.length > 0) {
+            const lastComment = thread.comments[thread.comments.length - 1];
+            if (lastComment.timestamp && typeof lastComment.timestamp === 'number') {
+                return lastComment.timestamp;
+            }
+        }
+
+        // Fallback to current time
+        return Date.now();
+    }
+
+    /**
+     * Gets the current user name from git config or VS Code settings
+     */
+    private static async getCurrentUser(): Promise<string> {
+        try {
+            // Try git username first
+            const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+            if (gitUsername) return gitUsername;
+
+            // Try VS Code authentication session
+            try {
+                const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+                if (session && session.account) {
+                    return session.account.label;
+                }
+            } catch (e) {
+                // Auth provider might not be available
+            }
+        } catch (error) {
+            // Silent fallback
+        }
+
+        // Fallback
+        return "unknown";
+    }
+
+    /**
  * Determines if a comment was recently migrated from legacy format
  */
     private static isLegacyComment(comment: any): boolean {
@@ -481,10 +545,14 @@ export class CommentsMigrator {
             return false;
         }
 
-        return comments.some(thread => {
-            // Check for old thread structure
+        const needsMigration = comments.some(thread => {
+            // Check for old thread structure or missing new fields
             if (thread.version !== undefined ||
                 thread.uri !== undefined ||
+                thread.deleted !== undefined ||  // Old boolean field
+                thread.resolved !== undefined || // Old boolean field
+                thread.deletionEvent === undefined || // Missing new field
+                thread.resolvedEvent === undefined || // Missing new field
                 (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://')))) {
                 return true;
             }
@@ -500,23 +568,64 @@ export class CommentsMigrator {
 
             return false;
         });
+
+        return needsMigration;
     }
 
     /**
      * Migrates the structure of all comments to the new format
      */
-    static migrateCommentsStructure(comments: any[]): NotebookCommentThread[] {
+    static async migrateCommentsStructure(comments: any[]): Promise<NotebookCommentThread[]> {
         if (!Array.isArray(comments)) {
             return [];
         }
 
-        return comments.map(thread => {
+        return Promise.all(comments.map(async thread => {
             let result = { ...thread };
 
             // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
             // Remove legacy fields if they exist
             delete result.version;
             delete result.uri; // Remove redundant uri field
+
+            // Migrate old deleted/resolved booleans to new event arrays
+            if ('deleted' in result) {
+                if (result.deleted === true) {
+                    // Use timestamp from last comment or current time
+                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
+                    result.deletionEvent = [{
+                        timestamp,
+                        author: { name: await CommentsMigrator.getCurrentUser() },
+                        valid: true
+                    }];
+                } else {
+                    // Was false, so no deletion event
+                    result.deletionEvent = [];
+                }
+                delete result.deleted;
+            } else if (!result.deletionEvent) {
+                // Ensure field exists even if no old field
+                result.deletionEvent = [];
+            }
+
+            if ('resolved' in result) {
+                if (result.resolved === true) {
+                    // Use timestamp from last comment or current time
+                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
+                    result.resolvedEvent = [{
+                        timestamp,
+                        author: { name: await CommentsMigrator.getCurrentUser() },
+                        valid: true
+                    }];
+                } else {
+                    // Was false, so no resolved event
+                    result.resolvedEvent = [];
+                }
+                delete result.resolved;
+            } else if (!result.resolvedEvent) {
+                // Ensure field exists even if no old field
+                result.resolvedEvent = [];
+            }
 
             // Clean up legacy contextValue from all comments
             if (result.comments && Array.isArray(result.comments)) {
@@ -531,7 +640,7 @@ export class CommentsMigrator {
             result = CommentsMigrator.convertThreadToRelativePaths(result);
 
             return result;
-        });
+        }));
     }
 
     /**
