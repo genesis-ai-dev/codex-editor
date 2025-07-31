@@ -151,11 +151,9 @@ export const IntentSelection: React.FC<IntentSelectionProps> = ({
             {/* Info Section */}
             <div className="mt-8 p-4 rounded-lg bg-muted/50 text-center">
                 <p className="text-sm text-muted-foreground">
-                    A <span className="font-medium text-foreground">source</span> is your original
-                    text that you want to translate from. When you add a source, Codex creates empty
-                    target files ready for your translations. Already have translations in progress?
-                    Choose <span className="font-medium text-foreground">target</span> to import
-                    your existing translation work into the project.
+                    <span className="font-medium">Translation Pairs</span> help you track the
+                    relationship between original content and translations, making it easy to manage
+                    parallel texts
                 </p>
             </div>
         </div>

@@ -266,29 +266,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         setFadingOut(false);
     }, [allTranslationsComplete, translationState, isInTranslationProcess]);
 
-    // Helper function to check if this cell should be highlighted
-    // Handles parent/child cell matching: child cells in target should highlight parent cells in source
-    const checkShouldHighlight = (): boolean => {
-        return cellIds.some((cellId) => {
-            if (!highlightedCellId || !cellId) return false;
-
-            // Exact match
-            if (highlightedCellId === cellId) return true;
-
-            // If highlighted cell is a child (3+ parts), check if this is the parent
-            const highlightedParts = highlightedCellId.split(":");
-            const cellParts = cellId.split(":");
-
-            if (highlightedParts.length >= 3 && cellParts.length === 2) {
-                // Compare parent portion: "BOOK CHAPTER:VERSE"
-                const highlightedParent = highlightedParts.slice(0, 2).join(":");
-                return highlightedParent === cellId;
-            }
-
-            return false;
-        });
-    };
-
     useEffect(() => {
         debug("Before Scrolling to content highlightedCellId", {
             highlightedCellId,
@@ -296,10 +273,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             isSourceText,
             scrollSyncEnabled,
         });
-
-        const shouldHighlight = checkShouldHighlight();
-
-        if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
+        if (
+            highlightedCellId === cellIds[0] &&
+            cellRef.current &&
+            isSourceText &&
+            scrollSyncEnabled
+        ) {
             debug("Scrolling to content highlightedCellId", {
                 highlightedCellId,
                 cellIds,
@@ -464,14 +443,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     };
 
     const getBackgroundColor = () => {
-        if (checkShouldHighlight() && scrollSyncEnabled) {
+        if (highlightedCellId === cellIds[0] && scrollSyncEnabled) {
             return "var(--vscode-editor-selectionBackground)";
         }
         return "transparent";
     };
 
     const getBorderColor = () => {
-        if (checkShouldHighlight() && scrollSyncEnabled) {
+        if (highlightedCellId === cellIds[0] && scrollSyncEnabled) {
             return "var(--vscode-editor-selectionHighlightBorder)";
         }
         return "transparent";

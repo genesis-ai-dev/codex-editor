@@ -116,13 +116,18 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         const needsStructuralMigration = CommentsMigrator.needsStructuralMigration(rawComments);
 
         if (needsStructuralMigration) {
+            console.log("[getCommentsFromFile] Structural migration needed, triggering migration");
             try {
                 // Trigger async migration but don't wait for it to complete
-                CommentsMigrator.migrateProjectComments(workspaceUri).catch(() => {
-                    // Silent fallback
+                CommentsMigrator.migrateProjectComments(workspaceUri).then(migrationOccurred => {
+                    if (migrationOccurred) {
+                        console.log("[getCommentsFromFile] Triggered structural migration successfully");
+                    }
+                }).catch(error => {
+                    console.error("[getCommentsFromFile] Error during triggered migration:", error);
                 });
             } catch (error) {
-                // Silent fallback
+                console.error("[getCommentsFromFile] Error triggering migration:", error);
             }
         }
 

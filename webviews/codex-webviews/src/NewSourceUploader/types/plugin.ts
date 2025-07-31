@@ -194,12 +194,6 @@ export interface ImporterComponentProps {
     onCancel: () => void;
 
     /**
-     * Called when the user wants to cancel the entire import process and return to the beginning
-     * Shows confirmation dialog and resets wizard state completely
-     */
-    onCancelImport: () => void;
-
-    /**
      * Optional: List of existing source files in the project
      * Useful for importers that want to add translations/targets to existing sources
      */
@@ -304,21 +298,4 @@ export interface ImportBookNamesMessage {
     nameType?: 'long' | 'short' | 'abbr';
 }
 
-export interface OverwriteConfirmationMessage {
-    command: 'overwriteConfirmation';
-    conflictingFiles: Array<{
-        name: string;
-        sourceExists: boolean;
-        targetExists: boolean;
-        hasTranslations: boolean;
-    }>;
-    originalMessage: WriteNotebooksMessage;
-}
-
-export interface OverwriteResponseMessage {
-    command: 'overwriteResponse';
-    confirmed: boolean;
-    originalMessage: WriteNotebooksMessage;
-}
-
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage; 
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage; 

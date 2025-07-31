@@ -34,7 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../components/ui
 const { validateFile, parseFile } = subtitlesImporter;
 
 export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) => {
-    const { onCancel, onCancelImport, onTranslationComplete, alignContent, wizardContext } = props;
+    const { onCancel, onTranslationComplete, alignContent, wizardContext } = props;
     const [file, setFile] = useState<File | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -206,8 +206,10 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
     };
 
     const handleCancel = () => {
-        // Use the new onCancelImport which provides consistent UX across all plugins
-        onCancelImport();
+        if (isDirty && !window.confirm("Cancel import? Any unsaved changes will be lost.")) {
+            return;
+        }
+        onCancel();
     };
 
     const totalProgress =
@@ -229,8 +231,8 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                         Review Subtitle Alignment
                     </h1>
                     <div className="flex gap-2">
-                        <Button variant="outline" onClick={onCancelImport}>
-                            Cancel Import
+                        <Button variant="outline" onClick={handleCancel}>
+                            Cancel
                         </Button>
                         <Button
                             onClick={handleConfirmAlignment}
@@ -315,9 +317,6 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                                                                     </Badge>
                                                                 )}
                                                             </div>
-                                                            <p className="text-sm text-muted-foreground">
-                                                                {cell.notebookCell?.content}
-                                                            </p>
                                                             <p className="text-sm">
                                                                 {cell.importedContent.content}
                                                             </p>
@@ -461,13 +460,9 @@ export const SubtitlesImporterForm: React.FC<ImporterComponentProps> = (props) =
                     <Play className="h-6 w-6" />
                     Import Subtitle Files {isTranslationImport && "(Translation)"}
                 </h1>
-                <Button
-                    variant="ghost"
-                    onClick={onCancelImport}
-                    className="flex items-center gap-2"
-                >
+                <Button variant="ghost" onClick={handleCancel} className="flex items-center gap-2">
                     <ArrowLeft className="h-4 w-4" />
-                    Cancel Import
+                    Back to Home
                 </Button>
             </div>
 

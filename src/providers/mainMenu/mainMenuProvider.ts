@@ -379,7 +379,10 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 // Trigger migration when workspace changes
                 if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
                     try {
-                        await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+                        const migrationOccurred = await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+                        if (migrationOccurred) {
+                            console.log("[MainMenu] Comments migration completed after workspace change");
+                        }
                     } catch (error) {
                         console.error("[MainMenu] Error during workspace change migration:", error);
                     }
