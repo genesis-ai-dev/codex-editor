@@ -517,6 +517,7 @@ export async function resolveCodexCustomMerge(
                 value: finalValue,
                 metadata: {
                     ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
+                    data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },
                     id: cellId,
                     edits: finalEdits,
                     type: ourCell.metadata?.type || CodexCellTypes.TEXT,
