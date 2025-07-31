@@ -510,29 +510,30 @@ export async function resolveCodexCustomMerge(
                     edit.validatedBy = Array.from(usernameMap.values());
                 }
             });
+
+
             // temporary fix: we need to store all mutable fields in the edit history, not the cell metadata
-            // Determine which cell was edited last
-            let lastEditedCellMetadata = ourCell.metadata;
-
-            const getLatestEditTime = (edits?: EditHistory[]): number => {
-                if (!edits || edits.length === 0) return 0;
-                return Math.max(...edits.map(edit => edit.timestamp));
-            };
-
-            const ourLastEditTime = getLatestEditTime(ourCell.metadata?.edits);
-            const theirLastEditTime = getLatestEditTime(theirCell.metadata?.edits);
-
-            if (theirLastEditTime > ourLastEditTime) {
-                lastEditedCellMetadata = theirCell.metadata;
+            // Determine which cellLabel to use - prefer the longer one
+            let cellLabelToUse = ourCell.metadata?.cellLabel;
+            if (theirCell.metadata?.cellLabel && ourCell.metadata?.cellLabel) {
+                // Both have cellLabels, use the longer one
+                cellLabelToUse = theirCell.metadata.cellLabel.length > ourCell.metadata.cellLabel.length
+                    ? theirCell.metadata.cellLabel
+                    : ourCell.metadata.cellLabel;
+            } else if (theirCell.metadata?.cellLabel) {
+                // Only their cell has a cellLabel
+                cellLabelToUse = theirCell.metadata.cellLabel;
             }
+            // If only our cell has a cellLabel or neither has one, we'll use ours (which might be undefined)
 
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
                 ...ourCell,
                 value: finalValue,
                 metadata: {
-                    ...lastEditedCellMetadata,
+                    ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
                     data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },
+                    cellLabel: cellLabelToUse,
                     id: cellId,
                     edits: finalEdits,
                     type: ourCell.metadata?.type || CodexCellTypes.TEXT,
