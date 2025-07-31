@@ -510,13 +510,28 @@ export async function resolveCodexCustomMerge(
                     edit.validatedBy = Array.from(usernameMap.values());
                 }
             });
+            // temporary fix: we need to store all mutable fields in the edit history, not the cell metadata
+            // Determine which cell was edited last
+            let lastEditedCellMetadata = ourCell.metadata;
+
+            const getLatestEditTime = (edits?: EditHistory[]): number => {
+                if (!edits || edits.length === 0) return 0;
+                return Math.max(...edits.map(edit => edit.timestamp));
+            };
+
+            const ourLastEditTime = getLatestEditTime(ourCell.metadata?.edits);
+            const theirLastEditTime = getLatestEditTime(theirCell.metadata?.edits);
+
+            if (theirLastEditTime > ourLastEditTime) {
+                lastEditedCellMetadata = theirCell.metadata;
+            }
 
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
                 ...ourCell,
                 value: finalValue,
                 metadata: {
-                    ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
+                    ...lastEditedCellMetadata,
                     data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },
                     id: cellId,
                     edits: finalEdits,
