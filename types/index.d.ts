@@ -49,8 +49,20 @@ interface NotebookCommentThread {
     collapsibleState: number;
     canReply: boolean;
     threadTitle?: string;
-    deleted: boolean;
-    resolved?: boolean;
+    deletionEvent?: Array<{
+        timestamp: number;
+        author: {
+            name: string;
+        };
+        valid: boolean;
+    }>;
+    resolvedEvent?: Array<{
+        timestamp: number;
+        author: {
+            name: string;
+        };
+        valid: boolean;
+    }>;
 }
 
 interface NotebookComment {
