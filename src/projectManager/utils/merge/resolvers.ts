@@ -4,6 +4,7 @@ import { ConflictResolutionStrategy, ConflictFile, SmartEdit } from "./types";
 import { determineStrategy } from "./strategies";
 import { getAuthApi } from "../../../extension";
 import { NotebookCommentThread, NotebookComment } from "../../../../types";
+import { CommentsMigrator } from "../../../utils/commentsMigrationUtils";
 import { CodexCell } from "@/utils/codexNotebookUtils";
 import { CodexCellTypes, EditType } from "../../../../types/enums";
 import { EditHistory, ValidationEntry } from "../../../../types/index.d";
@@ -13,6 +14,32 @@ function debugLog(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[Resolvers]", ...args);
     }
+}
+
+/**
+ * Gets the current user name from git config or VS Code settings
+ */
+async function getCurrentUserName(): Promise<string> {
+    try {
+        // Try git username first
+        const gitUsername = vscode.workspace.getConfiguration("git").get<string>("username");
+        if (gitUsername) return gitUsername;
+
+        // Try VS Code authentication session
+        try {
+            const session = await vscode.authentication.getSession('github', ['user:email'], { createIfNone: false });
+            if (session && session.account) {
+                return session.account.label;
+            }
+        } catch (e) {
+            // Auth provider might not be available
+        }
+    } catch (error) {
+        // Silent fallback
+    }
+
+    // Fallback
+    return "unknown";
 }
 
 /**
@@ -26,6 +53,19 @@ function isValidValidationEntry(value: any): value is ValidationEntry {
         typeof value.creationTimestamp === "number" &&
         typeof value.updatedTimestamp === "number" &&
         typeof value.isDeleted === "boolean"
+    );
+}
+
+/**
+ * Type guard to check if a conflict object is valid
+ */
+function isValidConflict(conflict: any): conflict is ConflictFile {
+    return (
+        conflict &&
+        typeof conflict.filepath === "string" &&
+        typeof conflict.ours === "string" &&
+        typeof conflict.theirs === "string" &&
+        typeof conflict.base === "string"
     );
 }
 
@@ -66,7 +106,7 @@ function migrateComment(
         return comment as NotebookComment;
     }
 
-    // Generate unique ID
+    // Generate new UUID in the same format as modern comments
     const newId = generateCommentId();
 
     // Calculate timestamp
@@ -102,11 +142,39 @@ function migrateComment(
  */
 function needsMigration(threads: any[]): boolean {
     // Check if ANY comment is missing a timestamp or has a numeric ID
+    // or if thread has old deleted/resolved boolean fields
     return threads.some(thread =>
-        thread.comments && thread.comments.some((comment: any) =>
+        ('deleted' in thread) ||
+        ('resolved' in thread) ||
+        (thread.comments && thread.comments.some((comment: any) =>
             typeof comment.timestamp !== 'number' || typeof comment.id === 'number'
-        )
+        ))
     );
+}
+
+/**
+ * Determines if a comment was recently migrated from legacy format
+ * Legacy comments have generated UUIDs with timestamp-based IDs and calculated timestamps
+ */
+function isLegacyComment(comment: any): boolean {
+    // Check if it still has numeric ID (definitely legacy)
+    if (typeof comment.id === 'number') {
+        return true;
+    }
+
+    // For timestamp-based IDs, check the relationship between ID timestamp and comment timestamp
+    if (typeof comment.id === 'string' && comment.id.includes('-')) {
+        const idTimestamp = parseInt(comment.id.split('-')[0]);
+        if (!isNaN(idTimestamp)) {
+            const timeDiff = Math.abs(comment.timestamp - idTimestamp);
+
+            // Modern comments: ID timestamp = comment timestamp (same moment)
+            // Legacy comments: ID timestamp ≠ comment timestamp (calculated during migration)
+            return timeDiff >= 100; // Different times = legacy migration
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -472,12 +540,29 @@ export async function resolveCodexCustomMerge(
                 }
             });
 
+
+            // temporary fix: we need to store all mutable fields in the edit history, not the cell metadata
+            // Determine which cellLabel to use - prefer the longer one
+            let cellLabelToUse = ourCell.metadata?.cellLabel;
+            if (theirCell.metadata?.cellLabel && ourCell.metadata?.cellLabel) {
+                // Both have cellLabels, use the longer one
+                cellLabelToUse = theirCell.metadata.cellLabel.length > ourCell.metadata.cellLabel.length
+                    ? theirCell.metadata.cellLabel
+                    : ourCell.metadata.cellLabel;
+            } else if (theirCell.metadata?.cellLabel) {
+                // Only their cell has a cellLabel
+                cellLabelToUse = theirCell.metadata.cellLabel;
+            }
+            // If only our cell has a cellLabel or neither has one, we'll use ours (which might be undefined)
+
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
                 ...ourCell,
                 value: finalValue,
                 metadata: {
-                    ...ourCell.metadata,
+                    ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
+                    data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },
+                    cellLabel: cellLabelToUse,
                     id: cellId,
                     edits: finalEdits,
                     type: ourCell.metadata?.type || CodexCellTypes.TEXT,
@@ -542,12 +627,49 @@ async function resolveCommentThreadsConflict(
     const threadMap = new Map<string, NotebookCommentThread>();
 
     // Process our threads first
-    ourThreads.forEach((thread) => {
+    await Promise.all(ourThreads.map(async (thread) => {
         let migratedThread = { ...thread };
 
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Remove legacy uri field if it exists
         delete (migratedThread as any).uri;
+
+        // Migrate old deleted/resolved booleans to new event arrays
+        if ('deleted' in migratedThread) {
+            if ((migratedThread as any).deleted === true) {
+                const timestamp = migratedThread.comments.length > 0
+                    ? migratedThread.comments[migratedThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedThread.deletionEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedThread.deletionEvent = [];
+            }
+            delete (migratedThread as any).deleted;
+        } else if (!migratedThread.deletionEvent) {
+            migratedThread.deletionEvent = [];
+        }
+
+        if ('resolved' in migratedThread) {
+            if ((migratedThread as any).resolved === true) {
+                const timestamp = migratedThread.comments.length > 0
+                    ? migratedThread.comments[migratedThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedThread.resolvedEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedThread.resolvedEvent = [];
+            }
+            delete (migratedThread as any).resolved;
+        } else if (!migratedThread.resolvedEvent) {
+            migratedThread.resolvedEvent = [];
+        }
 
         // Clean up legacy contextValue from all comments
         if (migratedThread.comments) {
@@ -568,10 +690,10 @@ async function resolveCommentThreadsConflict(
         migratedThread = convertThreadToRelativePaths(migratedThread);
 
         threadMap.set(migratedThread.id, migratedThread);
-    });
+    }));
 
     // Merge their threads, combining comments when thread IDs match
-    theirThreads.forEach((theirThread) => {
+    await Promise.all(theirThreads.map(async (theirThread) => {
         const existingThread = threadMap.get(theirThread.id);
 
         // Migrate their thread if needed
@@ -580,6 +702,43 @@ async function resolveCommentThreadsConflict(
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Remove legacy uri field if it exists
         delete (migratedTheirThread as any).uri;
+
+        // Migrate old deleted/resolved booleans to new event arrays
+        if ('deleted' in migratedTheirThread) {
+            if ((migratedTheirThread as any).deleted === true) {
+                const timestamp = migratedTheirThread.comments.length > 0
+                    ? migratedTheirThread.comments[migratedTheirThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedTheirThread.deletionEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedTheirThread.deletionEvent = [];
+            }
+            delete (migratedTheirThread as any).deleted;
+        } else if (!migratedTheirThread.deletionEvent) {
+            migratedTheirThread.deletionEvent = [];
+        }
+
+        if ('resolved' in migratedTheirThread) {
+            if ((migratedTheirThread as any).resolved === true) {
+                const timestamp = migratedTheirThread.comments.length > 0
+                    ? migratedTheirThread.comments[migratedTheirThread.comments.length - 1].timestamp
+                    : Date.now();
+                migratedTheirThread.resolvedEvent = [{
+                    timestamp,
+                    author: { name: await getCurrentUserName() },
+                    valid: true
+                }];
+            } else {
+                migratedTheirThread.resolvedEvent = [];
+            }
+            delete (migratedTheirThread as any).resolved;
+        } else if (!migratedTheirThread.resolvedEvent) {
+            migratedTheirThread.resolvedEvent = [];
+        }
 
         // Clean up legacy contextValue from all comments
         if (migratedTheirThread.comments) {
@@ -602,43 +761,109 @@ async function resolveCommentThreadsConflict(
             // New thread, just add it
             threadMap.set(migratedTheirThread.id, migratedTheirThread);
         } else {
-            // Merge comments for existing thread
+            // Merge comments for existing thread AND preserve latest thread metadata
             const allComments = new Map<string, NotebookComment>();
-            const processedBodies = new Set<string>();
+            const seenContentSignatures = new Set<string>();
 
-            // Add our comments
+            // Helper function to create content signature for legacy comment deduplication
+            const getContentSignature = (comment: any): string => {
+                return `${comment.body}|${comment.author?.name || 'Unknown'}`;
+            };
+
+            // Add our comments first
             existingThread.comments.forEach((comment) => {
                 allComments.set(comment.id, { ...comment });
-                // Track body+author combination for deduplication
-                const key = `${comment.body}|${comment.author.name}`;
-                processedBodies.add(key);
+                // Track content signature for legacy deduplication
+                const signature = getContentSignature(comment);
+                seenContentSignatures.add(signature);
+                debugLog(`Added our comment with ID: ${comment.id}`);
             });
 
-            // Add/merge their comments
+            // Add their comments with proper deduplication
             migratedTheirThread.comments.forEach((comment) => {
-                const key = `${comment.body}|${comment.author.name}`;
-
-                // Skip if we already have this exact comment (by body and author)
-                if (processedBodies.has(key)) {
-                    debugLog(`Skipping duplicate comment: ${key}`);
+                // First check if exact ID already exists (for modern comments)
+                if (allComments.has(comment.id)) {
+                    debugLog(`Skipping comment with duplicate ID: ${comment.id}`);
                     return;
                 }
 
-                // Add comment if it's not a duplicate by ID or content
-                if (!allComments.has(comment.id)) {
-                    allComments.set(comment.id, { ...comment });
-                    processedBodies.add(key);
+                // For potential legacy comments, check content signature
+                const signature = getContentSignature(comment);
+                if (seenContentSignatures.has(signature)) {
+                    debugLog(`Skipping comment with duplicate content: ${signature}`);
+                    return;
                 }
+
+                // Add the comment (unique by both ID and content)
+                allComments.set(comment.id, { ...comment });
+                seenContentSignatures.add(signature);
+                debugLog(`Added their comment with ID: ${comment.id}`);
             });
 
-            // Sort comments by timestamp
-            existingThread.comments = Array.from(allComments.values())
+            // Merge thread metadata - prefer the most recent thread state based on latest comment
+            const ourLatestCommentTime = Math.max(...existingThread.comments.map(c => c.timestamp));
+            const theirLatestCommentTime = Math.max(...migratedTheirThread.comments.map(c => c.timestamp));
+
+            const mergedThread = theirLatestCommentTime > ourLatestCommentTime
+                ? { ...migratedTheirThread } // Use their thread metadata if they have newer comments
+                : { ...existingThread };    // Use our thread metadata if we have newer comments
+
+            // Always use the merged comments array
+            mergedThread.comments = Array.from(allComments.values())
                 .sort((a, b) => a.timestamp - b.timestamp);
+
+            // Merge deletion and resolved events
+            mergedThread.deletionEvent = mergeDeletionEvents(existingThread.deletionEvent, migratedTheirThread.deletionEvent);
+            mergedThread.resolvedEvent = mergeResolvedEvents(existingThread.resolvedEvent, migratedTheirThread.resolvedEvent);
+
+            // Update the thread in the map
+            threadMap.set(mergedThread.id, mergedThread);
+            debugLog(`Merged thread ${mergedThread.id} with ${mergedThread.comments.length} total comments`);
         }
-    });
+    }));
 
     const mergedThreads = Array.from(threadMap.values());
-    return JSON.stringify(mergedThreads, null, 2);
+    return CommentsMigrator.formatCommentsForStorage(mergedThreads);
+}
+
+/**
+ * Merges deletion events, taking the latest valid one
+ */
+function mergeDeletionEvents(ourEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>,
+    theirEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>)
+    : Array<{ timestamp: number; author: { name: string; }; valid: boolean; }> | undefined {
+
+    if (!ourEvents && !theirEvents) return undefined;
+
+    const allEvents = [...(ourEvents || []), ...(theirEvents || [])];
+    if (allEvents.length === 0) return undefined;
+
+    // Sort by timestamp descending
+    allEvents.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Return only the latest valid event, or all events if none are valid
+    const latestValid = allEvents.find(e => e.valid);
+    return latestValid ? [latestValid] : allEvents;
+}
+
+/**
+ * Merges resolved events, taking the latest valid one
+ */
+function mergeResolvedEvents(ourEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>,
+    theirEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>)
+    : Array<{ timestamp: number; author: { name: string; }; valid: boolean; }> | undefined {
+
+    if (!ourEvents && !theirEvents) return undefined;
+
+    const allEvents = [...(ourEvents || []), ...(theirEvents || [])];
+    if (allEvents.length === 0) return undefined;
+
+    // Sort by timestamp descending
+    allEvents.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Return only the latest valid event, or all events if none are valid
+    const latestValid = allEvents.find(e => e.valid);
+    return latestValid ? [latestValid] : allEvents;
 }
 
 /**
@@ -934,26 +1159,6 @@ export async function resolveConflictFiles(
         }
     );
 
-    // Only call completeMerge if we actually resolved something
-    const authApi = getAuthApi();
-    if (authApi && resolvedFiles.length > 0) {
-        try {
-            await authApi.completeMerge(resolvedFiles, workspaceDir);
-        } catch (e) {
-            console.error("Failed to complete merge:", e);
-            vscode.window.showErrorMessage("Failed to complete merge after resolving conflicts");
-        }
-    }
-
     return resolvedFiles;
 }
 
-function isValidConflict(conflict: any): conflict is ConflictFile {
-    return (
-        conflict &&
-        typeof conflict.filepath === "string" &&
-        typeof conflict.ours === "string" &&
-        typeof conflict.theirs === "string" &&
-        typeof conflict.base === "string"
-    );
-}

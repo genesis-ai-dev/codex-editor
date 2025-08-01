@@ -2,9 +2,9 @@ import { ImporterPlugin } from "../../types/plugin";
 import { Sparkles } from "lucide-react";
 import { RecursiveTextSplitterForm } from "./RecursiveTextSplitterForm.tsx";
 
-export const smartImportPlugin: ImporterPlugin = {
-    id: "smart-import",
-    name: "Smart Import",
+export const smartSegmenterPlugin: ImporterPlugin = {
+    id: "smart-segmenter",
+    name: "Smart Segmenter",
     description:
         "Intelligently imports any text file, automatically detecting structure and creating meaningful sections",
     icon: Sparkles,

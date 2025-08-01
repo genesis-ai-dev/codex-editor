@@ -492,7 +492,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `source-${Date.now()}`,
                         originalFileName: file.name,
-                        importerType: "smart-import",
+                        importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
                     },
                 },
@@ -502,7 +502,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     metadata: {
                         id: `codex-${Date.now()}`,
                         originalFileName: file.name,
-                        importerType: "smart-import",
+                        importerType: "smart-segmenter",
                         createdAt: new Date().toISOString(),
                     },
                 },
@@ -590,7 +590,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                     <div className="flex items-center justify-between">
                         <h1 className="text-2xl font-bold flex items-center gap-2">
                             <Sparkles className="h-6 w-6" />
-                            Smart Import
+                            Smart Segmenter
                         </h1>
                         <Button
                             variant="ghost"
@@ -606,8 +606,8 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                         <CardHeader>
                             <CardTitle>Select Your File</CardTitle>
                             <CardDescription>
-                                Smart Import intelligently understands your content and creates
-                                meaningful sections automatically. Works with any text
+                                Smart Segmenter intelligently understands your content and creates
+                                meaningful sections automatically. Works with many text
                                 file—documents, code, markdown, and more.
                             </CardDescription>
                         </CardHeader>
@@ -716,7 +716,7 @@ export const RecursiveTextSplitterForm: React.FC<ImporterComponentProps> = ({
                                         }}
                                     />
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Smart Import finds natural boundaries in your text. Sections
+                                        Smart Segmenter finds natural boundaries in your text. Sections
                                         may vary in size to respect paragraphs, sentences, and
                                         document structure.
                                     </p>
