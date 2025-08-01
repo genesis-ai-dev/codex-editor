@@ -3,7 +3,10 @@ import { ConflictResolutionStrategy } from "./types";
 // Define which files use which strategies
 export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]> = {
     // Codex notebook files - special merge process for cell arrays
-    [ConflictResolutionStrategy.CODEX_CUSTOM_MERGE]: ["files/target/*.codex"],
+    [ConflictResolutionStrategy.CODEX_CUSTOM_MERGE]: [
+        "files/target/*.codex",
+        ".project/sourceTexts/*.source"
+    ],
 
     // Simple JSON override files - keep newest version
     [ConflictResolutionStrategy.OVERRIDE]: [
@@ -24,8 +27,8 @@ export const filePatternsToResolve: Record<ConflictResolutionStrategy, string[]>
     // Special JSON merges - merge based on timestamps
     [ConflictResolutionStrategy.SPECIAL]: ["files/smart_edits.json"],
 
-    // Source files - keep newest version
-    [ConflictResolutionStrategy.SOURCE]: [".project/sourceTexts/*.source"],
+    // Source files - keep newest version (DEPRECATED: now using CODEX_CUSTOM_MERGE)
+    [ConflictResolutionStrategy.SOURCE]: [],
 
     // Files to ignore
     [ConflictResolutionStrategy.IGNORE]: ["complete_drafts.txt"],

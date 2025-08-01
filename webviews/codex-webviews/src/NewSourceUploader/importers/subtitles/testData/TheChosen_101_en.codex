@@ -1,0 +1,6652 @@
+{
+  "cells": [
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቶም ሕሩያት ኣብ ሓቀኛ ታሪኽ ወንጌላት\nጎይታናን መድሓኒናን እየሱስ ክርስቶስ",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-1vbclkmd8xhtnu",
+        "data": {
+          "startTime": 8.884,
+          "endTime": 11.345
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝተሞርኮሰት ፊልም እያ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-pgf1gcmd8xhtnu",
+        "data": {
+          "startTime": 11.428,
+          "endTime": 12.638
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ገለ ቦታታትን ናይ ግዜ መስመራትን\nተዋሃሂዶም ወይ ሓጺሮም ኣለዉ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-pzcff5md8xhtnu",
+        "data": {
+          "startTime": 12.721,
+          "endTime": 14.932
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ድሕረ-ዛንታታትን ገለ ገጸ ባህርያት\nወይ ዝርርብን ተወሰኹ እዩ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-omff1lmd8xhtnu",
+        "data": {
+          "startTime": 15.015,
+          "endTime": 17.142
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይኹን እምበር\nኩሉ መጽሓፍ ቅዱሳውን ታሪኻውን ኵነታትን",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-rxaftomd8xhtnu",
+        "data": {
+          "startTime": 17.226,
+          "endTime": 18.727
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝኾነ ስነ ጥበባዊ\nምናኔን ንሓቅን ዕላማን",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-nkq5romd8xhtnu",
+        "data": {
+          "startTime": 18.81,
+          "endTime": 20.312
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ቅዱሳት መጻሕፍቲ\nንምድጋፍ ዝተዳለወ እዩ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-zngsegmd8xhtnu",
+        "data": {
+          "startTime": 20.395,
+          "endTime": 22.189
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ተመልከቲ ወንጌላት ከንብቡ ይተባብዑ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-zqtpptmd8xhtnu",
+        "data": {
+          "startTime": 22.272,
+          "endTime": 23.732
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቶም መበቆላውያን ኣስማት፣\nቦታታትን ሓረጋትን",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-8g6fh5md8xhtnu",
+        "data": {
+          "startTime": 23.815,
+          "endTime": 26.318
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናብ ትግርኛ ተተርጒሞም ኣለዉ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-tw3gs0md8xhtnu",
+        "data": {
+          "startTime": 26.401,
+          "endTime": 27.569
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መግደላ 2 ቅ.ል.ክ.",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-o9hl98md8xhtnu",
+        "data": {
+          "startTime": 37.579,
+          "endTime": 43.085
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣቦይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-50.634-51.468",
+        "data": {
+          "type": "text",
+          "startTime": 50.259,
+          "endTime": 51.26,
+          "format": "VTT",
+          "originalText": "<i>Abba?</i>",
+          "originalContent": "<i>Abba?</i>"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ድቃስ ኣቢኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-54.012-56.348",
+        "data": {
+          "type": "text",
+          "startTime": 54.888,
+          "endTime": 55.889,
+          "format": "VTT",
+          "originalText": "-You should be sleeping, little one.\n-I can't sleep.",
+          "originalContent": "-You should be sleeping, little one.\n-I can't sleep."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይደቀስክን ዲኺ ማርያም ጓለይ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-54.012-56.348:5czhlgmd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 53.512,
+          "endTime": 54.805,
+          "format": "VTT",
+          "originalText": "-You should be sleeping, little one.\n-I can't sleep.",
+          "originalContent": "-You should be sleeping, little one.\n-I can't sleep."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኮፍ በሊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-56.431-58.308",
+        "data": {
+          "type": "text",
+          "startTime": 57.266,
+          "endTime": 58.267,
+          "format": "VTT",
+          "originalText": "Sit down, sit down.",
+          "originalContent": "Sit down, sit down."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኮፍ በሊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-56.431-58.308:udg0osmd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 55.973,
+          "endTime": 57.182,
+          "format": "VTT",
+          "originalText": "Sit down, sit down.",
+          "originalContent": "Sit down, sit down."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ድሓን እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-59.601-62.437",
+        "data": {
+          "type": "text",
+          "startTime": 60.894,
+          "endTime": 61.895,
+          "format": "VTT",
+          "originalText": "-Is your head hurting you again?\n-No.",
+          "originalContent": "-Is your head hurting you again?\n-No."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ርእስኺ ኣይገደፈክን ድዩ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-59.601-62.437:sklns5md8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 59.059,
+          "endTime": 60.394,
+          "format": "VTT",
+          "originalText": "-Is your head hurting you again?\n-No.",
+          "originalContent": "-Is your head hurting you again?\n-No."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሕጂ ቆብ ኣቢለኪ ብዛዕባ እታ\nዓባይ ኮኾብ ኢኺ ትሓስቢ ዘለኺ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-62.521-66.233",
+        "data": {
+          "type": "text",
+          "startTime": 63.647,
+          "endTime": 65.941,
+          "format": "VTT",
+          "originalText": "I know. You were thinking\nof the big new star.",
+          "originalContent": "I know. You were thinking\nof the big new star."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እፈልጥ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-62.521-66.233:jruh8lmd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 62.563,
+          "endTime": 63.564,
+          "format": "VTT",
+          "originalText": "I know. You were thinking\nof the big new star.",
+          "originalContent": "I know. You were thinking\nof the big new star."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ራኣይ ኣብቲ ኣላ። ሪኢኽያ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-66.316-68.026",
+        "data": {
+          "type": "text",
+          "startTime": 66.024,
+          "endTime": 67.651,
+          "format": "VTT",
+          "originalText": "Hey, look, it's right there, see?",
+          "originalContent": "Hey, look, it's right there, see?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይራኣኽዋን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-69.82-70.904",
+        "data": {
+          "type": "text",
+          "startTime": 69.278,
+          "endTime": 70.571,
+          "format": "VTT",
+          "originalText": "No.",
+          "originalContent": "No."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ፈሪሐ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-71.572-74.533",
+        "data": {
+          "type": "text",
+          "startTime": 72.781,
+          "endTime": 73.991,
+          "format": "VTT",
+          "originalText": "-Why can't you sleep?\n-I'm scared.",
+          "originalContent": "-Why can't you sleep?\n-I'm scared."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ኮይኑ እዩ ድቃስ ኣቢኪ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-71.572-74.533:u0nej4md8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 71.238,
+          "endTime": 72.698,
+          "format": "VTT",
+          "originalText": "-Why can't you sleep?\n-I'm scared.",
+          "originalContent": "-Why can't you sleep?\n-I'm scared."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንድዒ (ኣይተረዳኣንን)።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-75.742-78.537",
+        "data": {
+          "type": "text",
+          "startTime": 76.535,
+          "endTime": 77.911,
+          "format": "VTT",
+          "originalText": "-Of what?\n-I don't know.",
+          "originalContent": "-Of what?\n-I don't know."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብምንታይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-75.742-78.537:blm31omd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 75.409,
+          "endTime": 76.451,
+          "format": "VTT",
+          "originalText": "-Of what?\n-I don't know.",
+          "originalContent": "-Of what?\n-I don't know."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንተዳኣ ፈርሕና እሞ\nእንታይ ዲና ንገብር?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-79.204-82.708",
+        "data": {
+          "type": "text",
+          "startTime": 78.745,
+          "endTime": 82.207,
+          "format": "VTT",
+          "originalText": "Hey, what do we do when we are scared?",
+          "originalContent": "Hey, what do we do when we are scared?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናይ ኣምላኽ ቃል ካብ ትንቢት",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-83.292-86.461",
+        "data": {
+          "type": "text",
+          "startTime": 84.585,
+          "endTime": 87.754,
+          "format": "VTT",
+          "originalText": "-We say the words.\n-Adonai's words.",
+          "originalContent": "-We say the words.\n-Adonai's words."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ቃል ንዛረብ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-83.292-86.461:eh97plmd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 82.916,
+          "endTime": 84.501,
+          "format": "VTT",
+          "originalText": "-We say the words.\n-Adonai's words.",
+          "originalContent": "-We say the words.\n-Adonai's words."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እሰያስ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-87.129-89.173",
+        "data": {
+          "type": "text",
+          "startTime": 87.838,
+          "endTime": 88.881,
+          "format": "VTT",
+          "originalText": "-From the prophet...\n-Isaiah.",
+          "originalContent": "-From the prophet...\n-Isaiah."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ካብ ትንቢት እሰያስ እወ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-89.256-91.633",
+        "data": {
+          "type": "text",
+          "startTime": 88.964,
+          "endTime": 91.175,
+          "format": "VTT",
+          "originalText": "The prophet Isaiah, right.",
+          "originalContent": "The prophet Isaiah, right."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዎ ያቆብ እቲ ዝፈጠረካን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-93.343-97.306",
+        "data": {
+          "type": "text",
+          "startTime": 93.01,
+          "endTime": 96.471,
+          "format": "VTT",
+          "originalText": "\"Thus says the Lord\nwho created you, O Jacob,",
+          "originalContent": "\"Thus says the Lord\nwho created you, O Jacob,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝደኮነካን ኣምላኽ እስራኤል ምሳኻ እዩ።\nኣይትፍራህ ኣይትሸበር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-97.389-100.976",
+        "data": {
+          "type": "text",
+          "startTime": 97.055,
+          "endTime": 102.978,
+          "format": "VTT",
+          "originalText": "and He who formed you, O Israel:",
+          "originalContent": "and He who formed you, O Israel:"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሕጂ ንዒ።\nከምዛ ዝበልክዋ ጌርኪ ድገምዮ ክሰምዓኪ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-103.604-105.689",
+        "data": {
+          "type": "text",
+          "startTime": 103.061,
+          "endTime": 105.23,
+          "format": "VTT",
+          "originalText": "Come now, I want to hear you say it.",
+          "originalContent": "Come now, I want to hear you say it."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ነቲ ጥዑም ድምኺ\nክሰምዖ ደልየ ኣጆኺ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-106.732-108.692",
+        "data": {
+          "type": "text",
+          "startTime": 106.356,
+          "endTime": 108.108,
+          "format": "VTT",
+          "originalText": "I want to hear your pretty voice, come.",
+          "originalContent": "I want to hear your pretty voice, come."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣድሒነካ እየ ኣይትፍራህ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-109.318-111.987",
+        "data": {
+          "type": "text",
+          "startTime": 108.901,
+          "endTime": 111.612,
+          "format": "VTT",
+          "originalText": "\"Fear not, for I have redeemed you;",
+          "originalContent": "\"Fear not, for I have redeemed you;"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብስምካ ዝጸዋዕኩኻ ንስኻ ናተይ ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-112.07-114.948",
+        "data": {
+          "type": "text",
+          "startTime": 111.695,
+          "endTime": 114.406,
+          "format": "VTT",
+          "originalText": "I have called you by name. You are mine.\"",
+          "originalContent": "I have called you by name. You are mine.\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስኻ ናተይ ኢኻ። ልክዕ ኢዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-115.616-118.16",
+        "data": {
+          "type": "text",
+          "startTime": 115.199,
+          "endTime": 117.701,
+          "format": "VTT",
+          "originalText": "You are mine. That's right.",
+          "originalContent": "You are mine. That's right."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከተማ ቅፍሪ ናሆም ድሕሪ 28 ዓመታት",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-7bhgswmd8xhtnu",
+        "data": {
+          "startTime": 147.773,
+          "endTime": 151.485
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ርዱኡኒ ኣታ ዎ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-155.239-157.991",
+        "data": {
+          "type": "text",
+          "startTime": 155.948,
+          "endTime": 157.449,
+          "format": "VTT",
+          "originalText": "Help! Somebody help me!",
+          "originalContent": "Help! Somebody help me!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ርዱኡኒ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-155.239-157.991:5sqgqjmd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 154.863,
+          "endTime": 155.864,
+          "format": "VTT",
+          "originalText": "Help! Somebody help me!",
+          "originalContent": "Help! Somebody help me!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክትቀትለኒ ሓሲባ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-178.136-179.388",
+        "data": {
+          "type": "text",
+          "startTime": 176.885,
+          "endTime": 178.846,
+          "format": "VTT",
+          "originalText": "She tried to kill me.",
+          "originalContent": "She tried to kill me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክትቀትለኒ ሓሲባ!\nበጃኹም… ርድኡኒ…",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-179.471-180.889",
+        "data": {
+          "type": "text",
+          "startTime": 178.929,
+          "endTime": 181.139,
+          "format": "VTT",
+          "originalText": "She tried to kill me.",
+          "originalContent": "She tried to kill me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በጃኹም… ርድኡኒ…",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-182.683-183.517",
+        "data": {
+          "type": "text",
+          "startTime": 182.14,
+          "endTime": 183.684,
+          "format": "VTT",
+          "originalText": "Somebody!",
+          "originalContent": "Somebody!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣታ ወዲ ርግምቲ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-186.019-187.312",
+        "data": {
+          "type": "text",
+          "startTime": 185.477,
+          "endTime": 187.354,
+          "format": "VTT",
+          "originalText": "You filthy dog.",
+          "originalContent": "You filthy dog."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣጋንንቲ ኣብ ውሽጣ ይነብሩ ኣለው።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-189.523-193.61",
+        "data": {
+          "type": "text",
+          "startTime": 189.189,
+          "endTime": 193.068,
+          "format": "VTT",
+          "originalText": "Demons live inside her.",
+          "originalContent": "Demons live inside her."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ራሓቅ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-193.694-195.153",
+        "data": {
+          "type": "text",
+          "startTime": 193.694,
+          "endTime": 194.736,
+          "format": "VTT",
+          "originalText": "Get back!",
+          "originalContent": "Get back!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓንሳብ ሓንሳብ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-271.772-272.606",
+        "data": {
+          "type": "text",
+          "startTime": 271.438,
+          "endTime": 272.439,
+          "format": "VTT",
+          "originalText": "Stop!",
+          "originalContent": "Stop!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይትሓዛለይ መምህር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-278.862-280.03",
+        "data": {
+          "type": "text",
+          "startTime": 278.445,
+          "endTime": 279.488,
+          "format": "VTT",
+          "originalText": "Forgive me, Rabbi.",
+          "originalContent": "Forgive me, Rabbi."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግን… ክብርቲ በቲ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-281.782-285.118",
+        "data": {
+          "type": "text",
+          "startTime": 282.741,
+          "endTime": 284.576,
+          "format": "VTT",
+          "originalText": "-Can you not see what he is doing?\n-But, woman, ahead.",
+          "originalContent": "-Can you not see what he is doing?\n-But, woman, ahead."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣንታይ ይገብር ኣሎ\nኣይትርዮን ዲኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-281.782-285.118:fjjeipmd8xhtnt",
+        "data": {
+          "type": "text",
+          "startTime": 281.365,
+          "endTime": 282.658,
+          "format": "VTT",
+          "originalText": "-Can you not see what he is doing?\n-But, woman, ahead.",
+          "originalContent": "-Can you not see what he is doing?\n-But, woman, ahead."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣኦኦ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-4927n0md8xhtnu",
+        "data": {
+          "startTime": 300.008,
+          "endTime": 301.009
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብማዕዶ ሰላምታ እኹል ኣይኮነን?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-318.485-321.697",
+        "data": {
+          "type": "text",
+          "startTime": 319.486,
+          "endTime": 321.738,
+          "format": "VTT",
+          "originalText": "-Why have you stopped us?\n-It's not enough to say hello?",
+          "originalContent": "-Why have you stopped us?\n-It's not enough to say hello?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንምንታይ ደው ኣቢልካና?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-318.485-321.697:lep2bmmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 318.11,
+          "endTime": 319.403,
+          "format": "VTT",
+          "originalText": "-Why have you stopped us?\n-It's not enough to say hello?",
+          "originalContent": "-Why have you stopped us?\n-It's not enough to say hello?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብቅኑዕ ስርዓት እየ ዝመላለስ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-322.322-323.949",
+        "data": {
+          "type": "text",
+          "startTime": 321.822,
+          "endTime": 323.407,
+          "format": "VTT",
+          "originalText": "I'm on official business.",
+          "originalContent": "I'm on official business."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናይ ሮማውያን ጥራይ እዩ ቅኑዕ ስርዓት።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-324.032-327.828",
+        "data": {
+          "type": "text",
+          "startTime": 323.49,
+          "endTime": 327.16,
+          "format": "VTT",
+          "originalText": "Only Roman business is official business.",
+          "originalContent": "Only Roman business is official business."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብዝኾነ ኲንተስ እባሃል።\nኣማሓዳሪ ናይ ቅፍሪናሆም",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-329.705-332.624",
+        "data": {
+          "type": "text",
+          "startTime": 329.162,
+          "endTime": 332.082,
+          "format": "VTT",
+          "originalText": "My name is Quintus.\nI'm the praetor of Capernaum.",
+          "originalContent": "My name is Quintus.\nI'm the praetor of Capernaum."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣነ ካኣ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-329.705-332.624:m2orwgmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 332.165,
+          "endTime": 333,
+          "format": "VTT",
+          "originalText": "My name is Quintus.\nI'm the praetor of Capernaum.",
+          "originalContent": "My name is Quintus.\nI'm the praetor of Capernaum."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝናኻ ኣብ ኩሉ ኣሎ\nእፈልጠካ ኣታ ልዑል ኒቆድሞስ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-332.708-335.377",
+        "data": {
+          "type": "text",
+          "startTime": 333.083,
+          "endTime": 334.376,
+          "format": "VTT",
+          "originalText": "-And I am--\n-You are the great Nicodemus.",
+          "originalContent": "-And I am--\n-You are the great Nicodemus."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ቃላት ብቕልጡፍ እዩ ዝዝርጋሕ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-335.46-336.712",
+        "data": {
+          "type": "text",
+          "startTime": 335.085,
+          "endTime": 336.17,
+          "format": "VTT",
+          "originalText": "Word travels fast.",
+          "originalContent": "Word travels fast."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክትኣስረኒ ዲኻ ደሊኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-336.795-338.422",
+        "data": {
+          "type": "text",
+          "startTime": 336.253,
+          "endTime": 337.838,
+          "format": "VTT",
+          "originalText": "Are you arresting me?",
+          "originalContent": "Are you arresting me?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይከማኡን ዩ ዓርከኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-339.548-341.508",
+        "data": {
+          "type": "text",
+          "startTime": 339.006,
+          "endTime": 340.591,
+          "format": "VTT",
+          "originalText": "No, my friend.",
+          "originalContent": "No, my friend."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ልኡኽ እኮ እየ፤ ወታሃደአር ኣይኮንኩን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-341.592-343.719",
+        "data": {
+          "type": "text",
+          "startTime": 341.216,
+          "endTime": 343.177,
+          "format": "VTT",
+          "originalText": "I'm a magistrate, not a military man.",
+          "originalContent": "I'm a magistrate, not a military man."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንድሕነት ህዝቢ እየ\nዘገልግል፤ንጲላጦስ እውን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-343.802-346.346",
+        "data": {
+          "type": "text",
+          "startTime": 343.26,
+          "endTime": 345.888,
+          "format": "VTT",
+          "originalText": "I serve the will of the people and Pilate.",
+          "originalContent": "I serve the will of the people and Pilate."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣነ ካኣ ንሓደ ኣምላኽ ኣየ ዘገልግል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-346.43-347.931",
+        "data": {
+          "type": "text",
+          "startTime": 346.388,
+          "endTime": 347.389,
+          "format": "VTT",
+          "originalText": "And I serve only God.",
+          "originalContent": "And I serve only God."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እወ እወ፣ ስለዚ ጸላእትኻስ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-348.015-349.933",
+        "data": {
+          "type": "text",
+          "startTime": 347.472,
+          "endTime": 350.934,
+          "format": "VTT",
+          "originalText": "Yes, yes.",
+          "originalContent": "Yes, yes."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሰደኡቃውያን፣ኣንጠረኛታት፣ጠንቆልቲ፣\nከተርቲ፣ መምሃራን ርኽሰት፣ሸፋቱ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-350.017-353.979",
+        "data": {
+          "type": "text",
+          "startTime": 351.018,
+          "endTime": 353.228,
+          "format": "VTT",
+          "originalText": "So do your enemies.\nThe Sadducees, the Essenes, the Zealots.",
+          "originalContent": "So do your enemies.\nThe Sadducees, the Essenes, the Zealots."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብዛዕባ ዝመጽእ ክርስቶስ ዘህተፍትፉ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-354.062-358.817",
+        "data": {
+          "type": "text",
+          "startTime": 353.77,
+          "endTime": 357.816,
+          "format": "VTT",
+          "originalText": "Rogue preachers in the wilderness\nraving about a coming Messiah.",
+          "originalContent": "Rogue preachers in the wilderness\nraving about a coming Messiah."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኩሎም ኣቓልቦ ህዝቢ ዝሰልቡ፣\nንጥዕናን ሰላምን ህዝቢ ዝዘርጉ እዮም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-358.901-361.403",
+        "data": {
+          "type": "text",
+          "startTime": 358.567,
+          "endTime": 360.819,
+          "format": "VTT",
+          "originalText": "They're all vying for the people's affection.",
+          "originalContent": "They're all vying for the people's affection."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግብሪ ኣይእከብን ዘሎ\nዝብል እምነት ኣለኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-361.904-365.574",
+        "data": {
+          "type": "text",
+          "startTime": 363.405,
+          "endTime": 365.073,
+          "format": "VTT",
+          "originalText": "-What do you want, Quintus?\n-I believe taxes are going unpaid.",
+          "originalContent": "-What do you want, Quintus?\n-I believe taxes are going unpaid."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ኢኻ ደሊኻ? ኲንተስ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-361.904-365.574:467kzjmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 361.528,
+          "endTime": 363.071,
+          "format": "VTT",
+          "originalText": "-What do you want, Quintus?\n-I believe taxes are going unpaid.",
+          "originalContent": "-What do you want, Quintus?\n-I believe taxes are going unpaid."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንተሓጊዝካኒ ግን\nፈርሳውያን ንኽዕወቱ ክሕግዘካ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-366.366-371.079",
+        "data": {
+          "type": "text",
+          "startTime": 365.866,
+          "endTime": 370.537,
+          "format": "VTT",
+          "originalText": "If you help me, I will help\nthe Pharisees continue to thrive.",
+          "originalContent": "If you help me, I will help\nthe Pharisees continue to thrive."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መኽንያቱ ኣዞም ህዝቢ\nብግብሪ ኣዝዮም ኣማሪሮም እዮም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-371.163-375.25",
+        "data": {
+          "type": "text",
+          "startTime": 372.331,
+          "endTime": 374.708,
+          "format": "VTT",
+          "originalText": "How can I?\nThe people are already drowning in tax.",
+          "originalContent": "How can I?\nThe people are already drowning in tax."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብኸመይ እየ ክሕግዛአካ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-371.163-375.25:e7moucmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 370.621,
+          "endTime": 371.622,
+          "format": "VTT",
+          "originalText": "How can I?\nThe people are already drowning in tax.",
+          "originalContent": "How can I?\nThe people are already drowning in tax."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክሓተካ ኒቆድሞስ፤ኣብ ውሽጢ ማይ ኮይኑ\nከይተጨነቐ ክነብር ዝኽእል እንታይ እዩ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-376.919-382.758",
+        "data": {
+          "type": "text",
+          "startTime": 376.543,
+          "endTime": 382.257,
+          "format": "VTT",
+          "originalText": "Tell me, Nicodemus, what can be\nunder the water and yet never drown?",
+          "originalContent": "Tell me, Nicodemus, what can be\nunder the water and yet never drown?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዓሳ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-385.427-386.72",
+        "data": {
+          "type": "text",
+          "startTime": 384.968,
+          "endTime": 386.178,
+          "format": "VTT",
+          "originalText": "Fish?",
+          "originalContent": "Fish?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ማቲዎስ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-467.926-468.886",
+        "data": {
+          "type": "text",
+          "startTime": 467.593,
+          "endTime": 468.927,
+          "format": "VTT",
+          "originalText": "Right here.",
+          "originalContent": "Right here."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ድምጽኻ ቀንስ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-472.723-474.057",
+        "data": {
+          "type": "text",
+          "startTime": 472.222,
+          "endTime": 473.682,
+          "format": "VTT",
+          "originalText": "Keep your voice down.",
+          "originalContent": "Keep your voice down."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይትሓዘለይ ኩቡር ተጋዊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-474.141-476.518",
+        "data": {
+          "type": "text",
+          "startTime": 473.765,
+          "endTime": 475.559,
+          "format": "VTT",
+          "originalText": "Pardon me, Mr. Public-anus.",
+          "originalContent": "Pardon me, Mr. Public-anus."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምሳኻ ብምርኣየይ እኮ እቲ ዝኸፍአ\nሕስረት ንዓይ እዩ፤ተረዲኢካ ዶ`ሎ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-476.602-478.395",
+        "data": {
+          "type": "text",
+          "startTime": 476.059,
+          "endTime": 477.853,
+          "format": "VTT",
+          "originalText": "It's me that don't want to be seen with you.",
+          "originalContent": "It's me that don't want to be seen with you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ እዩ እዝሲኩሉ ህዝቢ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-478.478-479.73",
+        "data": {
+          "type": "text",
+          "startTime": 477.936,
+          "endTime": 479.188,
+          "format": "VTT",
+          "originalText": "It's \"publicanus.\"",
+          "originalContent": "It's \"publicanus.\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይፈለጥኩን ተጋዊ።\nእሞ ብካልእ መንገዲ ምኻድኻ ተጋዊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-479.813-481.815",
+        "data": {
+          "type": "text",
+          "startTime": 479.271,
+          "endTime": 481.273,
+          "format": "VTT",
+          "originalText": "I like it the other way, taxman.",
+          "originalContent": "I like it the other way, taxman."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣታ፣ ኣታ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-481.899-483.442",
+        "data": {
+          "type": "text",
+          "startTime": 481.356,
+          "endTime": 482.9,
+          "format": "VTT",
+          "originalText": "Hey, hey, hey!",
+          "originalContent": "Hey, hey, hey!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ነዚ እኮ ናይ ኩሎም ደቀይ ደሞዝ\nታኣኪቡ ኣይገዞኦን ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-483.525-485.777",
+        "data": {
+          "type": "text",
+          "startTime": 482.983,
+          "endTime": 485.277,
+          "format": "VTT",
+          "originalText": "It's a month's salary\nfor all my sons combined right there.",
+          "originalContent": "It's a month's salary\nfor all my sons combined right there."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ካን ጉሕፍ ከተብሎ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-485.861-487.112",
+        "data": {
+          "type": "text",
+          "startTime": 485.36,
+          "endTime": 486.57,
+          "format": "VTT",
+          "originalText": "You just toss them out?",
+          "originalContent": "You just toss them out?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንብረተይ ዩ።\nድሌተይ ክገብሮ መሰለይ ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-487.196-489.781",
+        "data": {
+          "type": "text",
+          "startTime": 486.653,
+          "endTime": 489.239,
+          "format": "VTT",
+          "originalText": "These are my property.\nI do with them as I wish.",
+          "originalContent": "These are my property.\nI do with them as I wish."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ ካልእ እዋን ነቲ ጓሓፍ ትኣርዮ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-489.865-494.328",
+        "data": {
+          "type": "text",
+          "startTime": 491.783,
+          "endTime": 493.785,
+          "format": "VTT",
+          "originalText": "I pay you to drive,\nyou sift through trash on your own time.",
+          "originalContent": "I pay you to drive,\nyou sift through trash on your own time."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክትክፈል ኢኻ ኣብጻሓኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-489.865-494.328:5tgr1mmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 490.032,
+          "endTime": 491.7,
+          "format": "VTT",
+          "originalText": "I pay you to drive,\nyou sift through trash on your own time.",
+          "originalContent": "I pay you to drive,\nyou sift through trash on your own time."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣታ እንጀራ ኮይኑ እምባር\nንዓኻ ምብጻሕ እኮ መሕነኽ ኣዩ መሕፈር",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-494.411-496.58",
+        "data": {
+          "type": "text",
+          "startTime": 493.869,
+          "endTime": 496.079,
+          "format": "VTT",
+          "originalText": "Driving you's a bit of both now, isn't it?",
+          "originalContent": "Driving you's a bit of both now, isn't it?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ኢኻ ጺዒንካ እንተተባሂለ\nሓቂ እየ ዝዛረብ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-497.497-500.375",
+        "data": {
+          "type": "text",
+          "startTime": 496.955,
+          "endTime": 499.875,
+          "format": "VTT",
+          "originalText": "If any citizen asks about my cargo,\nI must tell the truth.",
+          "originalContent": "If any citizen asks about my cargo,\nI must tell the truth."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ መላእ ቅፍሪናሆም\nእቲ ዝዓበየ ኩምራ ዒባ (ጉድጉዶ)",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-501.043-504.129",
+        "data": {
+          "type": "text",
+          "startTime": 500.501,
+          "endTime": 504.171,
+          "format": "VTT",
+          "originalText": "It's the biggest pile of dung\nin all Capernaum.",
+          "originalContent": "It's the biggest pile of dung\nin all Capernaum."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሓቂ ማለት ሓቂ ንምዝራብ እታ ናብዚ\nዝመጸላ ማዓልቲ ብናፍቖት እየ ዝጽበያ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-508.467-512.012",
+        "data": {
+          "type": "text",
+          "startTime": 506.34,
+          "endTime": 511.553,
+          "format": "VTT",
+          "originalText": "I always look forward\nto my annual visit to Capernaum",
+          "originalContent": "I always look forward\nto my annual visit to Capernaum"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናብዚ ግሩም ገማግም ባሕሪ ገሊላ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-512.095-515.807",
+        "data": {
+          "type": "text",
+          "startTime": 511.637,
+          "endTime": 515.265,
+          "format": "VTT",
+          "originalText": "and your magnificent Sea of Galilee.",
+          "originalContent": "and your magnificent Sea of Galilee."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሓቂ ዘቕንእ መሳጢ ቦታ እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-515.891-518.227",
+        "data": {
+          "type": "text",
+          "startTime": 515.349,
+          "endTime": 517.726,
+          "format": "VTT",
+          "originalText": "It is truly the envy of the kingdom.",
+          "originalContent": "It is truly the envy of the kingdom."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዋላ ደቀይ ኣዝዮም ዮም ዝናፍቕዎ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-521.98-525.025",
+        "data": {
+          "type": "text",
+          "startTime": 521.563,
+          "endTime": 524.691,
+          "format": "VTT",
+          "originalText": "Even my children are enamored of it.",
+          "originalContent": "Even my children are enamored of it."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምሉእ ማዓልቲ ክሕንብሱ፣\nኣብቲ ሑጻ ክጻወቱ፣ ነቲ ህዝብ ክርእዩ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-525.108-531.74",
+        "data": {
+          "type": "text",
+          "startTime": 524.775,
+          "endTime": 530.781,
+          "format": "VTT",
+          "originalText": "All day they would swim,\nfrolic in the sand and watch the people.",
+          "originalContent": "All day they would swim,\nfrolic in the sand and watch the people."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣነ ካኣ እንተዳኣ ክንድዚ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-531.823-533.575",
+        "data": {
+          "type": "text",
+          "startTime": 531.448,
+          "endTime": 532.741,
+          "format": "VTT",
+          "originalText": "Finally, one day I said,",
+          "originalContent": "Finally, one day I said,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ትናፍቕዎ ኮንኩም",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-533.659-537.663",
+        "data": {
+          "type": "text",
+          "startTime": 533.283,
+          "endTime": 537.162,
+          "format": "VTT",
+          "originalText": "\"You love it here so much,\nwhy is it you never go to the sea",
+          "originalContent": "\"You love it here so much,\nwhy is it you never go to the sea"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኩሉ ግዜ እንዳኣባሓጎኹም\nንኺድ እየ ዝብሎም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-537.746-539.873",
+        "data": {
+          "type": "text",
+          "startTime": 537.246,
+          "endTime": 539.248,
+          "format": "VTT",
+          "originalText": "when we visit\nyour grandparents back home?\"",
+          "originalContent": "when we visit\nyour grandparents back home?\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣቲ ዓቢ ወደይ ግን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-540.457-543.335",
+        "data": {
+          "type": "text",
+          "startTime": 540.04,
+          "endTime": 541.667,
+          "format": "VTT",
+          "originalText": "My son, he just shrugged\nand said, \"But, Father,",
+          "originalContent": "My son, he just shrugged\nand said, \"But, Father,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣንታ ኣቦ ሰብ ዘይብሉ\nኣይ ዑና እንድዩ እዩ ዝብለኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-543.418-546.088",
+        "data": {
+          "type": "text",
+          "startTime": 541.75,
+          "endTime": 545.546,
+          "format": "VTT",
+          "originalText": "there's never anyone there, it's dead.\"",
+          "originalContent": "there's never anyone there, it's dead.\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ባሕርኹም ኣዝዩ ብሉጽ ዓሳ ዩ ዘለዎ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-548.09-553.887",
+        "data": {
+          "type": "text",
+          "startTime": 547.548,
+          "endTime": 553.262,
+          "format": "VTT",
+          "originalText": "And your sea boasts\nthe most exquisite fish.",
+          "originalContent": "And your sea boasts\nthe most exquisite fish."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክንደይ ዘሕዝን እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-556.181-557.307",
+        "data": {
+          "type": "text",
+          "startTime": 555.806,
+          "endTime": 557.015,
+          "format": "VTT",
+          "originalText": "How unfortunate...",
+          "originalContent": "How unfortunate..."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይኹን ኣምበር\nእቶም ገፈፍቲ ዓሳ ዘይቁዱሳት፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-558.35-562.771",
+        "data": {
+          "type": "text",
+          "startTime": 557.975,
+          "endTime": 561.478,
+          "format": "VTT",
+          "originalText": "that those who do the actual fishing\nare unholy, foulmouthed,",
+          "originalContent": "that those who do the actual fishing\nare unholy, foulmouthed,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስድታት፣ኣብ ጽምዋ ኮይኖም ዝጣልዑ ፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-562.855-565.148",
+        "data": {
+          "type": "text",
+          "startTime": 561.562,
+          "endTime": 564.606,
+          "format": "VTT",
+          "originalText": "given to gambling in secret dens.",
+          "originalContent": "given to gambling in secret dens."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝኸፋአ ካኣ ሰንበት ዝገፉ ምዃኖም `ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-565.232-567.734",
+        "data": {
+          "type": "text",
+          "startTime": 564.69,
+          "endTime": 567.192,
+          "format": "VTT",
+          "originalText": "Even fishing on Shabbat.",
+          "originalContent": "Even fishing on Shabbat."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብኣበሳ`ቶም ገፈፍቲ ይረኽሱ እዮም?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-567.818-572.447",
+        "data": {
+          "type": "text",
+          "startTime": 569.82,
+          "endTime": 571.905,
+          "format": "VTT",
+          "originalText": "Can we eat the catch\nand not be stained by the sins of the catcher?",
+          "originalContent": "Can we eat the catch\nand not be stained by the sins of the catcher?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እሞ ንሕና ነቶም ዓሳ\nከመይ ኢልና ንብላዓዮም?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-567.818-572.447:1cckq7md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 567.276,
+          "endTime": 569.736,
+          "format": "VTT",
+          "originalText": "Can we eat the catch\nand not be stained by the sins of the catcher?",
+          "originalContent": "Can we eat the catch\nand not be stained by the sins of the catcher?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይትጋገዩ ሰንበት ዝተገፈ ዓሳ\nምብላዕ ሓጥያት እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-572.531-577.035",
+        "data": {
+          "type": "text",
+          "startTime": 571.989,
+          "endTime": 576.702,
+          "format": "VTT",
+          "originalText": "Make no mistake,\nit is a sin to eat fish caught on Shabbat.",
+          "originalContent": "Make no mistake,\nit is a sin to eat fish caught on Shabbat."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስብ ድማ ብዘይጥርጥር የርክሶ ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-577.119-579.997",
+        "data": {
+          "type": "text",
+          "startTime": 576.785,
+          "endTime": 579.454,
+          "format": "VTT",
+          "originalText": "What goes into the body\nof a man defiles him.",
+          "originalContent": "What goes into the body\nof a man defiles him."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስለምንታይ እዮም ግና\nኣይሁዳውያን የሕዋትና ሰንበት ዝገፉ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-580.08-585.752",
+        "data": {
+          "type": "text",
+          "startTime": 579.538,
+          "endTime": 585.21,
+          "format": "VTT",
+          "originalText": "Why are our Jewish brethren\ntaking their boats to sea on Shabbat?",
+          "originalContent": "Why are our Jewish brethren\ntaking their boats to sea on Shabbat?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣስተብዕሉ\nኣቲ ንጽበዮ ክርስቶስ(መድሓኒ)",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-585.836-589.214",
+        "data": {
+          "type": "text",
+          "startTime": 585.294,
+          "endTime": 588.797,
+          "format": "VTT",
+          "originalText": "I assure you, the Messiah will not come",
+          "originalContent": "I assure you, the Messiah will not come"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዚ ሓጥያት ክሳብ ዘሎ ኣይመጽእን እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-589.298-592.968",
+        "data": {
+          "type": "text",
+          "startTime": 588.881,
+          "endTime": 592.593,
+          "format": "VTT",
+          "originalText": "until this wickedness is purged from our midst.",
+          "originalContent": "until this wickedness is purged from our midst."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኩሉ ውዕሎኹም ተኸሽሑ እዩ፣\nተፈሊጥኩም ኢኹም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-593.051-595.679",
+        "data": {
+          "type": "text",
+          "startTime": 592.676,
+          "endTime": 594.803,
+          "format": "VTT",
+          "originalText": "Your actions are being watched, studied.",
+          "originalContent": "Your actions are being watched, studied."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብኹሉ መዳይ ኣብነታውያን ክትኮኑ\nኣምላኽ ሓላፍነት ሂብኩም ከተብቅዑ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-595.762-600.142",
+        "data": {
+          "type": "text",
+          "startTime": 595.429,
+          "endTime": 599.641,
+          "format": "VTT",
+          "originalText": "God has entrusted you\nto be exemplary in every way.",
+          "originalContent": "God has entrusted you\nto be exemplary in every way."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስኻትኩም ግና ናይ ብሓቂ ዘሕፍር ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-600.726-604.479",
+        "data": {
+          "type": "text",
+          "startTime": 600.309,
+          "endTime": 603.937,
+          "format": "VTT",
+          "originalText": "Now, if your status is too great a burden,",
+          "originalContent": "Now, if your status is too great a burden,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስም እስራኤል ከተጥፍኡ\nኣይግባኣኩምን እዩ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-604.563-607.566",
+        "data": {
+          "type": "text",
+          "startTime": 604.021,
+          "endTime": 606.982,
+          "format": "VTT",
+          "originalText": "you do not deserve\nto bear the name of Israel.",
+          "originalContent": "you do not deserve\nto bear the name of Israel."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምስልለይ ክሳብ ዘርእ ማሕማሕ ኣብሎ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-612.404-614.781",
+        "data": {
+          "type": "text",
+          "startTime": 611.862,
+          "endTime": 614.031,
+          "format": "VTT",
+          "originalText": "I want to see my reflection in it\nas plain as day.",
+          "originalContent": "I want to see my reflection in it\nas plain as day."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መምህር ካብ ርሑቕ\nካብ ይሁዳ እዩ መጺኡ። ተረድኡ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-614.865-616.783",
+        "data": {
+          "type": "text",
+          "startTime": 614.531,
+          "endTime": 616.325,
+          "format": "VTT",
+          "originalText": "This teacher has traveled\nall the way from Judea.",
+          "originalContent": "This teacher has traveled\nall the way from Judea."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣባል ናይታ ዝዓበየት ማሕበር\nኣብ እስራኤል ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-616.867-618.869",
+        "data": {
+          "type": "text",
+          "startTime": 616.408,
+          "endTime": 618.368,
+          "format": "VTT",
+          "originalText": "He is a member\nof the great Sanhedrin in Jerusalem,",
+          "originalContent": "He is a member\nof the great Sanhedrin in Jerusalem,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ ረሳሕ ጣውላ\nኮፍ ከብሎ ኣይደልን እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-618.952-621.246",
+        "data": {
+          "type": "text",
+          "startTime": 618.452,
+          "endTime": 620.12,
+          "format": "VTT",
+          "originalText": "and I won't have him seated at a dull table.",
+          "originalContent": "and I won't have him seated at a dull table."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዮሴፍ ኣዋናዝፋኻ የዐርዮ `ታ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-622.956-625.334",
+        "data": {
+          "type": "text",
+          "startTime": 622.998,
+          "endTime": 624.833,
+          "format": "VTT",
+          "originalText": "Yussif, fix your tallit.",
+          "originalContent": "Yussif, fix your tallit."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እውይ መጺኡ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-630.797-631.84",
+        "data": {
+          "type": "text",
+          "startTime": 630.255,
+          "endTime": 631.256,
+          "format": "VTT",
+          "originalText": "Here he comes.",
+          "originalContent": "Here he comes."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ተኸወሉ ኪዱ ነቶም ካለኦት ጸውዕዎም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-633.05-634.76",
+        "data": {
+          "type": "text",
+          "startTime": 632.674,
+          "endTime": 633.967,
+          "format": "VTT",
+          "originalText": "Away, go, get the others.",
+          "originalContent": "Away, go, get the others."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣዶናይ ንስኻ ኣብዚ ብምህላውካ\nተባሪኽና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-634.843-637.679",
+        "data": {
+          "type": "text",
+          "startTime": 634.051,
+          "endTime": 635.928,
+          "format": "VTT",
+          "originalText": "Adonai's blessing upon us\nto have you here.",
+          "originalContent": "Adonai's blessing upon us\nto have you here."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እወ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-634.843-637.679:5p0wapmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 636.011,
+          "endTime": 637.012,
+          "format": "VTT",
+          "originalText": "Adonai's blessing upon us\nto have you here.",
+          "originalContent": "Adonai's blessing upon us\nto have you here."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- መምህር፣\n- መምህር ፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-640.849-642.559",
+        "data": {
+          "type": "text",
+          "startTime": 640.307,
+          "endTime": 641.808,
+          "format": "VTT",
+          "originalText": "-Rabbi.\n-Rabbi.",
+          "originalContent": "-Rabbi.\n-Rabbi."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መመህር ኩላትና ተኣኪብና `ለና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-642.643-645.729",
+        "data": {
+          "type": "text",
+          "startTime": 642.309,
+          "endTime": 645.187,
+          "format": "VTT",
+          "originalText": "Teacher, you have moved us all.",
+          "originalContent": "Teacher, you have moved us all."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሳሙኤል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-646.688-647.773",
+        "data": {
+          "type": "text",
+          "startTime": 646.23,
+          "endTime": 647.231,
+          "format": "VTT",
+          "originalText": "Shmuel.",
+          "originalContent": "Shmuel."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መምህር በዚ ኮፍ በል",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-647.856-650.275",
+        "data": {
+          "type": "text",
+          "startTime": 647.314,
+          "endTime": 649.316,
+          "format": "VTT",
+          "originalText": "Will you do us the honor, Rabbi?",
+          "originalContent": "Will you do us the honor, Rabbi?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከም ኣባጊዕ ዲኻ ክትዳጉነና ደሊኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-650.359-652.945",
+        "data": {
+          "type": "text",
+          "startTime": 649.983,
+          "endTime": 652.402,
+          "format": "VTT",
+          "originalText": "If that's where you keep the white sardines.",
+          "originalContent": "If that's where you keep the white sardines."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ ካልእ ኢና እኮ ሓሲብና ኔርና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-657.324-658.867",
+        "data": {
+          "type": "text",
+          "startTime": 656.949,
+          "endTime": 658.492,
+          "format": "VTT",
+          "originalText": "We certainly could get--",
+          "originalContent": "We certainly could get--"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይዋዘ እየ ዘለኹ ሳሙኤል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-658.951-661.537",
+        "data": {
+          "type": "text",
+          "startTime": 658.575,
+          "endTime": 660.536,
+          "format": "VTT",
+          "originalText": "It was a joke, Shmuel.",
+          "originalContent": "It was a joke, Shmuel."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ጽብቕቲ ዑና። ናይ ብሓቂ ጽብቕቲ\nቤት ጸሎት እያ ሳሙኤል",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-665.832-672.464",
+        "data": {
+          "type": "text",
+          "startTime": 665.541,
+          "endTime": 671.922,
+          "format": "VTT",
+          "originalText": "A fine Torah room is the heartbeat\nof a worthy synagogue, Shmuel.",
+          "originalContent": "A fine Torah room is the heartbeat\nof a worthy synagogue, Shmuel."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "የቐንየለይ መምህር እስራኤል፣\nደጊምና ነመስግነካ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-672.548-674.633",
+        "data": {
+          "type": "text",
+          "startTime": 672.005,
+          "endTime": 674.132,
+          "format": "VTT",
+          "originalText": "Thank you, teacher of Israel,\nyou do us a great honor.",
+          "originalContent": "Thank you, teacher of Israel,\nyou do us a great honor."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንዕእይ ውን ክብረት ዩ፣ ነዞም በላሕቲ\nተማሃሮኻ ውን ምስጋና ይግበኦም ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-674.716-678.762",
+        "data": {
+          "type": "text",
+          "startTime": 674.216,
+          "endTime": 678.22,
+          "format": "VTT",
+          "originalText": "The honor is mine,\nnot only for your bright students,",
+          "originalContent": "The honor is mine,\nnot only for your bright students,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኹላትኩም ተቐማጦ እዛ ከተማ\nቃለይ ሰሚዕኩም ኢኹም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-678.846-682.599",
+        "data": {
+          "type": "text",
+          "startTime": 678.303,
+          "endTime": 682.266,
+          "format": "VTT",
+          "originalText": "but also for the soul of this city.",
+          "originalContent": "but also for the soul of this city."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣድራሻይ ሰሚዕኩም ኣለኹም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-682.683-684.601",
+        "data": {
+          "type": "text",
+          "startTime": 682.349,
+          "endTime": 683.6,
+          "format": "VTT",
+          "originalText": "-You heard my address.\n-Of course.",
+          "originalContent": "-You heard my address.\n-Of course."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናይ ብሓቂ ቀንዴል ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-684.685-688.689",
+        "data": {
+          "type": "text",
+          "startTime": 686.27,
+          "endTime": 687.813,
+          "format": "VTT",
+          "originalText": "-Your words will resonate for generations.\n-You were luminous.",
+          "originalContent": "-Your words will resonate for generations.\n-You were luminous."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብርግጽ ኩሉ ቃልካ\nናብ ወሎዶታት ክሓልፍ ኣዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-684.685-688.689:369rh5md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 683.684,
+          "endTime": 686.186,
+          "format": "VTT",
+          "originalText": "-Your words will resonate for generations.\n-You were luminous.",
+          "originalContent": "-Your words will resonate for generations.\n-You were luminous."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ ትምህርተይ\nከም ሓሳብ ኣልዒለዮ ኔረ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-688.772-693.402",
+        "data": {
+          "type": "text",
+          "startTime": 688.438,
+          "endTime": 692.651,
+          "format": "VTT",
+          "originalText": "In my remarks,\nI asked for rhetorical purposes,",
+          "originalContent": "In my remarks,\nI asked for rhetorical purposes,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስለምንታይ እዮም ኣይሁዳውያን\nናብ ጃልቦኦም ሰንበት ዝኸዱ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-693.485-697.072",
+        "data": {
+          "type": "text",
+          "startTime": 693.151,
+          "endTime": 696.53,
+          "format": "VTT",
+          "originalText": "\"Why are Jews taking boats\nto sea on Shabbat?\"",
+          "originalContent": "\"Why are Jews taking boats\nto sea on Shabbat?\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዛ ሕቶ ንዓኻ እያ መምህር ሳሙኤል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-697.865-700.868",
+        "data": {
+          "type": "text",
+          "startTime": 697.531,
+          "endTime": 700.45,
+          "format": "VTT",
+          "originalText": "That question\nwas meant for you, Rabbi Shmuel.",
+          "originalContent": "That question\nwas meant for you, Rabbi Shmuel."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣዚ ጸብጻብ(ጥርዓን) ተደጋጋሚ ግዜ\nእዩ ዝመጸኒ ኔሩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-700.951-703.537",
+        "data": {
+          "type": "text",
+          "startTime": 700.534,
+          "endTime": 702.995,
+          "format": "VTT",
+          "originalText": "The reports are becoming\ntoo frequent to ignore.",
+          "originalContent": "The reports are becoming\ntoo frequent to ignore."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይቕሬታ መምህር ድሕሪሕጂ\nኣጥቢቐ ክሕዞ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-703.62-706.999",
+        "data": {
+          "type": "text",
+          "startTime": 703.078,
+          "endTime": 706.456,
+          "format": "VTT",
+          "originalText": "Of course, Rabbi, we-- I will control it better.",
+          "originalContent": "Of course, Rabbi, we-- I will control it better."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሮማውያን ሰንበት ከምዛአይንገፍፍ\nስለዝፈልጡ ሓለዋ የለን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-707.082-710.419",
+        "data": {
+          "type": "text",
+          "startTime": 706.54,
+          "endTime": 709.835,
+          "format": "VTT",
+          "originalText": "The Romans believe we do not work\non Sabbath, thus they do not patrol.",
+          "originalContent": "The Romans believe we do not work\non Sabbath, thus they do not patrol."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስድርኦም ጥራይ እዮም\nእኮ ዝዕንግሉ ዝኾኑ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-710.502-714.631",
+        "data": {
+          "type": "text",
+          "startTime": 711.42,
+          "endTime": 714.089,
+          "format": "VTT",
+          "originalText": "-Greed has overcome the fishermen.\n-Or they are just trying to feed their families.",
+          "originalContent": "-Greed has overcome the fishermen.\n-Or they are just trying to feed their families."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በዚ ካኣ ስስዐ እዩ ከምኡ ጌርዎምም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-710.502-714.631:b5vcpqmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 709.918,
+          "endTime": 711.336,
+          "format": "VTT",
+          "originalText": "-Greed has overcome the fishermen.\n-Or they are just trying to feed their families.",
+          "originalContent": "-Greed has overcome the fishermen.\n-Or they are just trying to feed their families."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቲ ሮማዊ መጺኡ ሎ።\nገለ ክብለካ ደልዩ መስለኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-715.924-718.927",
+        "data": {
+          "type": "text",
+          "startTime": 717.259,
+          "endTime": 720.095,
+          "format": "VTT",
+          "originalText": "Begging your pardon, Rabbi.\nThe centurion is here.",
+          "originalContent": "Begging your pardon, Rabbi.\nThe centurion is here."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይትሓዘለይ መምህር ይቕሬታ ኣባ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-715.924-718.927:5uzhhpmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 715.382,
+          "endTime": 717.176,
+          "format": "VTT",
+          "originalText": "Begging your pardon, Rabbi.\nThe centurion is here.",
+          "originalContent": "Begging your pardon, Rabbi.\nThe centurion is here."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በጃኻ ክቡር ጋሻ ሒዝና ከምዘለናን\nከይርብሸናን ንገሮ ይጸበ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-720.721-723.515",
+        "data": {
+          "type": "text",
+          "startTime": 720.179,
+          "endTime": 722.89,
+          "format": "VTT",
+          "originalText": "Please tell him we have an honored guest\nand cannot be interrupted.",
+          "originalContent": "Please tell him we have an honored guest\nand cannot be interrupted."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክጽበ ኣይክእልን እየ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-720.721-723.515:8hoaa8md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 722.973,
+          "endTime": 723.974,
+          "format": "VTT",
+          "originalText": "Please tell him we have an honored guest\nand cannot be interrupted.",
+          "originalContent": "Please tell him we have an honored guest\nand cannot be interrupted."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መድሓኒ ቀልጢፍካ ምጻእ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-723.599-726.226",
+        "data": {
+          "type": "text",
+          "startTime": 724.057,
+          "endTime": 725.684,
+          "format": "VTT",
+          "originalText": "-It can't wait.\n-Messiah, come quickly.",
+          "originalContent": "-It can't wait.\n-Messiah, come quickly."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "(ፋጻ) ደስው ዘብል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-729.062-730.355",
+        "data": {
+          "type": "text",
+          "startTime": 728.645,
+          "endTime": 729.813,
+          "format": "VTT",
+          "originalText": "Impressive.",
+          "originalContent": "Impressive."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንሕና ጥራይ ኣይኮናን\nክብሪ ንወስድ ማለት ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-731.44-733.817",
+        "data": {
+          "type": "text",
+          "startTime": 730.898,
+          "endTime": 733.275,
+          "format": "VTT",
+          "originalText": "Looks like we're not\nthe only ones taxing the people.",
+          "originalContent": "Looks like we're not\nthe only ones taxing the people."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ኢኻ ደሊኻ ኣዛዚ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-734.776-736.445",
+        "data": {
+          "type": "text",
+          "startTime": 734.401,
+          "endTime": 735.903,
+          "format": "VTT",
+          "originalText": "What do you want, commander?",
+          "originalContent": "What do you want, commander?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣዛዚ ኣይኮንኩን\nንስኻ ግና ክብርኻ ትፈልጥ ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-736.528-739.114",
+        "data": {
+          "type": "text",
+          "startTime": 735.986,
+          "endTime": 738.572,
+          "format": "VTT",
+          "originalText": "I'm no commander\nbut at least you know your place.",
+          "originalContent": "I'm no commander\nbut at least you know your place."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዚ እኮ ኒቄድሞስ\nኣቲ ዝበለጸ መምህር፣ መምህረ መምሃራን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-739.198-743.202",
+        "data": {
+          "type": "text",
+          "startTime": 738.655,
+          "endTime": 741.408,
+          "format": "VTT",
+          "originalText": "This is Nicodemus, teacher of teachers.\nShow some respect.",
+          "originalContent": "This is Nicodemus, teacher of teachers.\nShow some respect."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "(ሊቀሊቃውንቲ) ቁሩብ ክብረት ይሃልኽእ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-739.198-743.202:c2fi2imd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 741.491,
+          "endTime": 742.451,
+          "format": "VTT",
+          "originalText": "This is Nicodemus, teacher of teachers.\nShow some respect.",
+          "originalContent": "This is Nicodemus, teacher of teachers.\nShow some respect."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣሃ ክርእዮ ዝብህግ ዝነበርኩ ሰባኣይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-743.285-745.12",
+        "data": {
+          "type": "text",
+          "startTime": 742.534,
+          "endTime": 744.745,
+          "format": "VTT",
+          "originalText": "Just the man I want to see.",
+          "originalContent": "Just the man I want to see."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብዛዕባ ኣታ ኣብራዊት ጎርዞ\nሕደ ካባኻትኩ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-745.204-748.248",
+        "data": {
+          "type": "text",
+          "startTime": 744.828,
+          "endTime": 747.372,
+          "format": "VTT",
+          "originalText": "I'm here about a Hebrew woman\nin the Red Quarter.",
+          "originalContent": "I'm here about a Hebrew woman\nin the Red Quarter."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዕግርግር ትፈጥር ኣላ ኢሉና ሞ ንኺዳ ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-748.332-751.543",
+        "data": {
+          "type": "text",
+          "startTime": 747.956,
+          "endTime": 751.168,
+          "format": "VTT",
+          "originalText": "Let's just say\nshe's been causing a disturbance.",
+          "originalContent": "Let's just say\nshe's been causing a disturbance."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዕጡቅን ምሉእን ሰራዊት\nኣብ ትሕቲ ቀጽጽርካ ኣለካ መስለኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-751.627-754.379",
+        "data": {
+          "type": "text",
+          "startTime": 751.251,
+          "endTime": 754.087,
+          "format": "VTT",
+          "originalText": "You have an entire\nRoman legion at your disposal.",
+          "originalContent": "You have an entire\nRoman legion at your disposal."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስለዘዘከርካኒ የመስግን ኣይህዳዊ፣\nንሳ ግና ቅዱስ ሰብ ትደሊ ዘላ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-754.463-756.632",
+        "data": {
+          "type": "text",
+          "startTime": 754.171,
+          "endTime": 758.258,
+          "format": "VTT",
+          "originalText": "Thank you for the reminder, Jew.",
+          "originalContent": "Thank you for the reminder, Jew."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንሕን ናይ ኣምላኽ ሰባት ኢና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-758.884-761.428",
+        "data": {
+          "type": "text",
+          "startTime": 758.884,
+          "endTime": 761.011,
+          "format": "VTT",
+          "originalText": "We are men of God.",
+          "originalContent": "We are men of God."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናብቲ ዘላቶ ቦታ\nዘኽይድ መኽንያት የብልናን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-761.512-765.349",
+        "data": {
+          "type": "text",
+          "startTime": 761.094,
+          "endTime": 764.806,
+          "format": "VTT",
+          "originalText": "It is not our custom\nto frequent the Red Quarter.",
+          "originalContent": "It is not our custom\nto frequent the Red Quarter."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝበልክዎ ኣይተረዳኣካን መስለኒ\nብሉጽ መምህር",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-765.432-769.228",
+        "data": {
+          "type": "text",
+          "startTime": 764.89,
+          "endTime": 768.435,
+          "format": "VTT",
+          "originalText": "Perhaps I wasn't clear, teacher of teachers.",
+          "originalContent": "Perhaps I wasn't clear, teacher of teachers."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ወይ ካኣ ብመጋህር ሓዊ ከነቃጽላ ኢና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-769.311-775.317",
+        "data": {
+          "type": "text",
+          "startTime": 771.021,
+          "endTime": 774.775,
+          "format": "VTT",
+          "originalText": "You'll accompany me to the Red Quarter\nor we'll burn it down with our fire of fires.",
+          "originalContent": "You'll accompany me to the Red Quarter\nor we'll burn it down with our fire of fires."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናብቲ ንሳ ዘላቶ ቦታ ከተሰንየኒ ኢካ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-769.311-775.317:3lhcr6md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 768.977,
+          "endTime": 770.938,
+          "format": "VTT",
+          "originalText": "You'll accompany me to the Red Quarter\nor we'll burn it down with our fire of fires.",
+          "originalContent": "You'll accompany me to the Red Quarter\nor we'll burn it down with our fire of fires."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናይ ስሳ በጺሕና ኣለና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-788.914-790.29",
+        "data": {
+          "type": "text",
+          "startTime": 788.372,
+          "endTime": 789.706,
+          "format": "VTT",
+          "originalText": "This is your stop.",
+          "originalContent": "This is your stop."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሕለፍ ኣዚ ዳኣ ዕዳጋ እንድዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-792.876-795.212",
+        "data": {
+          "type": "text",
+          "startTime": 792.334,
+          "endTime": 794.67,
+          "format": "VTT",
+          "originalText": "Wait, this is the far side of the market.",
+          "originalContent": "Wait, this is the far side of the market."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- ውረድ\n- እዋእ ዘይከውን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-795.295-797.339",
+        "data": {
+          "type": "text",
+          "startTime": 794.753,
+          "endTime": 796.797,
+          "format": "VTT",
+          "originalText": "-Get out.\n-No.",
+          "originalContent": "-Get out.\n-No."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ኮይኑ ዘይከውን?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-795.295-797.339:o2o27qmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 796.88,
+          "endTime": 797.881,
+          "format": "VTT",
+          "originalText": "-Get out.\n-No.",
+          "originalContent": "-Get out.\n-No."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዚ ስራሕ እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-797.422-799.591",
+        "data": {
+          "type": "text",
+          "startTime": 797.965,
+          "endTime": 799.132,
+          "format": "VTT",
+          "originalText": "-No?\n-This is the job.",
+          "originalContent": "-No?\n-This is the job."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብዙሕ ሰብ እዩ ዘሎ። ውጻእ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-799.675-803.387",
+        "data": {
+          "type": "text",
+          "startTime": 801.134,
+          "endTime": 802.845,
+          "format": "VTT",
+          "originalText": "-You drive so I don't walk through the market.\n-It's too crowded. Out!",
+          "originalContent": "-You drive so I don't walk through the market.\n-It's too crowded. Out!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብዘይደልዮ ከተብጻሓኒ\nኣይግባኣካን `ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-799.675-803.387:ekcb0fmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 799.216,
+          "endTime": 801.051,
+          "format": "VTT",
+          "originalText": "-You drive so I don't walk through the market.\n-It's too crowded. Out!",
+          "originalContent": "-You drive so I don't walk through the market.\n-It's too crowded. Out!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዕጽፊ ክኸፍለካ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-804.555-805.639",
+        "data": {
+          "type": "text",
+          "startTime": 804.096,
+          "endTime": 805.305,
+          "format": "VTT",
+          "originalText": "I'll pay you double.",
+          "originalContent": "I'll pay you double."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምሳኻ እንተተራእየ ንዓይን ስድራቤተይን\nዝመጸና ዘለፋ ብገንዘብካ ኣይትመንን ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-805.722-810.644",
+        "data": {
+          "type": "text",
+          "startTime": 805.389,
+          "endTime": 810.227,
+          "format": "VTT",
+          "originalText": "Money won't buy the stink off me\nand my family if I am seen with you.",
+          "originalContent": "Money won't buy the stink off me\nand my family if I am seen with you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ውጻእ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-810.727-811.687",
+        "data": {
+          "type": "text",
+          "startTime": 810.31,
+          "endTime": 811.144,
+          "format": "VTT",
+          "originalText": "Out!",
+          "originalContent": "Out!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዚ ዘይቅኑዕ ስራሕ ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-819.444-821.029",
+        "data": {
+          "type": "text",
+          "startTime": 818.986,
+          "endTime": 820.404,
+          "format": "VTT",
+          "originalText": "This is very unprofessional.",
+          "originalContent": "This is very unprofessional."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግድፎ ሞ/መደንገጽ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-821.53-822.447",
+        "data": {
+          "type": "text",
+          "startTime": 821.071,
+          "endTime": 822.072,
+          "format": "VTT",
+          "originalText": "Fire me.",
+          "originalContent": "Fire me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክልተ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-841.216-842.217",
+        "data": {
+          "type": "text",
+          "startTime": 840.757,
+          "endTime": 841.758,
+          "format": "VTT",
+          "originalText": "Two, please.",
+          "originalContent": "Two, please."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ተጋዊ፣ ኪድ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-855.48-858.15",
+        "data": {
+          "type": "text",
+          "startTime": 854.938,
+          "endTime": 857.566,
+          "format": "VTT",
+          "originalText": "Tax collector, go!",
+          "originalContent": "Tax collector, go!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እነሀለ ራኣይዎ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-859.484-861.153",
+        "data": {
+          "type": "text",
+          "startTime": 859.443,
+          "endTime": 860.611,
+          "format": "VTT",
+          "originalText": "Look, there he is.",
+          "originalContent": "Look, there he is."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይርእዮ ኣለኹ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-863.405-864.448",
+        "data": {
+          "type": "text",
+          "startTime": 862.988,
+          "endTime": 863.989,
+          "format": "VTT",
+          "originalText": "I see him.",
+          "originalContent": "I see him."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ተጋዊ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-dqcqvcmd8xhtnu",
+        "data": {
+          "startTime": 866.408,
+          "endTime": 867.451
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ራኣይዎ (ቱፍ)",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-akmjm2md8xhtnu",
+        "data": {
+          "startTime": 870.579,
+          "endTime": 872.206
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስኻ እቲ መድሕኒ ዲኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-874.917-877.377",
+        "data": {
+          "type": "text",
+          "startTime": 875.626,
+          "endTime": 876.919,
+          "format": "VTT",
+          "originalText": "Please. Are you the Messiah?",
+          "originalContent": "Please. Are you the Messiah?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በጃኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-874.917-877.377:n989a8md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 874.541,
+          "endTime": 875.542,
+          "format": "VTT",
+          "originalText": "Please. Are you the Messiah?",
+          "originalContent": "Please. Are you the Messiah?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣፋለይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-877.461-879.505",
+        "data": {
+          "type": "text",
+          "startTime": 878.128,
+          "endTime": 879.171,
+          "format": "VTT",
+          "originalText": "-Are you the Messiah?\n-No, I'm not.",
+          "originalContent": "-Are you the Messiah?\n-No, I'm not."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስኻ ዲኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-877.461-879.505:jdy39mmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 877.002,
+          "endTime": 878.045,
+          "format": "VTT",
+          "originalText": "-Are you the Messiah?\n-No, I'm not.",
+          "originalContent": "-Are you the Messiah?\n-No, I'm not."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በጃኻ ምስ መጸ ንገረኒ ሓደራኻ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-880.172-882.591",
+        "data": {
+          "type": "text",
+          "startTime": 879.838,
+          "endTime": 882.007,
+          "format": "VTT",
+          "originalText": "Please. Tell me when he comes.",
+          "originalContent": "Please. Tell me when he comes."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በጃኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-883.258-884.092",
+        "data": {
+          "type": "text",
+          "startTime": 882.841,
+          "endTime": 883.842,
+          "format": "VTT",
+          "originalText": "Please.",
+          "originalContent": "Please."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ደንጉኻ ጋዮስ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-905.906-907.115",
+        "data": {
+          "type": "text",
+          "startTime": 905.572,
+          "endTime": 906.573,
+          "format": "VTT",
+          "originalText": "You're late, Gaius.",
+          "originalContent": "You're late, Gaius."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ተረዲኢኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-907.199-908.075",
+        "data": {
+          "type": "text",
+          "startTime": 906.657,
+          "endTime": 907.658,
+          "format": "VTT",
+          "originalText": "I know.",
+          "originalContent": "I know."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ፈሊጥካ ዶ ኸ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-909.409-910.827",
+        "data": {
+          "type": "text",
+          "startTime": 909.076,
+          "endTime": 910.285,
+          "format": "VTT",
+          "originalText": "Could you feel it?",
+          "originalContent": "Could you feel it?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብዚ ዕዳጋ ብዙሕ ንብረት ይሃልኺ ኣሎ፣\nኩሉ ሰብ የንጸርጽር ዩ ዘሎ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-911.328-913.83",
+        "data": {
+          "type": "text",
+          "startTime": 911.828,
+          "endTime": 914.748,
+          "format": "VTT",
+          "originalText": "-Feel what?\n-The market, it's on fire today.",
+          "originalContent": "-Feel what?\n-The market, it's on fire today."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብዛዕባ እንታይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-911.328-913.83:cdn2hwmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 910.786,
+          "endTime": 911.745,
+          "format": "VTT",
+          "originalText": "-Feel what?\n-The market, it's on fire today.",
+          "originalContent": "-Feel what?\n-The market, it's on fire today."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዘድልየካ እንተሎ ንሓደ ሰብ ምቕጻዕ\nጥራይ እዩ። ንስኻ ግን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-915.207-918.252",
+        "data": {
+          "type": "text",
+          "startTime": 914.831,
+          "endTime": 917.709,
+          "format": "VTT",
+          "originalText": "All it would take is one person\nto snap and you are...",
+          "originalContent": "All it would take is one person\nto snap and you are..."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስራሕካ ዶ ክትገብር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-921.171-922.965",
+        "data": {
+          "type": "text",
+          "startTime": 920.838,
+          "endTime": 922.005,
+          "format": "VTT",
+          "originalText": "Just do your job.",
+          "originalContent": "Just do your job."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ጽቡቕ ኣለኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-923.048-924.258",
+        "data": {
+          "type": "text",
+          "startTime": 923.006,
+          "endTime": 924.007,
+          "format": "VTT",
+          "originalText": "Better hope.",
+          "originalContent": "Better hope."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቲ መድሓኒ ንሮማውያን ከውጽኦም ዩ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-ea9g69md8xhtnu",
+        "data": {
+          "startTime": 973.515,
+          "endTime": 976.018
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ ላዕሊ ኣስካላ ናይ ሬሂካ ገዛ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-977.477-979.813",
+        "data": {
+          "type": "text",
+          "startTime": 977.06,
+          "endTime": 979.188,
+          "format": "VTT",
+          "originalText": "Upstairs, Rivka's place.",
+          "originalContent": "Upstairs, Rivka's place."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይትጨነቕ መምህር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-981.94-983.609",
+        "data": {
+          "type": "text",
+          "startTime": 981.398,
+          "endTime": 982.691,
+          "format": "VTT",
+          "originalText": "Don't worry, Rabbi.",
+          "originalContent": "Don't worry, Rabbi."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ነቲ ተነቃፊ ስራሕኩም ንምውሓስ ክጥዕም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-983.692-987.196",
+        "data": {
+          "type": "text",
+          "startTime": 984.985,
+          "endTime": 986.612,
+          "format": "VTT",
+          "originalText": "We took out the other lowlifes\nto protect your delicate sensibilities.",
+          "originalContent": "We took out the other lowlifes\nto protect your delicate sensibilities."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንኹሎም ድኻታት ካብኡ ኣውጺኢናዮም ኢና፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-983.692-987.196:rjx1q8md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 983.275,
+          "endTime": 984.902,
+          "format": "VTT",
+          "originalText": "We took out the other lowlifes\nto protect your delicate sensibilities.",
+          "originalContent": "We took out the other lowlifes\nto protect your delicate sensibilities."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- ርሓቕ።\n- ኣይኾንን! ኣይኾንን!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-983.692-987.196:hybyc8md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 987.112,
+          "endTime": 989.615,
+          "format": "VTT",
+          "originalText": "We took out the other lowlifes\nto protect your delicate sensibilities.",
+          "originalContent": "We took out the other lowlifes\nto protect your delicate sensibilities."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ይሰምዕ ኣለኹ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-990.115-991.116",
+        "data": {
+          "type": "text",
+          "startTime": 989.698,
+          "endTime": 990.699,
+          "format": "VTT",
+          "originalText": "What is that?",
+          "originalContent": "What is that?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ገለ ገለ ኣቕሑ ክደሊ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-994.953-997.247",
+        "data": {
+          "type": "text",
+          "startTime": 994.661,
+          "endTime": 996.038,
+          "format": "VTT",
+          "originalText": "I need materials. Shmuel!",
+          "originalContent": "I need materials. Shmuel!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሳሙኤል!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-994.953-997.247:7fv7utmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 996.121,
+          "endTime": 997.122,
+          "format": "VTT",
+          "originalText": "I need materials. Shmuel!",
+          "originalContent": "I need materials. Shmuel!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዲን፣ዕጥእን፣ ሒላብ፣ ዝተክኺ ሓዊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-998.79-1004.379",
+        "data": {
+          "type": "text",
+          "startTime": 998.373,
+          "endTime": 1003.962,
+          "format": "VTT",
+          "originalText": "Sulfur, nettles, hyssop, wormwood.",
+          "originalContent": "Sulfur, nettles, hyssop, wormwood."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- ቀልጥፍ ኪድ።\n- ሕራይ መምህር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1004.463-1005.756",
+        "data": {
+          "type": "text",
+          "startTime": 1004.046,
+          "endTime": 1005.214,
+          "format": "VTT",
+          "originalText": "-Go!\n-Yes, teacher.",
+          "originalContent": "-Go!\n-Yes, teacher."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በል የሳልጠልካ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1013.055-1015.39",
+        "data": {
+          "type": "text",
+          "startTime": 1012.721,
+          "endTime": 1014.848,
+          "format": "VTT",
+          "originalText": "Well, do your job.",
+          "originalContent": "Well, do your job."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስማዕ፣ ምስ ኲንተስ እየ ተሰማሚዐ፣\nምስ ኣጋንንቲ ኣይኮነነ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1018.435-1022.981",
+        "data": {
+          "type": "text",
+          "startTime": 1018.101,
+          "endTime": 1023.524,
+          "format": "VTT",
+          "originalText": "Listen, I agreed to Quintus's request,",
+          "originalContent": "Listen, I agreed to Quintus's request,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መኽንያቱ ምስ ኣጋንንቲ ጉዳይ\nየብለይን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1023.065-1026.443",
+        "data": {
+          "type": "text",
+          "startTime": 1023.607,
+          "endTime": 1026.026,
+          "format": "VTT",
+          "originalText": "not a demand, because\nhe should not demand anything of me...",
+          "originalContent": "not a demand, because\nhe should not demand anything of me..."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሰንበት ንኸይንገፍፍ ተረዳዲኢና\nእዚ ካኣ ኣቐዲመ ዝደልዮ ዝነበርኩ እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1027.11-1029.863",
+        "data": {
+          "type": "text",
+          "startTime": 1026.818,
+          "endTime": 1029.53,
+          "format": "VTT",
+          "originalText": "to stop Shabbat fishing,\nwhich was already our law,",
+          "originalContent": "to stop Shabbat fishing,\nwhich was already our law,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስለዚ ካኣ ርኹስ\nናባይ ክቐርብ ኣይክእልን እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1029.947-1032.991",
+        "data": {
+          "type": "text",
+          "startTime": 1029.613,
+          "endTime": 1032.199,
+          "format": "VTT",
+          "originalText": "and by doing so\nwas not a violation of my practice.",
+          "originalContent": "and by doing so\nwas not a violation of my practice."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክሕግዛ ክፍትን ኣየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1033.075-1038.33",
+        "data": {
+          "type": "text",
+          "startTime": 1034.701,
+          "endTime": 1037.496,
+          "format": "VTT",
+          "originalText": "And I will try to help this woman,\neven though it falls outside of my purview.",
+          "originalContent": "And I will try to help this woman,\neven though it falls outside of my purview."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሕጂ ካኣ ነዛ ሰብ ዋላ እኳ ካብ\nትእዛዛተይ ዝወጸት ትኹን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1033.075-1038.33:y8dl57md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1032.699,
+          "endTime": 1034.618,
+          "format": "VTT",
+          "originalText": "And I will try to help this woman,\neven though it falls outside of my purview.",
+          "originalContent": "And I will try to help this woman,\neven though it falls outside of my purview."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንዓይ ግን ከም ሓደ ሽግር ሮማውያን\nዝፈትሕ መሳርሒ ጌርካ ኣይትቁጸረኒ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1038.413-1042.292",
+        "data": {
+          "type": "text",
+          "startTime": 1038.038,
+          "endTime": 1041.708,
+          "format": "VTT",
+          "originalText": "But do not think of me as a tool\nto fix Roman problems.",
+          "originalContent": "But do not think of me as a tool\nto fix Roman problems."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንዘለኒ ሃይማኖታዊ ጸጋ፣ ነዞም\nንህዝበይ ዘዋርዱን ዘጋፍዑን ሰባት፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1042.918-1046.463",
+        "data": {
+          "type": "text",
+          "startTime": 1042.376,
+          "endTime": 1045.921,
+          "format": "VTT",
+          "originalText": "I will not continue to use\nmy position of religious influence",
+          "originalContent": "I will not continue to use\nmy position of religious influence"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ማለት ንስኻ ኩን ዋላ እቲ ኲንተስ\nትብሎ ዘመድካ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1046.547-1049.466",
+        "data": {
+          "type": "text",
+          "startTime": 1046.004,
+          "endTime": 1049.091,
+          "format": "VTT",
+          "originalText": "to benefit those\nwho look down on my people,",
+          "originalContent": "to benefit those\nwho look down on my people,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንመሳርሒ ኣይጥቀመሉን እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1049.55-1052.427",
+        "data": {
+          "type": "text",
+          "startTime": 1049.174,
+          "endTime": 1051.844,
+          "format": "VTT",
+          "originalText": "whether it's you\nor even someone like Quintus.",
+          "originalContent": "whether it's you\nor even someone like Quintus."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስለዚ ክፍውሳ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1053.262-1059.434",
+        "data": {
+          "type": "text",
+          "startTime": 1052.886,
+          "endTime": 1056.89,
+          "format": "VTT",
+          "originalText": "So I will perform this task\nbut I want it noted for your superiors,",
+          "originalContent": "So I will perform this task\nbut I want it noted for your superiors,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ነዚ ግን ከም ፍሉይ ነገር ውሰዶ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1053.262-1059.434:hglpskmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1056.974,
+          "endTime": 1060.769,
+          "format": "VTT",
+          "originalText": "So I will perform this task\nbut I want it noted for your superiors,",
+          "originalContent": "So I will perform this task\nbut I want it noted for your superiors,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስራሕካ ዶ ክትጅምር?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1064.147-1065.274",
+        "data": {
+          "type": "text",
+          "startTime": 1063.689,
+          "endTime": 1064.815,
+          "format": "VTT",
+          "originalText": "So can we go now?",
+          "originalContent": "So can we go now?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናይ ግድን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1067.401-1068.443",
+        "data": {
+          "type": "text",
+          "startTime": 1067.067,
+          "endTime": 1068.068,
+          "format": "VTT",
+          "originalText": "Yes.",
+          "originalContent": "Yes."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይትፈትን ስምኦን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1075.158-1076.66",
+        "data": {
+          "type": "text",
+          "startTime": 1074.825,
+          "endTime": 1076.159,
+          "format": "VTT",
+          "originalText": "Stay down, Simon.",
+          "originalContent": "Stay down, Simon."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሃየ ስምኦን! ተንስእ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1076.743-1078.036",
+        "data": {
+          "type": "text",
+          "startTime": 1076.243,
+          "endTime": 1077.578,
+          "format": "VTT",
+          "originalText": "Come on, Simon. Get up.",
+          "originalContent": "Come on, Simon. Get up."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምስቲ ሓመድ ምጽናሕ ይሕሽካ፣\nእንታይ ከም ዝሕሸካ ትፈልጥ እንተኮንካ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1079.58-1081.957",
+        "data": {
+          "type": "text",
+          "startTime": 1079.204,
+          "endTime": 1081.707,
+          "format": "VTT",
+          "originalText": "Suck dirt if you know what is good for you.",
+          "originalContent": "Suck dirt if you know what is good for you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ረክስ፣ ረክስ፣ ንኺድ በቃ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1085.878-1087.337",
+        "data": {
+          "type": "text",
+          "startTime": 1085.043,
+          "endTime": 1086.587,
+          "format": "VTT",
+          "originalText": "Pay me, pay me, pay me, let's go.",
+          "originalContent": "Pay me, pay me, pay me, let's go."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይእዳውካ ተሪር ዩ ዮስፋጥ፣\nዓንተር ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1101.393-1103.312",
+        "data": {
+          "type": "text",
+          "startTime": 1100.767,
+          "endTime": 1103.937,
+          "format": "VTT",
+          "originalText": "You're too much, Jehosaphat.",
+          "originalContent": "You're too much, Jehosaphat."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ታኣሚንካ ዶ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1104.855-1105.689",
+        "data": {
+          "type": "text",
+          "startTime": 1104.438,
+          "endTime": 1105.731,
+          "format": "VTT",
+          "originalText": "That's right.",
+          "originalContent": "That's right."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክረኽበካ ከለኹ ኩሉ ግዜ እየ ዝነግረካ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1106.565-1109.61",
+        "data": {
+          "type": "text",
+          "startTime": 1105.814,
+          "endTime": 1108.275,
+          "format": "VTT",
+          "originalText": "Like I tell you every time I see you.",
+          "originalContent": "Like I tell you every time I see you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከምቲ ንሓፍተይ ዝንግራ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1109.693-1110.986",
+        "data": {
+          "type": "text",
+          "startTime": 1109.234,
+          "endTime": 1110.652,
+          "format": "VTT",
+          "originalText": "Like I tell my sister.",
+          "originalContent": "Like I tell my sister."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እወ።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-ttzhgymd8xhtnu",
+        "data": {
+          "startTime": 1111.153,
+          "endTime": 1112.154
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሓቂ ልዕሊ እዚ\nምናልባት ሰለስተ፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1116.825-1121.455",
+        "data": {
+          "type": "text",
+          "startTime": 1116.408,
+          "endTime": 1118.994,
+          "format": "VTT",
+          "originalText": "Seriously, I can only take maybe two, one...",
+          "originalContent": "Seriously, I can only take maybe two, one..."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓንቲ፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1116.825-1121.455:6oypy7md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1120.913,
+          "endTime": 1121.914,
+          "format": "VTT",
+          "originalText": "Seriously, I can only take maybe two, one...",
+          "originalContent": "Seriously, I can only take maybe two, one..."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓንቲ ተወሳኺት ቡኛ።\nሓንቲ ወስኽ ሽዑ ውጻእ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1123.832-1126.084",
+        "data": {
+          "type": "text",
+          "startTime": 1122.956,
+          "endTime": 1125.667,
+          "format": "VTT",
+          "originalText": "One more punch. One more and I'm done.",
+          "originalContent": "One more punch. One more and I'm done."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ገና ክፍትን የ ይብል ኣሎ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1126.168-1127.628",
+        "data": {
+          "type": "text",
+          "startTime": 1125.751,
+          "endTime": 1127.169,
+          "format": "VTT",
+          "originalText": "He says he's had it.",
+          "originalContent": "He says he's had it."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዮሲ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1137.387-1138.222",
+        "data": {
+          "type": "text",
+          "startTime": 1136.845,
+          "endTime": 1137.846,
+          "format": "VTT",
+          "originalText": "Jeho?",
+          "originalContent": "Jeho?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ኢኻ ትብል ዝነበርካ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1142.267-1144.186",
+        "data": {
+          "type": "text",
+          "startTime": 1143.06,
+          "endTime": 1144.394,
+          "format": "VTT",
+          "originalText": "What was it you were saying?",
+          "originalContent": "What was it you were saying?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብዛዕባ ሓፍትኻ ገለ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1145.646-1147.397",
+        "data": {
+          "type": "text",
+          "startTime": 1145.27,
+          "endTime": 1146.73,
+          "format": "VTT",
+          "originalText": "Something about your sister?",
+          "originalContent": "Something about your sister?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንተዳኣ ኣብዚ ቅልስ ስዒርካኒሲ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1150.859-1154.988",
+        "data": {
+          "type": "text",
+          "startTime": 1150.651,
+          "endTime": 1152.444,
+          "format": "VTT",
+          "originalText": "You think if you keep hitting me hard enough,\nI won't be married to her anymore?",
+          "originalContent": "You think if you keep hitting me hard enough,\nI won't be married to her anymore?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንሓፍትኻ ከመርዓና ከምዘይቅጽል\nክትፍክር ጸኒሕካ ሓቀይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1150.859-1154.988:8oa7rdmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1152.528,
+          "endTime": 1154.112,
+          "format": "VTT",
+          "originalText": "You think if you keep hitting me hard enough,\nI won't be married to her anymore?",
+          "originalContent": "You think if you keep hitting me hard enough,\nI won't be married to her anymore?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንጸላም ከብድኻ\nከመይ ከምዝገበርክዋ ምስ ራኣዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1157.491-1161.662",
+        "data": {
+          "type": "text",
+          "startTime": 1159.117,
+          "endTime": 1161.078,
+          "format": "VTT",
+          "originalText": "That's why they call me \"Wine Hands,\"\nbecause of what I do to your liver.",
+          "originalContent": "That's why they call me \"Wine Hands,\"\nbecause of what I do to your liver."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስለዚ እዮም ውሕሉላት\nየእዳው ዝብሉኒ፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1157.491-1161.662:22d7xdmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1157.032,
+          "endTime": 1159.034,
+          "format": "VTT",
+          "originalText": "That's why they call me \"Wine Hands,\"\nbecause of what I do to your liver.",
+          "originalContent": "That's why they call me \"Wine Hands,\"\nbecause of what I do to your liver."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- ክወስዶ ዶ ነዚ ሰልዲ?\n- ዓቕሊ እስከ ግበር",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1163.497-1165.832",
+        "data": {
+          "type": "text",
+          "startTime": 1163.038,
+          "endTime": 1165.207,
+          "format": "VTT",
+          "originalText": "-They can't take away their bet?\n-No. Don't worry.",
+          "originalContent": "-They can't take away their bet?\n-No. Don't worry."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከምዚ ክኸውን ድሌተይ ኣይነብረን\nዮስፋጥ። ነናሻዕ ካብ ምብኣስ ንቆጠብ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1165.916-1169.837",
+        "data": {
+          "type": "text",
+          "startTime": 1165.29,
+          "endTime": 1169.086,
+          "format": "VTT",
+          "originalText": "I don't wanna do this, Jehosaphat.\nCan we please stop fighting every week?",
+          "originalContent": "I don't wanna do this, Jehosaphat.\nCan we please stop fighting every week?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግና ኻኣ፣ግና ካኣ ንሓፍትኻ\nልዕሊ ማንም ከምዘፍቅራ አክር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1169.92-1173.465",
+        "data": {
+          "type": "text",
+          "startTime": 1170.963,
+          "endTime": 1172.673,
+          "format": "VTT",
+          "originalText": "I know you never trusted me, but\nI love your sister more than anything.",
+          "originalContent": "I know you never trusted me, but\nI love your sister more than anything."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብልበይ የ፡\nከምዘይትኣምነኒ ይፈልጥ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1169.92-1173.465:w0v8xymd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1169.586,
+          "endTime": 1170.879,
+          "format": "VTT",
+          "originalText": "I know you never trusted me, but\nI love your sister more than anything.",
+          "originalContent": "I know you never trusted me, but\nI love your sister more than anything."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እፈልጥ ነይረ። ተንኮለኛ\nሰብ ምዃኑ እፈልጥ ነይረ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1169.92-1173.465:50nftomd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1172.756,
+          "endTime": 1174.216,
+          "format": "VTT",
+          "originalText": "I know you never trusted me, but\nI love your sister more than anything.",
+          "originalContent": "I know you never trusted me, but\nI love your sister more than anything."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣነ ምክርኽር ደው ከብል እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1173.549-1175.884",
+        "data": {
+          "type": "text",
+          "startTime": 1174.299,
+          "endTime": 1175.259,
+          "format": "VTT",
+          "originalText": "I will stop fighting you.",
+          "originalContent": "I will stop fighting you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሓቂ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1173.549-1175.884:gmxvmqmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1175.342,
+          "endTime": 1176.51,
+          "format": "VTT",
+          "originalText": "I will stop fighting you.",
+          "originalContent": "I will stop fighting you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓውኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1179.555-1182.641",
+        "data": {
+          "type": "text",
+          "startTime": 1180.931,
+          "endTime": 1182.099,
+          "format": "VTT",
+          "originalText": "-But my brother won't.\n-Your brother?",
+          "originalContent": "-But my brother won't.\n-Your brother?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓወይ ግና ኣይውዕሎን ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1179.555-1182.641:7mz980md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1179.012,
+          "endTime": 1180.43,
+          "format": "VTT",
+          "originalText": "-But my brother won't.\n-Your brother?",
+          "originalContent": "-But my brother won't.\n-Your brother?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣበይ እዩ ከምኡ ዝብል ተጻሒፉ ደሎ\nእንድርያስ? ፣እእ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1199.283-1203.161",
+        "data": {
+          "type": "text",
+          "startTime": 1198.991,
+          "endTime": 1201.451,
+          "format": "VTT",
+          "originalText": "Where's it written down, Andrew, huh?\nAnswer me that?",
+          "originalContent": "Where's it written down, Andrew, huh?\nAnswer me that?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መልሰለይ እባ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1199.283-1203.161:gsv5sjmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1201.535,
+          "endTime": 1202.703,
+          "format": "VTT",
+          "originalText": "Where's it written down, Andrew, huh?\nAnswer me that?",
+          "originalContent": "Where's it written down, Andrew, huh?\nAnswer me that?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናይ ብሓቀይ ባሃም እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1204.037-1205.706",
+        "data": {
+          "type": "text",
+          "startTime": 1203.745,
+          "endTime": 1204.955,
+          "format": "VTT",
+          "originalText": "I'm so foolish.",
+          "originalContent": "I'm so foolish."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓደ ንኽልተ ከመይ ኢሉ ይኸው?\nኣብ ዓድና ዘይነበረ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1205.789-1208.917",
+        "data": {
+          "type": "text",
+          "startTime": 1205.622,
+          "endTime": 1208.125,
+          "format": "VTT",
+          "originalText": "Look, how's a double knockout a push,\nif it's two on one?",
+          "originalContent": "Look, how's a double knockout a push,\nif it's two on one?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ባዕላቶም ሕጊ ከቑሙ\n።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1209.001-1210.377",
+        "data": {
+          "type": "text",
+          "startTime": 1208.625,
+          "endTime": 1209.96,
+          "format": "VTT",
+          "originalText": "Made-up rule, right there.",
+          "originalContent": "Made-up rule, right there."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓድሽ፣ ይኹን ዝነበረ ለውጢ የብሉን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1210.46-1213.755",
+        "data": {
+          "type": "text",
+          "startTime": 1210.043,
+          "endTime": 1212.963,
+          "format": "VTT",
+          "originalText": "Made up or in stone, who cares?",
+          "originalContent": "Made up or in stone, who cares?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ተሰኒፍና ኢና ፣ይርዳኣኒ ካኣ ኔሩ እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1213.839-1217.134",
+        "data": {
+          "type": "text",
+          "startTime": 1213.463,
+          "endTime": 1216.633,
+          "format": "VTT",
+          "originalText": "We lost, and I know better.",
+          "originalContent": "We lost, and I know better."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይፋሉን፣ ኣይከምኡን ኩሉ\nናተይ ጌጋ እዩ፣ ከምዝበልኩዃ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1218.01-1222.389",
+        "data": {
+          "type": "text",
+          "startTime": 1217.467,
+          "endTime": 1221.805,
+          "format": "VTT",
+          "originalText": "No, no, it's my fault. I talked you into it.",
+          "originalContent": "No, no, it's my fault. I talked you into it."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይፋል።",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-6thj4xmd8xhtnu",
+        "data": {
+          "startTime": 1222.472,
+          "endTime": 1223.473
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "\"ውሕሉላት የእዳው\"?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1230.022-1231.523",
+        "data": {
+          "type": "text",
+          "startTime": 1229.479,
+          "endTime": 1231.023,
+          "format": "VTT",
+          "originalText": "\"Wine Hands\"?",
+          "originalContent": "\"Wine Hands\"?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "የእዳወይ ውን ሰናፍ ኣይኮናን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1233.609-1235.736",
+        "data": {
+          "type": "text",
+          "startTime": 1233.108,
+          "endTime": 1235.152,
+          "format": "VTT",
+          "originalText": "Sounded more clever in my head.",
+          "originalContent": "Sounded more clever in my head."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግብሪ ምኽፋል ቀሪቡ እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1241.408-1242.659",
+        "data": {
+          "type": "text",
+          "startTime": 1240.991,
+          "endTime": 1242.201,
+          "format": "VTT",
+          "originalText": "Tax day's coming.",
+          "originalContent": "Tax day's coming."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዚ ክልተ ማዓልቲ ባዓል ዩ። ድሕሪኡ…",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1245.037-1247.873",
+        "data": {
+          "type": "text",
+          "startTime": 1244.494,
+          "endTime": 1247.289,
+          "format": "VTT",
+          "originalText": "Two sunrises away, Shabbat, and then--",
+          "originalContent": "Two sunrises away, Shabbat, and then--"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዘኪረዮ ኣለኹ ስምኦን የቕንየለይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1247.956-1250.417",
+        "data": {
+          "type": "text",
+          "startTime": 1247.372,
+          "endTime": 1249.875,
+          "format": "VTT",
+          "originalText": "I realize, Simon, thank you.",
+          "originalContent": "I realize, Simon, thank you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ጃልባና ክምንጥሉና ይኽእሉ እዮም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1252.628-1254.171",
+        "data": {
+          "type": "text",
+          "startTime": 1252.252,
+          "endTime": 1253.67,
+          "format": "VTT",
+          "originalText": "We could lose the boat.",
+          "originalContent": "We could lose the boat."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንታይ ግትገብር ኢኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1255.506-1256.673",
+        "data": {
+          "type": "text",
+          "startTime": 1255.088,
+          "endTime": 1256.215,
+          "format": "VTT",
+          "originalText": "What are you gonna do?",
+          "originalContent": "What are you gonna do?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይፈልጥን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1258.383-1259.551",
+        "data": {
+          "type": "text",
+          "startTime": 1258.05,
+          "endTime": 1259.051,
+          "format": "VTT",
+          "originalText": "Don't know.",
+          "originalContent": "Don't know."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዋላ ካብ ኣንበሳ ዓጽሚ `ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1261.22-1262.763",
+        "data": {
+          "type": "text",
+          "startTime": 1260.886,
+          "endTime": 1262.179,
+          "format": "VTT",
+          "originalText": "Blood from a stone.",
+          "originalContent": "Blood from a stone."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናብ ስራሕ ይኸድ ኣለኹ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1270.896-1273.857",
+        "data": {
+          "type": "text",
+          "startTime": 1271.939,
+          "endTime": 1272.94,
+          "format": "VTT",
+          "originalText": "-Where are you going?\n-Going to work.",
+          "originalContent": "-Where are you going?\n-Going to work."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ናበይ ኢኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1270.896-1273.857:f3nkwqmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1270.437,
+          "endTime": 1271.438,
+          "format": "VTT",
+          "originalText": "-Where are you going?\n-Going to work.",
+          "originalContent": "-Where are you going?\n-Going to work."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ባዓል እዩ ጭው ድበለ ቀትሪ ካኣ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1274.316-1277.027",
+        "data": {
+          "type": "text",
+          "startTime": 1275.234,
+          "endTime": 1276.652,
+          "format": "VTT",
+          "originalText": "Work? It's Shabbat in an hour.",
+          "originalContent": "Work? It's Shabbat in an hour."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስራሕ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1274.316-1277.027:qok7ltmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1273.941,
+          "endTime": 1275.15,
+          "format": "VTT",
+          "originalText": "Work? It's Shabbat in an hour.",
+          "originalContent": "Work? It's Shabbat in an hour."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግን ካኣ ሂወት\nኣብ ጸገም እንተወዲቓ ጥራይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1277.11-1280.531",
+        "data": {
+          "type": "text",
+          "startTime": 1278.362,
+          "endTime": 1279.863,
+          "format": "VTT",
+          "originalText": "Well, the Pharisees make allowances\nfor that if lives are at stake.",
+          "originalContent": "Well, the Pharisees make allowances\nfor that if lives are at stake."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እወ እቶም ካህናት ኣፍቂዶሙልና\nእንድዮም እሞ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1277.11-1280.531:q96talmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1276.735,
+          "endTime": 1278.278,
+          "format": "VTT",
+          "originalText": "Well, the Pharisees make allowances\nfor that if lives are at stake.",
+          "originalContent": "Well, the Pharisees make allowances\nfor that if lives are at stake."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዋላ ዋላ ሕጂ ሓቕካ\nጸገም ግና የንጸላሉ ኣሎ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1280.614-1284.952",
+        "data": {
+          "type": "text",
+          "startTime": 1281.532,
+          "endTime": 1284.451,
+          "format": "VTT",
+          "originalText": "-No one's life is at stake.\n-No, no, not this moment, but it's coming.",
+          "originalContent": "-No one's life is at stake.\n-No, no, not this moment, but it's coming."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሂወት መን እሞ ኣብ ጸገም ወዲቓ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1280.614-1284.952:4b9kdjmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1279.947,
+          "endTime": 1281.448,
+          "format": "VTT",
+          "originalText": "-No one's life is at stake.\n-No, no, not this moment, but it's coming.",
+          "originalContent": "-No one's life is at stake.\n-No, no, not this moment, but it's coming."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኢሂ ነቲ ሓሳኹ ዝበልዒ ዓርክኻ\nክትነግሮ ደሊኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1286.411-1289.289",
+        "data": {
+          "type": "text",
+          "startTime": 1286.036,
+          "endTime": 1288.747,
+          "format": "VTT",
+          "originalText": "What, are you gonna tell\nyour bug-eating friend about it?",
+          "originalContent": "What, are you gonna tell\nyour bug-eating friend about it?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብፍጹም፣ ብፍጹም፣ ብፍጹም",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1291.75-1294.586",
+        "data": {
+          "type": "text",
+          "startTime": 1291.416,
+          "endTime": 1293.46,
+          "format": "VTT",
+          "originalText": "No, no, no. Just me.",
+          "originalContent": "No, no, no. Just me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በይነይ ኣየ ዝከይድ።\nኣብዚ ኢድካ ኣይተእቱን ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1291.75-1294.586:izd147md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1293.544,
+          "endTime": 1295.128,
+          "format": "VTT",
+          "originalText": "No, no, no. Just me.",
+          "originalContent": "No, no, no. Just me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- እሞ ኤደን ከ?\n- ምስ ኣዲኣ ክትሓድር ኣያ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1294.67-1296.839",
+        "data": {
+          "type": "text",
+          "startTime": 1295.212,
+          "endTime": 1297.923,
+          "format": "VTT",
+          "originalText": "-Not dragging you into this.\n-What about Eden?",
+          "originalContent": "-Not dragging you into this.\n-What about Eden?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዕቡድ ኢኻ። ትፈልጥ ኢኻ ምሽ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1296.922-1300.634",
+        "data": {
+          "type": "text",
+          "startTime": 1298.006,
+          "endTime": 1300.092,
+          "format": "VTT",
+          "originalText": "-She's staying at her <i>eema's</i> tonight.\n-You're crazy, you know that?",
+          "originalContent": "-She's staying at her <i>eema's</i> tonight.\n-You're crazy, you know that?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እወ ቁሩብ ስሕው ኢለ እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1301.343-1304.304",
+        "data": {
+          "type": "text",
+          "startTime": 1301.009,
+          "endTime": 1303.762,
+          "format": "VTT",
+          "originalText": "Nah, just desperate.",
+          "originalContent": "Nah, just desperate."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከምዚ ካብ ዝጅምራ ክንደይ ጌራ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1316.024-1318.485",
+        "data": {
+          "type": "text",
+          "startTime": 1315.482,
+          "endTime": 1317.234,
+          "format": "VTT",
+          "originalText": "-How long has she been like this?\n-Like what?",
+          "originalContent": "-How long has she been like this?\n-Like what?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከመይ ማለት?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1316.024-1318.485:iyw384md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1317.317,
+          "endTime": 1318.527,
+          "format": "VTT",
+          "originalText": "-How long has she been like this?\n-Like what?",
+          "originalContent": "-How long has she been like this?\n-Like what?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክሕግዛ እየ ደልየ። ርብቃ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1320.07-1322.406",
+        "data": {
+          "type": "text",
+          "startTime": 1319.736,
+          "endTime": 1322.03,
+          "format": "VTT",
+          "originalText": "I'm trying to help her, Rivka.",
+          "originalContent": "I'm trying to help her, Rivka."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ካብ ዝነበርናዮ ከተኽፋኣልና ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1322.489-1324.658",
+        "data": {
+          "type": "text",
+          "startTime": 1322.114,
+          "endTime": 1324.157,
+          "format": "VTT",
+          "originalText": "All you're gonna do is mess this place up.",
+          "originalContent": "All you're gonna do is mess this place up."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ድሕሪኡ ኸ? ምሕጋዝ ገዲፍካ\nክትሃድም ኢኻ መምህር?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1326.451-1328.871",
+        "data": {
+          "type": "text",
+          "startTime": 1324.992,
+          "endTime": 1327.828,
+          "format": "VTT",
+          "originalText": "You're gonna stop by\nand help clean, Rabbi?",
+          "originalContent": "You're gonna stop by\nand help clean, Rabbi?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እዞም ዘሳቕይዋ ዘለው ኣጋንንቲ ንዓዓ\nጥራይ ዘይኮነ ንኩሉ ክዘራርግዎ ዮም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1328.954-1332.666",
+        "data": {
+          "type": "text",
+          "startTime": 1327.911,
+          "endTime": 1331.874,
+          "format": "VTT",
+          "originalText": "The demons that torment her soul\nwill turn your place to dust.",
+          "originalContent": "The demons that torment her soul\nwill turn your place to dust."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምእንታኣስ ይትረፍ ሕራይ ብውሑዱ ን…",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1332.749-1334.918",
+        "data": {
+          "type": "text",
+          "startTime": 1332.374,
+          "endTime": 1334.418,
+          "format": "VTT",
+          "originalText": "Even if you care nothing\nfor her soul, at least--",
+          "originalContent": "Even if you care nothing\nfor her soul, at least--"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሊሊ ንዘይጎድኣ ኣይትጎድእን ኣያ፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1335.002-1337.921",
+        "data": {
+          "type": "text",
+          "startTime": 1334.501,
+          "endTime": 1337.462,
+          "format": "VTT",
+          "originalText": "Lilith never hurt anyone\nthat didn't hurt her first.",
+          "originalContent": "Lilith never hurt anyone\nthat didn't hurt her first."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣብ መብዛሕትኡ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1339.298-1340.507",
+        "data": {
+          "type": "text",
+          "startTime": 1338.964,
+          "endTime": 1339.965,
+          "format": "VTT",
+          "originalText": "Mostly.",
+          "originalContent": "Mostly."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከምዚ ኣያ ኮ ትብል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1341.216-1342.885",
+        "data": {
+          "type": "text",
+          "startTime": 1340.883,
+          "endTime": 1342.342,
+          "format": "VTT",
+          "originalText": "She has these spells.",
+          "originalContent": "She has these spells."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንተዳኣ ነጻ ሰዲድናያ ከም ትጥዕን\nልክዒ ከም መልኣኺ ከም ትኸውንን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1342.968-1345.679",
+        "data": {
+          "type": "text",
+          "startTime": 1342.426,
+          "endTime": 1345.137,
+          "format": "VTT",
+          "originalText": "We let her be and then\nshe's as sweet as an angel again.",
+          "originalContent": "We let her be and then\nshe's as sweet as an angel again."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ዝይትምሕርና ግና ሊሊ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1348.557-1350.267",
+        "data": {
+          "type": "text",
+          "startTime": 1348.098,
+          "endTime": 1349.85,
+          "format": "VTT",
+          "originalText": "Curse it all, Lil!",
+          "originalContent": "Curse it all, Lil!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "መወዳእታ ክትገብረሉ ትኽእል ኢኻ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1357.941-1359.818",
+        "data": {
+          "type": "text",
+          "startTime": 1357.566,
+          "endTime": 1359.276,
+          "format": "VTT",
+          "originalText": "You can put an end to this?",
+          "originalContent": "You can put an end to this?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይእዝዘካ ኣለኹ…",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1381.089-1382.966",
+        "data": {
+          "type": "text",
+          "startTime": 1381.215,
+          "endTime": 1382.549,
+          "format": "VTT",
+          "originalText": "I adjure you...",
+          "originalContent": "I adjure you..."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብቁዱሳት መልኣኽቲ ምኪኤል፣\nረብሬል፣ ሩፋኤል፣ ኡራኤልን ረዜልን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1388.055-1392.476",
+        "data": {
+          "type": "text",
+          "startTime": 1385.26,
+          "endTime": 1391.975,
+          "format": "VTT",
+          "originalText": "Michael, Gabriel, Rafael, Uriel and Raziel.",
+          "originalContent": "Michael, Gabriel, Rafael, Uriel and Raziel."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይእዝዘካ ኣለኹ፣\nርኹስ መንፈስ ኩፉእ ሌጊዎን፣",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1393.56-1399.149",
+        "data": {
+          "type": "text",
+          "startTime": 1393.185,
+          "endTime": 1398.565,
+          "format": "VTT",
+          "originalText": "I adjure you, cursed dragon\nand diabolical legions.",
+          "originalContent": "I adjure you, cursed dragon\nand diabolical legions."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ውጻእ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1399.691-1400.609",
+        "data": {
+          "type": "text",
+          "startTime": 1399.358,
+          "endTime": 1400.526,
+          "format": "VTT",
+          "originalText": "Come out!",
+          "originalContent": "Come out!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይእዝዘካ ኣለኹ፣\nውላድ ብኤልዝቡል! ኣጋንንት ሲኦል!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1401.568-1405.989",
+        "data": {
+          "type": "text",
+          "startTime": 1401.652,
+          "endTime": 1407.491,
+          "format": "VTT",
+          "originalText": "I adjure you spawn of Beelzebub,",
+          "originalContent": "I adjure you spawn of Beelzebub,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይእዝዘካ ኣለኹ፣ ብድምጺ ኩሎም\nሕሩያትን(ዝርእዩን) ኩሎም ቁዱሳንን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1408.116-1411.87",
+        "data": {
+          "type": "text",
+          "startTime": 1407.574,
+          "endTime": 1411.495,
+          "format": "VTT",
+          "originalText": "By the utterance of all\nthe watchers and the holy ones.",
+          "originalContent": "By the utterance of all\nthe watchers and the holy ones."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብስም ኣዶናይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1411.954-1416.291",
+        "data": {
+          "type": "text",
+          "startTime": 1411.578,
+          "endTime": 1413.497,
+          "format": "VTT",
+          "originalText": "In the name of Adonai, God of the heavens,",
+          "originalContent": "In the name of Adonai, God of the heavens,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣምላኽ ሰማያት፣ ንዛ ጓል ሰብ ግደፋ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1416.375-1420.254",
+        "data": {
+          "type": "text",
+          "startTime": 1414.289,
+          "endTime": 1419.711,
+          "format": "VTT",
+          "originalText": "cease to deceive this human creature.",
+          "originalContent": "cease to deceive this human creature."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ይእዝዘካ ኣለኹ፣ ብኺዳን ኣብራሃም፡",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1427.302-1432.099",
+        "data": {
+          "type": "text",
+          "startTime": 1426.927,
+          "endTime": 1431.598,
+          "format": "VTT",
+          "originalText": "I command you, in covenant with Abraham,",
+          "originalContent": "I command you, in covenant with Abraham,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብስም ያቆብ፣ ኢሳቕ፣ ሙሴ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1432.683-1437.062",
+        "data": {
+          "type": "text",
+          "startTime": 1432.349,
+          "endTime": 1436.395,
+          "format": "VTT",
+          "originalText": "in the names of Jacob, Isaac, Moses.",
+          "originalContent": "in the names of Jacob, Isaac, Moses."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብቲ ብርቱዕ ሓይሊ ኤልሻዳይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1437.604-1440.816",
+        "data": {
+          "type": "text",
+          "startTime": 1437.062,
+          "endTime": 1439.857,
+          "format": "VTT",
+          "originalText": "The all-powerful El Shaddai.",
+          "originalContent": "The all-powerful El Shaddai."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ውጻእ ካብዛ ንጽሂቲ ፍጥረት።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1442.359-1444.695",
+        "data": {
+          "type": "text",
+          "startTime": 1441.9,
+          "endTime": 1444.736,
+          "format": "VTT",
+          "originalText": "Fly from this innocent soul.",
+          "originalContent": "Fly from this innocent soul."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣይንፈርሓካን ኢና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1471.722-1473.932",
+        "data": {
+          "type": "text",
+          "startTime": 1471.346,
+          "endTime": 1473.39,
+          "format": "VTT",
+          "originalText": "We are not afraid of you.",
+          "originalContent": "We are not afraid of you."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓይሊ የብልካን መምህር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1476.31-1479.271",
+        "data": {
+          "type": "text",
+          "startTime": 1475.767,
+          "endTime": 1478.77,
+          "format": "VTT",
+          "originalText": "You have no power here, teacher.",
+          "originalContent": "You have no power here, teacher."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ወዲኢና ኣለና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1489.406-1490.616",
+        "data": {
+          "type": "text",
+          "startTime": 1488.989,
+          "endTime": 1490.115,
+          "format": "VTT",
+          "originalText": "We're finished here.",
+          "originalContent": "We're finished here."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሰንበት ንጉሆ",
+      "metadata": {
+        "type": "paratext",
+        "id": "TheChosen-101-en 1:paratext-08fz4emd8xhtnu",
+        "data": {
+          "startTime": 1503.879,
+          "endTime": 1509.593
+        }
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ስምኦን",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1546.255-1547.339",
+        "data": {
+          "type": "text",
+          "startTime": 1545.796,
+          "endTime": 1546.839,
+          "format": "VTT",
+          "originalText": "Simon.",
+          "originalContent": "Simon."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- ኣይትሕንኽን ሰላም።\n- ፍቕረይ ክትብለኒ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1550.884-1553.47",
+        "data": {
+          "type": "text",
+          "startTime": 1550.342,
+          "endTime": 1553.011,
+          "format": "VTT",
+          "originalText": "-Hello, love.\n-Don't you \"hello, love\" me.",
+          "originalContent": "-Hello, love.\n-Don't you \"hello, love\" me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንምንትይ ኢኻ ንዮስፋጥ ሃሪምካዮ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1554.012-1555.597",
+        "data": {
+          "type": "text",
+          "startTime": 1553.679,
+          "endTime": 1555.055,
+          "format": "VTT",
+          "originalText": "Why did you beat up Jehosaphat?",
+          "originalContent": "Why did you beat up Jehosaphat?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- እንታይ?\n- ንሓወይ ማዓረይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1556.223-1558.183",
+        "data": {
+          "type": "text",
+          "startTime": 1555.848,
+          "endTime": 1557.641,
+          "format": "VTT",
+          "originalText": "-What?\n-My own brother.",
+          "originalContent": "-What?\n-My own brother."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንሱ እዩ ሃሪሙኒ መመሊሱ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1558.267-1560.727",
+        "data": {
+          "type": "text",
+          "startTime": 1557.724,
+          "endTime": 1560.185,
+          "format": "VTT",
+          "originalText": "He attacked me, again.",
+          "originalContent": "He attacked me, again."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሰብኣይ ሓፍቱ ኦኣንተር ዩ\nኣይኮነን ክታኣማመን ደልዩ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1560.811-1563.397",
+        "data": {
+          "type": "text",
+          "startTime": 1560.269,
+          "endTime": 1562.938,
+          "format": "VTT",
+          "originalText": "He needs to know\nthe husband of his sister is strong.",
+          "originalContent": "He needs to know\nthe husband of his sister is strong."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንድርያስ ተቓጽዩ ጸኒሑ ንሃብራሃም\nክወቕዖ ግን ኣይግበኦን ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1563.48-1565.941",
+        "data": {
+          "type": "text",
+          "startTime": 1563.021,
+          "endTime": 1565.44,
+          "format": "VTT",
+          "originalText": "But Andrew had no right\nto jump Abrahim from behind.",
+          "originalContent": "But Andrew had no right\nto jump Abrahim from behind."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ካበይ ኢኺ ኣምጺኢክዮ እዚ ወረ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1566.024-1567.776",
+        "data": {
+          "type": "text",
+          "startTime": 1565.524,
+          "endTime": 1567.234,
+          "format": "VTT",
+          "originalText": "Where are you getting this?",
+          "originalContent": "Where are you getting this?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "የሕዋተይ፣ ወረ ኣብ ምምጻሕ\nንፉዓት እዮም። ሓቀይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1571.78-1575.284",
+        "data": {
+          "type": "text",
+          "startTime": 1571.238,
+          "endTime": 1574.825,
+          "format": "VTT",
+          "originalText": "My brothers.\nThey are fantastic storytellers, no?",
+          "originalContent": "My brothers.\nThey are fantastic storytellers, no?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ወረኛታት መበጻጻሕቲ እወ ሓቅኺ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1575.367-1578.203",
+        "data": {
+          "type": "text",
+          "startTime": 1574.908,
+          "endTime": 1577.744,
+          "format": "VTT",
+          "originalText": "Tellers of fantastic stories, yes, they are.",
+          "originalContent": "Tellers of fantastic stories, yes, they are."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሓቂ ሃሲኻዮም ማለት እዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1578.287-1581.707",
+        "data": {
+          "type": "text",
+          "startTime": 1579.58,
+          "endTime": 1581.665,
+          "format": "VTT",
+          "originalText": "They went into such great detail.\nYou must've really given them a pounding.",
+          "originalContent": "They went into such great detail.\nYou must've really given them a pounding."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ማዕረክንድኡ ዝርዝር ጸብጻብ\nእዮም ዘብጽሑ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1578.287-1581.707:v56dtvmd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1577.828,
+          "endTime": 1579.496,
+          "format": "VTT",
+          "originalText": "They went into such great detail.\nYou must've really given them a pounding.",
+          "originalContent": "They went into such great detail.\nYou must've really given them a pounding."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እ... ክሳብ ኣቢ መጺኡ ዝለክዓኒ\nድሓን ኔረ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1581.79-1585.294",
+        "data": {
+          "type": "text",
+          "startTime": 1581.748,
+          "endTime": 1585.377,
+          "format": "VTT",
+          "originalText": "Well, I was doing okay\nuntil Abe came out of nowhere.",
+          "originalContent": "Well, I was doing okay\nuntil Abe came out of nowhere."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሰንኩ እንዶግዳ\nምስ እንድርያስ ገንዘብና ተበሊዒና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1585.377-1587.212",
+        "data": {
+          "type": "text",
+          "startTime": 1585.46,
+          "endTime": 1587.087,
+          "format": "VTT",
+          "originalText": "Cost me and Andrew a lot of money.",
+          "originalContent": "Cost me and Andrew a lot of money."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እውይ ኣይተጋነነን ማዕረ ክንድኡ\nከተልልኹም ኣይክእሉን እዮም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1587.296-1591.175",
+        "data": {
+          "type": "text",
+          "startTime": 1587.171,
+          "endTime": 1589.006,
+          "format": "VTT",
+          "originalText": "Oh, no. They shouldn't cheat you like that\nwhen you were also cheating.",
+          "originalContent": "Oh, no. They shouldn't cheat you like that\nwhen you were also cheating."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣታሊልኩሞም ዳኣ ትኾኑ እምበር።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1587.296-1591.175:shiic4md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1589.089,
+          "endTime": 1590.716,
+          "format": "VTT",
+          "originalText": "Oh, no. They shouldn't cheat you like that\nwhen you were also cheating.",
+          "originalContent": "Oh, no. They shouldn't cheat you like that\nwhen you were also cheating."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓቅኺ፣ ሓቕኺ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1591.258-1593.468",
+        "data": {
+          "type": "text",
+          "startTime": 1590.799,
+          "endTime": 1592.926,
+          "format": "VTT",
+          "originalText": "All right, all right.",
+          "originalContent": "All right, all right."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እ… ከምዚ ምባለይ ኣይትሓዝለይ\nፍትውተይ። ስድራኺ ግን…",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1594.303-1597.347",
+        "data": {
+          "type": "text",
+          "startTime": 1593.886,
+          "endTime": 1596.805,
+          "format": "VTT",
+          "originalText": "Well, pardon me for saying so,\nlove, but your family--",
+          "originalContent": "Well, pardon me for saying so,\nlove, but your family--"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "- በቃ?\n- እንታይ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1597.431-1599.224",
+        "data": {
+          "type": "text",
+          "startTime": 1596.889,
+          "endTime": 1598.932,
+          "format": "VTT",
+          "originalText": "-Don't.\n-What?",
+          "originalContent": "-Don't.\n-What?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ከይትዛረብ፣\nስድራይ ሕማም ርእሲ ከምዘለዎም",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1599.308-1602.769",
+        "data": {
+          "type": "text",
+          "startTime": 1599.016,
+          "endTime": 1600.809,
+          "format": "VTT",
+          "originalText": "Don't you say that my family\nis troubled in the mind, Simon.",
+          "originalContent": "Don't you say that my family\nis troubled in the mind, Simon."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስኻ ውን ትፈልጥ ኢኻ፣ ስምኦን።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1599.308-1602.769:e52nf1md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1600.893,
+          "endTime": 1602.227,
+          "format": "VTT",
+          "originalText": "Don't you say that my family\nis troubled in the mind, Simon.",
+          "originalContent": "Don't you say that my family\nis troubled in the mind, Simon."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣሃ ሓቅኺ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1602.853-1604.563",
+        "data": {
+          "type": "text",
+          "startTime": 1602.311,
+          "endTime": 1604.021,
+          "format": "VTT",
+          "originalText": "Okay.",
+          "originalContent": "Okay."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንሕና ቅሐ፣ ጽልሚ፣ ሕጉሳት ኢና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1605.397-1608.108",
+        "data": {
+          "type": "text",
+          "startTime": 1605.105,
+          "endTime": 1608.025,
+          "format": "VTT",
+          "originalText": "We are colorful and fun.",
+          "originalContent": "We are colorful and fun."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንስኻ ካኣ ሞ ሓቦኛ፣ ባዓል ራኢ ኢኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1609.193-1612.154",
+        "data": {
+          "type": "text",
+          "startTime": 1608.775,
+          "endTime": 1611.653,
+          "format": "VTT",
+          "originalText": "You are stoic and purposeful.",
+          "originalContent": "You are stoic and purposeful."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምሳይ ኣዋዳዲርካ መለት ዩ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1614.364-1617.534",
+        "data": {
+          "type": "text",
+          "startTime": 1615.782,
+          "endTime": 1616.95,
+          "format": "VTT",
+          "originalText": "-You think I'm stoic?\n-Well, compared to me.",
+          "originalContent": "-You think I'm stoic?\n-Well, compared to me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓቦኛ ኮይነ ይስማዓኪ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1614.364-1617.534:awzmf6md8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1614.072,
+          "endTime": 1615.24,
+          "format": "VTT",
+          "originalText": "-You think I'm stoic?\n-Well, compared to me.",
+          "originalContent": "-You think I'm stoic?\n-Well, compared to me."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሓደ ንሕና ምሉኣት ኢና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1618.744-1620.913",
+        "data": {
+          "type": "text",
+          "startTime": 1618.368,
+          "endTime": 1620.412,
+          "format": "VTT",
+          "originalText": "Together, we're perfection.",
+          "originalContent": "Together, we're perfection."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሓቦኛ እ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1628.17-1629.671",
+        "data": {
+          "type": "text",
+          "startTime": 1627.92,
+          "endTime": 1629.046,
+          "format": "VTT",
+          "originalText": "Stoic, huh?",
+          "originalContent": "Stoic, huh?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ቅድሚ ሕጂ ሰሚዐያ ኣይፈልጥን እየ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1630.214-1632.09",
+        "data": {
+          "type": "text",
+          "startTime": 1629.922,
+          "endTime": 1631.548,
+          "format": "VTT",
+          "originalText": "Never heard that before.",
+          "originalContent": "Never heard that before."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ፈትየያ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1632.174-1633.425",
+        "data": {
+          "type": "text",
+          "startTime": 1631.632,
+          "endTime": 1632.758,
+          "format": "VTT",
+          "originalText": "I like it.",
+          "originalContent": "I like it."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣነን ንስኽን እኮ ሓውን ማይን ኢና።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1635.719-1638.263",
+        "data": {
+          "type": "text",
+          "startTime": 1635.26,
+          "endTime": 1637.679,
+          "format": "VTT",
+          "originalText": "You and me, fire and water.",
+          "originalContent": "You and me, fire and water."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ፈትየያ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1639.515-1640.933",
+        "data": {
+          "type": "text",
+          "startTime": 1639.473,
+          "endTime": 1640.474,
+          "format": "VTT",
+          "originalText": "I like it.",
+          "originalContent": "I like it."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ድራር ሰንበት ኣደይ ከ ከመይ ኔሩ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1643.769-1645.979",
+        "data": {
+          "type": "text",
+          "startTime": 1643.56,
+          "endTime": 1645.437,
+          "format": "VTT",
+          "originalText": "Oh, how was <i>Eema's</i> Shabbat dinner?",
+          "originalContent": "Oh, how was <i>Eema's</i> Shabbat dinner?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብጣዕሚ ጽቡቕ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1646.063-1647.272",
+        "data": {
+          "type": "text",
+          "startTime": 1645.521,
+          "endTime": 1646.772,
+          "format": "VTT",
+          "originalText": "It was lovely.",
+          "originalContent": "It was lovely."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ምግፋፍ ዓሳ ኸ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1648.023-1649.608",
+        "data": {
+          "type": "text",
+          "startTime": 1647.481,
+          "endTime": 1648.69,
+          "format": "VTT",
+          "originalText": "How was fishing?",
+          "originalContent": "How was fishing?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ትማሊ ዝገፈፍካዮም? ጥዑም ወረ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1649.691-1652.11",
+        "data": {
+          "type": "text",
+          "startTime": 1650.359,
+          "endTime": 1652.528,
+          "format": "VTT",
+          "originalText": "-What?\n-Yesterday's catch?",
+          "originalContent": "-What?\n-Yesterday's catch?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እእእእ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1649.691-1652.11:feo8fomd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1649.274,
+          "endTime": 1650.275,
+          "format": "VTT",
+          "originalText": "-What?\n-Yesterday's catch?",
+          "originalContent": "-What?\n-Yesterday's catch?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣሃ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1654.279-1655.155",
+        "data": {
+          "type": "text",
+          "startTime": 1653.904,
+          "endTime": 1654.905,
+          "format": "VTT",
+          "originalText": "Oh, yeah.",
+          "originalContent": "Oh, yeah."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣሃ፣ ገለስ ረኺበ ዓቢ ክኸውን ይኽእል።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1656.114-1657.991",
+        "data": {
+          "type": "text",
+          "startTime": 1655.697,
+          "endTime": 1657.449,
+          "format": "VTT",
+          "originalText": "Yeah, pulled something in, could be big.",
+          "originalContent": "Yeah, pulled something in, could be big."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "በል ንኺድ ንምኹራብ(ቤት ጸሎት)።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1658.075-1660.953",
+        "data": {
+          "type": "text",
+          "startTime": 1659.201,
+          "endTime": 1660.452,
+          "format": "VTT",
+          "originalText": "Good, let's go to synagogue.",
+          "originalContent": "Good, let's go to synagogue."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ግርም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1658.075-1660.953:qzulpemd8xhtnu",
+        "data": {
+          "type": "text",
+          "startTime": 1657.533,
+          "endTime": 1658.534,
+          "format": "VTT",
+          "originalText": "Good, let's go to synagogue.",
+          "originalContent": "Good, let's go to synagogue."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክዳንካ ካኣ ቀይር። ትጨኑ ኣለኻ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1661.828-1664.831",
+        "data": {
+          "type": "text",
+          "startTime": 1661.453,
+          "endTime": 1664.122,
+          "format": "VTT",
+          "originalText": "And please go change. You still smell.",
+          "originalContent": "And please go change. You still smell."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እንተፈሪሕና እንታይ ንብል?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1676.385-1679.555",
+        "data": {
+          "type": "text",
+          "startTime": 1675.843,
+          "endTime": 1678.512,
+          "format": "VTT",
+          "originalText": "What do we do when we are scared?",
+          "originalContent": "What do we do when we are scared?"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ነቶም ቃላት ንደጋግሞም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1679.638-1681.223",
+        "data": {
+          "type": "text",
+          "startTime": 1679.304,
+          "endTime": 1680.722,
+          "format": "VTT",
+          "originalText": "We say the words.",
+          "originalContent": "We say the words."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ቃላት ኣዶናይ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1681.306-1682.683",
+        "data": {
+          "type": "text",
+          "startTime": 1680.806,
+          "endTime": 1682.14,
+          "format": "VTT",
+          "originalText": "Adonai's words.",
+          "originalContent": "Adonai's words."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቲ ዝፈጥረካ ኣምላኽ ከምዚ ይብል።\n\"ኦ… ያቆብ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1683.392-1686.812",
+        "data": {
+          "type": "text",
+          "startTime": 1682.85,
+          "endTime": 1686.27,
+          "format": "VTT",
+          "originalText": "\"Thus says the Lord who created you,\nO Jacob,",
+          "originalContent": "\"Thus says the Lord who created you,\nO Jacob,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ንሱ እቲ ዝመርሓካ፣\nኦ… እስራኤል ኣይትፍራሕ\"",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1687.521-1693.485",
+        "data": {
+          "type": "text",
+          "startTime": 1687.02,
+          "endTime": 1692.943,
+          "format": "VTT",
+          "originalText": "and He who formed you, O Israel:\nFear not.\"",
+          "originalContent": "and He who formed you, O Israel:\nFear not.\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቶም ዝተረፉ ከድሕኑ እዮም።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1709.585-1711.128",
+        "data": {
+          "type": "text",
+          "startTime": 1709.042,
+          "endTime": 1710.46,
+          "format": "VTT",
+          "originalText": "They're gonna save the rest.",
+          "originalContent": "They're gonna save the rest."
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ርሓቕ!",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1730.647-1731.481",
+        "data": {
+          "type": "text",
+          "startTime": 1729.938,
+          "endTime": 1730.939,
+          "format": "VTT",
+          "originalText": "Get away!",
+          "originalContent": "Get away!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኣቦይ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1761.136-1762.179",
+        "data": {
+          "type": "text",
+          "startTime": 1760.636,
+          "endTime": 1761.637,
+          "format": "VTT",
+          "originalText": "<i>Abba?</i>",
+          "originalContent": "<i>Abba?</i>"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "እቲ ዝፍጠረካ ኣምላኽ ከምዚ ይብል፣\n\"ኦ ያቆብ እቲ ዝሰርሓካ",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1800.592-1804.805",
+        "data": {
+          "type": "text",
+          "startTime": 1800.175,
+          "endTime": 1804.054,
+          "format": "VTT",
+          "originalText": "\"Thus said the Lord who formed you,\nO Jacob,",
+          "originalContent": "\"Thus said the Lord who formed you,\nO Jacob,"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ኦ እስራኤል ኣይትፍራሕ\nኣነ ስለ ዝፈጠርኩኻ ኣይትፍራሕ\"",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1806.974-1811.603",
+        "data": {
+          "type": "text",
+          "startTime": 1806.515,
+          "endTime": 1811.061,
+          "format": "VTT",
+          "originalText": "and He who created you, O Israel:\nFear not.\"",
+          "originalContent": "and He who created you, O Israel:\nFear not.\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "\"ኣይትፍራሕ ኣይትሽበር\"",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1848.39-1851.602",
+        "data": {
+          "type": "text",
+          "startTime": 1846.471,
+          "endTime": 1852.853,
+          "format": "VTT",
+          "originalText": "\"Fear not, for I have created...\"",
+          "originalContent": "\"Fear not, for I have created...\""
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ክኣቱ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1885.093-1886.595",
+        "data": {
+          "type": "text",
+          "startTime": 1884.635,
+          "endTime": 1886.136,
+          "format": "VTT",
+          "originalText": "<i>Chaverim maqqaba.</i>",
+          "originalContent": "<i>Chaverim maqqaba.</i>"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሊሊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1912.746-1913.622",
+        "data": {
+          "type": "text",
+          "startTime": 1912.329,
+          "endTime": 1913.497,
+          "format": "VTT",
+          "originalText": "Lili!",
+          "originalContent": "Lili!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ብሂወት ኣለኺ?",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1915.165-1916.291",
+        "data": {
+          "type": "text",
+          "startTime": 1914.623,
+          "endTime": 1915.874,
+          "format": "VTT",
+          "originalText": "You're alive!",
+          "originalContent": "You're alive!"
+        },
+        "edits": []
+      }
+    },
+    {
+      "kind": 1,
+      "languageId": "html",
+      "value": "ሕማቕ ከም ዝነበርኪ ሰሚዒ።\nንዒ ፣ ኮፍ በሊ።",
+      "metadata": {
+        "type": "text",
+        "id": "TheChosen-101-en 1:cue-1922.965-1925.259",
+        "data": {
+          "type": "text",
+          "startTime": 1920.712,
+          "endTime": 1924.842,
+          "format": "VTT",
+          "originalText": "Come, sit.",
+          "originalContent": "Come, sit."
+        },
+        "edits": []
+      }
+    }
+  ],
+  "metadata": {
+    "id": "TheChosen-101-en",
+    "originalName": "TheChosen_101_en.vtt",
+    "sourceFsPath": "/Users/ryderwishart/.codex-projects/importer-testing-july-17/.project/sourceTexts/TheChosen_101_en.source",
+    "codexFsPath": "/Users/ryderwishart/.codex-projects/importer-testing-july-17/files/target/TheChosen_101_en.codex",
+    "navigation": [],
+    "sourceCreatedAt": "2025-07-18T14:42:37.287Z",
+    "corpusMarker": "subtitles",
+    "textDirection": "ltr",
+    "videoUrl": ""
+  }
+}
