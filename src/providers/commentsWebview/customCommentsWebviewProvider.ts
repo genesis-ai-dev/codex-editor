@@ -343,11 +343,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         migratedExistingThreads[indexOfCommentToMarkAsDeleted];
                     await serializeCommentsToDisk(migratedExistingThreads, {
                         ...commentThreadToMarkAsDeleted,
-                        deletionEvent: [{
-                            timestamp: Date.now(),
-                            author: { name: await this.getCurrentUserName() },
-                            valid: true
-                        }],
+                        deleted: true,
                         comments: [],
                     });
                     this.sendCommentsToWebview(this._view!);
@@ -565,8 +561,8 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             thread.uri !== undefined || // Remove legacy uri field
             thread.deleted !== undefined || // Old boolean field
             thread.resolved !== undefined || // Old boolean field
-            thread.deletionEvent === undefined || // Missing new field
-            thread.resolvedEvent === undefined || // Missing new field
+            thread.deleted === undefined || // Missing boolean field
+            thread.resolved === undefined || // Missing boolean field
             (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://'))) ||
             (thread.comments && thread.comments.some((comment: any) => comment.contextValue !== undefined)) // Check for contextValue
         );

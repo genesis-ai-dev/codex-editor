@@ -28,27 +28,9 @@ export class CommentsMigrator {
                 threadTitle: thread.threadTitle
             };
 
-            // Always include deletionEvent (empty array if none)
-            orderedThread.deletionEvent = thread.deletionEvent
-                ? thread.deletionEvent.map(event => ({
-                    timestamp: event.timestamp,
-                    author: {
-                        name: event.author.name
-                    },
-                    valid: event.valid
-                }))
-                : [];
-
-            // Always include resolvedEvent (empty array if none)
-            orderedThread.resolvedEvent = thread.resolvedEvent
-                ? thread.resolvedEvent.map(event => ({
-                    timestamp: event.timestamp,
-                    author: {
-                        name: event.author.name
-                    },
-                    valid: event.valid
-                }))
-                : [];
+            // Include simple boolean fields
+            orderedThread.deleted = thread.deleted || false;
+            orderedThread.resolved = thread.resolved || false;
 
             orderedThread.comments = thread.comments
                 .slice() // Create a copy to avoid mutating the original
@@ -551,8 +533,8 @@ export class CommentsMigrator {
                 thread.uri !== undefined ||
                 thread.deleted !== undefined ||  // Old boolean field
                 thread.resolved !== undefined || // Old boolean field
-                thread.deletionEvent === undefined || // Missing new field
-                thread.resolvedEvent === undefined || // Missing new field
+                thread.deleted === undefined || // Missing boolean field
+                thread.resolved === undefined || // Missing boolean field
                 (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://')))) {
                 return true;
             }
@@ -588,43 +570,12 @@ export class CommentsMigrator {
             delete result.version;
             delete result.uri; // Remove redundant uri field
 
-            // Migrate old deleted/resolved booleans to new event arrays
-            if ('deleted' in result) {
-                if (result.deleted === true) {
-                    // Use timestamp from last comment or current time
-                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
-                    result.deletionEvent = [{
-                        timestamp,
-                        author: { name: await CommentsMigrator.getCurrentUser() },
-                        valid: true
-                    }];
-                } else {
-                    // Was false, so no deletion event
-                    result.deletionEvent = [];
-                }
-                delete result.deleted;
-            } else if (!result.deletionEvent) {
-                // Ensure field exists even if no old field
-                result.deletionEvent = [];
+            // Ensure we have the simple boolean fields
+            if (!('deleted' in result)) {
+                result.deleted = false;
             }
-
-            if ('resolved' in result) {
-                if (result.resolved === true) {
-                    // Use timestamp from last comment or current time
-                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
-                    result.resolvedEvent = [{
-                        timestamp,
-                        author: { name: await CommentsMigrator.getCurrentUser() },
-                        valid: true
-                    }];
-                } else {
-                    // Was false, so no resolved event
-                    result.resolvedEvent = [];
-                }
-                delete result.resolved;
-            } else if (!result.resolvedEvent) {
-                // Ensure field exists even if no old field
-                result.resolvedEvent = [];
+            if (!('resolved' in result)) {
+                result.resolved = false;
             }
 
             // Clean up legacy contextValue from all comments
