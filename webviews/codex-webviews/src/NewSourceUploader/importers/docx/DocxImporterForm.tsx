@@ -28,14 +28,14 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
         alignContent;
     const selectedSource = wizardContext?.selectedSource;
 
-    const [file, setFile] = useState<File | null>(null);
+    const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
     const [isDirty, setIsDirty] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isAligning, setIsAligning] = useState(false);
     const [isRetrying, setIsRetrying] = useState(false);
     const [progress, setProgress] = useState<ImportProgress[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [result, setResult] = useState<NotebookPair | null>(null);
+    const [result, setResult] = useState<NotebookPair | NotebookPair[] | null>(null);
 
     // Translation import specific state
     const [alignedCells, setAlignedCells] = useState<AlignedCell[] | null>(null);
@@ -43,9 +43,9 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const [targetCells, setTargetCells] = useState<any[]>([]);
 
     const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        const selectedFile = e.target.files?.[0];
-        if (selectedFile) {
-            setFile(selectedFile);
+        const files = Array.from(e.target.files || []);
+        if (files.length > 0) {
+            setSelectedFiles(files);
             setIsDirty(true);
             setError(null);
             setProgress([]);
@@ -54,7 +54,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
     }, []);
 
     const handleImport = async () => {
-        if (!file) return;
+        if (selectedFiles.length === 0) return;
 
         setIsProcessing(true);
         setError(null);
@@ -69,35 +69,46 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 ]);
             };
 
-            // Validate file
-            onProgress({
-                stage: "Validation",
-                message: "Validating DOCX file...",
-                progress: 10,
-            });
+            // Process multiple files
+            const results: NotebookPair[] = [];
 
-            const validation = await validateFile(file);
-            if (!validation.isValid) {
-                throw new Error(validation.errors.join(", "));
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+
+                // Validate file
+                onProgress({
+                    stage: "Validation",
+                    message: `Validating ${file.name} (${i + 1}/${selectedFiles.length})...`,
+                    progress: 10 + (i * 80) / selectedFiles.length,
+                });
+
+                const validation = await validateFile(file);
+                if (!validation.isValid) {
+                    throw new Error(`${file.name}: ${validation.errors.join(", ")}`);
+                }
+
+                // Parse file
+                const importResult = await parseFile(file, onProgress);
+
+                if (!importResult.success || !importResult.notebookPair) {
+                    throw new Error(importResult.error || `Failed to parse ${file.name}`);
+                }
+
+                results.push(importResult.notebookPair);
             }
 
-            // Parse file
-            const importResult = await parseFile(file, onProgress);
-
-            if (!importResult.success || !importResult.notebookPair) {
-                throw new Error(importResult.error || "Failed to parse file");
-            }
-
-            setResult(importResult.notebookPair);
+            const finalResult = results.length === 1 ? results[0] : results;
+            setResult(finalResult);
             setIsDirty(false);
 
             if (isTranslationImport) {
-                // For translation imports, perform alignment and show preview
+                // For translation imports, use first file only (multi-file translation imports need special UI)
+                const primaryNotebook = Array.isArray(finalResult) ? finalResult[0] : finalResult;
                 setIsAligning(true);
 
                 try {
                     // Convert notebook to imported content
-                    const importedContent = notebookToImportedContent(importResult.notebookPair);
+                    const importedContent = notebookToImportedContent(primaryNotebook);
                     setImportedContent(importedContent);
 
                     // Use sequential alignment by default for DOCX (no meaningful IDs)
@@ -125,7 +136,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 // For source imports, complete normally
                 setTimeout(async () => {
                     try {
-                        await handleImportCompletion(importResult.notebookPair!, props);
+                        await handleImportCompletion(finalResult, props);
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
                     }
@@ -178,7 +189,11 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                 alignedCells={alignedCells}
                 importedContent={importedContent}
                 targetCells={targetCells}
-                sourceCells={result?.source.cells || []}
+                sourceCells={
+                    Array.isArray(result)
+                        ? result[0]?.source.cells || []
+                        : result?.source.cells || []
+                }
                 selectedSourceName={selectedSource?.name}
                 onConfirm={handleConfirmAlignment}
                 onCancel={handleCancel}
@@ -223,6 +238,7 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         <input
                             type="file"
                             accept=".docx"
+                            multiple
                             onChange={handleFileSelect}
                             className="hidden"
                             id="docx-file-input"
@@ -239,21 +255,29 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         </label>
                     </div>
 
-                    {file && (
-                        <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                            <div className="flex items-center gap-3">
-                                <FileText className="h-5 w-5 text-muted-foreground" />
-                                <div>
-                                    <p className="font-medium">{file.name}</p>
-                                    <p className="text-sm text-muted-foreground">
-                                        {(file.size / 1024 / 1024).toFixed(2)} MB
-                                    </p>
-                                </div>
+                    {selectedFiles.length > 0 && (
+                        <div className="space-y-2">
+                            <div className="text-sm font-medium">
+                                Selected Files ({selectedFiles.length})
+                            </div>
+                            <div className="max-h-32 overflow-y-auto space-y-1">
+                                {selectedFiles.map((file, index) => (
+                                    <div
+                                        key={index}
+                                        className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm"
+                                    >
+                                        <FileText className="h-4 w-4 text-muted-foreground" />
+                                        <span className="flex-1">{file.name}</span>
+                                        <span className="text-muted-foreground">
+                                            {(file.size / 1024 / 1024).toFixed(2)} MB
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
                             <Button
                                 onClick={handleImport}
                                 disabled={isProcessing || isAligning}
-                                className="flex items-center gap-2"
+                                className="w-full flex items-center gap-2"
                             >
                                 {isProcessing ? (
                                     <>Processing...</>
@@ -262,7 +286,8 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                                 ) : (
                                     <>
                                         <Upload className="h-4 w-4" />
-                                        Import
+                                        Import {selectedFiles.length} File
+                                        {selectedFiles.length !== 1 ? "s" : ""}
                                     </>
                                 )}
                             </Button>
@@ -291,7 +316,14 @@ export const DocxImporterForm: React.FC<ImporterComponentProps> = (props) => {
                         <Alert>
                             <CheckCircle className="h-4 w-4 text-green-600" />
                             <AlertDescription>
-                                Successfully imported! Created {result.source.cells.length} cells.
+                                {Array.isArray(result)
+                                    ? `Successfully imported ${
+                                          result.length
+                                      } notebooks with ${result.reduce(
+                                          (total, nb) => total + nb.source.cells.length,
+                                          0
+                                      )} total cells.`
+                                    : `Successfully imported! Created ${result.source.cells.length} cells.`}
                             </AlertDescription>
                         </Alert>
                     )}

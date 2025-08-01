@@ -236,9 +236,8 @@ export const ObsImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const handleComplete = useCallback(async () => {
         if (result) {
             try {
-                // Handle both single and array results
-                const notebookPair = Array.isArray(result) ? result[0] : result;
-                await handleImportCompletion(notebookPair, props);
+                // Handle both single and array results - pass all notebooks for batch import
+                await handleImportCompletion(result, props);
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to complete import");
             }

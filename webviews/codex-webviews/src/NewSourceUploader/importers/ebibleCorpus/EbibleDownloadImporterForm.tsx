@@ -245,9 +245,8 @@ export const EbibleDownloadImporterForm: React.FC<ImporterComponentProps> = (pro
 
                         setTimeout(async () => {
                             try {
-                                // For multi-file imports, handle the first notebook pair
-                                // Note: Multi-file translation imports may need special UI handling
-                                await handleImportCompletion(notebookPairs[0], props);
+                                // For multi-file imports, pass all notebook pairs for batch import
+                                await handleImportCompletion(notebookPairs, props);
                             } catch (err) {
                                 setError(
                                     err instanceof Error ? err.message : "Failed to complete import"
