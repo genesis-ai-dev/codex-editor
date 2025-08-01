@@ -30,6 +30,18 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         return ["CommentsView", "index.js"];
     }
 
+    private async getCurrentUsername(): Promise<string> {
+        try {
+            if (this.authApi && this.isAuthenticated) {
+                const user = await this.authApi.getUserInfo();
+                return user?.username || 'Unknown';
+            }
+        } catch (error) {
+            console.error("[CommentsProvider] Error getting user info:", error);
+        }
+        return 'Unknown';
+    }
+
     private async initializeAuthState() {
         try {
             console.log("[CommentsProvider] Initializing auth state...");
@@ -343,7 +355,11 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         migratedExistingThreads[indexOfCommentToMarkAsDeleted];
                     await serializeCommentsToDisk(migratedExistingThreads, {
                         ...commentThreadToMarkAsDeleted,
-                        deleted: true,
+                        deletionEvent: [{
+                            timestamp: Date.now(),
+                            author: { name: await this.getCurrentUsername() },
+                            deleted: true
+                        }],
                         comments: [],
                     });
                     this.sendCommentsToWebview(this._view!);
@@ -559,10 +575,10 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         const needsCleanup = threads.some(thread =>
             thread.version !== undefined ||
             thread.uri !== undefined || // Remove legacy uri field
-            thread.deleted !== undefined || // Old boolean field
-            thread.resolved !== undefined || // Old boolean field
-            thread.deleted === undefined || // Missing boolean field
-            thread.resolved === undefined || // Missing boolean field
+            thread.deleted !== undefined ||    // Old boolean field - should be deletionEvent array
+            thread.resolved !== undefined ||  // Old boolean field - should be resolvedEvent array
+            thread.deletionEvent === undefined ||  // Missing new array field
+            thread.resolvedEvent === undefined || // Missing new array field
             (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://'))) ||
             (thread.comments && thread.comments.some((comment: any) => comment.contextValue !== undefined)) // Check for contextValue
         );
@@ -583,6 +599,46 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             // Remove legacy fields if they exist
             delete result.version;
             delete result.uri; // Remove redundant uri field
+
+            // Migrate deleted/resolved from boolean to event arrays if needed
+            if (!('deletionEvent' in result)) {
+                if (typeof result.deleted === 'boolean') {
+                    if (result.deleted && result.comments && result.comments.length > 0) {
+                        const latestComment = result.comments.reduce((latest: any, comment: any) =>
+                            comment.timestamp > latest.timestamp ? comment : latest
+                        );
+                        result.deletionEvent = [{
+                            timestamp: latestComment.timestamp + 5,
+                            author: { name: latestComment.author.name },
+                            deleted: true
+                        }];
+                    } else {
+                        result.deletionEvent = [];
+                    }
+                    delete result.deleted; // Remove old boolean field
+                } else {
+                    result.deletionEvent = [];
+                }
+            }
+            if (!('resolvedEvent' in result)) {
+                if (typeof result.resolved === 'boolean') {
+                    if (result.resolved && result.comments && result.comments.length > 0) {
+                        const latestComment = result.comments.reduce((latest: any, comment: any) =>
+                            comment.timestamp > latest.timestamp ? comment : latest
+                        );
+                        result.resolvedEvent = [{
+                            timestamp: latestComment.timestamp + 5,
+                            author: { name: latestComment.author.name },
+                            resolved: true
+                        }];
+                    } else {
+                        result.resolvedEvent = [];
+                    }
+                    delete result.resolved; // Remove old boolean field
+                } else {
+                    result.resolvedEvent = [];
+                }
+            }
 
             // Clean up legacy contextValue from all comments
             if (result.comments) {

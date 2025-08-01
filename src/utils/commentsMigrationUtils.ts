@@ -28,9 +28,44 @@ export class CommentsMigrator {
                 threadTitle: thread.threadTitle
             };
 
-            // Include simple boolean fields
-            orderedThread.deleted = thread.deleted || false;
-            orderedThread.resolved = thread.resolved || false;
+            // Handle deleted/resolved migration from boolean to event arrays
+            if (typeof (thread as any).deleted === 'boolean') {
+                if ((thread as any).deleted && thread.comments && thread.comments.length > 0) {
+                    // Find the latest comment to get timestamp and author
+                    const latestComment = thread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    orderedThread.deletionEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        deleted: true
+                    }];
+                } else {
+                    orderedThread.deletionEvent = [];
+                }
+            } else {
+                // Already in new format or undefined
+                orderedThread.deletionEvent = thread.deletionEvent || [];
+            }
+
+            if (typeof (thread as any).resolved === 'boolean') {
+                if ((thread as any).resolved && thread.comments && thread.comments.length > 0) {
+                    // Find the latest comment to get timestamp and author
+                    const latestComment = thread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    orderedThread.resolvedEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        resolved: true
+                    }];
+                } else {
+                    orderedThread.resolvedEvent = [];
+                }
+            } else {
+                // Already in new format or undefined
+                orderedThread.resolvedEvent = thread.resolvedEvent || [];
+            }
 
             orderedThread.comments = thread.comments
                 .slice() // Create a copy to avoid mutating the original
@@ -531,10 +566,10 @@ export class CommentsMigrator {
             // Check for old thread structure or missing new fields
             if (thread.version !== undefined ||
                 thread.uri !== undefined ||
-                thread.deleted !== undefined ||  // Old boolean field
-                thread.resolved !== undefined || // Old boolean field
-                thread.deleted === undefined || // Missing boolean field
-                thread.resolved === undefined || // Missing boolean field
+                thread.deleted !== undefined ||    // Old boolean field - should be deletionEvent array
+                thread.resolved !== undefined ||  // Old boolean field - should be resolvedEvent array
+                thread.deletionEvent === undefined ||  // Missing new array field
+                thread.resolvedEvent === undefined || // Missing new array field
                 (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://')))) {
                 return true;
             }
@@ -570,12 +605,44 @@ export class CommentsMigrator {
             delete result.version;
             delete result.uri; // Remove redundant uri field
 
-            // Ensure we have the simple boolean fields
-            if (!('deleted' in result)) {
-                result.deleted = false;
+            // Migrate deleted/resolved from boolean to event arrays if needed
+            if (!('deletionEvent' in result)) {
+                if (typeof result.deleted === 'boolean') {
+                    if (result.deleted && result.comments && result.comments.length > 0) {
+                        const latestComment = result.comments.reduce((latest: any, comment: any) =>
+                            comment.timestamp > latest.timestamp ? comment : latest
+                        );
+                        result.deletionEvent = [{
+                            timestamp: latestComment.timestamp + 5,
+                            author: { name: latestComment.author.name },
+                            deleted: true
+                        }];
+                    } else {
+                        result.deletionEvent = [];
+                    }
+                    delete result.deleted; // Remove old boolean field
+                } else {
+                    result.deletionEvent = [];
+                }
             }
-            if (!('resolved' in result)) {
-                result.resolved = false;
+            if (!('resolvedEvent' in result)) {
+                if (typeof result.resolved === 'boolean') {
+                    if (result.resolved && result.comments && result.comments.length > 0) {
+                        const latestComment = result.comments.reduce((latest: any, comment: any) =>
+                            comment.timestamp > latest.timestamp ? comment : latest
+                        );
+                        result.resolvedEvent = [{
+                            timestamp: latestComment.timestamp + 5,
+                            author: { name: latestComment.author.name },
+                            resolved: true
+                        }];
+                    } else {
+                        result.resolvedEvent = [];
+                    }
+                    delete result.resolved; // Remove old boolean field
+                } else {
+                    result.resolvedEvent = [];
+                }
             }
 
             // Clean up legacy contextValue from all comments
