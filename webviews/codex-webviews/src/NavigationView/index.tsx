@@ -5,6 +5,8 @@ import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
+import { Progress } from "../components/ui/progress";
+import "../tailwind.css";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -692,19 +694,8 @@ function NavigationView() {
                     <span>Translation Progress</span>
                     <span>{Math.round(progress)}%</span>
                 </div>
-                <div style={styles.progressBar}>
-                    <div
-                        style={{
-                            width: `${progress}%`,
-                            height: "100%",
-                            backgroundColor:
-                                progress === 100
-                                    ? "var(--vscode-terminal-ansiGreen)"
-                                    : "var(--vscode-progressBar-foreground)",
-                            transition: "width 0.3s ease",
-                        }}
-                    />
-                </div>
+
+                <Progress value={progress} secondaryValue={progress / 2} showPercentage />
             </div>
         );
     };
@@ -931,7 +922,7 @@ function NavigationView() {
                                 </>
                             );
                         }
-                        
+
                         if (!state.hasReceivedInitialData) {
                             return <div style={styles.noResults}>Loading files...</div>;
                         }
