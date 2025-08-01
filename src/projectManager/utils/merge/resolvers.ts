@@ -750,9 +750,8 @@ async function resolveCommentThreadsConflict(
                 ? { ...migratedTheirThread } // Use their thread metadata if they have newer comments
                 : { ...existingThread };    // Use our thread metadata if we have newer comments
 
-            // Always use the merged comments array
-            mergedThread.comments = Array.from(allComments.values())
-                .sort((a, b) => a.timestamp - b.timestamp);
+            // Always use the merged comments array - preserve order to minimize git diffs
+            mergedThread.comments = Array.from(allComments.values());
 
             // Merge simple boolean fields - if either side is true, result is true
             mergedThread.deleted = existingThread.deleted || migratedTheirThread.deleted;

@@ -34,7 +34,7 @@ export class CommentsMigrator {
 
             orderedThread.comments = thread.comments
                 .slice() // Create a copy to avoid mutating the original
-                .sort((a, b) => a.timestamp - b.timestamp) // Sort comments by timestamp
+                // DO NOT sort comments - preserve existing order to minimize git diffs
                 .map(comment => ({
                     id: comment.id,
                     timestamp: comment.timestamp,
@@ -253,8 +253,8 @@ export class CommentsMigrator {
             console.log(`[CommentsMigrator] Added legacy comment with ID: ${comment.id}`);
         });
 
-        // Sort comments by timestamp
-        return Array.from(commentMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+        // DO NOT sort comments - preserve existing order to minimize git diffs
+        return Array.from(commentMap.values());
     }
 
     /**
