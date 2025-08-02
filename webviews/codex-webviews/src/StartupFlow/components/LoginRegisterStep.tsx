@@ -11,6 +11,263 @@ import {
     validateVisualPassword
 } from "../../components/PasswordDotsIndicator";
 
+// Email Display Indicator Component with ghost template
+const EmailDisplayIndicator: React.FC<{
+    email: string;
+    invalidPositions: number[];
+    showIndicator: boolean;
+}> = ({ email, invalidPositions, showIndicator }) => {
+    if (!showIndicator) {
+        return null;
+    }
+
+    // Determine which segments are valid for green coloring
+    const getSegmentValidation = (inputEmail: string) => {
+        const atIndex = inputEmail.indexOf('@');
+        const segments = {
+            localValid: false,
+            atValid: false,
+            dotValid: false,
+            domainPreValid: false,
+            domainPostValid: false
+        };
+
+        if (atIndex === -1) {
+            // Before @ is typed, nothing should be green
+            return segments;
+        }
+
+        // We have an @ symbol
+        segments.atValid = (inputEmail.match(/@/g) || []).length === 1;
+        
+        const localPart = inputEmail.substring(0, atIndex);
+        const domainPart = inputEmail.substring(atIndex + 1);
+
+        // Validate local part - only green once @ is typed
+        if (localPart.length > 0) {
+            const hasValidChars = /^[a-zA-Z0-9.\-_+]+$/.test(localPart);
+            const specialChars = ['.', '-', '_', '+'];
+            
+            // Check no consecutive special characters
+            let hasConsecutiveSpecial = false;
+            for (let i = 0; i < localPart.length - 1; i++) {
+                if (specialChars.includes(localPart[i]) && specialChars.includes(localPart[i + 1])) {
+                    hasConsecutiveSpecial = true;
+                    break;
+                }
+            }
+            
+            // Check start/end restrictions
+            const startsWithSpecial = specialChars.some(char => localPart.startsWith(char));
+            const endsWithSpecial = specialChars.some(char => localPart.endsWith(char));
+            
+            segments.localValid = hasValidChars && !hasConsecutiveSpecial && !startsWithSpecial && !endsWithSpecial && localPart.length <= 64;
+        }
+
+        // Validate domain parts
+        const firstDotIndex = domainPart.indexOf('.');
+        if (firstDotIndex >= 0) { // We have a dot in domain
+            segments.dotValid = true; // The dot itself is valid when present
+            
+            const domainPreDot = domainPart.substring(0, firstDotIndex);
+            const domainPostDot = domainPart.substring(firstDotIndex + 1);
+
+            // Domain pre-dot validation - only green once dot is typed
+            if (firstDotIndex > 0) {
+                const hasValidDomainChars = /^[a-zA-Z0-9-]+$/.test(domainPreDot);
+                const noConsecutiveHyphens = !domainPreDot.includes('--');
+                const noStartHyphen = !domainPreDot.startsWith('-');
+                const noEndHyphen = !domainPreDot.endsWith('-');
+                segments.domainPreValid = hasValidDomainChars && noConsecutiveHyphens && noStartHyphen && noEndHyphen && domainPreDot.length > 0 && domainPreDot.length <= 63;
+            }
+
+            // Domain post-dot validation - handle multi-part domains/TLDs
+            if (domainPostDot.length >= 2) {
+                // Check if this is a simple TLD (letters only) or multi-part domain
+                const domainParts = domainPostDot.split('.');
+                
+                if (domainParts.length === 1) {
+                    // Simple TLD case (e.g., "com", "org")
+                    const hasValidTLDChars = /^[a-zA-Z]+$/.test(domainPostDot);
+                    segments.domainPostValid = hasValidTLDChars;
+                } else {
+                    // Multi-part domain case (e.g., "co.uk", "example.com")
+                    let allPartsValid = true;
+                    
+                    for (let i = 0; i < domainParts.length; i++) {
+                        const part = domainParts[i];
+                        if (!part || part.length === 0) {
+                            allPartsValid = false;
+                            break;
+                        }
+                        
+                        if (i === domainParts.length - 1) {
+                            // Last part is TLD - should be letters only
+                            if (!/^[a-zA-Z]+$/.test(part) || part.length < 2) {
+                                allPartsValid = false;
+                                break;
+                            }
+                        } else {
+                            // Intermediate parts - can have alphanumeric + hyphens
+                            const hasValidChars = /^[a-zA-Z0-9-]+$/.test(part);
+                            const noConsecutiveHyphens = !part.includes('--');
+                            const noStartHyphen = !part.startsWith('-');
+                            const noEndHyphen = !part.endsWith('-');
+                            
+                            if (!hasValidChars || noConsecutiveHyphens === false || noStartHyphen === false || noEndHyphen === false || part.length > 63) {
+                                allPartsValid = false;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    segments.domainPostValid = allPartsValid;
+                }
+            }
+        }
+
+        return segments;
+    };
+
+    const segmentValidation = getSegmentValidation(email);
+
+    // Create ghost template display
+    const createGhostTemplate = (inputEmail: string) => {
+        if (!inputEmail) {
+            // Show initial template with dots
+            return '•@•.••';
+        }
+
+        // Find @ position
+        const atIndex = inputEmail.indexOf('@');
+        
+        if (atIndex === -1) {
+            // No @ found yet - show user input + template remainder
+            // Make sure the template shifts as user types
+            const localPart = inputEmail;
+            const localDisplay = localPart.length > 0 ? localPart : '•';
+            return localDisplay + '@•.••';
+        }
+
+        const localPart = inputEmail.substring(0, atIndex);
+        const domainPart = inputEmail.substring(atIndex + 1);
+        
+        // Build local part (before @)
+        let localDisplay = localPart || '•';
+        if (localPart.length === 0) {
+            localDisplay = '•';
+        }
+        
+        // Find first dot in domain part
+        const firstDotIndex = domainPart.indexOf('.');
+        
+        if (firstDotIndex === -1) {
+            // No dot in domain yet
+            let domainDisplay = domainPart || '•';
+            if (domainPart.length === 0) {
+                domainDisplay = '•';
+            }
+            return localDisplay + '@' + domainDisplay + '.••';
+        }
+        
+        // Domain has a dot
+        const domainPreDot = domainPart.substring(0, firstDotIndex);
+        const domainPostDot = domainPart.substring(firstDotIndex + 1);
+        
+        let domainPreDisplay = domainPreDot || '•';
+        if (domainPreDot.length === 0) {
+            domainPreDisplay = '•';
+        }
+        
+        let domainPostDisplay = domainPostDot || '••';
+        if (domainPostDot.length === 0) {
+            domainPostDisplay = '••';
+        } else {
+            // Check if we have multiple parts in post-dot (e.g., "co.uk" or "co.u")
+            const postDotParts = domainPostDot.split('.');
+            const lastPart = postDotParts[postDotParts.length - 1];
+            
+            if (lastPart.length < 2) {
+                // TLD is too short, add ghost dots to indicate missing characters
+                const dotsNeeded = 2 - lastPart.length;
+                domainPostDisplay = domainPostDot + '•'.repeat(dotsNeeded);
+            } else {
+                domainPostDisplay = domainPostDot;
+            }
+        }
+        
+        return localDisplay + '@' + domainPreDisplay + '.' + domainPostDisplay;
+    };
+
+    const displayText = createGhostTemplate(email);
+
+    return (
+        <div style={{ 
+            marginTop: '-8px',
+            marginBottom: '4px',
+            fontSize: '0.85em',
+            fontFamily: 'monospace',
+            textAlign: 'left',
+            alignSelf: 'flex-start',
+            width: '100%',
+            wordBreak: 'break-all',
+        }}>
+            {displayText.split('').map((char, index) => {
+                const isUserInput = index < email.length;
+                const isInvalidPosition = invalidPositions.includes(index);
+                const isDot = char === '•';
+                
+                // Determine if this character is in a valid segment
+                const atPosition = displayText.indexOf('@');
+                const firstDotPosition = displayText.indexOf('.', atPosition + 1);
+                
+                let isValidSegment = false;
+                if (index < atPosition) {
+                    // Local part - only green once @ is typed
+                    isValidSegment = segmentValidation.localValid && isUserInput;
+                } else if (index === atPosition) {
+                    // @ symbol
+                    isValidSegment = segmentValidation.atValid;
+                } else if (displayText[index] === '.' && firstDotPosition >= 0 && index >= firstDotPosition) {
+                    // Any dot in domain (including multi-part domains)
+                    isValidSegment = segmentValidation.dotValid;
+                } else if (index > atPosition && (firstDotPosition === -1 || index < firstDotPosition)) {
+                    // Domain pre-dot - only green once dot is typed
+                    isValidSegment = segmentValidation.domainPreValid && isUserInput;
+                } else if (firstDotPosition >= 0 && index > firstDotPosition) {
+                    // Domain post-dot (including multi-part TLDs) - green when valid
+                    isValidSegment = segmentValidation.domainPostValid && isUserInput;
+                }
+                
+                return (
+                    <span
+                        key={index}
+                        style={{
+                            backgroundColor: isInvalidPosition 
+                                ? 'var(--vscode-inputValidation-errorBackground)' 
+                                : 'transparent',
+                            color: isInvalidPosition
+                                ? 'var(--vscode-inputValidation-errorForeground)'
+                                : isValidSegment
+                                    ? 'var(--vscode-charts-green)'
+                                    : isDot
+                                        ? 'var(--vscode-descriptionForeground)'
+                                        : isUserInput
+                                            ? 'var(--vscode-foreground)'
+                                            : 'var(--vscode-descriptionForeground)',
+                            opacity: isDot ? 0.5 : 1,
+                            padding: '1px',
+                            borderRadius: '2px',
+                        }}
+                    >
+                        {char}
+                    </span>
+                );
+            })}
+        </div>
+    );
+};
+
 export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     // authState,
     onLogin,
@@ -24,6 +281,8 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
     const [confirmPassword, setConfirmPassword] = useState("");
     const [email, setEmail] = useState("");
     const [passwordError, setPasswordError] = useState("");
+    const [emailErrors, setEmailErrors] = useState<string[]>([]);
+    const [emailInvalidPositions, setEmailInvalidPositions] = useState<number[]>([]);
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
@@ -45,8 +304,271 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         };
     }, []);
 
+    const validateEmail = (emailAddress: string) => {
+        const trimmedEmail = emailAddress.trim();
+        const errors: string[] = [];
+        const invalidPositions: number[] = [];
+        
+        if (!trimmedEmail) {
+            setEmailErrors(["Email is required"]);
+            setEmailInvalidPositions([]);
+            return false;
+        }
+        
+        // Check for length first
+        if (trimmedEmail.length > 254) {
+            errors.push("Email address is too long (max 254 characters)");
+        }
+        
+        // Check for invalid characters and track their positions
+        for (let i = 0; i < trimmedEmail.length; i++) {
+            const char = trimmedEmail[i];
+            // Allow alphanumeric, periods, hyphens, underscores, plus signs, and @
+            if (!/[a-zA-Z0-9.\-_+@]/.test(char)) {
+                invalidPositions.push(i);
+            }
+        }
+        
+        if (invalidPositions.length > 0) {
+            const invalidChars = invalidPositions.map(pos => trimmedEmail[pos]);
+            const uniqueInvalidChars = [...new Set(invalidChars)];
+            errors.push(`Invalid characters found: ${uniqueInvalidChars.join(', ')}`);
+        }
+        
+        // Check for exactly one @ symbol
+        const atCount = (trimmedEmail.match(/@/g) || []).length;
+        const allInvalidPositions = [...invalidPositions];
+        
+        if (atCount === 0) {
+            errors.push("Email must contain an @ symbol");
+        } else if (atCount > 1) {
+            // Find positions of extra @ symbols (keep first one, mark others as invalid)
+            const atPositions: number[] = [];
+            for (let i = 0; i < trimmedEmail.length; i++) {
+                if (trimmedEmail[i] === '@') {
+                    atPositions.push(i);
+                }
+            }
+            errors.push("Email can only contain one @ symbol");
+            allInvalidPositions.push(...atPositions.slice(1)); // Mark all but first @ as invalid
+        }
+        
+        // If we have exactly one @, validate domain-specific character restrictions
+        if (atCount === 1) {
+            const atIndex = trimmedEmail.indexOf('@');
+            const domainPart = trimmedEmail.substring(atIndex + 1);
+            
+            // Check for characters that are valid in local part but not in domain
+            const domainInvalidChars: string[] = [];
+            for (let i = 0; i < domainPart.length; i++) {
+                const char = domainPart[i];
+                if (/[+_]/.test(char)) {
+                    // + and _ are not allowed in domain part
+                    allInvalidPositions.push(atIndex + 1 + i);
+                    if (!domainInvalidChars.includes(char)) {
+                        domainInvalidChars.push(char);
+                    }
+                }
+            }
+            
+            if (domainInvalidChars.length > 0) {
+                errors.push(`Characters ${domainInvalidChars.join(', ')} are not allowed in domain`);
+            }
+        }
+        
+        // Only continue detailed validation if we have exactly one @
+        if (atCount === 1) {
+            // Split into local and domain parts
+            const atIndex = trimmedEmail.indexOf('@');
+            const localPart = trimmedEmail.substring(0, atIndex);
+            const domainPart = trimmedEmail.substring(atIndex + 1);
+            
+            // Validate local part (before @)
+            if (!localPart) {
+                errors.push("Email cannot start with @");
+                allInvalidPositions.push(0);
+            } else {
+                if (localPart.length > 64) {
+                    errors.push("Part before @ is too long (max 64 characters)");
+                }
+                
+                // Check start/end restrictions for special characters
+                const specialChars = ['.', '-', '_', '+'];
+                for (const char of specialChars) {
+                    if (localPart.startsWith(char)) {
+                        errors.push(`Email cannot start with ${char}`);
+                        allInvalidPositions.push(0);
+                    }
+                    if (localPart.endsWith(char)) {
+                        errors.push(`Part before @ cannot end with ${char}`);
+                        allInvalidPositions.push(atIndex - 1);
+                    }
+                }
+                
+                // Check for consecutive special characters in local part
+                for (let i = 0; i < localPart.length - 1; i++) {
+                    const char1 = localPart[i];
+                    const char2 = localPart[i + 1];
+                    
+                    if (specialChars.includes(char1) && specialChars.includes(char2)) {
+                        // Find all consecutive special characters in this sequence
+                        let j = i;
+                        const consecutiveSpecial: number[] = [];
+                        while (j < localPart.length && specialChars.includes(localPart[j])) {
+                            consecutiveSpecial.push(j);
+                            j++;
+                        }
+                        allInvalidPositions.push(...consecutiveSpecial);
+                        errors.push("Part before @ cannot contain consecutive special characters");
+                        i = j - 1; // Skip ahead to avoid duplicate detection
+                    }
+                }
+            }
+            
+            // Validate domain part (after @)
+            if (!domainPart) {
+                // Don't add redundant error - this is covered by "Domain must contain at least one dot"
+            } else {
+                if (domainPart.length > 253) {
+                    errors.push("Domain part is too long (max 253 characters)");
+                }
+                
+                const startsWithDot = domainPart.startsWith('.');
+                const endsWithDot = domainPart.endsWith('.');
+                
+                if (startsWithDot) {
+                    errors.push("Domain cannot start with a dot");
+                    allInvalidPositions.push(atIndex + 1);
+                }
+                if (endsWithDot) {
+                    errors.push("Domain cannot end with a dot");
+                    allInvalidPositions.push(trimmedEmail.length - 1);
+                }
+                
+                // Check for consecutive dots in domain part
+                for (let i = 0; i < domainPart.length - 1; i++) {
+                    if (domainPart[i] === '.' && domainPart[i + 1] === '.') {
+                        // Find all consecutive dots in this sequence
+                        let j = i;
+                        const consecutiveDots: number[] = [];
+                        while (j < domainPart.length && domainPart[j] === '.') {
+                            consecutiveDots.push(atIndex + 1 + j);
+                            j++;
+                        }
+                        allInvalidPositions.push(...consecutiveDots);
+                        errors.push("Domain cannot contain consecutive dots");
+                        i = j - 1; // Skip ahead to avoid duplicate detection
+                    }
+                }
+                
+                // Check for consecutive hyphens in domain part
+                for (let i = 0; i < domainPart.length - 1; i++) {
+                    if (domainPart[i] === '-' && domainPart[i + 1] === '-') {
+                        // Find all consecutive hyphens in this sequence
+                        let j = i;
+                        const consecutiveHyphens: number[] = [];
+                        while (j < domainPart.length && domainPart[j] === '-') {
+                            consecutiveHyphens.push(atIndex + 1 + j);
+                            j++;
+                        }
+                        allInvalidPositions.push(...consecutiveHyphens);
+                        errors.push("Domain cannot contain consecutive hyphens");
+                        i = j - 1; // Skip ahead to avoid duplicate detection
+                    }
+                }
+                
+                if (!domainPart.includes('.')) {
+                    errors.push("Domain must contain at least one dot");
+                } else {
+                    // Check domain parts (separated by dots) - but only if we don't have start/end dot issues
+                    if (!startsWithDot && !endsWithDot) {
+                        const domainParts = domainPart.split('.');
+                        for (let i = 0; i < domainParts.length; i++) {
+                            const part = domainParts[i];
+                            if (!part) {
+                                errors.push("Domain cannot have empty parts between dots");
+                                break; // Only report this once
+                            } else if (part.length > 63) {
+                                errors.push(`Domain part "${part}" is too long (max 63 characters)`);
+                            } else {
+                                // Check hyphen rules for each domain part
+                                if (part.startsWith('-')) {
+                                    errors.push("Domain parts cannot start with hyphen");
+                                    // Find position of this hyphen
+                                    let partStart = atIndex + 1;
+                                    for (let k = 0; k < i; k++) {
+                                        partStart += domainParts[k].length + 1; // +1 for the dot
+                                    }
+                                    allInvalidPositions.push(partStart);
+                                }
+                                if (part.endsWith('-')) {
+                                    errors.push("Domain parts cannot end with hyphen");
+                                    // Find position of this hyphen
+                                    let partStart = atIndex + 1;
+                                    for (let k = 0; k < i; k++) {
+                                        partStart += domainParts[k].length + 1; // +1 for the dot
+                                    }
+                                    allInvalidPositions.push(partStart + part.length - 1);
+                                }
+                                
+                                // Validate domain part characters (alphanumeric + hyphens only)
+                                if (!/^[a-zA-Z0-9-]+$/.test(part)) {
+                                    errors.push("Domain parts can only contain letters, numbers, and hyphens");
+                                    
+                                    // Find and mark invalid characters in this domain part
+                                    let partStart = atIndex + 1;
+                                    for (let k = 0; k < i; k++) {
+                                        partStart += domainParts[k].length + 1; // +1 for the dot
+                                    }
+                                    
+                                    for (let charIndex = 0; charIndex < part.length; charIndex++) {
+                                        const char = part[charIndex];
+                                        if (!/[a-zA-Z0-9-]/.test(char)) {
+                                            allInvalidPositions.push(partStart + charIndex);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Check top-level domain (last part) - should be letters only
+                        const tld = domainParts[domainParts.length - 1];
+                        if (tld) {
+                            if (tld.length < 2) {
+                                errors.push("Top-level domain must be at least 2 characters");
+                            }
+                            if (!/^[a-zA-Z]+$/.test(tld)) {
+                                errors.push("Top-level domain should contain only letters");
+                                
+                                // Find and mark invalid characters in TLD
+                                let tldStart = atIndex + 1;
+                                for (let k = 0; k < domainParts.length - 1; k++) {
+                                    tldStart += domainParts[k].length + 1; // +1 for the dot
+                                }
+                                
+                                for (let charIndex = 0; charIndex < tld.length; charIndex++) {
+                                    const char = tld[charIndex];
+                                    if (!/[a-zA-Z]/.test(char)) {
+                                        allInvalidPositions.push(tldStart + charIndex);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Remove duplicates from invalid positions
+        const uniqueInvalidPositions = [...new Set(allInvalidPositions)];
+        
+        setEmailErrors(errors);
+        setEmailInvalidPositions(uniqueInvalidPositions);
+        return errors.length === 0;
+    };
+
     const validatePassword = (pass: string) => {
-        const { isValid, issues } = validateVisualPassword(pass, email);
+        const { isValid, issues } = validateVisualPassword(pass, email, username);
         
         if (!isValid) {
             setPasswordError(issues.join(', '));
@@ -70,6 +592,12 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
             let success = false;
             
             if (isRegistering) {
+                // Validate email for registration
+                if (!validateEmail(trimmedEmail)) {
+                    setIsLoading(false);
+                    return;
+                }
+                
                 if (!validatePassword(trimmedPassword)) {
                     setIsLoading(false);
                     return;
@@ -119,10 +647,6 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
         // Automatically replace spaces with underscores
         const cleanedUsername = value.replace(/\s/g, '_');
         setUsername(cleanedUsername);
-    };
-
-    const handleEmailChange = (e: React.FormEvent<HTMLElement>) => {
-        setEmail((e.target as HTMLInputElement).value);
     };
 
     const centerBumpValue = 2.5;
@@ -202,15 +726,53 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                         </div>
                     )}
                     {isRegistering && (
-                        <VSCodeTextField
-                            type="email"
-                            value={email}
-                            onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
-                            placeholder="Email"
-                            required
-                            style={{ width: "100%" }}
-                            disabled={isLoading}
-                        />
+                        <>
+                            <VSCodeTextField
+                                type="email"
+                                value={email}
+                                onInput={(e) => {
+                                    const newEmail = (e.target as HTMLInputElement).value;
+                                    setEmail(newEmail);
+                                    
+                                    // Real-time validation for registration
+                                    if (isRegistering && newEmail.trim()) {
+                                        validateEmail(newEmail);
+                                    } else if (isRegistering) {
+                                        setEmailErrors([]); // Clear errors when field is empty during typing
+                                        setEmailInvalidPositions([]);
+                                    }
+                                }}
+                                placeholder="Email"
+                                required
+                                style={{ width: "100%" }}
+                                disabled={isLoading}
+                            />
+                            <EmailDisplayIndicator
+                                email={email}
+                                invalidPositions={emailInvalidPositions}
+                                showIndicator={isRegistering}
+                            />
+                            {emailErrors.length > 0 && (
+                                <div style={{ 
+                                    color: "var(--vscode-errorForeground)",
+                                    fontSize: "0.85em",
+                                    alignSelf: "flex-start",
+                                    marginTop: "0rem",
+                                    marginBottom: "0.5rem",
+                                    width: "100%",
+                                    textAlign: "left"
+                                }}>
+                                    {emailErrors.map((error, index) => (
+                                        <div key={index} style={{ 
+                                            marginBottom: index < emailErrors.length - 1 ? "4px" : "0",
+                                            textAlign: "left"
+                                        }}>
+                                            {error}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
                     )}
                     <div
                         style={{
@@ -255,6 +817,7 @@ export const LoginRegisterStep: React.FC<LoginRegisterStepProps> = ({
                             <PasswordDotsIndicator
                                 password={password}
                                 email={email}
+                                username={username}
                                 minLength={15}
                                 showIndicator={true}
                             />

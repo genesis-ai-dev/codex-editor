@@ -446,6 +446,25 @@ const CellList: React.FC<CellListProps> = ({
         []
     );
 
+    // Helper function to determine if cell content is effectively empty
+    const isCellContentEmpty = (cellContent: string | undefined): boolean => {
+        if (!cellContent) return true;
+        
+        // Create a temporary div to parse HTML and extract text content
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = cellContent;
+        const textContent = tempDiv.textContent || tempDiv.innerText || '';
+        
+        // Check if the text content contains only whitespace characters (including non-breaking spaces)
+        // This regex matches any combination of:
+        // - Regular spaces (\s)
+        // - Non-breaking spaces (\u00A0)
+        // - Other Unicode whitespace characters
+        const onlyWhitespaceRegex = /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
+        
+        return onlyWhitespaceRegex.test(textContent);
+    };
+
     const renderCellGroup = useCallback(
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
@@ -636,7 +655,7 @@ const CellList: React.FC<CellListProps> = ({
                     </span>
                 );
                 groupStartIndex = i + 1;
-            } else if (cellContent?.trim()?.length === 0) {
+            } else if (isCellContentEmpty(cellContent)) {
                 if (currentGroup.length > 0) {
                     result.push(renderCellGroup(currentGroup, groupStartIndex));
                     currentGroup = [];
@@ -645,7 +664,7 @@ const CellList: React.FC<CellListProps> = ({
                 // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
                 if (
                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
-                    workingTranslationUnits[i - 1]?.cellContent?.trim()?.length > 0 ||
+                    !isCellContentEmpty(workingTranslationUnits[i - 1]?.cellContent) ||
                     i === 0
                 ) {
                     // Use global line numbering
