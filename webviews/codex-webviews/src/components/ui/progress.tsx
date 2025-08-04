@@ -49,14 +49,14 @@ function Progress({
                             className="text-xs font-medium"
                             style={{ color: "var(--vscode-editorWarning-foreground)" }}
                         >
-                            {Math.round(secondaryValue || 0)}%
+                            {Math.floor(secondaryValue || 0)}%
                         </span>
                     ) : (
                         <span></span>
                     )}
                     {/* Primary value on the right */}
                     <span className="text-xs font-medium text-primary">
-                        {Math.round(value || 0)}%
+                        {Math.floor(value || 0)}%
                     </span>
                 </div>
             )}
