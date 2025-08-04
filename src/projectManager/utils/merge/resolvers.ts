@@ -817,15 +817,17 @@ async function resolveCommentThreadsConflict(
             // Always use the merged comments array - preserve order to minimize git diffs
             mergedThread.comments = Array.from(allComments.values());
 
-            // Merge event arrays - combine all valid events from both sides
+            // Merge event arrays - combine all events from both sides 
+            // The UI will determine final state based on latest timestamp
             mergedThread.deletionEvent = [
                 ...(existingThread.deletionEvent || []),
                 ...(migratedTheirThread.deletionEvent || [])
-            ];
+            ].sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
+
             mergedThread.resolvedEvent = [
                 ...(existingThread.resolvedEvent || []),
                 ...(migratedTheirThread.resolvedEvent || [])
-            ];
+            ].sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
 
             // Update the thread in the map
             threadMap.set(mergedThread.id, mergedThread);
