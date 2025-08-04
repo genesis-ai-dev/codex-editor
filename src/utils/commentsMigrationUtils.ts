@@ -677,42 +677,17 @@ export class CommentsMigrator {
         if (!thread) return thread;
 
         const threadId = thread.id || 'unknown';
-        let repairLog: string[] = [];
 
         // Repair resolved events
         if (thread.resolvedEvent && Array.isArray(thread.resolvedEvent)) {
-            const originalCount = thread.resolvedEvent.length;
             const repairedEvents = CommentsMigrator.repairEventArray(thread.resolvedEvent, 'resolved', threadId);
             thread.resolvedEvent = repairedEvents.events;
-
-            if (repairedEvents.duplicatesRemoved > 0) {
-                repairLog.push(`removed ${repairedEvents.duplicatesRemoved} duplicate resolved events`);
-            }
-            if (repairedEvents.normalizedProperties > 0) {
-                repairLog.push(`normalized ${repairedEvents.normalizedProperties} 'valid' → 'resolved' properties`);
-            }
-            if (repairedEvents.eventsRepaired > 0) {
-                repairLog.push(`repaired ${repairedEvents.eventsRepaired} malformed resolved events`);
-            }
         }
 
         // Repair deletion events
         if (thread.deletionEvent && Array.isArray(thread.deletionEvent)) {
-            const originalCount = thread.deletionEvent.length;
             const repairedEvents = CommentsMigrator.repairEventArray(thread.deletionEvent, 'deletion', threadId);
             thread.deletionEvent = repairedEvents.events;
-
-            if (repairedEvents.duplicatesRemoved > 0) {
-                repairLog.push(`removed ${repairedEvents.duplicatesRemoved} duplicate deletion events`);
-            }
-            if (repairedEvents.eventsRepaired > 0) {
-                repairLog.push(`repaired ${repairedEvents.eventsRepaired} malformed deletion events`);
-            }
-        }
-
-        // Log repairs if any were made
-        if (repairLog.length > 0) {
-            console.log(`[CommentsMigrator] Repaired thread ${threadId}: ${repairLog.join(', ')}`);
         }
 
         return thread;
