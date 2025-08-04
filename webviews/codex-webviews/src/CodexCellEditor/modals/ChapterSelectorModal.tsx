@@ -12,6 +12,10 @@ interface ChapterSelectorModalProps {
     bookTitle: string;
     unsavedChanges: boolean;
     anchorRef: React.RefObject<HTMLDivElement>;
+    chapterProgress?: Record<
+        number,
+        { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
+    >;
 }
 
 export function ChapterSelectorModal({
@@ -23,11 +27,57 @@ export function ChapterSelectorModal({
     bookTitle,
     unsavedChanges,
     anchorRef,
+    chapterProgress,
 }: ChapterSelectorModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const [columns, setColumns] = useState(10);
     const [arrowPosition, setArrowPosition] = useState<"top" | "bottom">("top");
+
+    // Helper function to get chapter background color based on progress
+    const getChapterBackgroundColor = (chapter: number, isSelected: boolean) => {
+        if (!chapterProgress || !chapterProgress[chapter]) {
+            // Default styling when no progress data
+            return isSelected
+                ? "var(--vscode-button-background)"
+                : "var(--vscode-editorWidget-background)";
+        }
+
+        const progress = chapterProgress[chapter];
+        const { percentTranslationsCompleted, percentFullyValidatedTranslations } = progress;
+
+        // If 100% validated (secondary color)
+        if (percentFullyValidatedTranslations >= 100) {
+            return "var(--vscode-editorWarning-foreground)";
+        }
+        // If 100% translated (primary color)
+        else if (percentTranslationsCompleted >= 100) {
+            return "var(--vscode-charts-blue)";
+        }
+        // Default styling
+        else {
+            return isSelected
+                ? "var(--vscode-button-background)"
+                : "var(--vscode-editorWidget-background)";
+        }
+    };
+
+    // Helper function to get text color based on background
+    const getChapterTextColor = (chapter: number, isSelected: boolean) => {
+        if (!chapterProgress || !chapterProgress[chapter]) {
+            return isSelected ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)";
+        }
+
+        const progress = chapterProgress[chapter];
+        const { percentTranslationsCompleted, percentFullyValidatedTranslations } = progress;
+
+        // If progress colors are applied, use contrasting text
+        if (percentFullyValidatedTranslations >= 100 || percentTranslationsCompleted >= 100) {
+            return "var(--vscode-editor-background)"; // Dark text on colored background
+        }
+
+        return isSelected ? "var(--vscode-button-foreground)" : "var(--vscode-foreground)";
+    };
 
     // Calculate position and dimensions
     const calculatePositionAndDimensions = () => {
@@ -225,37 +275,47 @@ export function ChapterSelectorModal({
                     gridTemplateColumns: `repeat(${columns}, 1fr)`,
                 }}
             >
-                {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => (
-                    <div
-                        key={chapter}
-                        onClick={() => {
-                            if (!unsavedChanges) {
-                                onSelectChapter(chapter);
-                                onClose();
-                            }
-                        }}
-                        className={`aspect-square flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[32px] min-h-[32px] ${
-                            unsavedChanges ? "opacity-60 cursor-not-allowed" : ""
-                        } ${
-                            currentChapter === chapter
-                                ? "bg-button-background text-button-foreground border-focusBorder font-semibold"
-                                : "bg-editorWidget-background text-foreground border-widget-border"
-                        }`}
-                        style={{
-                            border:
-                                currentChapter === chapter
-                                    ? "1px solid var(--vscode-focusBorder)"
+                {Array.from({ length: totalChapters }, (_, i) => i + 1).map((chapter) => {
+                    const isSelected = currentChapter === chapter;
+                    const backgroundColor = getChapterBackgroundColor(chapter, isSelected);
+                    const textColor = getChapterTextColor(chapter, isSelected);
+
+                    return (
+                        <div
+                            key={chapter}
+                            onClick={() => {
+                                if (!unsavedChanges) {
+                                    onSelectChapter(chapter);
+                                    onClose();
+                                }
+                            }}
+                            className={`aspect-square flex items-center justify-center rounded cursor-pointer transition-all relative overflow-hidden min-w-[32px] min-h-[32px] ${
+                                unsavedChanges ? "opacity-60 cursor-not-allowed" : ""
+                            } ${isSelected ? "font-semibold" : ""}`}
+                            style={{
+                                backgroundColor,
+                                color: textColor,
+                                border: isSelected
+                                    ? "2px solid var(--vscode-focusBorder)"
                                     : "1px solid var(--vscode-widget-border)",
-                        }}
-                    >
-                        {currentChapter === chapter && (
-                            <div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 flex items-center justify-center">
-                                <i className="codicon codicon-check" style={{ fontSize: "8px" }} />
-                            </div>
-                        )}
-                        {chapter}
-                    </div>
-                ))}
+                                // Add a subtle shadow for better distinction
+                                boxShadow: isSelected
+                                    ? "0 0 0 1px var(--vscode-focusBorder)"
+                                    : "none",
+                            }}
+                        >
+                            {isSelected && (
+                                <div className="absolute top-0.5 right-0.5 w-2.5 h-2.5 flex items-center justify-center">
+                                    <i
+                                        className="codicon codicon-check"
+                                        style={{ fontSize: "8px", color: textColor }}
+                                    />
+                                </div>
+                            )}
+                            {chapter}
+                        </div>
+                    );
+                })}
             </div>
 
             {unsavedChanges && (
