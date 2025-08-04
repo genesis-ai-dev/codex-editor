@@ -35,7 +35,7 @@ function Progress({
                             className="h-full w-full flex-1 transition-all"
                             style={{
                                 backgroundColor: "var(--vscode-editorWarning-foreground)",
-                                transform: `translateX(-${secondaryValue || 0}%)`,
+                                transform: `translateX(-${(value || 0) - (secondaryValue || 0)}%)`,
                             }}
                         />
                     )}

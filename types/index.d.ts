@@ -1825,3 +1825,19 @@ interface MenuButton {
 
 // NewSourceUploader message types (moved to plugin types)
 export type NewSourceUploaderPostMessages = any; // Placeholder - actual types are in plugin.ts
+
+interface CodexItem {
+    uri: vscode.Uri | string;
+    label: string;
+    type: "corpus" | "codexDocument" | "dictionary";
+    children?: CodexItem[];
+    corpusMarker?: string;
+    progress?: {
+        percentTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+    };
+    sortOrder?: string;
+    isProjectDictionary?: boolean;
+    wordCount?: number;
+    isEnabled?: boolean;
+}
