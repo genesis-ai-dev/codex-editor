@@ -65,6 +65,7 @@ interface ChapterNavigationHeaderProps {
     onClose?: () => void;
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
+    chapterProgress?: Record<number, { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }>;
 }
 
 export function ChapterNavigationHeader({
@@ -109,6 +110,7 @@ export function ChapterNavigationHeader({
     onClose,
     onTriggerSync,
     isCorrectionEditorMode,
+    chapterProgress,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
@@ -617,6 +619,7 @@ ChapterNavigationHeaderProps) {
                 bookTitle={getDisplayTitle().split("\u00A0")[0]}
                 unsavedChanges={unsavedChanges}
                 anchorRef={chapterTitleRef}
+                chapterProgress={chapterProgress}
             />
         </div>
     );
