@@ -64,6 +64,25 @@ interface BibleBookInfo {
     [key: string]: any;
 }
 
+// Helper function to determine if cell content is effectively empty
+const isCellContentEmpty = (cellContent: string | undefined): boolean => {
+    if (!cellContent) return true;
+
+    // Create a temporary div to parse HTML and extract text content
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = cellContent;
+    const textContent = tempDiv.textContent || tempDiv.innerText || "";
+
+    // Check if the text content contains only whitespace characters (including non-breaking spaces)
+    // This regex matches any combination of:
+    // - Regular spaces (\s)
+    // - Non-breaking spaces (\u00A0)
+    // - Other Unicode whitespace characters
+    const onlyWhitespaceRegex = /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
+
+    return onlyWhitespaceRegex.test(textContent);
+};
+
 const CodexCellEditor: React.FC = () => {
     const [translationUnits, setTranslationUnits] = useState<QuillCellContent[]>([]);
     const [alertColorCodes, setAlertColorCodes] = useState<{
@@ -905,25 +924,6 @@ const CodexCellEditor: React.FC = () => {
         return result;
     }, [translationUnitsForSection]);
 
-    // Helper function to determine if cell content is effectively empty
-    const isCellContentEmpty = (cellContent: string | undefined): boolean => {
-        if (!cellContent) return true;
-        
-        // Create a temporary div to parse HTML and extract text content
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = cellContent;
-        const textContent = tempDiv.textContent || tempDiv.innerText || '';
-        
-        // Check if the text content contains only whitespace characters (including non-breaking spaces)
-        // This regex matches any combination of:
-        // - Regular spaces (\s)
-        // - Non-breaking spaces (\u00A0)
-        // - Other Unicode whitespace characters
-        const onlyWhitespaceRegex = /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
-        
-        return onlyWhitespaceRegex.test(textContent);
-    };
-
     // Cells with no content or where the latest edit has no validators
     const untranslatedOrUnvalidatedUnitsForSection = useMemo(() => {
         debug(
@@ -1320,8 +1320,8 @@ const CodexCellEditor: React.FC = () => {
         if (translationUnitsForSection.length > 0) {
             debug("status", "Translation Units Status:", {
                 total: translationUnitsForSection.length,
-                unitsWithNoContent: translationUnitsForSection.filter(
-                    (unit) => isCellContentEmpty(unit.cellContent)
+                unitsWithNoContent: translationUnitsForSection.filter((unit) =>
+                    isCellContentEmpty(unit.cellContent)
                 ).length,
                 llmGeneratedUnits: translationUnitsForSection.filter((unit) => {
                     const cellValueData = getCellValueData(unit);
