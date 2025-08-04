@@ -66,6 +66,34 @@ export interface ProjectProgressReport {
     };
 }
 
+/**
+ * Check if a specific file has local modifications that would be committed
+ */
+async function hasLocalModifications(workspaceFolder: string, filePath: string): Promise<boolean> {
+    try {
+        const status = await git.status({
+            fs,
+            dir: workspaceFolder,
+            filepath: filePath,
+        });
+
+        // status can be:
+        // - "*modified" (unstaged changes)
+        // - "*added" (new file, unstaged)
+        // - "*deleted" (deleted, unstaged)
+        // - "modified" (staged changes)
+        // - "added" (new file, staged)
+        // - "deleted" (deleted, staged)
+        // - "unmodified" (no changes)
+
+        const hasChanges = status !== "unmodified";
+        return hasChanges;
+    } catch (error) {
+        console.warn(`[SyncManager] Could not check git status for ${filePath}:`, error);
+        return false; // If we can't check, assume no changes to be safe
+    }
+}
+
 // Singleton to manage sync operations across the application
 export class SyncManager {
     private static instance: SyncManager;
@@ -247,6 +275,28 @@ export class SyncManager {
                         // Don't fail sync due to migration errors
                     }
                 }
+
+                // Check if comments.json has local modifications that would be committed
+                const commentsHasLocalChanges = await hasLocalModifications(
+                    workspaceFolders[0].uri.fsPath,
+                    '.project/comments.json'
+                );
+
+                if (commentsHasLocalChanges) {
+                    // Only run pre-sync repair if comments.json has local modifications
+                    // This ensures we clean up any local corruption before syncing to other users
+                    this.currentSyncStage = "Cleaning up comment data...";
+                    this.notifySyncStatusListeners();
+                    updateSplashScreenSync(67, this.currentSyncStage);
+
+                    try {
+                        const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
+                        await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
+                    } catch (error) {
+                        console.error("[SyncManager] Error during pre-sync comment repair:", error);
+                        // Don't fail sync due to repair errors
+                    }
+                }
             }
 
             // Sync all changes in background
@@ -263,6 +313,20 @@ export class SyncManager {
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;
             console.log(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
+
+            // Check if comments.json was affected by the sync - if so, run targeted repair
+            const commentsWasChanged = syncResult.changedFiles.includes('.project/comments.json') ||
+                syncResult.newFiles.includes('.project/comments.json') ||
+                syncResult.deletedFiles.includes('.project/comments.json');
+
+            if (commentsWasChanged && workspaceFolders && workspaceFolders.length > 0) {
+                try {
+                    const commentsFilePath = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project", "comments.json");
+                    await CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true);
+                } catch (error) {
+                    console.error('[SyncManager] Error during post-sync comment repair:', error);
+                }
+            }
 
             // Migrate comments after sync if new legacy files were pulled
             if (workspaceFolders && workspaceFolders.length > 0) {

@@ -612,7 +612,7 @@ export async function resolveCodexCustomMerge(
 /**
  * Resolves conflicts in notebook comment thread files
  */
-async function resolveCommentThreadsConflict(
+export async function resolveCommentThreadsConflict(
     ourContent: string,
     theirContent: string
 ): Promise<string> {
@@ -817,17 +817,117 @@ async function resolveCommentThreadsConflict(
             // Always use the merged comments array - preserve order to minimize git diffs
             mergedThread.comments = Array.from(allComments.values());
 
-            // Merge event arrays - combine all events from both sides 
-            // The UI will determine final state based on latest timestamp
-            mergedThread.deletionEvent = [
+            // Helper function to validate event structure
+            const validateEvent = (event: any, eventType: string, threadId: string): boolean => {
+                const errors: string[] = [];
+
+                // Check for required timestamp
+                if (!event.timestamp || typeof event.timestamp !== 'number') {
+                    errors.push('missing or invalid timestamp');
+                }
+
+                // Check for author structure
+                if (!event.author || typeof event.author.name !== 'string') {
+                    errors.push('missing or invalid author.name');
+                }
+
+                // Check for event-specific properties
+                if (eventType === 'deletion' && !('deleted' in event) && !('valid' in event)) {
+                    errors.push('missing deleted property');
+                }
+                if (eventType === 'resolved' && !('resolved' in event) && !('valid' in event)) {
+                    errors.push('missing resolved/valid property');
+                }
+
+                if (errors.length > 0) {
+                    console.warn(`[CommentsMerge] Invalid ${eventType} event in thread ${threadId}: ${errors.join(', ')}`, event);
+                    return false;
+                }
+
+                return true;
+            };
+
+            // Helper function to normalize and deduplicate events based on timestamp, author name, and boolean state
+            const deduplicateEvents = (events: any[], eventType: string) => {
+                const seen = new Set<string>();
+                const originalCount = events.length;
+
+                // First filter out completely invalid events
+                const validEvents = events.filter(event => validateEvent(event, eventType, mergedThread.id));
+
+                if (validEvents.length !== originalCount) {
+                    debugLog(`Filtered out ${originalCount - validEvents.length} invalid ${eventType} events for thread ${mergedThread.id}`);
+                }
+
+                // Then normalize events - convert 'valid' to 'resolved' and ensure required properties exist
+                const normalizedEvents = validEvents.map(event => {
+                    const normalizedEvent = { ...event };
+
+                    // Handle property normalization for resolved events
+                    if (eventType === 'resolved') {
+                        // Convert 'valid' to 'resolved' if it exists
+                        if ('valid' in normalizedEvent && !('resolved' in normalizedEvent)) {
+                            normalizedEvent.resolved = normalizedEvent.valid;
+                            delete normalizedEvent.valid;
+                        }
+                        // Set default resolved state if missing or invalid (safer to default to false)
+                        if (!('resolved' in normalizedEvent) || typeof normalizedEvent.resolved !== 'boolean') {
+                            normalizedEvent.resolved = false;
+                        }
+                    }
+
+                    // Handle property normalization for deletion events
+                    if (eventType === 'deletion') {
+                        // Set default deleted state if missing or invalid (safer to default to false)
+                        if (!('deleted' in normalizedEvent) || typeof normalizedEvent.deleted !== 'boolean') {
+                            normalizedEvent.deleted = false;
+                        }
+                    }
+
+                    // Ensure author name exists
+                    if (!normalizedEvent.author?.name) {
+                        if (!normalizedEvent.author) {
+                            normalizedEvent.author = { name: 'unknown' };
+                        } else {
+                            normalizedEvent.author.name = 'unknown';
+                        }
+                    }
+
+                    return normalizedEvent;
+                });
+
+                const deduplicated = normalizedEvents.filter(event => {
+                    // Create unique key from timestamp, author name, and boolean state
+                    const booleanState = eventType === 'deletion' ? event.deleted : event.resolved;
+                    const key = `${event.timestamp}-${event.author?.name || 'unknown'}-${booleanState}`;
+                    if (seen.has(key)) {
+                        return false; // Skip duplicate
+                    }
+                    seen.add(key);
+                    return true;
+                });
+
+                if (originalCount !== deduplicated.length) {
+                    debugLog(`Normalized and deduplicated ${eventType} events for thread ${mergedThread.id}: ${originalCount} → ${deduplicated.length} (removed ${originalCount - deduplicated.length} duplicates)`);
+                }
+
+                return deduplicated;
+            };
+
+            // Merge event arrays - combine all events from both sides and deduplicate
+            const allDeletionEvents = [
                 ...(existingThread.deletionEvent || []),
                 ...(migratedTheirThread.deletionEvent || [])
-            ].sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
+            ];
+            mergedThread.deletionEvent = deduplicateEvents(allDeletionEvents, 'deletion')
+                .sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
 
-            mergedThread.resolvedEvent = [
+            const allResolvedEvents = [
                 ...(existingThread.resolvedEvent || []),
                 ...(migratedTheirThread.resolvedEvent || [])
-            ].sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
+            ];
+            mergedThread.resolvedEvent = deduplicateEvents(allResolvedEvents, 'resolved')
+                .sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
 
             // Update the thread in the map
             threadMap.set(mergedThread.id, mergedThread);

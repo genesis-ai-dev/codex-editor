@@ -126,6 +126,9 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
             }
         }
 
+        // Note: Repair is handled during startup/migration to avoid interfering with active editing
+        // See CommentsMigrator.repairExistingCommentsFile() for data integrity repairs
+
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Always clean up legacy fields when reading
         const cleanedComments = rawComments.map((thread: any) => {

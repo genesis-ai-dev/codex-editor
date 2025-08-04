@@ -16,6 +16,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     private isAuthenticated = false;
     private stateStoreListener?: () => void; // Add state store listener cleanup function
 
+    // In-memory comment cache (like .codex files)
+    private _inMemoryComments: NotebookCommentThread[] = [];
+    private _isDirty: boolean = false;
+    private _pendingChanges: Set<string> = new Set(); // Track which threads have pending changes
+    private _isInitialized: boolean = false;
+
     constructor(context: vscode.ExtensionContext) {
         super(context);
         this.initializeAuthState();
@@ -24,6 +30,111 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
     protected getWebviewId(): string {
         return "comments-sidebar";
+    }
+
+    /**
+     * Load comments from file into in-memory cache (like .codex files)
+     */
+    private async loadCommentsIntoMemory(): Promise<void> {
+        if (!this.commentsFilePath) {
+            console.warn("[CommentsProvider] Cannot load comments - file path not initialized");
+            return;
+        }
+
+        try {
+            const existingComments = await getCommentsFromFile(this.commentsFilePath.fsPath);
+            this._inMemoryComments = [...existingComments];
+            this._isDirty = false;
+            this._pendingChanges.clear();
+            this._isInitialized = true;
+
+        } catch (error) {
+            console.log("[CommentsProvider] No existing comments file, starting with empty cache");
+            this._inMemoryComments = [];
+            this._isDirty = false;
+            this._pendingChanges.clear();
+            this._isInitialized = true;
+        }
+    }
+
+    /**
+     * Save in-memory comments to file with merge (like .codex files)
+     */
+    private async saveCommentsWithMerge(): Promise<void> {
+        if (!this._isDirty || !this.commentsFilePath) {
+            return; // No changes to save
+        }
+
+        try {
+            // Read current file content (may have changed from other users)
+            let currentFileContent: string;
+            try {
+                const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
+                currentFileContent = new TextDecoder().decode(fileContentUint8Array);
+            } catch (error) {
+                // File doesn't exist, use empty array
+                currentFileContent = "[]";
+            }
+
+            // Prepare our in-memory content for merge
+            const ourContent = CommentsMigrator.formatCommentsForStorage(this._inMemoryComments);
+
+            // Use existing merge logic to combine our changes with current file
+            const { resolveCommentThreadsConflict } = await import("../../projectManager/utils/merge/resolvers");
+            const mergedContent = await resolveCommentThreadsConflict(ourContent, currentFileContent);
+
+            // Write merged result
+            await workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode(mergedContent));
+
+            // Update our in-memory cache with the merged result (to stay in sync)
+            const mergedComments = JSON.parse(mergedContent);
+            this._inMemoryComments = mergedComments;
+
+            this._isDirty = false;
+            this._pendingChanges.clear();
+
+
+        } catch (error) {
+            console.error("[CommentsProvider] Error saving comments with merge:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Update a comment thread in memory (marks as dirty)
+     */
+    private updateCommentThreadInMemory(newThread: NotebookCommentThread): void {
+        const threadIndex = this._inMemoryComments.findIndex(thread => thread.id === newThread.id);
+
+        if (threadIndex !== -1) {
+            // Update existing thread
+            this._inMemoryComments[threadIndex] = {
+                ...this._inMemoryComments[threadIndex],
+                ...newThread,
+                comments: newThread.comments || this._inMemoryComments[threadIndex].comments,
+            };
+        } else {
+            // Add new thread
+            this._inMemoryComments.push(newThread);
+        }
+
+        this._isDirty = true;
+        this._pendingChanges.add(newThread.id);
+
+    }
+
+    /**
+     * Delete a comment thread from memory (marks as dirty)
+     */
+    private deleteCommentThreadFromMemory(threadId: string): void {
+        const threadIndex = this._inMemoryComments.findIndex(thread => thread.id === threadId);
+
+        if (threadIndex !== -1) {
+            this._inMemoryComments.splice(threadIndex, 1);
+            this._isDirty = true;
+            this._pendingChanges.add(threadId);
+
+        }
     }
 
     protected getScriptPath(): string[] {
@@ -92,6 +203,9 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             try {
                 await vscode.workspace.fs.stat(this.commentsFilePath);
                 console.log("[CommentsProvider] Comments file exists");
+
+                // Note: Data repair is handled at startup and during sync when comments.json is changed
+                // See SyncManager and extension.ts for targeted repair logic
             } catch (error) {
                 if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
                     console.log("[CommentsProvider] Creating comments file");
@@ -284,47 +398,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             return;
         }
 
-        console.log("[CommentsProvider] Using comments file path:", this.commentsFilePath.fsPath);
+        // Load comments into memory if not already initialized
+        if (!this._isInitialized) {
+            await this.loadCommentsIntoMemory();
+        }
 
-        const serializeCommentsToDisk = async (
-            existingCommentsThreads: NotebookCommentThread[],
-            newCommentThread: NotebookCommentThread
-        ) => {
-            try {
-                const threadIndex = existingCommentsThreads.findIndex(
-                    (thread) => thread.id === newCommentThread.id
-                );
 
-                if (threadIndex !== -1) {
-                    // Update existing thread
-                    existingCommentsThreads[threadIndex] = {
-                        ...existingCommentsThreads[threadIndex],
-                        ...newCommentThread,
-                        comments:
-                            newCommentThread.comments || existingCommentsThreads[threadIndex].comments,
-                    };
-                } else {
-                    existingCommentsThreads.push(newCommentThread);
-                }
-
-                await writeSerializedData(
-                    CommentsMigrator.formatCommentsForStorage(existingCommentsThreads),
-                    this.commentsFilePath!.fsPath
-                );
-            } catch (error) {
-                console.error("[CommentsProvider] Error serializing comments to disk:", error);
-                throw error;
-            }
-        };
 
         try {
             switch (message.command) {
                 case "updateCommentThread": {
-                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-
-                    // Migrate existing comments if needed before merging
-                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
-
                     // Validate that cellId has a URI
                     if (!message.commentThread.cellId.uri) {
                         console.error("[CommentsProvider] No URI found in cellId:", message.commentThread.cellId);
@@ -334,61 +417,71 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         return;
                     }
 
-                    // Convert to relative paths before saving
+                    // Convert to relative paths before storing in memory
                     const threadWithRelativePaths = this.convertThreadToRelativePaths(message.commentThread);
-                    await serializeCommentsToDisk(
-                        migratedExistingThreads,
-                        threadWithRelativePaths
-                    );
+
+                    // Update in memory (marks as dirty)
+                    this.updateCommentThreadInMemory(threadWithRelativePaths);
+
+                    // Auto-save after each change (like immediate save, but with merge protection)
+                    await this.saveCommentsWithMerge();
+
                     this.sendCommentsToWebview(this._view!);
                     break;
                 }
                 case "deleteCommentThread": {
                     const commentThreadId = message.commentThreadId;
-                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    // Migrate existing comments if needed before updating
-                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
-                    const indexOfCommentToMarkAsDeleted = migratedExistingThreads.findIndex(
+                    const threadIndex = this._inMemoryComments.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
-                    const commentThreadToMarkAsDeleted =
-                        migratedExistingThreads[indexOfCommentToMarkAsDeleted];
-                    await serializeCommentsToDisk(migratedExistingThreads, {
-                        ...commentThreadToMarkAsDeleted,
-                        deletionEvent: [
-                            ...(commentThreadToMarkAsDeleted.deletionEvent || []),
-                            {
-                                timestamp: Date.now(),
-                                author: { name: await this.getCurrentUsername() },
-                                deleted: true
-                            }
-                        ],
-                        comments: [],
-                    });
+
+                    if (threadIndex !== -1) {
+                        const threadToDelete = this._inMemoryComments[threadIndex];
+
+                        // Update the thread with deletion event instead of removing it
+                        const updatedThread = {
+                            ...threadToDelete,
+                            deletionEvent: [
+                                ...(threadToDelete.deletionEvent || []),
+                                {
+                                    timestamp: Date.now(),
+                                    author: { name: await this.getCurrentUsername() },
+                                    deleted: true
+                                }
+                            ],
+                            comments: [],
+                        };
+
+                        this.updateCommentThreadInMemory(updatedThread);
+                    }
+
+                    // Auto-save after each change
+                    await this.saveCommentsWithMerge();
+
                     this.sendCommentsToWebview(this._view!);
                     break;
                 }
                 case "deleteComment": {
                     const commentId = message.args.commentId;
                     const commentThreadId = message.args.commentThreadId;
-                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    // Migrate existing comments if needed before updating
-                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
-                    const threadIndex = migratedExistingThreads.findIndex(
+                    const threadIndex = this._inMemoryComments.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
 
                     if (threadIndex !== -1) {
-                        const thread = migratedExistingThreads[threadIndex];
+                        const thread = this._inMemoryComments[threadIndex];
                         const updatedComments = thread.comments.map((comment: any) =>
                             comment.id === commentId ? { ...comment, deleted: true } : comment
                         );
 
-                        await serializeCommentsToDisk(migratedExistingThreads, {
+                        this.updateCommentThreadInMemory({
                             ...thread,
                             comments: updatedComments,
                         });
                     }
+
+                    // Auto-save after each change
+                    await this.saveCommentsWithMerge();
 
                     this.sendCommentsToWebview(this._view!);
                     break;
@@ -396,24 +489,24 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 case "undoCommentDeletion": {
                     const commentId = message.args.commentId;
                     const commentThreadId = message.args.commentThreadId;
-                    const existingCommentsThreads = await getCommentsFromFile(this.commentsFilePath!.fsPath);
-                    // Migrate existing comments if needed before updating
-                    const migratedExistingThreads = this.migrateCommentsIfNeeded(existingCommentsThreads);
-                    const threadIndex = migratedExistingThreads.findIndex(
+                    const threadIndex = this._inMemoryComments.findIndex(
                         (commentThread: NotebookCommentThread) => commentThread.id === commentThreadId
                     );
 
                     if (threadIndex !== -1) {
-                        const thread = migratedExistingThreads[threadIndex];
+                        const thread = this._inMemoryComments[threadIndex];
                         const updatedComments = thread.comments.map((comment: any) =>
                             comment.id === commentId ? { ...comment, deleted: false } : comment
                         );
 
-                        await serializeCommentsToDisk(migratedExistingThreads, {
+                        this.updateCommentThreadInMemory({
                             ...thread,
                             comments: updatedComments,
                         });
                     }
+
+                    // Auto-save after each change
+                    await this.saveCommentsWithMerge();
 
                     this.sendCommentsToWebview(this._view!);
                     break;
@@ -665,42 +758,25 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     private async sendCommentsToWebview(webviewView: vscode.WebviewView) {
-        if (!this.commentsFilePath) {
-            console.error("Comments file path not initialized");
-            return;
+        // Load comments into memory if not already initialized
+        if (!this._isInitialized && this.commentsFilePath) {
+            await this.loadCommentsIntoMemory();
         }
 
         try {
-            const fileContentUint8Array = await workspace.fs.readFile(this.commentsFilePath);
-            const fileContent = new TextDecoder().decode(fileContentUint8Array);
+            // Send in-memory comments to webview (no file reading needed)
+            const content = CommentsMigrator.formatCommentsForStorage(this._inMemoryComments);
 
-            // Parse and migrate if needed
-            let comments = JSON.parse(fileContent);
-            const migratedComments = this.migrateCommentsIfNeeded(comments);
+            safePostMessageToView(webviewView, {
+                command: "commentsFromWorkspace",
+                content: content,
+            } as CommentPostMessages);
 
-            // If migration happened, save the migrated version
-            if (migratedComments !== comments) {
-                const migratedContent = CommentsMigrator.formatCommentsForStorage(migratedComments);
-                await writeSerializedData(migratedContent, this.commentsFilePath.fsPath);
-                console.log("[CommentsProvider] Saved migrated comments to disk");
+            this.lastSentComments = content;
 
-                safePostMessageToView(webviewView, {
-                    command: "commentsFromWorkspace",
-                    content: migratedContent,
-                } as CommentPostMessages);
-
-                this.lastSentComments = migratedContent;
-            } else {
-                safePostMessageToView(webviewView, {
-                    command: "commentsFromWorkspace",
-                    content: fileContent,
-                } as CommentPostMessages);
-
-                this.lastSentComments = fileContent;
-            }
         } catch (error) {
-            // If file doesn't exist, send empty comments array instead of showing error
-            console.log("Comments file not found, sending empty comments array");
+            console.error("[CommentsProvider] Error sending comments to webview:", error);
+            // Fallback to empty array
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
                 content: "[]",
