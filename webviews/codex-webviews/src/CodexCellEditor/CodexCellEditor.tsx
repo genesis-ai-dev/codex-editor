@@ -897,13 +897,32 @@ const CodexCellEditor: React.FC = () => {
 
         const result = translationUnitsForSection.filter((unit) => {
             // Check if the cell is empty
-            const hasNoContent = !unit.cellContent.trim();
+            const hasNoContent = isCellContentEmpty(unit.cellContent);
             return hasNoContent;
         });
 
         debug("autocomplete", "Cells with no content:", result.length);
         return result;
     }, [translationUnitsForSection]);
+
+    // Helper function to determine if cell content is effectively empty
+    const isCellContentEmpty = (cellContent: string | undefined): boolean => {
+        if (!cellContent) return true;
+        
+        // Create a temporary div to parse HTML and extract text content
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = cellContent;
+        const textContent = tempDiv.textContent || tempDiv.innerText || '';
+        
+        // Check if the text content contains only whitespace characters (including non-breaking spaces)
+        // This regex matches any combination of:
+        // - Regular spaces (\s)
+        // - Non-breaking spaces (\u00A0)
+        // - Other Unicode whitespace characters
+        const onlyWhitespaceRegex = /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
+        
+        return onlyWhitespaceRegex.test(textContent);
+    };
 
     // Cells with no content or where the latest edit has no validators
     const untranslatedOrUnvalidatedUnitsForSection = useMemo(() => {
@@ -914,7 +933,7 @@ const CodexCellEditor: React.FC = () => {
 
         const result = translationUnitsForSection.filter((unit) => {
             // Check if the cell is empty
-            const hasNoContent = !unit.cellContent.trim();
+            const hasNoContent = isCellContentEmpty(unit.cellContent);
 
             // Get the latest edit
             const latestEdit =
@@ -943,7 +962,7 @@ const CodexCellEditor: React.FC = () => {
 
         const result = translationUnitsForSection.filter((unit, index) => {
             // Check if the cell is empty
-            const hasNoContent = !unit.cellContent.trim();
+            const hasNoContent = isCellContentEmpty(unit.cellContent);
 
             // Get the latest edit
             const latestEdit =
@@ -996,7 +1015,7 @@ const CodexCellEditor: React.FC = () => {
 
         const result = translationUnitsForSection.filter((unit, index) => {
             // Skip empty cells
-            if (!unit.cellContent.trim()) {
+            if (isCellContentEmpty(unit.cellContent)) {
                 return false;
             }
 
@@ -1090,7 +1109,7 @@ const CodexCellEditor: React.FC = () => {
             const cellsWithContentButNoValidators = untranslatedOrUnvalidatedUnitsForSection.filter(
                 (unit) => {
                     // Only include if it has content (not empty)
-                    return unit.cellContent.trim() !== "";
+                    return !isCellContentEmpty(unit.cellContent);
                 }
             );
             addCells(cellsWithContentButNoValidators);
@@ -1103,7 +1122,7 @@ const CodexCellEditor: React.FC = () => {
 
             const cellsNotValidatedByCurrentUser = translationUnitsForSection.filter((unit) => {
                 // Must have content
-                if (!unit.cellContent.trim()) {
+                if (isCellContentEmpty(unit.cellContent)) {
                     return false;
                 }
 
@@ -1302,7 +1321,7 @@ const CodexCellEditor: React.FC = () => {
             debug("status", "Translation Units Status:", {
                 total: translationUnitsForSection.length,
                 unitsWithNoContent: translationUnitsForSection.filter(
-                    (unit) => !unit.cellContent.trim()
+                    (unit) => isCellContentEmpty(unit.cellContent)
                 ).length,
                 llmGeneratedUnits: translationUnitsForSection.filter((unit) => {
                     const cellValueData = getCellValueData(unit);
@@ -1387,7 +1406,7 @@ const CodexCellEditor: React.FC = () => {
                 if (
                     previousContent !== undefined &&
                     previousContent !== cell.cellContent &&
-                    cell.cellContent.trim().length > 0
+                    !isCellContentEmpty(cell.cellContent)
                 ) {
                     debug("content", "Content change detected:", {
                         cellId: singleCellQueueProcessingId,

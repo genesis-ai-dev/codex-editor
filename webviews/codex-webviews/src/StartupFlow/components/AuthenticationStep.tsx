@@ -47,7 +47,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
     };
 
     const validatePassword = (password: string): boolean => {
-        const { isValid, issues } = validateVisualPassword(password, email);
+        const { isValid, issues } = validateVisualPassword(password, email, username);
         
         if (!isValid) {
             setPasswordError(issues.join(', '));
@@ -177,6 +177,7 @@ export const AuthenticationStep: React.FC<AuthenticationStepProps> = ({
                         <PasswordDotsIndicator
                             password={password}
                             email={email}
+                            username={username}
                             minLength={15}
                             showIndicator={true}
                         />
