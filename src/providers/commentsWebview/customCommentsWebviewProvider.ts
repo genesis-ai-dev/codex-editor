@@ -355,11 +355,14 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                         migratedExistingThreads[indexOfCommentToMarkAsDeleted];
                     await serializeCommentsToDisk(migratedExistingThreads, {
                         ...commentThreadToMarkAsDeleted,
-                        deletionEvent: [{
-                            timestamp: Date.now(),
-                            author: { name: await this.getCurrentUsername() },
-                            deleted: true
-                        }],
+                        deletionEvent: [
+                            ...(commentThreadToMarkAsDeleted.deletionEvent || []),
+                            {
+                                timestamp: Date.now(),
+                                author: { name: await this.getCurrentUsername() },
+                                deleted: true
+                            }
+                        ],
                         comments: [],
                     });
                     this.sendCommentsToWebview(this._view!);
