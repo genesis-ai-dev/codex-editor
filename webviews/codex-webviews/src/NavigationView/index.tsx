@@ -28,6 +28,7 @@ interface State {
     codexItems: CodexItem[];
     dictionaryItems: CodexItem[];
     expandedGroups: Set<string>;
+    previousExpandedGroups: Set<string> | null;
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     openMenu: string | null;
@@ -451,6 +452,7 @@ function NavigationView() {
         codexItems: [],
         dictionaryItems: [],
         expandedGroups: new Set(),
+        previousExpandedGroups: null,
         searchQuery: "",
         bibleBookMap: undefined,
         openMenu: null,
@@ -562,6 +564,62 @@ function NavigationView() {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
 
+    // Auto-expand groups when search results fit without scrolling
+    useEffect(() => {
+        if (!state.searchQuery) return; // Only run when there's a search query
+
+        const filteredCodexItems = filterItems(state.codexItems);
+        const filteredDictionaryItems = filterItems(state.dictionaryItems);
+        
+        // Calculate total number of visible items if all groups were expanded
+        let totalItems = 0;
+        
+        filteredCodexItems.forEach(item => {
+            totalItems += 1; // Group header
+            if (item.type === "corpus" && item.children) {
+                totalItems += item.children.length; // Child items
+            }
+        });
+        
+        filteredDictionaryItems.forEach(item => {
+            totalItems += 1;
+            if (item.type === "corpus" && item.children) {
+                totalItems += item.children.length;
+            }
+        });
+
+        // Estimate if items will fit without scrolling
+        // Assuming each item takes about 50px height and container has about 400px usable height
+        const estimatedHeight = totalItems * 50;
+        const availableHeight = 400; // Approximate available height for items
+        
+        if (estimatedHeight <= availableHeight) {
+            // Auto-expand all groups that have search results
+            setState(prev => {
+                const newExpandedGroups = new Set(prev.expandedGroups);
+                
+                // Expand codex groups with results
+                filteredCodexItems.forEach(item => {
+                    if (item.type === "corpus" && item.children && item.children.length > 0) {
+                        newExpandedGroups.add(item.label);
+                    }
+                });
+                
+                // Expand dictionary groups with results
+                filteredDictionaryItems.forEach(item => {
+                    if (item.type === "corpus" && item.children && item.children.length > 0) {
+                        newExpandedGroups.add(item.label);
+                    }
+                });
+                
+                return {
+                    ...prev,
+                    expandedGroups: newExpandedGroups
+                };
+            });
+        }
+    }, [state.searchQuery, state.codexItems, state.dictionaryItems]);
+
     const toggleGroup = (label: string) => {
         setState((prevState) => {
             const newExpandedGroups = new Set(prevState.expandedGroups);
@@ -575,7 +633,32 @@ function NavigationView() {
     };
 
     const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setState((prev) => ({ ...prev, searchQuery: e.target.value }));
+        const newSearchQuery = e.target.value;
+        const isSearchStarting = !state.searchQuery && newSearchQuery;
+        const isSearchClearing = state.searchQuery && !newSearchQuery;
+
+        setState((prev) => {
+            let newExpandedGroups = prev.expandedGroups;
+            let newPreviousExpandedGroups = prev.previousExpandedGroups;
+
+            if (isSearchStarting) {
+                // Save current expanded state before starting search
+                newPreviousExpandedGroups = new Set(prev.expandedGroups);
+            } else if (isSearchClearing) {
+                // Restore previous expanded state when clearing search
+                if (prev.previousExpandedGroups) {
+                    newExpandedGroups = new Set(prev.previousExpandedGroups);
+                }
+                newPreviousExpandedGroups = null;
+            }
+
+            return {
+                ...prev,
+                searchQuery: newSearchQuery,
+                expandedGroups: newExpandedGroups,
+                previousExpandedGroups: newPreviousExpandedGroups,
+            };
+        });
     };
 
     const handleRefresh = () => {
