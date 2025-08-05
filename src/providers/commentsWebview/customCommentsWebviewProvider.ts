@@ -33,6 +33,34 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     }
 
     /**
+ * Handle external file changes, potentially merging with unsaved local changes
+ */
+    private async handleExternalFileChange(): Promise<void> {
+        if (!this.commentsFilePath) {
+            console.warn("[CommentsProvider] Cannot handle external change - file path not initialized");
+            return;
+        }
+
+        if (this._isDirty && this._pendingChanges.size > 0) {
+            console.log("[CommentsProvider] External change detected with local unsaved changes, merging...");
+
+            // Save our current changes with merge (this will handle the conflict)
+            await this.saveCommentsWithMerge();
+
+            // Optional: Show subtle notification about merge
+            // vscode.window.showInformationMessage("Comments updated from external changes and merged with your local changes.", { modal: false });
+        } else {
+            console.log("[CommentsProvider] External change detected with no local changes, reloading...");
+
+            // No local changes, safe to reload from file
+            await this.loadCommentsIntoMemory();
+
+            // Optional: Show subtle notification about update
+            // vscode.window.showInformationMessage("Comments updated from external changes.", { modal: false });
+        }
+    }
+
+    /**
      * Load comments from file into in-memory cache (like .codex files)
      */
     private async loadCommentsIntoMemory(): Promise<void> {
@@ -316,8 +344,19 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         );
 
         commentsWatcher.onDidChange(async () => {
-            const newContent = await this.readCommentsFile();
-            if (newContent !== this.lastSentComments) {
+            try {
+                console.log("[CommentsProvider] Comments file changed externally, handling...");
+
+                // Handle external change with potential conflict resolution
+                await this.handleExternalFileChange();
+
+                // Send updated comments to webview with live update flag
+                await this.sendCommentsToWebview(webviewView, true);
+
+                console.log("[CommentsProvider] Successfully handled external comments file change");
+            } catch (error) {
+                console.error("[CommentsProvider] Error handling external comments file change:", error);
+                // Still try to send whatever we have in memory
                 this.sendCommentsToWebview(webviewView);
             }
         });
@@ -329,21 +368,37 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         legacyCommentsWatcher.onDidCreate(async () => {
             try {
+                console.log("[CommentsProvider] Legacy comments file created, migrating...");
                 await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+
+                // Reload cache to pick up migrated comments
+                await this.loadCommentsIntoMemory();
+
                 // Refresh the webview to show migrated content
                 this.sendCommentsToWebview(webviewView);
+                console.log("[CommentsProvider] Successfully migrated legacy comments");
             } catch (error) {
-                // Silent fallback
+                console.error("[CommentsProvider] Error migrating legacy comments on create:", error);
+                // Silent fallback - still try to send what we have
+                this.sendCommentsToWebview(webviewView);
             }
         });
 
         legacyCommentsWatcher.onDidChange(async () => {
             try {
+                console.log("[CommentsProvider] Legacy comments file changed, migrating...");
                 await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
+
+                // Reload cache to pick up migrated comments
+                await this.loadCommentsIntoMemory();
+
                 // Refresh the webview to show migrated content
                 this.sendCommentsToWebview(webviewView);
+                console.log("[CommentsProvider] Successfully migrated legacy comments");
             } catch (error) {
-                // Silent fallback
+                console.error("[CommentsProvider] Error migrating legacy comments on change:", error);
+                // Silent fallback - still try to send what we have
+                this.sendCommentsToWebview(webviewView);
             }
         });
 
@@ -757,7 +812,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         });
     }
 
-    private async sendCommentsToWebview(webviewView: vscode.WebviewView) {
+    private async sendCommentsToWebview(webviewView: vscode.WebviewView, isLiveUpdate: boolean = false) {
         // Load comments into memory if not already initialized
         if (!this._isInitialized && this.commentsFilePath) {
             await this.loadCommentsIntoMemory();
@@ -770,6 +825,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
                 content: content,
+                isLiveUpdate: isLiveUpdate, // Flag to indicate this is from external file change
             } as CommentPostMessages);
 
             this.lastSentComments = content;
@@ -780,6 +836,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             safePostMessageToView(webviewView, {
                 command: "commentsFromWorkspace",
                 content: "[]",
+                isLiveUpdate: isLiveUpdate,
             } as CommentPostMessages);
             this.lastSentComments = "[]";
         }
