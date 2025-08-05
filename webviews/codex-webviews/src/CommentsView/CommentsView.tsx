@@ -26,7 +26,7 @@ import { Input } from "../components/ui/input";
 import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
 import { WebviewHeader } from "../components/WebviewHeader";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -35,8 +35,51 @@ interface UserAvatar {
     username: string;
     email?: string;
     size?: "small" | "medium" | "large";
-    timestamp?: string;
 }
+
+// Helper function to generate deterministic colors for usernames
+const getUserColor = (username: string): string => {
+    // Distinct, readable colors for avatars (using actual color values)
+    const colors = [
+        "#3b82f6", // blue-500
+        "#10b981", // emerald-500
+        "#8b5cf6", // violet-500
+        "#f59e0b", // amber-500
+        "#ec4899", // pink-500
+        "#06b6d4", // cyan-500
+        "#ef4444", // red-500
+        "#6366f1", // indigo-500
+        "#14b8a6", // teal-500
+        "#84cc16", // lime-500
+        "#f97316", // orange-500
+        "#a855f7", // purple-500
+        "#f43f5e", // rose-500
+        "#0ea5e9", // sky-500
+        "#22c55e", // green-500
+        "#eab308", // yellow-500
+    ];
+
+    // Create deterministic hash from username using a better hash function
+    let hash = 0;
+    if (username.length === 0) return colors[0];
+
+    for (let i = 0; i < username.length; i++) {
+        const char = username.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash = hash & hash; // Convert to 32bit integer
+    }
+
+    // Add some additional mixing to reduce collisions
+    hash = hash ^ (hash >>> 16);
+    hash = hash * 0x85ebca6b;
+    hash = hash ^ (hash >>> 13);
+    hash = hash * 0xc2b2ae35;
+    hash = hash ^ (hash >>> 16);
+
+    // Use absolute value and modulo to get color index
+    const colorIndex = Math.abs(hash) % colors.length;
+    return colors[colorIndex];
+};
 
 // Helper function to format timestamps in a user-friendly way
 const formatTimestamp = (timestamp: string | number): { display: string; full: string } => {
@@ -77,14 +120,14 @@ const formatTimestamp = (timestamp: string | number): { display: string; full: s
     }
 };
 
-const UserAvatar = ({ username, email, size = "small", timestamp }: UserAvatar) => {
+const UserAvatar = ({ username, email, size = "small" }: UserAvatar) => {
     const sizeMap = {
         small: { width: "24px", height: "24px", fontSize: "12px" },
         medium: { width: "32px", height: "32px", fontSize: "14px" },
         large: { width: "40px", height: "40px", fontSize: "16px" },
     };
 
-    const formattedTime = timestamp ? formatTimestamp(timestamp) : null;
+    const userColor = getUserColor(username);
 
     return (
         <div
@@ -92,23 +135,17 @@ const UserAvatar = ({ username, email, size = "small", timestamp }: UserAvatar) 
             title={email ? `${username} (${email})` : username}
         >
             <div
-                className="rounded-full bg-primary text-primary-foreground flex items-center justify-center font-medium"
-                style={sizeMap[size]}
+                className="rounded-full text-white flex items-center justify-center font-medium flex-shrink-0"
+                style={{
+                    ...sizeMap[size],
+                    backgroundColor: userColor,
+                }}
             >
                 {username[0].toUpperCase()}
             </div>
-            <div className="flex flex-col gap-0.5">
-                <span className="font-medium">{username}</span>
-                {formattedTime && (
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <span className="text-xs text-muted-foreground">
-                                {formattedTime.display}
-                            </span>
-                        </TooltipTrigger>
-                        <TooltipContent>{formattedTime.full}</TooltipContent>
-                    </Tooltip>
-                )}
+            {/* Hide username text on narrow viewports (VSCode sidebar) */}
+            <div className="flex flex-col gap-0.5 min-w-0 hidden sm:flex">
+                <span className="font-medium truncate">{username}</span>
             </div>
         </div>
     );
@@ -485,524 +522,666 @@ function App() {
         }).length;
     }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads]);
 
-    return (
-        <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
-            <WebviewHeader title="Comments" vscode={vscode} />
+    // Helper function to render comment body with blockquotes
+    const renderCommentBody = (body: string) => {
+        if (!body) return null;
 
-            {/* Header */}
-            <div className="p-4 border-b border-border flex flex-col gap-3">
-                {currentUser.isAuthenticated && (
-                    <div className="flex items-center gap-2">
-                        <UserAvatar
-                            username={currentUser.username}
-                            email={currentUser.email}
-                            size="medium"
-                        />
+        const lines = body.split("\n");
+        const elements: JSX.Element[] = [];
+        let currentQuoteLines: string[] = [];
+
+        const flushQuote = () => {
+            if (currentQuoteLines.length > 0) {
+                elements.push(
+                    <blockquote
+                        key={`quote-${elements.length}`}
+                        className="border-l-4 border-muted-foreground/30 pl-3 py-1 my-2 bg-muted/30 text-muted-foreground italic"
+                    >
+                        {currentQuoteLines.join("\n")}
+                    </blockquote>
+                );
+                currentQuoteLines = [];
+            }
+        };
+
+        lines.forEach((line, index) => {
+            if (line.startsWith("> ")) {
+                currentQuoteLines.push(line.substring(2));
+            } else {
+                flushQuote();
+                if (line.trim() || index < lines.length - 1) {
+                    elements.push(
+                        <span key={`text-${elements.length}`}>
+                            {line}
+                            {index < lines.length - 1 && <br />}
+                        </span>
+                    );
+                }
+            }
+        });
+
+        flushQuote();
+        return elements;
+    };
+
+    const handleReplyToComment = (comment: Comment, threadId: string) => {
+        const quotedText = `> ${comment.body.replace(/\n/g, "\n> ")}\n\n`;
+        setReplyText((prev) => ({
+            ...prev,
+            [threadId]: quotedText,
+        }));
+        setReplyingTo({ threadId, username: comment.author.name });
+    };
+
+    const CommentCard = ({
+        thread,
+        comment,
+    }: {
+        thread: NotebookCommentThread;
+        comment: Comment;
+    }) => {
+        const formattedTime = formatTimestamp(comment.timestamp);
+        const [isHovered, setIsHovered] = useState(false);
+
+        return (
+            <div
+                key={comment.id}
+                className={`group relative hover:bg-muted/50 rounded-md p-2 transition-colors ${
+                    comment.deleted ? "opacity-60" : ""
+                }`}
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+            >
+                <div className="flex gap-2 items-start">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <UserAvatar username={comment.author.name} size="small" />
+                        </TooltipTrigger>
+                        <TooltipContent>{comment.author.name}</TooltipContent>
+                    </Tooltip>
+
+                    {/* Comment content */}
+                    <div className="flex-1 min-w-0">
+                        <div className="flex justify-between">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span className="text-xs text-muted-foreground">
+                                        {formattedTime.display}
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent>{formattedTime.full}</TooltipContent>
+                            </Tooltip>
+                        </div>
+                        <div
+                            className={`text-sm leading-relaxed break-words ${
+                                comment.deleted ? "text-muted-foreground italic" : ""
+                            }`}
+                        >
+                            {comment.deleted
+                                ? "This comment has been deleted"
+                                : renderCommentBody(comment.body)}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Action buttons - positioned at bottom right */}
+                {isHovered && currentUser.isAuthenticated && !comment.deleted && (
+                    <div className="absolute bottom-1 right-2 flex gap-1 bg-background/80 backdrop-blur-sm rounded px-1 py-0.5 border border-border/50">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => handleReplyToComment(comment, thread.id)}
+                            title="Reply to this comment"
+                        >
+                            <Reply className="h-3 w-3" />
+                        </Button>
+
+                        {comment.author.name === currentUser.username && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleCommentDeletion(comment.id, thread.id)}
+                                title="Delete comment"
+                            >
+                                <Trash2 className="h-3 w-3" />
+                            </Button>
+                        )}
                     </div>
                 )}
 
-                {/* View mode selector */}
-                <div className="flex rounded border border-border overflow-hidden">
-                    <Button
-                        variant={viewMode === "all" ? "default" : "ghost"}
-                        className="flex-1 rounded-none"
-                        onClick={() => {
-                            setViewMode("all");
-                            setSearchQuery("");
-                        }}
-                    >
-                        All Comments
-                    </Button>
-                    <Button
-                        variant={viewMode === "cell" ? "default" : "ghost"}
-                        className="flex-1 rounded-none"
-                        onClick={() => {
-                            setViewMode("cell");
-                            setSearchQuery(cellId.cellId);
-                        }}
-                    >
-                        Current Cell
-                    </Button>
-                </div>
-
-                {/* Search */}
-                <div className="flex gap-2 items-center">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder={
-                                viewMode === "all"
-                                    ? "Search all comments..."
-                                    : `Showing comments for ${getCellId(cellId.cellId)}`
-                            }
-                            value={searchQuery}
-                            className="pl-10"
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            disabled={viewMode === "cell"}
-                        />
-                    </div>
-                </div>
-
-                <div className="flex justify-between items-center">
-                    <div className="text-sm text-muted-foreground flex items-center gap-1.5">
-                        <MessageSquare className="h-4 w-4" />
-                        <span>
-                            {filteredCommentThreads.length}{" "}
-                            {filteredCommentThreads.length === 1 ? "thread" : "threads"}
-                        </span>
-                    </div>
-
-                    {currentUser.isAuthenticated && (
-                        <Button onClick={() => setShowNewCommentForm(true)} className="font-medium">
-                            <Plus className="h-4 w-4 mr-1.5" />
-                            Comment
+                {/* Undo deletion button for deleted comments - only show on hover */}
+                {comment.deleted && comment.author.name === currentUser.username && isHovered && (
+                    <div className="absolute bottom-1 right-2 bg-background/80 backdrop-blur-sm rounded px-2 py-1 border border-border/50">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => handleUndoCommentDeletion(comment.id, thread.id)}
+                            title="Undo deletion"
+                        >
+                            <Undo2 className="h-3 w-3 mr-1" />
+                            Undo
                         </Button>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
+        );
+    };
 
-            {/* New comment form */}
-            {showNewCommentForm && (
-                <Card className="m-4 bg-muted/50">
-                    <CardContent className="p-4">
-                        <div className="flex items-center mb-3 gap-2">
-                            <MessageSquare className="h-4 w-4" />
-                            <span className="text-sm font-medium">New comment</span>
-                            {viewMode === "cell" && (
-                                <span className="text-xs text-muted-foreground">
-                                    on {getCellId(cellId.cellId)}
-                                </span>
-                            )}
-                        </div>
-                        <div className="flex gap-3 items-start">
+    return (
+        <TooltipProvider>
+            <div className="h-full w-full flex flex-col bg-background text-foreground font-sans relative">
+                <WebviewHeader title="Comments" vscode={vscode} />
+
+                {/* Header */}
+                <div className="p-4 border-b border-border flex flex-col gap-3">
+                    {/* {currentUser.isAuthenticated && (
+                        <div className="flex items-center gap-2">
                             <UserAvatar
                                 username={currentUser.username}
                                 email={currentUser.email}
-                                size="small"
+                                size="medium"
                             />
-                            <div className="flex-1 flex flex-col gap-3">
-                                <Input
-                                    placeholder="What do you want to say?"
-                                    value={newCommentText}
-                                    className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleNewComment();
-                                        }
-                                    }}
-                                    onChange={(e) => setNewCommentText(e.target.value)}
-                                />
-                                <div className="flex gap-2 justify-end">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="h-7 px-3 text-xs"
-                                        onClick={() => setShowNewCommentForm(false)}
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        className="h-7 px-3 text-xs"
-                                        onClick={handleNewComment}
-                                        disabled={!newCommentText.trim()}
-                                    >
-                                        Comment
-                                    </Button>
-                                </div>
-                            </div>
                         </div>
-                    </CardContent>
-                </Card>
-            )}
+                    )} */}
 
-            {/* Empty states */}
-            {filteredCommentThreads.length === 0 && (
-                <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
-                    {viewMode === "cell" && cellId.cellId ? (
-                        <>
-                            <MessageSquare className="h-8 w-8 opacity-60" />
-                            <div>
-                                <div className="mb-2 text-base">No comments on this cell</div>
-                                <div className="text-sm">
-                                    Be the first to start a conversation here
-                                </div>
-                            </div>
-                        </>
-                    ) : searchQuery.length > 0 ? (
-                        <>
-                            <Search className="h-8 w-8 opacity-60" />
-                            <div>
-                                <div className="mb-2 text-base">No results found</div>
-                                <div className="text-sm">
-                                    Try a different search or view all comments
-                                </div>
-                            </div>
-                        </>
-                    ) : (
-                        <>
-                            <MessageSquare className="h-8 w-8 opacity-60" />
-                            <div>
-                                <div className="mb-2 text-base">No comments yet</div>
-                                <div className="text-sm">
-                                    Start the conversation by adding a comment
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </div>
-            )}
+                    {/* View mode selector */}
+                    <div className="flex rounded border border-border overflow-hidden">
+                        <Button
+                            variant={viewMode === "all" ? "default" : "ghost"}
+                            className="flex-1 rounded-none"
+                            onClick={() => {
+                                setViewMode("all");
+                                setSearchQuery("");
+                            }}
+                        >
+                            <span className="hidden sm:inline">All Comments</span>
+                            <span className="sm:hidden">All</span>
+                        </Button>
+                        <Button
+                            variant={viewMode === "cell" ? "default" : "ghost"}
+                            className="flex-1 rounded-none"
+                            onClick={() => {
+                                setViewMode("cell");
+                                setSearchQuery(cellId.cellId);
+                            }}
+                        >
+                            <span className="hidden sm:inline">Current Cell</span>
+                            <span className="sm:hidden">Current</span>
+                        </Button>
+                    </div>
 
-            {/* Comment list */}
-            {filteredCommentThreads.length > 0 && (
-                <div className="flex-1 overflow-y-auto p-2">
-                    <div className="flex flex-col gap-3">
-                        {filteredCommentThreads.map((thread) => (
-                            <Card
-                                key={thread.id}
-                                className={`overflow-hidden border transition-opacity duration-200 ${
-                                    isThreadResolved(thread) ? "opacity-75" : "opacity-100"
-                                }`}
+                    {/* Search 
+                    
+                    // TODO: this should be a react select for autocomplete of cell ids or allow you to search text
+                    */}
+                    <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder={
+                                    viewMode === "all"
+                                        ? "Search all comments..."
+                                        : `Showing comments for ${getCellId(cellId.cellId)}`
+                                }
+                                value={searchQuery}
+                                className="pl-10"
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                disabled={viewMode === "cell"}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                        <div className="text-sm text-muted-foreground flex items-center gap-1.5">
+                            <MessageSquare className="h-4 w-4" />
+                            <span>
+                                {filteredCommentThreads.length}{" "}
+                                {filteredCommentThreads.length === 1 ? "thread" : "threads"}
+                            </span>
+                        </div>
+
+                        {currentUser.isAuthenticated && (
+                            <Button
+                                onClick={() => setShowNewCommentForm(true)}
+                                className="font-medium"
                             >
-                                {/* Thread header */}
-                                <CardHeader
-                                    className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
-                                    onClick={() => toggleCollapsed(thread.id)}
-                                >
-                                    <div className="flex justify-between items-center">
-                                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                                            {collapsedThreads[thread.id] ? (
-                                                <ChevronRight className="h-4 w-4" />
-                                            ) : (
-                                                <ChevronDown className="h-4 w-4" />
-                                            )}
+                                <Plus className="h-4 w-4 mr-1.5" />
+                                Comment
+                            </Button>
+                        )}
+                    </div>
+                </div>
 
-                                            {editingTitle === thread.id ? (
-                                                <Input
-                                                    value={threadTitleEdit}
-                                                    placeholder="Thread title"
-                                                    className="flex-1"
-                                                    onChange={(e) =>
-                                                        setThreadTitleEdit(e.target.value)
-                                                    }
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === "Enter") {
-                                                            e.preventDefault();
-                                                            handleEditThreadTitle(thread.id);
-                                                        } else if (e.key === "Escape") {
-                                                            setEditingTitle(null);
-                                                        }
-                                                    }}
-                                                />
-                                            ) : (
-                                                <span className="font-medium text-sm truncate">
-                                                    {thread.threadTitle || "Untitled Thread"}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <div className="flex gap-1.5 items-center">
-                                            {isThreadResolved(thread) && (
-                                                <Badge variant="secondary" className="text-xs">
-                                                    <Check className="h-3 w-3 mr-1" />
-                                                    Resolved
-                                                </Badge>
-                                            )}
-
-                                            {/* Action Buttons */}
-                                            {!editingTitle && (
-                                                <div className="flex gap-1">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0"
-                                                        title="Edit title"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setEditingTitle(thread.id);
-                                                            setThreadTitleEdit(
-                                                                thread.threadTitle || ""
-                                                            );
-                                                        }}
-                                                    >
-                                                        <Edit className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0"
-                                                        title={
-                                                            isThreadResolved(thread)
-                                                                ? "Mark as unresolved"
-                                                                : "Mark as resolved"
-                                                        }
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            toggleResolved(thread);
-                                                        }}
-                                                        disabled={pendingResolveThreads.has(
-                                                            thread.id
-                                                        )}
-                                                    >
-                                                        {pendingResolveThreads.has(thread.id) ? (
-                                                            <Clock className="h-4 w-4 animate-spin" />
-                                                        ) : isThreadResolved(thread) ? (
-                                                            <Check className="h-4 w-4" />
-                                                        ) : (
-                                                            <Circle className="h-4 w-4" />
-                                                        )}
-                                                    </Button>
-                                                </div>
-                                            )}
-
-                                            {/* Edit mode actions */}
-                                            {editingTitle === thread.id && (
-                                                <div className="flex gap-2">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0"
-                                                        title="Cancel"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setEditingTitle(null);
-                                                        }}
-                                                    >
-                                                        <X className="h-4 w-4" />
-                                                    </Button>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="h-8 w-8 p-0"
-                                                        title="Save"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleEditThreadTitle(thread.id);
-                                                        }}
-                                                    >
-                                                        <Check className="h-4 w-4" />
-                                                    </Button>
-                                                </div>
-                                            )}
-                                        </div>
+                {/* New comment form */}
+                {showNewCommentForm && (
+                    <Card className="m-4 bg-muted/50">
+                        <CardContent className="p-4">
+                            <div className="flex items-center mb-3 gap-2">
+                                <MessageSquare className="h-4 w-4" />
+                                <span className="text-sm font-medium">New comment</span>
+                                {viewMode === "cell" && (
+                                    <span className="text-xs text-muted-foreground">
+                                        on {getCellId(cellId.cellId)}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex gap-3 items-start">
+                                <UserAvatar
+                                    username={currentUser.username}
+                                    email={currentUser.email}
+                                    size="small"
+                                />
+                                <div className="flex-1 flex flex-col gap-3">
+                                    <Input
+                                        placeholder="What do you want to say?"
+                                        value={newCommentText}
+                                        className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleNewComment();
+                                            }
+                                        }}
+                                        onChange={(e) => setNewCommentText(e.target.value)}
+                                    />
+                                    <div className="flex gap-2 justify-end">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-3 text-xs"
+                                            onClick={() => setShowNewCommentForm(false)}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            className="h-7 px-3 text-xs"
+                                            onClick={handleNewComment}
+                                            disabled={!newCommentText.trim()}
+                                        >
+                                            Comment
+                                        </Button>
                                     </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
-                                    <div className="flex justify-between text-xs text-muted-foreground">
-                                        <div className="flex gap-2 items-center">
-                                            <span
-                                                className="text-primary max-w-48 truncate"
-                                                title={thread.cellId.cellId}
-                                            >
-                                                {getCellId(thread.cellId.cellId)}
+                {/* Empty states */}
+                {filteredCommentThreads.length === 0 && (
+                    <div className="flex flex-col items-center justify-center p-12 text-muted-foreground text-center gap-4 flex-1">
+                        {viewMode === "cell" && cellId.cellId ? (
+                            <>
+                                <MessageSquare className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No comments on this cell</div>
+                                    <div className="text-sm">
+                                        Be the first to start a conversation here
+                                    </div>
+                                </div>
+                            </>
+                        ) : searchQuery.length > 0 ? (
+                            <>
+                                <Search className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No results found</div>
+                                    <div className="text-sm">
+                                        Try a different search or view all comments
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <MessageSquare className="h-8 w-8 opacity-60" />
+                                <div>
+                                    <div className="mb-2 text-base">No comments yet</div>
+                                    <div className="text-sm">
+                                        Start the conversation by adding a comment
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* Comment list */}
+                {filteredCommentThreads.length > 0 && (
+                    <div className="flex-1 overflow-y-auto p-2">
+                        <div className="flex flex-col gap-3">
+                            {filteredCommentThreads.map((thread) => (
+                                <Card
+                                    key={thread.id}
+                                    className={`overflow-hidden border transition-opacity duration-200 ${
+                                        isThreadResolved(thread) ? "opacity-75" : "opacity-100"
+                                    }`}
+                                >
+                                    {/* Thread header */}
+                                    <CardHeader
+                                        className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
+                                        onClick={() => toggleCollapsed(thread.id)}
+                                    >
+                                        <div className="flex justify-between items-center">
+                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                {collapsedThreads[thread.id] ? (
+                                                    <ChevronRight className="h-4 w-4" />
+                                                ) : (
+                                                    <ChevronDown className="h-4 w-4" />
+                                                )}
+
+                                                {editingTitle === thread.id ? (
+                                                    <Input
+                                                        value={threadTitleEdit}
+                                                        placeholder="Thread title"
+                                                        className="flex-1"
+                                                        onChange={(e) =>
+                                                            setThreadTitleEdit(e.target.value)
+                                                        }
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") {
+                                                                e.preventDefault();
+                                                                handleEditThreadTitle(thread.id);
+                                                            } else if (e.key === "Escape") {
+                                                                setEditingTitle(null);
+                                                            }
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <span className="font-medium text-sm truncate">
+                                                        {thread.threadTitle || "Untitled Thread"}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex gap-1.5 items-center">
+                                                {isThreadResolved(thread) && (
+                                                    <Badge variant="secondary" className="text-xs">
+                                                        <Check className="h-3 w-3 mr-1" />
+                                                        Resolved
+                                                    </Badge>
+                                                )}
+
+                                                {/* Action Buttons */}
+                                                {!editingTitle && (
+                                                    <div className="flex gap-1">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            title="Edit title"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditingTitle(thread.id);
+                                                                setThreadTitleEdit(
+                                                                    thread.threadTitle || ""
+                                                                );
+                                                            }}
+                                                        >
+                                                            <Edit className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            title={
+                                                                isThreadResolved(thread)
+                                                                    ? "Mark as unresolved"
+                                                                    : "Mark as resolved"
+                                                            }
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                toggleResolved(thread);
+                                                            }}
+                                                            disabled={pendingResolveThreads.has(
+                                                                thread.id
+                                                            )}
+                                                        >
+                                                            {pendingResolveThreads.has(
+                                                                thread.id
+                                                            ) ? (
+                                                                <Clock className="h-4 w-4 animate-spin" />
+                                                            ) : isThreadResolved(thread) ? (
+                                                                <Check className="h-4 w-4" />
+                                                            ) : (
+                                                                <Circle className="h-4 w-4" />
+                                                            )}
+                                                        </Button>
+                                                    </div>
+                                                )}
+
+                                                {/* Edit mode actions */}
+                                                {editingTitle === thread.id && (
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            title="Cancel"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditingTitle(null);
+                                                            }}
+                                                        >
+                                                            <X className="h-4 w-4" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-8 w-8 p-0"
+                                                            title="Save"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleEditThreadTitle(thread.id);
+                                                            }}
+                                                        >
+                                                            <Check className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <div className="flex gap-2 items-center">
+                                                <span
+                                                    className="text-primary max-w-48 truncate"
+                                                    title={thread.cellId.cellId}
+                                                >
+                                                    {getCellId(thread.cellId.cellId)}
+                                                </span>
+                                            </div>
+                                            <span className="flex items-center gap-1">
+                                                <MessageSquare className="h-3 w-3" />
+                                                {thread.comments.length}{" "}
+                                                {thread.comments.length === 1
+                                                    ? "comment"
+                                                    : "comments"}
                                             </span>
                                         </div>
-                                        <span className="flex items-center gap-1">
-                                            <MessageSquare className="h-3 w-3" />
-                                            {thread.comments.length}{" "}
-                                            {thread.comments.length === 1 ? "comment" : "comments"}
-                                        </span>
-                                    </div>
-                                </CardHeader>
+                                    </CardHeader>
 
-                                {/* Comments section */}
-                                {!collapsedThreads[thread.id] && (
-                                    <CardContent className="p-3">
-                                        <div className="flex flex-col gap-3">
-                                            {/* Reply form at top */}
-                                            {currentUser.isAuthenticated && (
-                                                <div className="flex gap-3 items-start pb-3 border-b border-border">
-                                                    <UserAvatar
-                                                        username={currentUser.username}
-                                                        email={currentUser.email}
-                                                        size="small"
-                                                    />
-
-                                                    <div className="flex-1 flex gap-3">
-                                                        <Input
-                                                            placeholder="Add a reply..."
-                                                            value={replyText[thread.id] || ""}
-                                                            onKeyDown={(e) => {
-                                                                if (
-                                                                    e.key === "Enter" &&
-                                                                    !e.shiftKey
-                                                                ) {
-                                                                    e.preventDefault();
-                                                                    handleReply(thread.id);
-                                                                } else if (e.key === "Escape") {
-                                                                    setReplyingTo(null);
-                                                                }
-                                                            }}
-                                                            onChange={(e) => {
-                                                                const value = e.target.value;
-                                                                setReplyText((prev) => ({
-                                                                    ...prev,
-                                                                    [thread.id]:
-                                                                        replyingTo?.username &&
-                                                                        replyingTo.threadId ===
-                                                                            thread.id
-                                                                            ? value
-                                                                            : value,
-                                                                }));
-                                                            }}
+                                    {/* Comments section */}
+                                    {!collapsedThreads[thread.id] && (
+                                        <CardContent className="p-3">
+                                            <div className="flex flex-col gap-3">
+                                                {/* Reply form at top */}
+                                                {currentUser.isAuthenticated && (
+                                                    <div className="flex gap-3 items-start pb-3 border-b border-border">
+                                                        <UserAvatar
+                                                            username={currentUser.username}
+                                                            email={currentUser.email}
+                                                            size="small"
                                                         />
 
-                                                        <div className="flex justify-between items-center">
+                                                        <div className="flex-1 flex flex-col gap-2">
                                                             {replyingTo?.threadId === thread.id && (
-                                                                <div className="text-xs text-primary flex items-center gap-1">
+                                                                <div className="text-xs text-primary flex items-center gap-1 pb-2 border-b border-border">
                                                                     <Reply className="h-3 w-3" />
                                                                     Replying to @
                                                                     {replyingTo.username}
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="sm"
-                                                                        className="h-6 w-6 p-0"
-                                                                        onClick={() =>
-                                                                            setReplyingTo(null)
-                                                                        }
+                                                                        className="h-4 w-4 p-0 ml-auto"
+                                                                        onClick={() => {
+                                                                            setReplyingTo(null);
+                                                                            setReplyText(
+                                                                                (prev) => ({
+                                                                                    ...prev,
+                                                                                    [thread.id]: "",
+                                                                                })
+                                                                            );
+                                                                        }}
                                                                     >
                                                                         <X className="h-3 w-3" />
                                                                     </Button>
                                                                 </div>
                                                             )}
 
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                className="h-8 w-8 p-0 ml-auto"
-                                                                onClick={() =>
-                                                                    handleReply(thread.id)
-                                                                }
-                                                                title="Send reply"
-                                                            >
-                                                                <Send className="h-4 w-4" />
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
+                                                            <div className="flex gap-2">
+                                                                <textarea
+                                                                    placeholder="Add a reply..."
+                                                                    value={
+                                                                        replyText[thread.id] || ""
+                                                                    }
+                                                                    className="flex-1 resize-none border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring min-h-[2.5rem] max-h-32"
+                                                                    rows={
+                                                                        replyText[
+                                                                            thread.id
+                                                                        ]?.includes("\n")
+                                                                            ? Math.min(
+                                                                                  replyText[
+                                                                                      thread.id
+                                                                                  ].split("\n")
+                                                                                      .length,
+                                                                                  5
+                                                                              )
+                                                                            : 1
+                                                                    }
+                                                                    onKeyDown={(e) => {
+                                                                        if (
+                                                                            e.key === "Enter" &&
+                                                                            !e.shiftKey
+                                                                        ) {
+                                                                            e.preventDefault();
+                                                                            handleReply(thread.id);
+                                                                        } else if (
+                                                                            e.key === "Escape"
+                                                                        ) {
+                                                                            setReplyingTo(null);
+                                                                            setReplyText(
+                                                                                (prev) => ({
+                                                                                    ...prev,
+                                                                                    [thread.id]: "",
+                                                                                })
+                                                                            );
+                                                                        }
+                                                                    }}
+                                                                    onChange={(e) => {
+                                                                        const value =
+                                                                            e.target.value;
+                                                                        setReplyText((prev) => ({
+                                                                            ...prev,
+                                                                            [thread.id]: value,
+                                                                        }));
+                                                                    }}
+                                                                />
 
-                                            {/* Comments - newest first like YouTube */}
-                                            <div className="flex flex-col gap-3">
-                                                {thread.comments
-                                                    .slice()
-                                                    .reverse()
-                                                    .map((comment, index) => (
-                                                        <div
-                                                            key={comment.id}
-                                                            className={`flex gap-3 group ${
-                                                                comment.deleted ? "opacity-60" : ""
-                                                            }`}
-                                                        >
-                                                            <UserAvatar
-                                                                username={comment.author.name}
-                                                                timestamp={comment.timestamp.toString()}
-                                                                size="small"
-                                                            />
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="flex items-start justify-between mb-1">
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <div
-                                                                            className={`text-sm leading-relaxed break-words ${
-                                                                                comment.deleted
-                                                                                    ? "text-muted-foreground italic"
-                                                                                    : ""
-                                                                            }`}
-                                                                        >
-                                                                            {comment.deleted
-                                                                                ? "This comment has been deleted"
-                                                                                : comment.body}
-                                                                        </div>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    className="h-8 w-8 p-0 self-end"
+                                                                    onClick={() =>
+                                                                        handleReply(thread.id)
+                                                                    }
+                                                                    title="Send reply"
+                                                                    disabled={
+                                                                        !replyText[
+                                                                            thread.id
+                                                                        ]?.trim()
+                                                                    }
+                                                                >
+                                                                    <Send className="h-4 w-4" />
+                                                                </Button>
+                                                            </div>
+
+                                                            {/* Preview of the reply with rendered blockquotes */}
+                                                            {replyText[thread.id]?.trim() && (
+                                                                <div className="border border-border rounded-md p-2 bg-muted/30 text-sm">
+                                                                    <div className="text-xs text-muted-foreground mb-1">
+                                                                        Preview:
                                                                     </div>
-
-                                                                    {/* Action buttons */}
-                                                                    <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                        {!comment.deleted &&
-                                                                            comment.author.name ===
-                                                                                currentUser.username && (
-                                                                                <Button
-                                                                                    variant="ghost"
-                                                                                    size="sm"
-                                                                                    className="h-6 w-6 p-0"
-                                                                                    onClick={() =>
-                                                                                        handleCommentDeletion(
-                                                                                            comment.id,
-                                                                                            thread.id
-                                                                                        )
-                                                                                    }
-                                                                                    title="Delete comment"
-                                                                                >
-                                                                                    <Trash2 className="h-3 w-3" />
-                                                                                </Button>
-                                                                            )}
-
-                                                                        {comment.deleted &&
-                                                                            comment.author.name ===
-                                                                                currentUser.username && (
-                                                                                <Button
-                                                                                    variant="ghost"
-                                                                                    size="sm"
-                                                                                    className="h-6 w-6 p-0"
-                                                                                    onClick={() =>
-                                                                                        handleUndoCommentDeletion(
-                                                                                            comment.id,
-                                                                                            thread.id
-                                                                                        )
-                                                                                    }
-                                                                                    title="Undo deletion"
-                                                                                >
-                                                                                    <Undo2 className="h-3 w-3" />
-                                                                                </Button>
-                                                                            )}
+                                                                    <div className="text-sm leading-relaxed break-words">
+                                                                        {renderCommentBody(
+                                                                            replyText[thread.id]
+                                                                        )}
                                                                     </div>
                                                                 </div>
-                                                            </div>
+                                                            )}
                                                         </div>
-                                                    ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Comments - newest first like YouTube */}
+                                                <div className="flex flex-col gap-3">
+                                                    {thread.comments
+                                                        .slice()
+                                                        .reverse()
+                                                        .map((comment, index) => (
+                                                            <CommentCard
+                                                                key={comment.id}
+                                                                comment={comment}
+                                                                thread={thread}
+                                                            />
+                                                        ))}
+                                                </div>
                                             </div>
-                                        </div>
-                                    </CardContent>
-                                )}
-                            </Card>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* Resolved threads banner */}
-            {hiddenResolvedThreadsCount > 0 && (
-                <div
-                    className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
-                    onClick={() => setShowResolvedThreads(true)}
-                >
-                    <div className="flex items-center gap-2">
-                        <Eye className="h-4 w-4" />
-                        <span>
-                            {hiddenResolvedThreadsCount} resolved{" "}
-                            {hiddenResolvedThreadsCount === 1 ? "thread" : "threads"} hidden
-                        </span>
-                    </div>
-                    <ChevronUp className="h-4 w-4" />
-                </div>
-            )}
-
-            {/* Hide resolved threads button (when they're visible) */}
-            {showResolvedThreads &&
-                commentThreadArray.some(
-                    (thread) => !isThreadDeleted(thread) && isThreadResolved(thread)
-                ) && (
-                    <div
-                        className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
-                        onClick={() => setShowResolvedThreads(false)}
-                    >
-                        <div className="flex items-center gap-2">
-                            <EyeOff className="h-4 w-4" />
-                            <span>Hide resolved threads</span>
+                                        </CardContent>
+                                    )}
+                                </Card>
+                            ))}
                         </div>
-                        <ChevronDown className="h-4 w-4" />
                     </div>
                 )}
-        </div>
+
+                {/* Resolved threads banner */}
+                {hiddenResolvedThreadsCount > 0 && (
+                    <div
+                        className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
+                        onClick={() => setShowResolvedThreads(true)}
+                    >
+                        <div className="flex items-center gap-2">
+                            <Eye className="h-4 w-4" />
+                            <span>
+                                {hiddenResolvedThreadsCount} resolved{" "}
+                                {hiddenResolvedThreadsCount === 1 ? "thread" : "threads"} hidden
+                            </span>
+                        </div>
+                        <ChevronUp className="h-4 w-4" />
+                    </div>
+                )}
+
+                {/* Hide resolved threads button (when they're visible) */}
+                {showResolvedThreads &&
+                    commentThreadArray.some(
+                        (thread) => !isThreadDeleted(thread) && isThreadResolved(thread)
+                    ) && (
+                        <div
+                            className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
+                            onClick={() => setShowResolvedThreads(false)}
+                        >
+                            <div className="flex items-center gap-2">
+                                <EyeOff className="h-4 w-4" />
+                                <span>Hide resolved threads</span>
+                            </div>
+                            <ChevronDown className="h-4 w-4" />
+                        </div>
+                    )}
+            </div>
+        </TooltipProvider>
     );
 }
 
