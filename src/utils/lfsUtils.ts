@@ -12,16 +12,23 @@ import path from "path";
 export class LFSHelper {
 
     /**
-     * Check if a file should be stored in LFS based on size and type
+     * Check if a file should be stored in LFS based on type (and size for non-audio files)
      */
     static shouldUseLFS(filePath: string, fileSize: number): boolean {
-        const lfsExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm', '.mp4', '.avi', '.mov', '.mkv', '.jpg', '.jpeg', '.png', '.pdf'];
-        const lfsThresholdMB = 10; // Files larger than 10MB
-
         const ext = path.extname(filePath).toLowerCase();
+
+        // Audio files: ALL go to LFS regardless of size (they're binary and don't benefit from Git)
+        const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
+        if (audioExtensions.includes(ext)) {
+            return true;
+        }
+
+        // Other large binary files: use size threshold
+        const largeBinaryExtensions = ['.mp4', '.avi', '.mov', '.mkv', '.jpg', '.jpeg', '.png', '.pdf'];
+        const lfsThresholdMB = 10; // Files larger than 10MB
         const sizeMB = fileSize / (1024 * 1024);
 
-        return lfsExtensions.includes(ext) && sizeMB > lfsThresholdMB;
+        return largeBinaryExtensions.includes(ext) && sizeMB > lfsThresholdMB;
     }
 
     /**

@@ -4,7 +4,7 @@ This example demonstrates how to use Git LFS in a real Codex translation project
 
 ## Scenario
 
-You're working on a Gujarati translation of Genesis with audio recordings for each verse. Audio files are typically 2-5 MB each, but some longer passages are 15-20 MB.
+You're working on a Gujarati translation of Genesis with audio recordings for each verse. Audio files range from 500KB to 20MB, but ALL will be stored in LFS for consistency.
 
 ## Step 1: Initialize LFS
 
@@ -56,8 +56,8 @@ Clone time: 45 minutes 😰
 .project/attachments/GEN/
 ├── GEN_001_001.wav (156 bytes) 📄 LFS pointer
 ├── GEN_001_002.wav (156 bytes) 📄 LFS pointer
-├── GEN_001_003.wav (12.4 MB)   📁 Regular file (< threshold)
-└── ... (LFS handles large files automatically)
+├── GEN_001_003.wav (156 bytes) 📄 LFS pointer (ALL audio → LFS)
+└── ... (LFS handles ALL audio files automatically)
 
 Repository size: 45 MB ✅
 Clone time: 2 minutes ✅
@@ -72,8 +72,8 @@ Clone time: 2 minutes ✅
 
 **Behind the scenes:**
 
-- File size is checked (18.7 MB > 10 MB threshold)
-- Automatically uploaded to LFS
+- File type is checked (.wav = audio file)
+- ALL audio files automatically go to LFS (regardless of size)
 - Small pointer file stored in Git
 - Cell metadata updated with `isLFS: true`
 
@@ -117,13 +117,13 @@ git clone repo.git
 **Translator A records new audio:**
 
 ```bash
-# Record GEN 2:5 (16.2 MB file)
-# Automatic LFS upload
+# Record GEN 2:5 (any size audio file)
+# ALL audio files → automatic LFS upload
 git add .
 git commit -m "Add audio for GEN 2:5"
 git push
 # Pushes only 156-byte pointer file to Git
-# LFS handles 16.2 MB file separately
+# LFS handles actual audio file separately
 ```
 
 **Translator B syncs changes:**
@@ -162,8 +162,8 @@ import { LFSHelper } from "../utils/lfsUtils";
 import { LFSAudioHandler } from "../providers/codexCellEditorProvider/lfsAudioHandler";
 
 // Check if a file should use LFS
-const shouldUseLFS = LFSHelper.shouldUseLFS("audio.wav", 15000000); // 15MB
-console.log(shouldUseLFS); // true
+const shouldUseLFS = LFSHelper.shouldUseLFS("audio.wav", 500000); // 500KB audio
+console.log(shouldUseLFS); // true (ALL audio files use LFS)
 
 // Read audio with LFS support
 const result = await LFSHelper.readFileWithLFS(

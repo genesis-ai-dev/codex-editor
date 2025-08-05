@@ -125,7 +125,7 @@ export class LFSAudioHandler {
     ): Promise<{ success: boolean; migratedCount: number; errors: string[]; }> {
         try {
             const attachmentsRoot = path.join(workspaceFolder.uri.fsPath, ".project", "attachments");
-
+            console.log({ attachmentsRoot });
             if (!fs.existsSync(attachmentsRoot)) {
                 return { success: true, migratedCount: 0, errors: [] };
             }

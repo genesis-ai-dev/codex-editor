@@ -18,7 +18,7 @@ export function registerLFSCommands(context: vscode.ExtensionContext) {
             }
 
             const confirmed = await vscode.window.showInformationMessage(
-                "Initialize Git LFS for this project? This will:\n\n• Update .gitignore to allow attachment tracking\n• Configure .gitattributes for LFS\n• Enable efficient handling of large audio/video files",
+                "Initialize Git LFS for this project? This will:\n\n• Update .gitignore to allow attachment tracking\n• Configure .gitattributes for LFS\n• Track ALL audio files + large video/image files in LFS",
                 { modal: true },
                 "Yes", "No"
             );
@@ -37,7 +37,7 @@ export function registerLFSCommands(context: vscode.ExtensionContext) {
 
                 if (success) {
                     vscode.window.showInformationMessage(
-                        "✅ Git LFS initialized successfully!\n\n• .gitignore updated to allow attachment tracking\n• .gitattributes configured for LFS\n• Large files will now sync efficiently"
+                        "✅ Git LFS initialized successfully!\n\n• .gitignore updated to allow attachment tracking\n• .gitattributes configured for LFS\n• ALL audio files + large video/images will sync via LFS"
                     );
                 } else {
                     vscode.window.showErrorMessage("Failed to initialize Git LFS");
@@ -148,18 +148,19 @@ Instead of storing large files directly in Git (which can make repositories slow
 
 ## Files That Use LFS
 
-The following files are automatically handled by LFS when they're over 10MB:
+🎵 **Audio Files**: .wav, .mp3, .m4a, .ogg, .webm (ALL files, regardless of size)
+🎬 **Video Files**: .mp4, .avi, .mov, .mkv (files over 10MB)
+🖼️ **Images**: .jpg, .jpeg, .png (files over 10MB)
 
-🎵 **Audio Files**: .wav, .mp3, .m4a, .ogg
-🎬 **Video Files**: .mp4, .avi, .mov, .mkv  
-🖼️ **Images**: .jpg, .jpeg, .png
+**Why ALL audio files?** Audio recordings are binary files that don't benefit from Git's text-based features. For consistency and performance, ALL audio files go to LFS.
 
 ## Benefits
 
 ✅ Faster git operations (clone, pull, push)
 ✅ Smaller repository size
-✅ Better performance with large attachments
-✅ Efficient storage of audio recordings
+✅ Consistent audio file handling
+✅ Better performance with binary attachments
+✅ Efficient storage of all recordings
 
 ## Commands
 

@@ -10,11 +10,13 @@ Git LFS is now integrated into the Codex Editor to automatically handle large bi
 
 ### Files That Use LFS
 
-The following file types are automatically handled by LFS when they exceed 10MB:
+The following file types are automatically handled by LFS:
 
-- **Audio Files**: `.wav`, `.mp3`, `.m4a`, `.ogg`, `.webm`
-- **Video Files**: `.mp4`, `.avi`, `.mov`, `.mkv`
-- **Images**: `.jpg`, `.jpeg`, `.png`
+- **Audio Files**: `.wav`, `.mp3`, `.m4a`, `.ogg`, `.webm` (ALL audio files, regardless of size)
+- **Video Files**: `.mp4`, `.avi`, `.mov`, `.mkv` (when larger than 10MB)
+- **Images**: `.jpg`, `.jpeg`, `.png` (when larger than 10MB)
+
+**Why ALL audio files?** Audio files are binary and don't benefit from Git's text-based features. Even small audio recordings belong in LFS for consistency and performance.
 
 ### Transparent Operation
 
