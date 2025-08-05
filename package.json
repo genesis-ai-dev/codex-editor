@@ -395,6 +395,26 @@
                 "command": "codex-editor-extension.deduplicateSourceCells",
                 "title": "Codex: Clean Up Duplicate Source Cells",
                 "category": "Codex Maintenance"
+            },
+            {
+                "command": "codex-editor-extension.lfs.initialize",
+                "title": "Initialize Git LFS",
+                "category": "Codex LFS"
+            },
+            {
+                "command": "codex-editor-extension.lfs.status",
+                "title": "Check LFS Status",
+                "category": "Codex LFS"
+            },
+            {
+                "command": "codex-editor-extension.lfs.migrate",
+                "title": "Migrate Attachments to LFS",
+                "category": "Codex LFS"
+            },
+            {
+                "command": "codex-editor-extension.lfs.help",
+                "title": "LFS Help & Documentation",
+                "category": "Codex LFS"
             }
         ],
         "configuration": [
@@ -909,6 +929,7 @@
         "webpack-cli": "^5.1.4"
     },
     "dependencies": {
+        "@fetsorn/isogit-lfs": "^0.5.3",
         "@types/better-sqlite3": "^7.6.11",
         "@types/csv-parse": "^1.2.5",
         "@types/xml2js": "^0.4.14",

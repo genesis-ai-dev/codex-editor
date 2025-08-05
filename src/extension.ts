@@ -6,6 +6,7 @@ import { registerLanguageServer } from "./tsServer/registerLanguageServer";
 import { registerClientCommands } from "./tsServer/registerClientCommands";
 import registerClientOnRequests from "./tsServer/registerClientOnRequests";
 import { registerSmartEditCommands } from "./smartEdits/registerSmartEditCommands";
+import { registerLFSCommands } from "./commands/lfsCommands";
 import { LanguageClient } from "vscode-languageclient/node";
 import { registerProjectManager } from "./projectManager";
 import {
@@ -367,6 +368,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await Promise.all([
             registerSmartEditCommands(context),
             registerSourceUploadCommands(context),
+            registerLFSCommands(context),
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),

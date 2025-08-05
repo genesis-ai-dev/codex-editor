@@ -877,41 +877,45 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             fileExtension: typedEvent.content.fileExtension
         });
 
-        const documentSegment = typedEvent.content.cellId.split(' ')[0];
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         if (!workspaceFolder) {
             throw new Error("No workspace folder found");
         }
 
-        const attachmentsDir = path.join(
-            workspaceFolder.uri.fsPath,
-            ".project",
-            "attachments",
-            documentSegment
+        // Import LFS handler (dynamic import to avoid circular dependencies)
+        const { LFSAudioHandler } = await import('./lfsAudioHandler');
+
+        // Use LFS-enabled audio handler
+        const result = await LFSAudioHandler.saveAudioAttachmentWithLFS(
+            typedEvent.content.cellId,
+            typedEvent.content.audioId,
+            typedEvent.content.audioData,
+            typedEvent.content.fileExtension,
+            document,
+            workspaceFolder
         );
 
-        await fs.promises.mkdir(attachmentsDir, { recursive: true });
-
-        const fileName = `${typedEvent.content.audioId}.${typedEvent.content.fileExtension}`;
-        const filePath = path.join(attachmentsDir, fileName);
-
-        const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
-        const buffer = Buffer.from(base64Data, 'base64');
-
-        await fs.promises.writeFile(filePath, buffer);
-
-        const relativePath = path.relative(workspaceFolder.uri.fsPath, filePath);
-        await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, {
-            url: relativePath,
-            type: "audio"
-        });
+        if (!result.success) {
+            console.error("Failed to save audio attachment:", result.error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSaved",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: false,
+                    error: result.error
+                }
+            });
+            return;
+        }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentSaved",
             content: {
                 cellId: typedEvent.content.cellId,
                 audioId: typedEvent.content.audioId,
-                success: true
+                success: true,
+                isLFS: result.isLFS
             }
         });
 
@@ -926,7 +930,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             attachments: audioCells as any,
         });
 
-        debug("Audio attachment saved successfully:", filePath);
+        debug(`Audio attachment saved successfully with LFS: ${result.isLFS}`);
     },
 
     deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {

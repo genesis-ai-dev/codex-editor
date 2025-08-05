@@ -986,6 +986,7 @@ type EditorReceiveMessages =
             audioId: string;
             success: boolean;
             error?: string;
+            isLFS?: boolean;
         };
     }
     | {
