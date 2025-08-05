@@ -6,6 +6,8 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 import { BaseWebviewProvider } from "../../globalProvider";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToView } from "../../utils/webviewUtils";
+import { CodexItem } from "types";
+import { getCellValueData } from "../../../sharedUtils";
 
 interface CodexMetadata {
     id: string;
@@ -28,18 +30,18 @@ interface BibleBookInfo {
     osisId: string;
 }
 
-export interface CodexItem {
-    uri: vscode.Uri;
-    label: string;
-    type: "corpus" | "codexDocument" | "dictionary";
-    children?: CodexItem[];
-    corpusMarker?: string;
-    progress?: number;
-    sortOrder?: string;
-    isProjectDictionary?: boolean;
-    wordCount?: number;
-    isEnabled?: boolean;
-}
+// export interface CodexItem {
+//     uri: vscode.Uri;
+//     label: string;
+//     type: "corpus" | "codexDocument" | "dictionary";
+//     children?: CodexItem[];
+//     corpusMarker?: string;
+//     progress?: number;
+//     sortOrder?: string;
+//     isProjectDictionary?: boolean;
+//     wordCount?: number;
+//     isEnabled?: boolean;
+// }
 
 export class NavigationWebviewProvider extends BaseWebviewProvider {
     public static readonly viewType = "codex-editor.navigation";
@@ -402,13 +404,31 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
             const fileNameAbbr = path.basename(uri.fsPath, ".codex");
 
             // Calculate progress based on cells with values
-            const totalCells = notebookData.cells.length;
-            const cellsWithValues = notebookData.cells.filter(
+            const unmergedCells = notebookData.cells.filter((cell) => !cell.metadata.data?.merged);
+            const totalCells = unmergedCells.length;
+            const cellsWithValues = unmergedCells.filter(
                 (cell) =>
                     cell.value && cell.value.trim().length > 0 && cell.value !== "<span></span>"
             ).length;
             const progress = totalCells > 0 ? (cellsWithValues / totalCells) * 100 : 0;
 
+            const cellWithValidatedData = unmergedCells.map(
+                (cell) => {
+                    const cellValueData = getCellValueData({
+                        cellContent: cell.value,
+                        cellMarkers: [cell.metadata.id],
+                        cellType: cell.languageId as any,
+                        cellLabel: cell.metadata.cellLabel,
+                        editHistory: cell.metadata.edits,
+                    });
+                    return cellValueData;
+                }
+            );
+            const minimumValidationsRequired = vscode.workspace.getConfiguration("codex-project-manager").get<number>("minimumValidationsRequired", 1);
+            const fullyValidatedCells = cellWithValidatedData.filter(
+                (cell) => cell.validatedBy?.filter((v) => !v.isDeleted).length >= minimumValidationsRequired
+            ).length;
+            const fullyValidatedProgress = totalCells > 0 ? (fullyValidatedCells / totalCells) * 100 : 0;
             const bookInfo = this.bibleBookMap.get(fileNameAbbr);
             const label = fileNameAbbr;
             const sortOrder = bookInfo?.ord;
@@ -419,7 +439,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 label,
                 type: "codexDocument",
                 corpusMarker: corpusMarker,
-                progress: progress,
+                progress: {
+                    percentTranslationsCompleted: progress,
+                    percentFullyValidatedTranslations: fullyValidatedProgress,
+                },
                 sortOrder,
             };
         } catch (error) {
@@ -452,9 +475,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
         const groupedItems: CodexItem[] = [];
         corpusGroups.forEach((itemsInGroup, corpusMarker) => {
-            const totalProgress = itemsInGroup.reduce((sum, item) => sum + (item.progress || 0), 0);
+            const totalProgress = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentTranslationsCompleted || 0), 0);
             const averageProgress =
                 itemsInGroup.length > 0 ? totalProgress / itemsInGroup.length : 0;
+
+            const averageValidationProgress = itemsInGroup.reduce((sum, item) => sum + (item.progress?.percentFullyValidatedTranslations || 0), 0) / itemsInGroup.length;
 
             const sortedItems = itemsInGroup.sort((a, b) => {
                 if (a.sortOrder && b.sortOrder) {
@@ -468,7 +493,10 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 label: corpusMarker,
                 type: "corpus",
                 children: sortedItems,
-                progress: averageProgress,
+                progress: {
+                    percentTranslationsCompleted: averageProgress,
+                    percentFullyValidatedTranslations: averageValidationProgress,
+                },
             });
         });
 
@@ -607,7 +635,7 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
     private serializeItem(item: CodexItem): any {
         return {
             ...item,
-            uri: item.uri.fsPath,
+            uri: (item.uri as vscode.Uri).fsPath,
             children: item.children
                 ? item.children.map((child) => this.serializeItem(child))
                 : undefined,

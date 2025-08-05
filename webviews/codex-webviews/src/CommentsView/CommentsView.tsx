@@ -97,6 +97,24 @@ function App() {
     const [editingTitle, setEditingTitle] = useState<string | null>(null);
     const [threadTitleEdit, setThreadTitleEdit] = useState<string>("");
 
+    // Helper function to determine if thread is currently resolved based on latest event
+    const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
+        const resolvedEvents = thread.resolvedEvent || [];
+        const latestResolvedEvent = resolvedEvents.length > 0 
+            ? resolvedEvents.reduce((latest, event) => event.timestamp > latest.timestamp ? event : latest)
+            : null;
+        return latestResolvedEvent?.resolved || false;
+    }, []);
+
+    // Helper function to determine if thread is currently deleted based on latest event  
+    const isThreadDeleted = useCallback((thread: NotebookCommentThread): boolean => {
+        const deletionEvents = thread.deletionEvent || [];
+        const latestDeletionEvent = deletionEvents.length > 0
+            ? deletionEvents.reduce((latest, event) => event.timestamp > latest.timestamp ? event : latest)
+            : null;
+        return latestDeletionEvent?.deleted || false;
+    }, []);
+
     const handleMessage = useCallback(
         (event: MessageEvent) => {
             const message: CommentPostMessages = event.data;
@@ -242,8 +260,8 @@ function App() {
             cellId: cellId,
             collapsibleState: 0,
             threadTitle: defaultTitle,
-            deleted: false,
-            resolved: false,
+            deletionEvent: [],
+            resolvedEvent: [],
             comments: [
                 {
                     id: commentId,
@@ -292,9 +310,20 @@ function App() {
             return next;
         });
 
+        // Determine if thread is currently resolved (latest event determines state)
+        const isCurrentlyResolved = isThreadResolved(thread);
+        
+        // Add new event with opposite state and current timestamp
         const updatedThread = {
             ...thread,
-            resolved: !thread.resolved,
+            resolvedEvent: [
+                ...(thread.resolvedEvent || []),
+                {
+                    timestamp: Date.now(),
+                    author: { name: currentUser?.username || 'Unknown' },
+                    resolved: !isCurrentlyResolved
+                }
+            ],
             comments: [...thread.comments],
         };
 
@@ -328,12 +357,12 @@ function App() {
 
     const filteredCommentThreads = useMemo(() => {
         // First, get all non-deleted threads
-        const nonDeletedThreads = commentThreadArray.filter((thread) => !thread.deleted);
+        const nonDeletedThreads = commentThreadArray.filter((thread) => !isThreadDeleted(thread));
 
         // Then, apply additional filtering based on view mode, search, and resolved status
         return nonDeletedThreads.filter((commentThread) => {
             // Skip resolved threads if they're hidden
-            if (!showResolvedThreads && commentThread.resolved) return false;
+            if (!showResolvedThreads && isThreadResolved(commentThread)) return false;
 
             // If in cell view mode, only show comments for the current cell
             if (viewMode === "cell" && cellId.cellId) {
@@ -360,10 +389,10 @@ function App() {
     const hiddenResolvedThreadsCount = useMemo(() => {
         if (showResolvedThreads) return 0;
 
-        const nonDeletedThreads = commentThreadArray.filter((thread) => !thread.deleted);
+        const nonDeletedThreads = commentThreadArray.filter((thread) => !isThreadDeleted(thread));
 
         return nonDeletedThreads.filter((thread) => {
-            const isResolved = thread.resolved;
+            const isResolved = isThreadResolved(thread);
             const matchesCurrentCell =
                 viewMode !== "cell" || thread.cellId.cellId === cellId.cellId;
             const matchesSearch =
@@ -542,7 +571,7 @@ function App() {
                             <Card
                                 key={thread.id}
                                 className={`overflow-hidden border transition-opacity duration-200 ${
-                                    thread.resolved ? "opacity-75" : "opacity-100"
+                                    isThreadResolved(thread) ? "opacity-75" : "opacity-100"
                                 }`}
                             >
                                 {/* Thread header */}
@@ -583,7 +612,7 @@ function App() {
                                         </div>
 
                                         <div className="flex gap-1.5 items-center">
-                                            {thread.resolved && (
+                                            {isThreadResolved(thread) && (
                                                 <Badge variant="secondary" className="text-xs">
                                                     <Check className="h-3 w-3 mr-1" />
                                                     Resolved
@@ -613,7 +642,7 @@ function App() {
                                                         size="sm"
                                                         className="h-8 w-8 p-0"
                                                         title={
-                                                            thread.resolved
+                                                            isThreadResolved(thread)
                                                                 ? "Mark as unresolved"
                                                                 : "Mark as resolved"
                                                         }
@@ -627,7 +656,7 @@ function App() {
                                                     >
                                                         {pendingResolveThreads.has(thread.id) ? (
                                                             <Clock className="h-4 w-4 animate-spin" />
-                                                        ) : thread.resolved ? (
+                                                        ) : isThreadResolved(thread) ? (
                                                             <Check className="h-4 w-4" />
                                                         ) : (
                                                             <Circle className="h-4 w-4" />
@@ -866,7 +895,7 @@ function App() {
 
             {/* Hide resolved threads button (when they're visible) */}
             {showResolvedThreads &&
-                commentThreadArray.some((thread) => !thread.deleted && thread.resolved) && (
+                commentThreadArray.some((thread) => !isThreadDeleted(thread) && isThreadResolved(thread)) && (
                     <div
                         className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
                         onClick={() => setShowResolvedThreads(false)}

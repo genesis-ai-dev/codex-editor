@@ -5,6 +5,9 @@ import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import { WebviewHeader } from "../components/WebviewHeader";
 import bibleData from "../assets/bible-books-lookup.json";
+import { Progress } from "../components/ui/progress";
+import "../tailwind.css";
+import { CodexItem } from "types";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -19,19 +22,6 @@ interface BibleBookInfo {
     testament: string;
     osisId: string;
     [key: string]: any;
-}
-
-interface CodexItem {
-    uri: string;
-    label: string;
-    type: "corpus" | "codexDocument" | "dictionary";
-    children?: CodexItem[];
-    corpusMarker?: string;
-    progress?: number;
-    sortOrder?: string;
-    isProjectDictionary?: boolean;
-    wordCount?: number;
-    isEnabled?: boolean;
 }
 
 interface State {
@@ -640,7 +630,7 @@ function NavigationView() {
 
     const openFile = (item: CodexItem) => {
         // Get the file system path from the URI
-        const uri = item.uri;
+        const uri = item.uri as string;
         // Extract just the path part from the URI
         const fsPath = uri.replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1");
 
@@ -684,27 +674,19 @@ function NavigationView() {
             .filter((item): item is CodexItem => item !== null);
     };
 
-    const renderProgressSection = (progress?: number) => {
-        if (typeof progress !== "number") return null;
+    const renderProgressSection = (progress?: {
+        percentTranslationsCompleted: number;
+        percentFullyValidatedTranslations: number;
+    }) => {
+        if (typeof progress !== "object") return null;
+        console.log({ progress });
         return (
             <div style={styles.progressSection}>
-                <div style={styles.progressLabel}>
-                    <span>Translation Progress</span>
-                    <span>{Math.round(progress)}%</span>
-                </div>
-                <div style={styles.progressBar}>
-                    <div
-                        style={{
-                            width: `${progress}%`,
-                            height: "100%",
-                            backgroundColor:
-                                progress === 100
-                                    ? "var(--vscode-terminal-ansiGreen)"
-                                    : "var(--vscode-progressBar-foreground)",
-                            transition: "width 0.3s ease",
-                        }}
-                    />
-                </div>
+                <Progress
+                    value={progress.percentTranslationsCompleted}
+                    secondaryValue={progress.percentFullyValidatedTranslations}
+                    showPercentage
+                />
             </div>
         );
     };
@@ -842,9 +824,6 @@ function NavigationView() {
                             )}
                             <i className={`codicon codicon-${icon}`} style={styles.icon} />
                             <span style={styles.label}>{displayLabel}</span>
-                            {item.progress === 100 && (
-                                <i className="codicon codicon-check" style={styles.completedIcon} />
-                            )}
                         </div>
                         {renderProgressSection(item.progress)}
                     </div>
@@ -931,7 +910,7 @@ function NavigationView() {
                                 </>
                             );
                         }
-                        
+
                         if (!state.hasReceivedInitialData) {
                             return <div style={styles.noResults}>Loading files...</div>;
                         }

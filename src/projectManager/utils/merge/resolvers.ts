@@ -612,7 +612,7 @@ export async function resolveCodexCustomMerge(
 /**
  * Resolves conflicts in notebook comment thread files
  */
-async function resolveCommentThreadsConflict(
+export async function resolveCommentThreadsConflict(
     ourContent: string,
     theirContent: string
 ): Promise<string> {
@@ -634,41 +634,44 @@ async function resolveCommentThreadsConflict(
         // Remove legacy uri field if it exists
         delete (migratedThread as any).uri;
 
-        // Migrate old deleted/resolved booleans to new event arrays
-        if ('deleted' in migratedThread) {
-            if ((migratedThread as any).deleted === true) {
-                const timestamp = migratedThread.comments.length > 0
-                    ? migratedThread.comments[migratedThread.comments.length - 1].timestamp
-                    : Date.now();
-                migratedThread.deletionEvent = [{
-                    timestamp,
-                    author: { name: await getCurrentUserName() },
-                    valid: true
-                }];
+        // Ensure we have the event array fields (migrate from boolean if needed)
+        if (!('deletionEvent' in migratedThread)) {
+            if (typeof (migratedThread as any).deleted === 'boolean') {
+                if ((migratedThread as any).deleted && migratedThread.comments && migratedThread.comments.length > 0) {
+                    const latestComment = migratedThread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    (migratedThread as any).deletionEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        deleted: true
+                    }];
+                } else {
+                    (migratedThread as any).deletionEvent = [];
+                }
+                delete (migratedThread as any).deleted; // Remove old boolean field
             } else {
-                migratedThread.deletionEvent = [];
+                (migratedThread as any).deletionEvent = [];
             }
-            delete (migratedThread as any).deleted;
-        } else if (!migratedThread.deletionEvent) {
-            migratedThread.deletionEvent = [];
         }
-
-        if ('resolved' in migratedThread) {
-            if ((migratedThread as any).resolved === true) {
-                const timestamp = migratedThread.comments.length > 0
-                    ? migratedThread.comments[migratedThread.comments.length - 1].timestamp
-                    : Date.now();
-                migratedThread.resolvedEvent = [{
-                    timestamp,
-                    author: { name: await getCurrentUserName() },
-                    valid: true
-                }];
+        if (!('resolvedEvent' in migratedThread)) {
+            if (typeof (migratedThread as any).resolved === 'boolean') {
+                if ((migratedThread as any).resolved && migratedThread.comments && migratedThread.comments.length > 0) {
+                    const latestComment = migratedThread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    (migratedThread as any).resolvedEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        resolved: true
+                    }];
+                } else {
+                    (migratedThread as any).resolvedEvent = [];
+                }
+                delete (migratedThread as any).resolved; // Remove old boolean field
             } else {
-                migratedThread.resolvedEvent = [];
+                (migratedThread as any).resolvedEvent = [];
             }
-            delete (migratedThread as any).resolved;
-        } else if (!migratedThread.resolvedEvent) {
-            migratedThread.resolvedEvent = [];
         }
 
         // Clean up legacy contextValue from all comments
@@ -703,41 +706,44 @@ async function resolveCommentThreadsConflict(
         // Remove legacy uri field if it exists
         delete (migratedTheirThread as any).uri;
 
-        // Migrate old deleted/resolved booleans to new event arrays
-        if ('deleted' in migratedTheirThread) {
-            if ((migratedTheirThread as any).deleted === true) {
-                const timestamp = migratedTheirThread.comments.length > 0
-                    ? migratedTheirThread.comments[migratedTheirThread.comments.length - 1].timestamp
-                    : Date.now();
-                migratedTheirThread.deletionEvent = [{
-                    timestamp,
-                    author: { name: await getCurrentUserName() },
-                    valid: true
-                }];
+        // Ensure we have the event array fields (migrate from boolean if needed)
+        if (!('deletionEvent' in migratedTheirThread)) {
+            if (typeof (migratedTheirThread as any).deleted === 'boolean') {
+                if ((migratedTheirThread as any).deleted && migratedTheirThread.comments && migratedTheirThread.comments.length > 0) {
+                    const latestComment = migratedTheirThread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    (migratedTheirThread as any).deletionEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        deleted: true
+                    }];
+                } else {
+                    (migratedTheirThread as any).deletionEvent = [];
+                }
+                delete (migratedTheirThread as any).deleted; // Remove old boolean field
             } else {
-                migratedTheirThread.deletionEvent = [];
+                (migratedTheirThread as any).deletionEvent = [];
             }
-            delete (migratedTheirThread as any).deleted;
-        } else if (!migratedTheirThread.deletionEvent) {
-            migratedTheirThread.deletionEvent = [];
         }
-
-        if ('resolved' in migratedTheirThread) {
-            if ((migratedTheirThread as any).resolved === true) {
-                const timestamp = migratedTheirThread.comments.length > 0
-                    ? migratedTheirThread.comments[migratedTheirThread.comments.length - 1].timestamp
-                    : Date.now();
-                migratedTheirThread.resolvedEvent = [{
-                    timestamp,
-                    author: { name: await getCurrentUserName() },
-                    valid: true
-                }];
+        if (!('resolvedEvent' in migratedTheirThread)) {
+            if (typeof (migratedTheirThread as any).resolved === 'boolean') {
+                if ((migratedTheirThread as any).resolved && migratedTheirThread.comments && migratedTheirThread.comments.length > 0) {
+                    const latestComment = migratedTheirThread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    (migratedTheirThread as any).resolvedEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        resolved: true
+                    }];
+                } else {
+                    (migratedTheirThread as any).resolvedEvent = [];
+                }
+                delete (migratedTheirThread as any).resolved; // Remove old boolean field
             } else {
-                migratedTheirThread.resolvedEvent = [];
+                (migratedTheirThread as any).resolvedEvent = [];
             }
-            delete (migratedTheirThread as any).resolved;
-        } else if (!migratedTheirThread.resolvedEvent) {
-            migratedTheirThread.resolvedEvent = [];
         }
 
         // Clean up legacy contextValue from all comments
@@ -808,13 +814,120 @@ async function resolveCommentThreadsConflict(
                 ? { ...migratedTheirThread } // Use their thread metadata if they have newer comments
                 : { ...existingThread };    // Use our thread metadata if we have newer comments
 
-            // Always use the merged comments array
-            mergedThread.comments = Array.from(allComments.values())
-                .sort((a, b) => a.timestamp - b.timestamp);
+            // Always use the merged comments array - preserve order to minimize git diffs
+            mergedThread.comments = Array.from(allComments.values());
 
-            // Merge deletion and resolved events
-            mergedThread.deletionEvent = mergeDeletionEvents(existingThread.deletionEvent, migratedTheirThread.deletionEvent);
-            mergedThread.resolvedEvent = mergeResolvedEvents(existingThread.resolvedEvent, migratedTheirThread.resolvedEvent);
+            // Helper function to validate event structure
+            const validateEvent = (event: any, eventType: string, threadId: string): boolean => {
+                const errors: string[] = [];
+
+                // Check for required timestamp
+                if (!event.timestamp || typeof event.timestamp !== 'number') {
+                    errors.push('missing or invalid timestamp');
+                }
+
+                // Check for author structure
+                if (!event.author || typeof event.author.name !== 'string') {
+                    errors.push('missing or invalid author.name');
+                }
+
+                // Check for event-specific properties
+                if (eventType === 'deletion' && !('deleted' in event) && !('valid' in event)) {
+                    errors.push('missing deleted property');
+                }
+                if (eventType === 'resolved' && !('resolved' in event) && !('valid' in event)) {
+                    errors.push('missing resolved/valid property');
+                }
+
+                if (errors.length > 0) {
+                    console.warn(`[CommentsMerge] Invalid ${eventType} event in thread ${threadId}: ${errors.join(', ')}`, event);
+                    return false;
+                }
+
+                return true;
+            };
+
+            // Helper function to normalize and deduplicate events based on timestamp, author name, and boolean state
+            const deduplicateEvents = (events: any[], eventType: string) => {
+                const seen = new Set<string>();
+                const originalCount = events.length;
+
+                // First filter out completely invalid events
+                const validEvents = events.filter(event => validateEvent(event, eventType, mergedThread.id));
+
+                if (validEvents.length !== originalCount) {
+                    debugLog(`Filtered out ${originalCount - validEvents.length} invalid ${eventType} events for thread ${mergedThread.id}`);
+                }
+
+                // Then normalize events - convert 'valid' to 'resolved' and ensure required properties exist
+                const normalizedEvents = validEvents.map(event => {
+                    const normalizedEvent = { ...event };
+
+                    // Handle property normalization for resolved events
+                    if (eventType === 'resolved') {
+                        // Convert 'valid' to 'resolved' if it exists
+                        if ('valid' in normalizedEvent && !('resolved' in normalizedEvent)) {
+                            normalizedEvent.resolved = normalizedEvent.valid;
+                            delete normalizedEvent.valid;
+                        }
+                        // Set default resolved state if missing or invalid (safer to default to false)
+                        if (!('resolved' in normalizedEvent) || typeof normalizedEvent.resolved !== 'boolean') {
+                            normalizedEvent.resolved = false;
+                        }
+                    }
+
+                    // Handle property normalization for deletion events
+                    if (eventType === 'deletion') {
+                        // Set default deleted state if missing or invalid (safer to default to false)
+                        if (!('deleted' in normalizedEvent) || typeof normalizedEvent.deleted !== 'boolean') {
+                            normalizedEvent.deleted = false;
+                        }
+                    }
+
+                    // Ensure author name exists
+                    if (!normalizedEvent.author?.name) {
+                        if (!normalizedEvent.author) {
+                            normalizedEvent.author = { name: 'unknown' };
+                        } else {
+                            normalizedEvent.author.name = 'unknown';
+                        }
+                    }
+
+                    return normalizedEvent;
+                });
+
+                const deduplicated = normalizedEvents.filter(event => {
+                    // Create unique key from timestamp, author name, and boolean state
+                    const booleanState = eventType === 'deletion' ? event.deleted : event.resolved;
+                    const key = `${event.timestamp}-${event.author?.name || 'unknown'}-${booleanState}`;
+                    if (seen.has(key)) {
+                        return false; // Skip duplicate
+                    }
+                    seen.add(key);
+                    return true;
+                });
+
+                if (originalCount !== deduplicated.length) {
+                    debugLog(`Normalized and deduplicated ${eventType} events for thread ${mergedThread.id}: ${originalCount} → ${deduplicated.length} (removed ${originalCount - deduplicated.length} duplicates)`);
+                }
+
+                return deduplicated;
+            };
+
+            // Merge event arrays - combine all events from both sides and deduplicate
+            const allDeletionEvents = [
+                ...(existingThread.deletionEvent || []),
+                ...(migratedTheirThread.deletionEvent || [])
+            ];
+            mergedThread.deletionEvent = deduplicateEvents(allDeletionEvents, 'deletion')
+                .sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
+
+            const allResolvedEvents = [
+                ...(existingThread.resolvedEvent || []),
+                ...(migratedTheirThread.resolvedEvent || [])
+            ];
+            mergedThread.resolvedEvent = deduplicateEvents(allResolvedEvents, 'resolved')
+                .sort((a, b) => a.timestamp - b.timestamp); // Sort by timestamp for consistency
 
             // Update the thread in the map
             threadMap.set(mergedThread.id, mergedThread);
@@ -826,45 +939,7 @@ async function resolveCommentThreadsConflict(
     return CommentsMigrator.formatCommentsForStorage(mergedThreads);
 }
 
-/**
- * Merges deletion events, taking the latest valid one
- */
-function mergeDeletionEvents(ourEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>,
-    theirEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>)
-    : Array<{ timestamp: number; author: { name: string; }; valid: boolean; }> | undefined {
 
-    if (!ourEvents && !theirEvents) return undefined;
-
-    const allEvents = [...(ourEvents || []), ...(theirEvents || [])];
-    if (allEvents.length === 0) return undefined;
-
-    // Sort by timestamp descending
-    allEvents.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Return only the latest valid event, or all events if none are valid
-    const latestValid = allEvents.find(e => e.valid);
-    return latestValid ? [latestValid] : allEvents;
-}
-
-/**
- * Merges resolved events, taking the latest valid one
- */
-function mergeResolvedEvents(ourEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>,
-    theirEvents?: Array<{ timestamp: number; author: { name: string; }; valid: boolean; }>)
-    : Array<{ timestamp: number; author: { name: string; }; valid: boolean; }> | undefined {
-
-    if (!ourEvents && !theirEvents) return undefined;
-
-    const allEvents = [...(ourEvents || []), ...(theirEvents || [])];
-    if (allEvents.length === 0) return undefined;
-
-    // Sort by timestamp descending
-    allEvents.sort((a, b) => b.timestamp - a.timestamp);
-
-    // Return only the latest valid event, or all events if none are valid
-    const latestValid = allEvents.find(e => e.valid);
-    return latestValid ? [latestValid] : allEvents;
-}
 
 /**
  * Resolves conflicts in smart_edits.json files

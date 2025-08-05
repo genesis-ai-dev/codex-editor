@@ -28,31 +28,48 @@ export class CommentsMigrator {
                 threadTitle: thread.threadTitle
             };
 
-            // Always include deletionEvent (empty array if none)
-            orderedThread.deletionEvent = thread.deletionEvent
-                ? thread.deletionEvent.map(event => ({
-                    timestamp: event.timestamp,
-                    author: {
-                        name: event.author.name
-                    },
-                    valid: event.valid
-                }))
-                : [];
+            // Handle deleted/resolved migration from boolean to event arrays
+            if (typeof (thread as any).deleted === 'boolean') {
+                if ((thread as any).deleted && thread.comments && thread.comments.length > 0) {
+                    // Find the latest comment to get timestamp and author
+                    const latestComment = thread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    orderedThread.deletionEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        deleted: true
+                    }];
+                } else {
+                    orderedThread.deletionEvent = [];
+                }
+            } else {
+                // Already in new format or undefined
+                orderedThread.deletionEvent = thread.deletionEvent || [];
+            }
 
-            // Always include resolvedEvent (empty array if none)
-            orderedThread.resolvedEvent = thread.resolvedEvent
-                ? thread.resolvedEvent.map(event => ({
-                    timestamp: event.timestamp,
-                    author: {
-                        name: event.author.name
-                    },
-                    valid: event.valid
-                }))
-                : [];
+            if (typeof (thread as any).resolved === 'boolean') {
+                if ((thread as any).resolved && thread.comments && thread.comments.length > 0) {
+                    // Find the latest comment to get timestamp and author
+                    const latestComment = thread.comments.reduce((latest, comment) =>
+                        comment.timestamp > latest.timestamp ? comment : latest
+                    );
+                    orderedThread.resolvedEvent = [{
+                        timestamp: latestComment.timestamp + 5,
+                        author: { name: latestComment.author.name },
+                        resolved: true
+                    }];
+                } else {
+                    orderedThread.resolvedEvent = [];
+                }
+            } else {
+                // Already in new format or undefined
+                orderedThread.resolvedEvent = thread.resolvedEvent || [];
+            }
 
             orderedThread.comments = thread.comments
                 .slice() // Create a copy to avoid mutating the original
-                .sort((a, b) => a.timestamp - b.timestamp) // Sort comments by timestamp
+                // DO NOT sort comments - preserve existing order to minimize git diffs
                 .map(comment => ({
                     id: comment.id,
                     timestamp: comment.timestamp,
@@ -271,8 +288,8 @@ export class CommentsMigrator {
             console.log(`[CommentsMigrator] Added legacy comment with ID: ${comment.id}`);
         });
 
-        // Sort comments by timestamp
-        return Array.from(commentMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+        // DO NOT sort comments - preserve existing order to minimize git diffs
+        return Array.from(commentMap.values());
     }
 
     /**
@@ -549,10 +566,10 @@ export class CommentsMigrator {
             // Check for old thread structure or missing new fields
             if (thread.version !== undefined ||
                 thread.uri !== undefined ||
-                thread.deleted !== undefined ||  // Old boolean field
-                thread.resolved !== undefined || // Old boolean field
-                thread.deletionEvent === undefined || // Missing new field
-                thread.resolvedEvent === undefined || // Missing new field
+                thread.deleted !== undefined ||    // Old boolean field - should be deletionEvent array
+                thread.resolved !== undefined ||  // Old boolean field - should be resolvedEvent array
+                thread.deletionEvent === undefined ||  // Missing new array field
+                thread.resolvedEvent === undefined || // Missing new array field
                 (thread.cellId?.uri && (thread.cellId.uri.includes('%') || thread.cellId.uri.startsWith('file://')))) {
                 return true;
             }
@@ -588,43 +605,44 @@ export class CommentsMigrator {
             delete result.version;
             delete result.uri; // Remove redundant uri field
 
-            // Migrate old deleted/resolved booleans to new event arrays
-            if ('deleted' in result) {
-                if (result.deleted === true) {
-                    // Use timestamp from last comment or current time
-                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
-                    result.deletionEvent = [{
-                        timestamp,
-                        author: { name: await CommentsMigrator.getCurrentUser() },
-                        valid: true
-                    }];
+            // Migrate deleted/resolved from boolean to event arrays if needed
+            if (!('deletionEvent' in result)) {
+                if (typeof result.deleted === 'boolean') {
+                    if (result.deleted && result.comments && result.comments.length > 0) {
+                        const latestComment = result.comments.reduce((latest: any, comment: any) =>
+                            comment.timestamp > latest.timestamp ? comment : latest
+                        );
+                        result.deletionEvent = [{
+                            timestamp: latestComment.timestamp + 5,
+                            author: { name: latestComment.author.name },
+                            deleted: true
+                        }];
+                    } else {
+                        result.deletionEvent = [];
+                    }
+                    delete result.deleted; // Remove old boolean field
                 } else {
-                    // Was false, so no deletion event
                     result.deletionEvent = [];
                 }
-                delete result.deleted;
-            } else if (!result.deletionEvent) {
-                // Ensure field exists even if no old field
-                result.deletionEvent = [];
             }
-
-            if ('resolved' in result) {
-                if (result.resolved === true) {
-                    // Use timestamp from last comment or current time
-                    const timestamp = CommentsMigrator.getThreadTimestamp(result);
-                    result.resolvedEvent = [{
-                        timestamp,
-                        author: { name: await CommentsMigrator.getCurrentUser() },
-                        valid: true
-                    }];
+            if (!('resolvedEvent' in result)) {
+                if (typeof result.resolved === 'boolean') {
+                    if (result.resolved && result.comments && result.comments.length > 0) {
+                        const latestComment = result.comments.reduce((latest: any, comment: any) =>
+                            comment.timestamp > latest.timestamp ? comment : latest
+                        );
+                        result.resolvedEvent = [{
+                            timestamp: latestComment.timestamp + 5,
+                            author: { name: latestComment.author.name },
+                            resolved: true
+                        }];
+                    } else {
+                        result.resolvedEvent = [];
+                    }
+                    delete result.resolved; // Remove old boolean field
                 } else {
-                    // Was false, so no resolved event
                     result.resolvedEvent = [];
                 }
-                delete result.resolved;
-            } else if (!result.resolvedEvent) {
-                // Ensure field exists even if no old field
-                result.resolvedEvent = [];
             }
 
             // Clean up legacy contextValue from all comments
@@ -636,11 +654,262 @@ export class CommentsMigrator {
             }
             // ============= END MIGRATION CLEANUP =============
 
+            // ============= DATA INTEGRITY REPAIR =============
+            // Repair corrupted comment event data automatically
+            result = CommentsMigrator.repairCommentThreadData(result);
+            // ============= END DATA INTEGRITY REPAIR =============
+
             // Convert URIs to relative paths
             result = CommentsMigrator.convertThreadToRelativePaths(result);
 
             return result;
         }));
+    }
+
+    /**
+     * Repairs corrupted comment thread data by:
+     * 1. Normalizing property names (valid -> resolved)
+     * 2. Removing duplicate events
+     * 3. Adding missing required properties
+     * 4. Validating event structure
+     */
+    private static repairCommentThreadData(thread: any): any {
+        if (!thread) return thread;
+
+        const threadId = thread.id || 'unknown';
+
+        // Repair resolved events
+        if (thread.resolvedEvent && Array.isArray(thread.resolvedEvent)) {
+            const repairedEvents = CommentsMigrator.repairEventArray(thread.resolvedEvent, 'resolved', threadId);
+            thread.resolvedEvent = repairedEvents.events;
+        }
+
+        // Repair deletion events
+        if (thread.deletionEvent && Array.isArray(thread.deletionEvent)) {
+            const repairedEvents = CommentsMigrator.repairEventArray(thread.deletionEvent, 'deletion', threadId);
+            thread.deletionEvent = repairedEvents.events;
+        }
+
+        return thread;
+    }
+
+    /**
+     * Repairs an array of comment events (resolvedEvent or deletionEvent)
+     */
+    private static repairEventArray(events: any[], eventType: 'resolved' | 'deletion', threadId: string): {
+        events: any[];
+        eventsRepaired: number;
+        duplicatesRemoved: number;
+        normalizedProperties: number;
+    } {
+        const result = {
+            events: [] as any[],
+            eventsRepaired: 0,
+            duplicatesRemoved: 0,
+            normalizedProperties: 0
+        };
+
+        const seen = new Set<string>();
+
+        for (const event of events) {
+            try {
+                const repairedEvent = CommentsMigrator.repairEvent(event, eventType);
+
+                if (repairedEvent.wasRepaired) {
+                    result.eventsRepaired++;
+                }
+                if (repairedEvent.wasNormalized) {
+                    result.normalizedProperties++;
+                }
+
+                // Check for duplicates using the same logic as merge resolvers
+                const booleanState = eventType === 'deletion' ? repairedEvent.event.deleted : repairedEvent.event.resolved;
+                const key = `${repairedEvent.event.timestamp}-${repairedEvent.event.author?.name || 'unknown'}-${booleanState}`;
+
+                if (seen.has(key)) {
+                    result.duplicatesRemoved++;
+                    continue; // Skip duplicate
+                }
+
+                seen.add(key);
+                result.events.push(repairedEvent.event);
+
+            } catch (error) {
+                console.warn(`[CommentsMigrator] Error repairing event in thread ${threadId}:`, error);
+                result.eventsRepaired++;
+            }
+        }
+
+        // Sort by timestamp for consistency
+        result.events.sort((a, b) => a.timestamp - b.timestamp);
+
+        return result;
+    }
+
+    /**
+     * Repairs a single comment event
+     */
+    private static repairEvent(event: any, eventType: 'resolved' | 'deletion'): {
+        event: any;
+        wasRepaired: boolean;
+        wasNormalized: boolean;
+    } {
+        const repairedEvent = { ...event };
+        let wasRepaired = false;
+        let wasNormalized = false;
+
+        // Ensure timestamp exists and is valid
+        if (!repairedEvent.timestamp || typeof repairedEvent.timestamp !== 'number') {
+            repairedEvent.timestamp = Date.now();
+            wasRepaired = true;
+        }
+
+        // Ensure author exists
+        if (!repairedEvent.author || typeof repairedEvent.author.name !== 'string') {
+            if (!repairedEvent.author) {
+                repairedEvent.author = { name: 'unknown' };
+            } else {
+                repairedEvent.author.name = 'unknown';
+            }
+            wasRepaired = true;
+        }
+
+        // Handle event-specific properties
+        if (eventType === 'resolved') {
+            // Convert 'valid' to 'resolved' if it exists
+            if ('valid' in repairedEvent && !('resolved' in repairedEvent)) {
+                repairedEvent.resolved = repairedEvent.valid;
+                delete repairedEvent.valid;
+                wasNormalized = true;
+            }
+            // Set default resolved state if missing or invalid (safer to default to false)
+            if (!('resolved' in repairedEvent) || typeof repairedEvent.resolved !== 'boolean') {
+                repairedEvent.resolved = false;
+                wasRepaired = true;
+            }
+        }
+
+        if (eventType === 'deletion') {
+            // Set default deleted state if missing or invalid (safer to default to false)
+            if (!('deleted' in repairedEvent) || typeof repairedEvent.deleted !== 'boolean') {
+                repairedEvent.deleted = false;
+                wasRepaired = true;
+            }
+        }
+
+        return {
+            event: repairedEvent,
+            wasRepaired,
+            wasNormalized
+        };
+    }
+
+    /**
+ * Repairs corrupted data in an existing comments.json file
+ * This runs during startup and migration to ensure data integrity
+ * 
+ * @param commentsFilePath Path to the comments.json file
+ * @param forceRepair If true, skip the "recently modified" check (for startup/pre-sync scenarios)
+ */
+    static async repairExistingCommentsFile(commentsFilePath: vscode.Uri, forceRepair: boolean = false): Promise<void> {
+        try {
+            // Check if file was modified recently (within last 10 minutes) - don't repair if actively being edited
+            // Skip this check if forceRepair is true (for startup/pre-sync scenarios)
+            if (!forceRepair) {
+                try {
+                    const fileStat = await vscode.workspace.fs.stat(commentsFilePath);
+                    const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+                    if (fileStat.mtime > tenMinutesAgo) {
+                        console.log('[CommentsMigrator] Skipping repair - file was recently modified (may be actively edited)');
+                        return;
+                    }
+                } catch (error) {
+                    // File doesn't exist, nothing to repair
+                    return;
+                }
+            }
+
+            console.log('[CommentsMigrator] Checking for corrupted comment data...');
+
+            // Read existing comments file
+            const fileContent = await vscode.workspace.fs.readFile(commentsFilePath);
+            let comments: any[];
+
+            try {
+                comments = JSON.parse(new TextDecoder().decode(fileContent));
+            } catch (parseError) {
+                console.error('[CommentsMigrator] Invalid JSON in comments file, skipping repair:', parseError);
+                return;
+            }
+
+            if (!Array.isArray(comments)) {
+                console.warn('[CommentsMigrator] Comments file does not contain an array, skipping repair');
+                return;
+            }
+
+            let totalRepairedThreads = 0;
+            let totalDuplicatesRemoved = 0;
+            let totalPropertiesNormalized = 0;
+            let totalEventsRepaired = 0;
+
+            // Repair each thread
+            for (let i = 0; i < comments.length; i++) {
+                const thread = comments[i];
+                const threadId = thread.id || `thread-${i}`;
+                let threadRepaired = false;
+
+                // Repair resolved events
+                if (thread.resolvedEvent && Array.isArray(thread.resolvedEvent)) {
+                    const originalCount = thread.resolvedEvent.length;
+                    const repairedEvents = CommentsMigrator.repairEventArray(thread.resolvedEvent, 'resolved', threadId);
+                    thread.resolvedEvent = repairedEvents.events;
+
+                    if (repairedEvents.duplicatesRemoved > 0 || repairedEvents.normalizedProperties > 0 || repairedEvents.eventsRepaired > 0) {
+                        console.log(`[CommentsMigrator] Repaired thread ${threadId}: ${originalCount} → ${repairedEvents.events.length} resolved events (removed ${repairedEvents.duplicatesRemoved} duplicates, normalized ${repairedEvents.normalizedProperties} properties, repaired ${repairedEvents.eventsRepaired} events)`);
+                        threadRepaired = true;
+                        totalDuplicatesRemoved += repairedEvents.duplicatesRemoved;
+                        totalPropertiesNormalized += repairedEvents.normalizedProperties;
+                        totalEventsRepaired += repairedEvents.eventsRepaired;
+                    }
+                }
+
+                // Repair deletion events
+                if (thread.deletionEvent && Array.isArray(thread.deletionEvent)) {
+                    const originalCount = thread.deletionEvent.length;
+                    const repairedEvents = CommentsMigrator.repairEventArray(thread.deletionEvent, 'deletion', threadId);
+                    thread.deletionEvent = repairedEvents.events;
+
+                    if (repairedEvents.duplicatesRemoved > 0 || repairedEvents.eventsRepaired > 0) {
+                        console.log(`[CommentsMigrator] Repaired thread ${threadId}: ${originalCount} → ${repairedEvents.events.length} deletion events (removed ${repairedEvents.duplicatesRemoved} duplicates, repaired ${repairedEvents.eventsRepaired} events)`);
+                        threadRepaired = true;
+                        totalDuplicatesRemoved += repairedEvents.duplicatesRemoved;
+                        totalEventsRepaired += repairedEvents.eventsRepaired;
+                    }
+                }
+
+                if (threadRepaired) {
+                    totalRepairedThreads++;
+                }
+            }
+
+            // Only write if repairs were made
+            if (totalRepairedThreads > 0) {
+                const repairedContent = CommentsMigrator.formatCommentsForStorage(comments);
+                await vscode.workspace.fs.writeFile(commentsFilePath, new TextEncoder().encode(repairedContent));
+
+                console.log(`[CommentsMigrator] ✅ Repaired corrupted comment data:`);
+                console.log(`  - Threads repaired: ${totalRepairedThreads}`);
+                console.log(`  - Duplicates removed: ${totalDuplicatesRemoved}`);
+                console.log(`  - Properties normalized: ${totalPropertiesNormalized}`);
+                console.log(`  - Events repaired: ${totalEventsRepaired}`);
+            } else {
+                console.log('[CommentsMigrator] ✅ No corrupted data found - comments file is clean');
+            }
+
+        } catch (error) {
+            console.error('[CommentsMigrator] Error during comment data repair:', error);
+            // Don't throw - we don't want to break the comments webview if repair fails
+        }
     }
 
     /**

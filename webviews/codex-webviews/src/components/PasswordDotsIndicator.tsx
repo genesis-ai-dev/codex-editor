@@ -3,6 +3,7 @@ import React from 'react';
 interface PasswordDotsIndicatorProps {
   password: string;
   email: string;
+  username: string;
   minLength?: number;
   showIndicator?: boolean;
 }
@@ -10,6 +11,7 @@ interface PasswordDotsIndicatorProps {
 export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
   password,
   email,
+  username,
   minLength = 15,
   showIndicator = true,
 }) => {
@@ -17,33 +19,45 @@ export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
     return null;
   }
 
-  // Enhanced email matching - checks for any 3+ character substring
-  const getEmailMatches = (): { start: number; end: number }[] => {
-    if (!email || !password || password.length < 3) return [];
+  // Enhanced matching - checks for any 3+ character substring from email or username
+  const getProblematicMatches = (): { start: number; end: number }[] => {
+    if (!password || password.length < 3) return [];
     
     const matches: { start: number; end: number }[] = [];
     const lowerPassword = password.toLowerCase();
-    const lowerEmail = email.toLowerCase();
+    const sourcesToCheck = [];
     
-    // Check for any 3+ character substring from the email
-    for (let emailStart = 0; emailStart <= lowerEmail.length - 3; emailStart++) {
-      for (let emailEnd = emailStart + 3; emailEnd <= lowerEmail.length; emailEnd++) {
-        const emailSubstring = lowerEmail.substring(emailStart, emailEnd);
-        
-        // Skip common short words and symbols that might cause false positives
-        if (emailSubstring.includes('@') || emailSubstring.includes('.') || 
-            ['com', 'org', 'net', 'edu', 'gov'].includes(emailSubstring)) {
-          continue;
-        }
-        
-        // Look for this substring in the password
-        for (let passStart = 0; passStart <= lowerPassword.length - emailSubstring.length; passStart++) {
-          if (lowerPassword.substring(passStart, passStart + emailSubstring.length) === emailSubstring) {
-            matches.push({ start: passStart, end: passStart + emailSubstring.length });
+    // Add email to sources if provided
+    if (email) {
+      sourcesToCheck.push(email.toLowerCase());
+    }
+    
+    // Add username to sources if provided
+    if (username) {
+      sourcesToCheck.push(username.toLowerCase());
+    }
+    
+    // Check for any 3+ character substring from each source
+    sourcesToCheck.forEach(source => {
+      for (let sourceStart = 0; sourceStart <= source.length - 3; sourceStart++) {
+        for (let sourceEnd = sourceStart + 3; sourceEnd <= source.length; sourceEnd++) {
+          const sourceSubstring = source.substring(sourceStart, sourceEnd);
+          
+          // Skip common short words and symbols that might cause false positives
+          if (sourceSubstring.includes('@') || sourceSubstring.includes('.') || 
+              ['com', 'org', 'net', 'edu', 'gov'].includes(sourceSubstring)) {
+            continue;
+          }
+          
+          // Look for this substring in the password
+          for (let passStart = 0; passStart <= lowerPassword.length - sourceSubstring.length; passStart++) {
+            if (lowerPassword.substring(passStart, passStart + sourceSubstring.length) === sourceSubstring) {
+              matches.push({ start: passStart, end: passStart + sourceSubstring.length });
+            }
           }
         }
       }
-    }
+    });
     
     // Remove overlapping matches, keeping the longest ones
     return matches.sort((a, b) => (b.end - b.start) - (a.end - a.start))
@@ -55,10 +69,10 @@ export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
       });
   };
 
-  const emailMatches = getEmailMatches();
-  const hasEmailMatch = emailMatches.length > 0;
+  const problematicMatches = getProblematicMatches();
+  const hasProblematicMatch = problematicMatches.length > 0;
   const isLengthValid = password.length >= minLength;
-  const allRequirementsMet = isLengthValid && !hasEmailMatch;
+  const allRequirementsMet = isLengthValid && !hasProblematicMatch;
 
   // Render the dots and letters
   const renderDots = () => {
@@ -67,11 +81,11 @@ export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
     
     // Create elements for entered characters
     for (let i = 0; i < currentLength; i++) {
-      const isInEmailMatch = emailMatches.some(match => i >= match.start && i < match.end);
+      const isInProblematicMatch = problematicMatches.some(match => i >= match.start && i < match.end);
       const char = password[i];
       
-      if (isInEmailMatch) {
-        // Show actual letter for email matches
+      if (isInProblematicMatch) {
+        // Show actual letter for email/username matches
         elements.push(
           <span
             key={`letter-${i}`}
@@ -155,8 +169,8 @@ export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
           Length: {password.length}/{minLength} characters
         </div>
         
-        {/* Email match warning */}
-        {hasEmailMatch && (
+        {/* Email/username match warning */}
+        {hasProblematicMatch && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -179,7 +193,7 @@ export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
             }}>
               !
             </span>
-            Password should not contain parts of your email
+            Password should not contain parts of your email or username
           </div>
         )}
 
@@ -214,10 +228,11 @@ export const PasswordDotsIndicator: React.FC<PasswordDotsIndicatorProps> = ({
   );
 };
 
-// Keep the enhanced password validation function
+// Enhanced password validation function
 export const validateVisualPassword = (
   password: string, 
   email: string, 
+  username: string, 
   minLength: number = 15
 ): { isValid: boolean; issues: string[] } => {
   const issues: string[] = [];
@@ -226,31 +241,39 @@ export const validateVisualPassword = (
     issues.push(`Password must be at least ${minLength} characters long`);
   }
   
-  if (email && password.length >= 3) {
+  if (password.length >= 3) {
     const lowerPassword = password.toLowerCase();
-    const lowerEmail = email.toLowerCase();
+    const sourcesToCheck = [];
     
-    // Check for any 3+ character substring from the email
+    // Add sources to check
+    if (email) sourcesToCheck.push(email.toLowerCase());
+    if (username) sourcesToCheck.push(username.toLowerCase());
+    
+    // Check for any 3+ character substring from email or username
     let hasMatch = false;
-    for (let emailStart = 0; emailStart <= lowerEmail.length - 3 && !hasMatch; emailStart++) {
-      for (let emailEnd = emailStart + 3; emailEnd <= lowerEmail.length; emailEnd++) {
-        const emailSubstring = lowerEmail.substring(emailStart, emailEnd);
-        
-        // Skip common short words and symbols
-        if (emailSubstring.includes('@') || emailSubstring.includes('.') || 
-            ['com', 'org', 'net', 'edu', 'gov'].includes(emailSubstring)) {
-          continue;
-        }
-        
-        if (lowerPassword.includes(emailSubstring)) {
-          hasMatch = true;
-          break;
+    sourcesToCheck.forEach(source => {
+      if (hasMatch) return; // Already found a match
+      
+      for (let sourceStart = 0; sourceStart <= source.length - 3 && !hasMatch; sourceStart++) {
+        for (let sourceEnd = sourceStart + 3; sourceEnd <= source.length; sourceEnd++) {
+          const sourceSubstring = source.substring(sourceStart, sourceEnd);
+          
+          // Skip common short words and symbols
+          if (sourceSubstring.includes('@') || sourceSubstring.includes('.') || 
+              ['com', 'org', 'net', 'edu', 'gov'].includes(sourceSubstring)) {
+            continue;
+          }
+          
+          if (lowerPassword.includes(sourceSubstring)) {
+            hasMatch = true;
+            break;
+          }
         }
       }
-    }
+    });
     
     if (hasMatch) {
-      issues.push('Password should not contain parts of your email');
+      issues.push('Password should not contain parts of your email or username');
     }
   }
   
