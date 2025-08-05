@@ -21,6 +21,7 @@ import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
 import { obsImporterPlugin } from "./obs/index.tsx";
 import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
+import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
 
 // Import placeholder components - these will be created for each importer
 // For now, we'll create a temporary placeholder component
@@ -63,6 +64,12 @@ export const importerPlugins: ImporterPlugin[] = [
         name: "Subtitles",
         description: "Video captions with timestamps",
         tags: [...(subtitlesImporterPlugin.tags || []), "Essential", "Media", "Video"],
+    },
+    {
+        ...spreadsheetImporterPlugin,
+        name: "Spreadsheets",
+        description: "Excel and Google Sheets",
+        tags: [...(spreadsheetImporterPlugin.tags || []), "Essential", "Spreadsheet", "Excel"],
     },
 
     // Specialized Tools - Domain-specific importers for Bible translation
