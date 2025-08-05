@@ -17,9 +17,10 @@ export function notebookToImportedContent(notebook: NotebookPair): ImportedConte
 /**
  * Helper function to handle completion for both source and translation imports
  * This prevents the "e is not a function" error by checking which callback exists
+ * Supports both single notebooks and arrays of notebooks for batch importing
  */
 export async function handleImportCompletion(
-    notebookPair: NotebookPair,
+    notebookPair: NotebookPair | NotebookPair[],
     props: ImporterComponentProps
 ): Promise<void> {
     const { onComplete, onTranslationComplete, alignContent, wizardContext } = props;
@@ -32,9 +33,13 @@ export async function handleImportCompletion(
         // Translation import mode - convert notebook to imported content and align
         console.log("Handling translation import...");
 
+        // For translation imports, we only handle the first notebook if multiple are provided
+        // Multi-file translation imports require special UI handling beyond this helper
+        const primaryNotebook = Array.isArray(notebookPair) ? notebookPair[0] : notebookPair;
+
         try {
             // Convert notebook cells to ImportedContent format
-            const importedContent = notebookToImportedContent(notebookPair);
+            const importedContent = notebookToImportedContent(primaryNotebook);
 
             // Use the alignment helper (will use default exact ID matching unless plugin has custom aligner)
             const alignedCells = await alignContent(
@@ -49,8 +54,8 @@ export async function handleImportCompletion(
             throw error;
         }
     } else if (onComplete) {
-        // Source import mode - create new notebook pair
-        console.log("Handling source import...");
+        // Source import mode - create new notebook pair(s)
+        console.log("Handling source import...", Array.isArray(notebookPair) ? `${notebookPair.length} notebooks` : "1 notebook");
         onComplete(notebookPair);
     } else {
         console.error("No appropriate completion handler found", {

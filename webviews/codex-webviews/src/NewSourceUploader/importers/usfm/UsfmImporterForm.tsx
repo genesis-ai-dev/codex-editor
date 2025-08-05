@@ -174,15 +174,10 @@ export const UsfmImporterForm: React.FC<ImporterComponentProps> = (props) => {
 
                 setTimeout(async () => {
                     try {
-                        // For multi-file imports, handle each notebook pair separately for translation imports
-                        if (notebookPairs.length === 1) {
-                            await handleImportCompletion(notebookPairs[0], props);
-                        } else {
-                            // For source imports, we can pass the array
-                            // For translation imports, this might need special handling
-                            await handleImportCompletion(notebookPairs[0], props);
-                            // Note: Multi-file translation imports are complex and may need UI changes
-                        }
+                        // For multi-file imports, pass all notebook pairs for batch import
+                        const notebooks =
+                            notebookPairs.length === 1 ? notebookPairs[0] : notebookPairs;
+                        await handleImportCompletion(notebooks, props);
                     } catch (err) {
                         setError(err instanceof Error ? err.message : "Failed to complete import");
                     }

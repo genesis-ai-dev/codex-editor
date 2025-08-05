@@ -206,9 +206,9 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
     const handleComplete = async () => {
         if (notebookPairs.length > 0) {
             try {
-                // For multi-file imports, handle the first notebook pair
-                // Note: Multi-file translation imports may need special UI handling
-                await handleImportCompletion(notebookPairs[0], props);
+                // For multi-file imports, pass all notebook pairs for batch import
+                const notebooks = notebookPairs.length === 1 ? notebookPairs[0] : notebookPairs;
+                await handleImportCompletion(notebooks, props);
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed to complete import");
             }

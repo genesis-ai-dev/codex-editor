@@ -196,7 +196,7 @@ const downloadObsRepository = async (
 
                 // Create separate cells for each image
                 if (segment.images.length > 0) {
-                    for (const img of segment.images) {
+                    for (const img of segment.images as ObsImage[]) {
                         const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
                         const processedImage = await processImageData(img.src, {
                             alt: img.alt,
@@ -383,30 +383,69 @@ const parseObsMarkdown = async (
 
     onProgress?.(createProgress('Processing Images', 'Processing OBS images...', 60));
 
-    // Convert story segments to cells
-    const cells = await Promise.all(
-        obsStory.segments.map(async (segment, index) => {
-            const cellId = createStandardCellId(file.name, obsStory.storyNumber, index + 1);
-            const cell = createProcessedCell(cellId, segment.html, {
+    // Convert story segments to cells with separate cells for text and images
+    // This matches the repository download behavior
+    const cells: any[] = [];
+    let cellCounter = 1;
+    const documentId = `OBS${obsStory.storyNumber.toString().padStart(2, '0')}`;
+    const sectionId = '1'; // All segments are in section 1
+
+    for (const [segmentIndex, segment] of obsStory.segments.entries()) {
+        // Create text cell if there's text content
+        if (segment.text && segment.text.trim()) {
+            const textCellId = `${documentId} ${sectionId}:${cellCounter}`;
+            // Create HTML with just the text content, no images
+            const textOnlyHtml = `<p class="obs-text">${segment.text}</p>`;
+            const textCell = createProcessedCell(textCellId, textOnlyHtml, {
                 storyNumber: obsStory.storyNumber,
                 storyTitle: obsStory.title,
-                segmentType: segment.type,
+                segmentType: 'text',
+                segmentIndex,
                 originalText: segment.text,
+                fileName: file.name,
+                documentId,
+                sectionId,
+                cellIndex: cellCounter,
             });
+            cells.push(textCell);
+            cellCounter++;
+        }
 
-            // Process images in this segment
-            if (segment.images.length > 0) {
-                cell.images = await Promise.all(
-                    segment.images.map(img => processImageData(img.src, {
+        // Create separate cells for each image
+        if (segment.images.length > 0) {
+            for (const img of segment.images) {
+                const imageCellId = `${documentId} ${sectionId}:${cellCounter}`;
+                const imageHtml = `<img src="${img.src}" alt="${img.alt || ''}" title="${img.title || ''}" class="obs-image" />`;
+                const imageCell = createProcessedCell(imageCellId, imageHtml, {
+                    storyNumber: obsStory.storyNumber,
+                    storyTitle: obsStory.title,
+                    segmentType: 'image',
+                    segmentIndex,
+                    fileName: file.name,
+                    documentId,
+                    sectionId,
+                    cellIndex: cellCounter,
+                    imageAlt: img.alt,
+                    imageTitle: img.title,
+                    imageSrc: img.src,
+                });
+
+                // Process the image data
+                try {
+                    const processedImage = await processImageData(img.src, {
                         alt: img.alt,
                         title: img.title,
-                    }))
-                );
-            }
+                    });
+                    imageCell.images = [processedImage];
+                } catch (error) {
+                    console.warn(`Failed to process image ${img.src}:`, error);
+                }
 
-            return cell;
-        })
-    );
+                cells.push(imageCell);
+                cellCounter++;
+            }
+        }
+    }
 
     onProgress?.(createProgress('Creating Notebooks', 'Creating OBS notebooks...', 80));
 
@@ -431,8 +470,8 @@ const parseObsMarkdown = async (
 
     const codexCells = cells.map(sourceCell => ({
         id: sourceCell.id,
-        content: sourceCell.images.length > 0
-            ? sourceCell.images.map(img => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
+        content: sourceCell.images && sourceCell.images.length > 0
+            ? sourceCell.images.map((img: any) => `<img src="${img.src}"${img.alt ? ` alt="${img.alt}"` : ''} />`).join('\n')
             : '', // Empty for translation, preserve images
         images: sourceCell.images,
         metadata: sourceCell.metadata,

@@ -259,6 +259,12 @@ export async function activate(context: vscode.ExtensionContext) {
         if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
             try {
                 await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders[0].uri);
+
+                // Also repair any existing corrupted data during startup
+                const commentsFilePath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, ".project", "comments.json");
+                CommentsMigrator.repairExistingCommentsFile(commentsFilePath, true).catch(() => {
+                    // Silent fallback - don't block startup if repair fails
+                });
             } catch (error) {
                 console.error("[Extension] Error during startup comments migration:", error);
                 // Don't fail startup due to migration errors
