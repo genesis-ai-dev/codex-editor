@@ -711,6 +711,8 @@ export type EditorPostMessages =
     | { command: "triggerSync"; }
     | { command: "requestAudioAttachments"; }
     | { command: "requestAudioForCell"; content: { cellId: string; }; }
+    | { command: "getCommentsForCell"; content: { cellId: string; }; }
+    | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
         command: "saveAudioAttachment";
         content: {
@@ -865,6 +867,13 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
+    | { 
+        type: "commentsForCell"; 
+        content: { 
+            cellId: string; 
+            unresolvedCount: number; 
+        }; 
+    }
     | { type: "providerSendsPromptedEditResponse"; content: string; }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
     | { type: "providerSendsTopPrompts"; content: Array<{ prompt: string; isPinned: boolean; }>; }

@@ -591,6 +591,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     });
                     break;
                 }
+                case "reload": {
+                    // Send reload message to the webview with optional cellId and uri
+                    if (message.data) {
+                        safePostMessageToView(this._view, {
+                            command: "reload",
+                            data: message.data,
+                        } as CommentPostMessages);
+                    }
+                    break;
+                }
                 default:
                     break;
             }

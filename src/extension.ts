@@ -437,6 +437,20 @@ export async function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Comments-related commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
+            vscode.commands.executeCommand("codex-editor-extension.comments-sidebar.focus");
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
+            // This will be handled by the comments provider
+            vscode.commands.executeCommand("codex-editor-extension.comments-sidebar.reload", { cellId });
+        })
+    );
+
 
 
 
