@@ -169,7 +169,7 @@ type VerseRefGlobalState = {
     uri: string;
 };
 type CommentPostMessages =
-    | { command: "commentsFromWorkspace"; content: string; }
+    | { command: "commentsFromWorkspace"; content: string; isLiveUpdate?: boolean; }
     | { command: "reload"; data?: { cellId: string; uri?: string; }; }
     | { command: "updateCommentThread"; commentThread: NotebookCommentThread; }
     | { command: "deleteCommentThread"; commentThreadId: string; }

@@ -16,11 +16,11 @@ function ChildComments({ comments, threadIndex, expandedThreadIndex }: Props) {
                         <div className="text-sm text-foreground whitespace-pre-wrap break-words">
                             {comment.body}
                         </div>
-                        {comment.author && (
+                        {/* {comment.author && (
                             <div className="mt-1 text-xs text-muted-foreground">
                                 {comment.author.name}
                             </div>
-                        )}
+                        )} */}
                     </div>
                 ))}
             </div>

@@ -26,6 +26,7 @@ import { Input } from "../components/ui/input";
 import { NotebookCommentThread, CommentPostMessages, CellIdGlobalState } from "../../../../types";
 import { v4 as uuidv4 } from "uuid";
 import { WebviewHeader } from "../components/WebviewHeader";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 
 const vscode = acquireVsCodeApi();
 type Comment = NotebookCommentThread["comments"][0];
@@ -37,12 +38,53 @@ interface UserAvatar {
     timestamp?: string;
 }
 
+// Helper function to format timestamps in a user-friendly way
+const formatTimestamp = (timestamp: string | number): { display: string; full: string } => {
+    const now = new Date();
+    const date = new Date(typeof timestamp === "string" ? parseInt(timestamp) : timestamp);
+
+    // If invalid date, return fallback
+    if (isNaN(date.getTime())) {
+        return { display: "", full: "" };
+    }
+
+    const diffMs = now.getTime() - date.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    // Full timestamp for hover
+    const full = date.toLocaleString();
+
+    // Display format based on age
+    if (diffMinutes < 1) {
+        return { display: "just now", full };
+    } else if (diffMinutes < 60) {
+        return { display: `${diffMinutes}m ago`, full };
+    } else if (diffHours < 24) {
+        return { display: `${diffHours}h ago`, full };
+    } else if (diffDays === 1) {
+        return { display: "yesterday", full };
+    } else if (diffDays < 7) {
+        return { display: `${diffDays}d ago`, full };
+    } else {
+        // For older dates, show month/day
+        const monthDay = date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+        });
+        return { display: monthDay, full };
+    }
+};
+
 const UserAvatar = ({ username, email, size = "small", timestamp }: UserAvatar) => {
     const sizeMap = {
         small: { width: "24px", height: "24px", fontSize: "12px" },
         medium: { width: "32px", height: "32px", fontSize: "14px" },
         large: { width: "40px", height: "40px", fontSize: "16px" },
     };
+
+    const formattedTime = timestamp ? formatTimestamp(timestamp) : null;
 
     return (
         <div
@@ -57,7 +99,16 @@ const UserAvatar = ({ username, email, size = "small", timestamp }: UserAvatar) 
             </div>
             <div className="flex flex-col gap-0.5">
                 <span className="font-medium">{username}</span>
-                {timestamp && <span className="text-xs text-muted-foreground">{timestamp}</span>}
+                {formattedTime && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="text-xs text-muted-foreground">
+                                {formattedTime.display}
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent>{formattedTime.full}</TooltipContent>
+                    </Tooltip>
+                )}
             </div>
         </div>
     );
@@ -85,6 +136,18 @@ function App() {
         isAuthenticated: false,
     });
 
+    // Force re-render for timestamp updates
+    const [timestampUpdateTrigger, setTimestampUpdateTrigger] = useState(0);
+
+    // Update timestamps every minute
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setTimestampUpdateTrigger((prev) => prev + 1);
+        }, 60000); // Update every minute
+
+        return () => clearInterval(interval);
+    }, []);
+
     // Track current user state changes
     useEffect(() => {
         // User state updated
@@ -100,18 +163,24 @@ function App() {
     // Helper function to determine if thread is currently resolved based on latest event
     const isThreadResolved = useCallback((thread: NotebookCommentThread): boolean => {
         const resolvedEvents = thread.resolvedEvent || [];
-        const latestResolvedEvent = resolvedEvents.length > 0 
-            ? resolvedEvents.reduce((latest, event) => event.timestamp > latest.timestamp ? event : latest)
-            : null;
+        const latestResolvedEvent =
+            resolvedEvents.length > 0
+                ? resolvedEvents.reduce((latest, event) =>
+                      event.timestamp > latest.timestamp ? event : latest
+                  )
+                : null;
         return latestResolvedEvent?.resolved || false;
     }, []);
 
-    // Helper function to determine if thread is currently deleted based on latest event  
+    // Helper function to determine if thread is currently deleted based on latest event
     const isThreadDeleted = useCallback((thread: NotebookCommentThread): boolean => {
         const deletionEvents = thread.deletionEvent || [];
-        const latestDeletionEvent = deletionEvents.length > 0
-            ? deletionEvents.reduce((latest, event) => event.timestamp > latest.timestamp ? event : latest)
-            : null;
+        const latestDeletionEvent =
+            deletionEvents.length > 0
+                ? deletionEvents.reduce((latest, event) =>
+                      event.timestamp > latest.timestamp ? event : latest
+                  )
+                : null;
         return latestDeletionEvent?.deleted || false;
     }, []);
 
@@ -163,7 +232,7 @@ function App() {
                     break;
                 }
                 default:
-                    // Unknown message command
+                // Unknown message command
             }
         },
         [viewMode]
@@ -212,7 +281,7 @@ function App() {
                 deleted: false,
                 resolved: false,
             }),
-            comments: existingThread ? [...existingThread.comments, comment] : [comment]
+            comments: existingThread ? [...existingThread.comments, comment] : [comment],
         };
 
         vscode.postMessage({
@@ -312,7 +381,7 @@ function App() {
 
         // Determine if thread is currently resolved (latest event determines state)
         const isCurrentlyResolved = isThreadResolved(thread);
-        
+
         // Add new event with opposite state and current timestamp
         const updatedThread = {
             ...thread,
@@ -320,9 +389,9 @@ function App() {
                 ...(thread.resolvedEvent || []),
                 {
                     timestamp: Date.now(),
-                    author: { name: currentUser?.username || 'Unknown' },
-                    resolved: !isCurrentlyResolved
-                }
+                    author: { name: currentUser?.username || "Unknown" },
+                    resolved: !isCurrentlyResolved,
+                },
             ],
             comments: [...thread.comments],
         };
@@ -360,7 +429,7 @@ function App() {
         const nonDeletedThreads = commentThreadArray.filter((thread) => !isThreadDeleted(thread));
 
         // Then, apply additional filtering based on view mode, search, and resolved status
-        return nonDeletedThreads.filter((commentThread) => {
+        const filtered = nonDeletedThreads.filter((commentThread) => {
             // Skip resolved threads if they're hidden
             if (!showResolvedThreads && isThreadResolved(commentThread)) return false;
 
@@ -382,6 +451,15 @@ function App() {
 
             // In all view mode with no search, show all comments (except resolved ones if hidden)
             return true;
+        });
+
+        // Sort threads by newest first (based on latest comment timestamp)
+        return filtered.sort((a, b) => {
+            const getLatestTimestamp = (thread: NotebookCommentThread) => {
+                const timestamps = thread.comments.map((c) => c.timestamp);
+                return Math.max(...timestamps);
+            };
+            return getLatestTimestamp(b) - getLatestTimestamp(a);
         });
     }, [commentThreadArray, searchQuery, viewMode, cellId.cellId, showResolvedThreads]);
 
@@ -486,7 +564,7 @@ function App() {
             {/* New comment form */}
             {showNewCommentForm && (
                 <Card className="m-4 bg-muted/50">
-                    <CardContent className="pt-6">
+                    <CardContent className="p-4">
                         <div className="flex items-center mb-3 gap-2">
                             <MessageSquare className="h-4 w-4" />
                             <span className="text-sm font-medium">New comment</span>
@@ -496,30 +574,43 @@ function App() {
                                 </span>
                             )}
                         </div>
-                        <div className="flex flex-col gap-3">
-                            <Input
-                                placeholder="What do you want to say?"
-                                value={newCommentText}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter" && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleNewComment();
-                                    }
-                                }}
-                                onChange={(e) => setNewCommentText(e.target.value)}
+                        <div className="flex gap-3 items-start">
+                            <UserAvatar
+                                username={currentUser.username}
+                                email={currentUser.email}
+                                size="small"
                             />
-                            <div className="flex gap-2 justify-end">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => setShowNewCommentForm(false)}
-                                >
-                                    <X className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" onClick={handleNewComment}>
-                                    <MessageSquare className="h-4 w-4 mr-1.5" />
-                                    Send
-                                </Button>
+                            <div className="flex-1 flex flex-col gap-3">
+                                <Input
+                                    placeholder="What do you want to say?"
+                                    value={newCommentText}
+                                    className="border-0 border-b border-border rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary"
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleNewComment();
+                                        }
+                                    }}
+                                    onChange={(e) => setNewCommentText(e.target.value)}
+                                />
+                                <div className="flex gap-2 justify-end">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-3 text-xs"
+                                        onClick={() => setShowNewCommentForm(false)}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="h-7 px-3 text-xs"
+                                        onClick={handleNewComment}
+                                        disabled={!newCommentText.trim()}
+                                    >
+                                        Comment
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </CardContent>
@@ -566,7 +657,7 @@ function App() {
             {/* Comment list */}
             {filteredCommentThreads.length > 0 && (
                 <div className="flex-1 overflow-y-auto p-2">
-                    <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-3">
                         {filteredCommentThreads.map((thread) => (
                             <Card
                                 key={thread.id}
@@ -576,7 +667,7 @@ function App() {
                             >
                                 {/* Thread header */}
                                 <CardHeader
-                                    className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors"
+                                    className="cursor-pointer bg-muted/50 hover:bg-muted/70 transition-colors p-3"
                                     onClick={() => toggleCollapsed(thread.id)}
                                 >
                                     <div className="flex justify-between items-center">
@@ -716,95 +807,18 @@ function App() {
 
                                 {/* Comments section */}
                                 {!collapsedThreads[thread.id] && (
-                                    <CardContent className="p-4">
-                                        <div className="flex flex-col gap-4">
-                                            {/* Comments */}
-                                            <div className="flex flex-col gap-4">
-                                                {thread.comments.map((comment, index) => (
-                                                    <div
-                                                        key={comment.id}
-                                                        className={`flex gap-3 ${
-                                                            comment.deleted ? "opacity-60" : ""
-                                                        }`}
-                                                    >
-                                                        <UserAvatar
-                                                            username={comment.author.name}
-                                                            size="medium"
-                                                        />
-
-                                                        <div className="flex-1 flex flex-col gap-1.5">
-                                                            <div className="flex justify-between">
-                                                                <div className="font-medium">
-                                                                    {comment.author.name}
-                                                                </div>
-
-                                                                {!comment.deleted &&
-                                                                    comment.author.name ===
-                                                                        currentUser.username && (
-                                                                        <div className="flex gap-2">
-                                                                            <Button
-                                                                                variant="ghost"
-                                                                                size="sm"
-                                                                                className="h-8 w-8 p-0"
-                                                                                onClick={() =>
-                                                                                    handleCommentDeletion(
-                                                                                        comment.id,
-                                                                                        thread.id
-                                                                                    )
-                                                                                }
-                                                                                title="Delete comment"
-                                                                            >
-                                                                                <Trash2 className="h-4 w-4" />
-                                                                            </Button>
-                                                                        </div>
-                                                                    )}
-
-                                                                {comment.deleted &&
-                                                                    comment.author.name ===
-                                                                        currentUser.username && (
-                                                                        <Button
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="h-8 w-8 p-0"
-                                                                            onClick={() =>
-                                                                                handleUndoCommentDeletion(
-                                                                                    comment.id,
-                                                                                    thread.id
-                                                                                )
-                                                                            }
-                                                                            title="Undo deletion"
-                                                                        >
-                                                                            <Undo2 className="h-4 w-4" />
-                                                                        </Button>
-                                                                    )}
-                                                            </div>
-
-                                                            <div
-                                                                className={`text-sm leading-relaxed break-words ${
-                                                                    comment.deleted
-                                                                        ? "text-muted-foreground italic"
-                                                                        : ""
-                                                                }`}
-                                                            >
-                                                                {comment.deleted
-                                                                    ? "This comment has been deleted"
-                                                                    : comment.body}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-
-                                            {/* Reply form */}
+                                    <CardContent className="p-3">
+                                        <div className="flex flex-col gap-3">
+                                            {/* Reply form at top */}
                                             {currentUser.isAuthenticated && (
-                                                <div className="flex gap-3 items-start mt-2 border-t border-border pt-4">
+                                                <div className="flex gap-3 items-start pb-3 border-b border-border">
                                                     <UserAvatar
                                                         username={currentUser.username}
                                                         email={currentUser.email}
-                                                        size="medium"
+                                                        size="small"
                                                     />
 
-                                                    <div className="flex-1 flex flex-col gap-2">
+                                                    <div className="flex-1 flex gap-3">
                                                         <Input
                                                             placeholder="Add a reply..."
                                                             value={replyText[thread.id] || ""}
@@ -867,6 +881,85 @@ function App() {
                                                     </div>
                                                 </div>
                                             )}
+
+                                            {/* Comments - newest first like YouTube */}
+                                            <div className="flex flex-col gap-3">
+                                                {thread.comments
+                                                    .slice()
+                                                    .reverse()
+                                                    .map((comment, index) => (
+                                                        <div
+                                                            key={comment.id}
+                                                            className={`flex gap-3 group ${
+                                                                comment.deleted ? "opacity-60" : ""
+                                                            }`}
+                                                        >
+                                                            <UserAvatar
+                                                                username={comment.author.name}
+                                                                timestamp={comment.timestamp.toString()}
+                                                                size="small"
+                                                            />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-start justify-between mb-1">
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <div
+                                                                            className={`text-sm leading-relaxed break-words ${
+                                                                                comment.deleted
+                                                                                    ? "text-muted-foreground italic"
+                                                                                    : ""
+                                                                            }`}
+                                                                        >
+                                                                            {comment.deleted
+                                                                                ? "This comment has been deleted"
+                                                                                : comment.body}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Action buttons */}
+                                                                    <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        {!comment.deleted &&
+                                                                            comment.author.name ===
+                                                                                currentUser.username && (
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    className="h-6 w-6 p-0"
+                                                                                    onClick={() =>
+                                                                                        handleCommentDeletion(
+                                                                                            comment.id,
+                                                                                            thread.id
+                                                                                        )
+                                                                                    }
+                                                                                    title="Delete comment"
+                                                                                >
+                                                                                    <Trash2 className="h-3 w-3" />
+                                                                                </Button>
+                                                                            )}
+
+                                                                        {comment.deleted &&
+                                                                            comment.author.name ===
+                                                                                currentUser.username && (
+                                                                                <Button
+                                                                                    variant="ghost"
+                                                                                    size="sm"
+                                                                                    className="h-6 w-6 p-0"
+                                                                                    onClick={() =>
+                                                                                        handleUndoCommentDeletion(
+                                                                                            comment.id,
+                                                                                            thread.id
+                                                                                        )
+                                                                                    }
+                                                                                    title="Undo deletion"
+                                                                                >
+                                                                                    <Undo2 className="h-3 w-3" />
+                                                                                </Button>
+                                                                            )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                            </div>
                                         </div>
                                     </CardContent>
                                 )}
@@ -895,7 +988,9 @@ function App() {
 
             {/* Hide resolved threads button (when they're visible) */}
             {showResolvedThreads &&
-                commentThreadArray.some((thread) => !isThreadDeleted(thread) && isThreadResolved(thread)) && (
+                commentThreadArray.some(
+                    (thread) => !isThreadDeleted(thread) && isThreadResolved(thread)
+                ) && (
                     <div
                         className="sticky bottom-0 left-0 right-0 p-2 px-4 bg-primary text-primary-foreground flex justify-between items-center cursor-pointer border-t border-border text-sm z-10"
                         onClick={() => setShowResolvedThreads(false)}
