@@ -206,12 +206,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     footnoteOffset = 0,
     isCorrectionEditorMode = false,
     translationUnits = [],
-    unresolvedCommentsCount = 0,
+    unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
     const [fadingOut, setFadingOut] = useState(false);
-    const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
+    const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(
+        initialUnresolvedCommentsCount
+    );
     const { showTooltip, hideTooltip } = useTooltip();
 
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -732,8 +734,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             )}
                         </div>
                         {getAlertDot()}
-                        <CommentsBadge 
-                            cellId={cellIds[0]} 
+                        <CommentsBadge
+                            cellId={cellIds[0]}
                             unresolvedCount={unresolvedCommentsCount}
                         />
                     </div>
