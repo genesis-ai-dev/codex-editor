@@ -4,7 +4,7 @@ import { initializeStateStore } from "../../stateStore";
 import { getCommentsFromFile, writeSerializedData } from "../../utils/fileUtils";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
 import { Uri, window, workspace } from "vscode";
-import { BaseWebviewProvider } from "../../globalProvider";
+import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
 
@@ -353,7 +353,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 // Send updated comments to webview with live update flag
                 await this.sendCommentsToWebview(webviewView, true);
 
-                console.log("[CommentsProvider] Successfully handled external comments file change");
+                // Notify all other providers that comments have changed
+                GlobalProvider.getInstance().postMessageToAllProviders({
+                    command: "commentsUpdated",
+                    destination: "provider",
+                    content: {
+                        type: "commentsFileChanged",
+                        timestamp: new Date().toISOString(),
+                    }
+                });
+
+                console.log("[CommentsProvider] Successfully handled external comments file change and notified all providers");
             } catch (error) {
                 console.error("[CommentsProvider] Error handling external comments file change:", error);
                 // Still try to send whatever we have in memory
@@ -589,6 +599,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             }
                         });
                     });
+                    break;
+                }
+                case "reload": {
+                    // Send reload message to the webview with optional cellId and uri
+                    if (message.data) {
+                        safePostMessageToView(this._view, {
+                            command: "reload",
+                            data: message.data,
+                        } as CommentPostMessages);
+                    }
                     break;
                 }
                 default:

@@ -395,6 +395,16 @@
                 "command": "codex-editor-extension.deduplicateSourceCells",
                 "title": "Codex: Clean Up Duplicate Source Cells",
                 "category": "Codex Maintenance"
+            },
+            {
+                "command": "codex-editor-extension.focusCommentsView",
+                "title": "Focus Comments View",
+                "category": "Codex Comments"
+            },
+            {
+                "command": "codex-editor-extension.navigateToCellInComments",
+                "title": "Navigate to Cell in Comments",
+                "category": "Codex Comments"
             }
         ],
         "configuration": [

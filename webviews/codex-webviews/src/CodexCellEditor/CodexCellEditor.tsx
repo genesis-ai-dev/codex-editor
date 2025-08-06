@@ -1790,6 +1790,7 @@ const CodexCellEditor: React.FC = () => {
                             onTriggerSync={handleTriggerSync}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             chapterProgress={allChapterProgress}
+                            allCellsForChapter={allCellsForChapter}
                             onTempFontSizeChange={handleTempFontSizeChange}
                             onFontSizeSave={handleFontSizeSave}
                         />
