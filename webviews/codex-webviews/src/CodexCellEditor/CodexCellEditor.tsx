@@ -1757,6 +1757,7 @@ const CodexCellEditor: React.FC = () => {
                             onTriggerSync={handleTriggerSync}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             chapterProgress={allChapterProgress}
+                            allCellsForChapter={allCellsForChapter}
                         />
                     </div>
                 </div>
