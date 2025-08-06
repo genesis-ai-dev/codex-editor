@@ -9,6 +9,7 @@ interface EmptyCellDisplayProps {
     textDirection: "ltr" | "rtl";
     vscode: WebviewApi<unknown>;
     openCellById: (cellId: string, text: string) => void;
+    fontSize?: number; // Font size for responsive styling
 }
 
 const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
@@ -16,9 +17,30 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
     cellLabel,
     openCellById,
     vscode,
+    fontSize = 14,
 }) => {
     const contentRef = useRef<HTMLDivElement>(null);
     const { showTooltip, hideTooltip } = useTooltip();
+
+    // Calculate responsive margins based on font size
+    const getResponsiveMargins = () => {
+        if (fontSize <= 14) {
+            return { marginTop: "0px", marginBottom: "0px" };
+        } else if (fontSize <= 18) {
+            return { marginTop: "2px", marginBottom: "2px" };
+        } else if (fontSize <= 22) {
+            return { marginTop: "4px", marginBottom: "4px" };
+        } else if (fontSize <= 26) {
+            return { marginTop: "6px", marginBottom: "6px" };
+        } else {
+            return { marginTop: "8px", marginBottom: "8px" };
+        }
+    };
+
+    const responsiveMargins = getResponsiveMargins();
+
+    // Debug logging to see what's happening
+    console.log('EmptyCellDisplay - fontSize:', fontSize, 'responsiveMargins:', responsiveMargins);
 
     // Effect to attach event listeners to footnote markers (if any)
     useEffect(() => {
@@ -83,10 +105,11 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
                 padding: "0px 0px", // Reduced padding to match content cells
                 background: "transparent", // Ensure transparent background
                 border: "none", // Explicitly remove any border
-                height: "21px", // Match height of content cells
+                minHeight: "21px", // Use minHeight instead of fixed height
                 lineHeight: "21px", // Ensure vertical centering
                 width: "100%", // Take full width
                 boxSizing: "border-box",
+                ...responsiveMargins,
             }}
         >
             {cellLabel && <span className="empty-cell-marker">{cellLabel}</span>}

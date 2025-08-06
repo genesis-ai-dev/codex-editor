@@ -1072,6 +1072,7 @@ export interface CustomNotebookMetadata {
     corpusMarker: string;
     cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
+    fontSize?: number;
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {

@@ -35,6 +35,7 @@ export interface CustomNotebookMetadata {
     corpusMarker: string;
     cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
+    fontSize?: number;
 }
 
 export interface Subsection {

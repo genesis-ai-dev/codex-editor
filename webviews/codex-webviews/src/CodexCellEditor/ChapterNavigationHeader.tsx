@@ -16,6 +16,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
+import { Slider } from "../components/ui/slider";
 
 interface ChapterNavigationHeaderProps {
     chapterNumber: number;
@@ -66,6 +67,8 @@ interface ChapterNavigationHeaderProps {
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
     chapterProgress?: Record<number, { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }>;
+    onTempFontSizeChange?: (fontSize: number) => void;
+    onFontSizeSave?: (fontSize: number) => void;
 }
 
 export function ChapterNavigationHeader({
@@ -111,12 +114,27 @@ export function ChapterNavigationHeader({
     onTriggerSync,
     isCorrectionEditorMode,
     chapterProgress,
+    onTempFontSizeChange,
+    onFontSizeSave,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
 ChapterNavigationHeaderProps) {
     const [showConfirm, setShowConfirm] = useState(false);
     const [isMetadataModalOpen, setIsMetadataModalOpen] = useState(false);
     const [showChapterSelector, setShowChapterSelector] = useState(false);
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
     const chapterTitleRef = useRef<HTMLDivElement>(null);
+    
+    // Font size state - default to 14 if not set in metadata
+    const [fontSize, setFontSize] = useState(metadata?.fontSize || 14);
+    const [pendingFontSize, setPendingFontSize] = useState<number | null>(null);
+
+    // Update font size when metadata changes
+    useEffect(() => {
+        if (metadata?.fontSize !== undefined) {
+            setFontSize(metadata.fontSize);
+            setPendingFontSize(null); // Clear any pending changes
+        }
+    }, [metadata?.fontSize]);
 
     // Helper to determine if any translation is in progress
     const isAnyTranslationInProgress = isAutocompletingChapter || isTranslatingCell;
@@ -168,6 +186,39 @@ ChapterNavigationHeaderProps) {
         setIsMetadataModalOpen(false);
         if (metadata?.videoUrl) {
             onUpdateVideoUrl(metadata.videoUrl);
+        }
+    };
+
+    const handleFontSizeChange = (value: number[]) => {
+        const newFontSize = value[0];
+        setFontSize(newFontSize);
+        setPendingFontSize(newFontSize);
+        
+        // Update temporary font size for preview
+        if (onTempFontSizeChange) {
+            onTempFontSizeChange(newFontSize);
+        }
+    };
+
+    const handleDropdownOpenChange = (open: boolean) => {
+        setIsDropdownOpen(open);
+        
+        // If dropdown is closing and we have pending font size changes, save them
+        if (!open && pendingFontSize !== null) {
+            // Save the font size using the new handler
+            if (onFontSizeSave) {
+                onFontSizeSave(pendingFontSize);
+            } else {
+                // Fallback to old method if handler not provided
+                onMetadataChange("fontSize", pendingFontSize.toString());
+                const updatedMetadata = { ...metadata, fontSize: pendingFontSize };
+                (window as any).vscodeApi.postMessage({
+                    command: "updateNotebookMetadata",
+                    content: updatedMetadata,
+                });
+            }
+            
+            setPendingFontSize(null);
         }
     };
 
@@ -493,7 +544,7 @@ ChapterNavigationHeaderProps) {
                         )}
                     </>
                 )}
-                <DropdownMenu>
+                <DropdownMenu onOpenChange={handleDropdownOpenChange}>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" title="Advanced Settings">
                             <i className="codicon codicon-settings-gear" />
@@ -583,6 +634,26 @@ ChapterNavigationHeaderProps) {
                                 </DropdownMenuItem>
                             </>
                         )}
+                        <DropdownMenuSeparator />
+                        <div className="px-3 py-1">
+                            <div className="flex items-center justify-between mb-0.2">
+                                <span className="text-sm text-muted-foreground">{fontSize}px</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <span style={{ fontSize: "10px" }}>A</span>
+                                <div className="px-2 w-full">
+                                    <Slider
+                                        value={[fontSize]}
+                                        onValueChange={handleFontSizeChange}
+                                        max={24}
+                                        min={8}
+                                        step={1}
+                                        className="w-full"
+                                    />
+                                </div>
+                                <span style={{ fontSize: "20px" }}>A</span>
+                            </div>
+                        </div>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>

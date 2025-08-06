@@ -40,6 +40,7 @@ export interface CellListProps {
     audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
     isSaving?: boolean;
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
+    fontSize?: number; // Font size for responsive styling
 }
 
 const DEBUG_ENABLED = false;
@@ -73,12 +74,16 @@ const CellList: React.FC<CellListProps> = ({
     audioAttachments,
     isSaving = false,
     isCorrectionEditorMode = false,
+    fontSize = 14,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
+
+    // Debug logging to see what font size is being received
+    console.log('CellList - fontSize:', fontSize);
 
     // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
@@ -685,7 +690,7 @@ const CellList: React.FC<CellListProps> = ({
                                     gap: "0.5rem",
                                     padding: "4px 4px 4px 12px",
                                     width: "calc(100% - 20px)",
-                                    height: "21px",
+                                    height: fontSize > 14 ? (fontSize <= 18 ? "25px" : fontSize <= 22 ? "29px" : fontSize <= 26 ? "33px" : "37px") : "21px",
                                     boxSizing: "border-box",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
@@ -785,6 +790,7 @@ const CellList: React.FC<CellListProps> = ({
                                         textDirection={textDirection}
                                         vscode={vscode}
                                         openCellById={openCellById}
+                                        fontSize={fontSize}
                                     />
                                 </div>
                             </div>
@@ -793,6 +799,8 @@ const CellList: React.FC<CellListProps> = ({
                                 style={{
                                     height: "15px",
                                     padding: "2px",
+                                    marginTop: fontSize > 14 ? (fontSize <= 18 ? "2px" : fontSize <= 22 ? "4px" : fontSize <= 26 ? "6px" : "8px") : "0px",
+                                    marginBottom: fontSize > 14 ? (fontSize <= 18 ? "2px" : fontSize <= 22 ? "4px" : fontSize <= 26 ? "6px" : "8px") : "0px",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
                                         successfulCompletions.size > 0
@@ -842,6 +850,7 @@ const CellList: React.FC<CellListProps> = ({
         audioAttachments,
         calculateFootnoteOffset,
         isCorrectionEditorMode,
+        fontSize,
     ]);
 
     // Debug log to see the structure of translationUnits
