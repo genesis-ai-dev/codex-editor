@@ -9,10 +9,10 @@ interface CommentsBadgeProps {
     className?: string;
 }
 
-const CommentsBadge: React.FC<CommentsBadgeProps> = ({ 
-    cellId, 
-    unresolvedCount, 
-    className = "" 
+const CommentsBadge: React.FC<CommentsBadgeProps> = ({
+    cellId,
+    unresolvedCount,
+    className = "",
 }) => {
     const vscode = getVSCodeAPI();
 
@@ -20,7 +20,9 @@ const CommentsBadge: React.FC<CommentsBadgeProps> = ({
         // Send message to open comments tab and navigate to this cell
         vscode.postMessage({
             command: "openCommentsForCell",
-            cellId: cellId
+            content: {
+                cellId: cellId,
+            },
         });
     };
 
@@ -34,7 +36,7 @@ const CommentsBadge: React.FC<CommentsBadgeProps> = ({
             variant="secondary"
             className={`cursor-pointer hover:bg-secondary/80 transition-colors ${className}`}
             onClick={handleClick}
-            title={`${unresolvedCount} unresolved comment${unresolvedCount > 1 ? 's' : ''}`}
+            title={`${unresolvedCount} unresolved comment${unresolvedCount > 1 ? "s" : ""}`}
         >
             <MessageCircle className="w-3 h-3 mr-1" />
             {unresolvedCount}

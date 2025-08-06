@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { registerProviders } from "./providers/registerProviders";
+import { GlobalProvider } from "./globalProvider";
 import { registerCommands } from "./activationHelpers/contextAware/commands";
 import { initializeWebviews } from "./activationHelpers/contextAware/webviewInitializers";
 import { registerLanguageServer } from "./tsServer/registerLanguageServer";
@@ -446,8 +447,32 @@ export async function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.navigateToCellInComments", (cellId: string) => {
-            // This will be handled by the comments provider
-            vscode.commands.executeCommand("codex-editor-extension.comments-sidebar.reload", { cellId });
+            // Get the comments provider and send reload message
+            const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as any;
+            if (commentsProvider && commentsProvider._view) {
+                // Send a reload message directly to the webview with the cellId
+                commentsProvider._view.webview.postMessage({
+                    command: "reload",
+                    data: {
+                        cellId: cellId,
+                    }
+                });
+            }
+        })
+    );
+
+    // Register the missing comments-sidebar.reload command
+    context.subscriptions.push(
+        vscode.commands.registerCommand("codex-editor-extension.comments-sidebar.reload", (options: any) => {
+            // Get the comments provider and send reload message
+            const commentsProvider = GlobalProvider.getInstance().getProvider("comments-sidebar") as any;
+            if (commentsProvider && commentsProvider._view) {
+                // Send a reload message directly to the webview
+                commentsProvider._view.webview.postMessage({
+                    command: "reload",
+                    data: options
+                });
+            }
         })
     );
 
