@@ -17,6 +17,7 @@ import { CELL_DISPLAY_MODES } from "./CodexCellEditor"; // Import the cell displ
 import "./TranslationAnimations.css"; // Import the animation CSS
 import AnimatedReveal from "../components/AnimatedReveal";
 import { useTooltip } from "./contextProviders/TooltipContext";
+import CommentsBadge from "./CommentsBadge";
 
 const SHOW_VALIDATION_BUTTON = true;
 interface CellContentDisplayProps {
@@ -39,6 +40,7 @@ interface CellContentDisplayProps {
     footnoteOffset?: number; // Starting footnote number for this cell
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
+    unresolvedCommentsCount?: number; // Number of unresolved comments for this cell
 }
 
 const DEBUG_ENABLED = false;
@@ -204,10 +206,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     footnoteOffset = 0,
     isCorrectionEditorMode = false,
     translationUnits = [],
+    unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
     const [fadingOut, setFadingOut] = useState(false);
+    const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(
+        initialUnresolvedCommentsCount
+    );
     const { showTooltip, hideTooltip } = useTooltip();
 
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -265,6 +271,33 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         // Completely disable fading to prevent any glitches during translation
         setFadingOut(false);
     }, [allTranslationsComplete, translationState, isInTranslationProcess]);
+
+    // Fetch comments count for this cell
+    useEffect(() => {
+        const fetchCommentsCount = () => {
+            const messageContent: EditorPostMessages = {
+                command: "getCommentsForCell",
+                content: {
+                    cellId: cellIds[0],
+                },
+            };
+            vscode.postMessage(messageContent);
+        };
+
+        fetchCommentsCount();
+    }, [cellIds, vscode]);
+
+    // Handle comments count response
+    useEffect(() => {
+        const handleCommentsResponse = (event: MessageEvent) => {
+            if (event.data.type === "commentsForCell" && event.data.content.cellId === cellIds[0]) {
+                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
+            }
+        };
+
+        window.addEventListener("message", handleCommentsResponse);
+        return () => window.removeEventListener("message", handleCommentsResponse);
+    }, [cellIds]);
 
     // Helper function to check if this cell should be highlighted
     // Handles parent/child cell matching: child cells in target should highlight parent cells in source
@@ -701,6 +734,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             )}
                         </div>
                         {getAlertDot()}
+                        <CommentsBadge
+                            cellId={cellIds[0]}
+                            unresolvedCount={unresolvedCommentsCount}
+                        />
                     </div>
                 )}
                 <div
@@ -738,7 +775,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             </div>
 
             {/* Render content with footnotes */}
-            {renderContent()}
+            <div style={{ flex: 1 }}>{renderContent()}</div>
+
+            {/* Comments Badge positioned on the right */}
+            <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
+                <CommentsBadge cellId={cellIds[0]} unresolvedCount={unresolvedCommentsCount} />
+            </div>
         </div>
     );
 };

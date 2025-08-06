@@ -183,6 +183,9 @@ const CodexCellEditor: React.FC = () => {
 
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
+    
+    // Temporary font size for preview - only applied when dropdown is open
+    const [tempFontSize, setTempFontSize] = useState<number | null>(null);
 
     // Add a state for bible book map
     const [bibleBookMap, setBibleBookMap] = useState<Map<string, BibleBookInfo> | undefined>(
@@ -1289,14 +1292,26 @@ const CodexCellEditor: React.FC = () => {
     };
 
     // Dynamically set styles for .ql-editor
-    const styleElement = document.createElement("style");
-    styleElement.textContent = `
-        .ql-editor {
-            direction: ${textDirection} !important;
-            text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
-        }
-    `;
-    document.head.appendChild(styleElement);
+    useEffect(() => {
+        const styleElement = document.createElement("style");
+        // Use temporary font size if available, otherwise use metadata font size
+        const currentFontSize = tempFontSize !== null ? tempFontSize : (metadata?.fontSize || 14);
+        styleElement.textContent = `
+            .ql-editor {
+                direction: ${textDirection} !important;
+                text-align: ${textDirection === "rtl" ? "right" : "left"} !important;
+                font-size: ${currentFontSize}px !important;
+            }
+        `;
+        document.head.appendChild(styleElement);
+
+        return () => {
+            // Clean up the style element when component unmounts or dependencies change
+            if (styleElement.parentNode) {
+                styleElement.parentNode.removeChild(styleElement);
+            }
+        };
+    }, [textDirection, metadata?.fontSize, tempFontSize]);
 
     const translationUnitsWithCurrentEditorContent = useMemo(() => {
         return translationUnitsForSection?.map((unit) => {
@@ -1336,6 +1351,24 @@ const CodexCellEditor: React.FC = () => {
 
     const handleUpdateVideoUrl = (url: string) => {
         setVideoUrl(url);
+    };
+
+    // Handler for temporary font size changes (for preview)
+    const handleTempFontSizeChange = (fontSize: number) => {
+        setTempFontSize(fontSize);
+    };
+
+    // Handler for when dropdown closes - save the font size to metadata
+    const handleFontSizeSave = (fontSize: number) => {
+        setTempFontSize(null); // Clear temporary font size
+        handleMetadataChange("fontSize", fontSize.toString());
+        
+        // Save the metadata
+        const updatedMetadata = { ...metadata, fontSize };
+        vscode.postMessage({
+            command: "updateNotebookMetadata",
+            content: updatedMetadata,
+        } as EditorPostMessages);
     };
 
     const [headerHeight, setHeaderHeight] = useState(0);
@@ -1757,6 +1790,9 @@ const CodexCellEditor: React.FC = () => {
                             onTriggerSync={handleTriggerSync}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             chapterProgress={allChapterProgress}
+                            allCellsForChapter={allCellsForChapter}
+                            onTempFontSizeChange={handleTempFontSizeChange}
+                            onFontSizeSave={handleFontSizeSave}
                         />
                     </div>
                 </div>
@@ -1814,6 +1850,7 @@ const CodexCellEditor: React.FC = () => {
                             audioAttachments={audioAttachments}
                             isSaving={isSaving}
                             isCorrectionEditorMode={isCorrectionEditorMode}
+                            fontSize={tempFontSize !== null ? tempFontSize : (metadata?.fontSize || 14)}
                         />
                     </div>
                 </div>

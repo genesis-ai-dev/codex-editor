@@ -69,6 +69,7 @@ import {
     RotateCcw,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import CommentsBadge from "./CommentsBadge";
 
 // Define interface for saved backtranslation
 interface SavedBacktranslation {
@@ -261,10 +262,41 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isEditorControlsExpanded, setIsEditorControlsExpanded] = useState(false);
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
+    const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
     }, [cellLabel]);
+
+    // Fetch comments count for this cell
+    useEffect(() => {
+        const fetchCommentsCount = () => {
+            const messageContent: EditorPostMessages = {
+                command: "getCommentsForCell",
+                content: {
+                    cellId: cellMarkers[0],
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        };
+
+        fetchCommentsCount();
+    }, [cellMarkers]);
+
+    // Handle comments count response
+    useEffect(() => {
+        const handleCommentsResponse = (event: MessageEvent) => {
+            if (
+                event.data.type === "commentsForCell" &&
+                event.data.content.cellId === cellMarkers[0]
+            ) {
+                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
+            }
+        };
+
+        window.addEventListener("message", handleCommentsResponse);
+        return () => window.removeEventListener("message", handleCommentsResponse);
+    }, [cellMarkers]);
 
     const handleLabelChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setEditableLabel(e.target.value);
@@ -1072,19 +1104,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 }
                             />
                         ) : (
-                            <div
-                                className="flex items-center gap-2 cursor-pointer"
-                                onClick={() =>
-                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                }
-                            >
-                                <span className="text-lg font-semibold">{cellMarkers[0]}</span>
-                                {editableLabel && (
-                                    <span className="text-sm text-muted-foreground">
-                                        {editableLabel}
-                                    </span>
-                                )}
-                                <Pencil className="h-4 w-4" />
+                            <div className="flex items-center gap-2 cursor-pointer">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-lg font-semibold">{cellMarkers[0]}</span>
+                                    {editableLabel && (
+                                        <span className="text-sm text-muted-foreground">
+                                            {editableLabel}
+                                        </span>
+                                    )}
+                                    <Pencil
+                                        onClick={() =>
+                                            setIsEditorControlsExpanded(!isEditorControlsExpanded)
+                                        }
+                                        className="h-4 w-4"
+                                    />
+                                </div>
+                                <CommentsBadge
+                                    cellId={cellMarkers[0]}
+                                    unresolvedCount={unresolvedCommentsCount}
+                                />
                             </div>
                         )}
                     </div>

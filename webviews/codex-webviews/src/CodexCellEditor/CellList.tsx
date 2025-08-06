@@ -15,6 +15,7 @@ import { CodexCellTypes } from "../../../../types/enums";
 import { getEmptyCellTranslationStyle, CellTranslationState } from "./CellTranslationStyles";
 import AnimatedReveal from "../components/AnimatedReveal";
 import UnsavedChangesContext from "./contextProviders/UnsavedChangesContext";
+import CommentsBadge from "./CommentsBadge";
 
 export interface CellListProps {
     spellCheckResponse: SpellCheckResponse | null;
@@ -40,6 +41,7 @@ export interface CellListProps {
     audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
     isSaving?: boolean;
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
+    fontSize?: number; // Font size for responsive styling
 }
 
 const DEBUG_ENABLED = false;
@@ -73,12 +75,16 @@ const CellList: React.FC<CellListProps> = ({
     audioAttachments,
     isSaving = false,
     isCorrectionEditorMode = false,
+    fontSize = 14,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
     // Add state to track completed translations
     const [completedTranslations, setCompletedTranslations] = useState<Set<string>>(new Set());
     const [allTranslationsComplete, setAllTranslationsComplete] = useState(false);
+
+    // State to track unresolved comments count for each cell
+    const [cellCommentsCount, setCellCommentsCount] = useState<Map<string, number>>(new Map());
 
     // Filter out merged cells if we're in correction editor mode for source text
     const filteredTranslationUnits = useMemo(() => {
@@ -353,6 +359,33 @@ const CellList: React.FC<CellListProps> = ({
     }, [cellsInAutocompleteQueue, currentProcessingCellId]);
 
     // Helper function to generate appropriate cell label using global line numbers
+    // Helper function to get the global visible cell number (skipping paratext cells)
+    const getGlobalVisibleCellNumber = useCallback(
+        (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
+            const cellIndex = allCells.findIndex(
+                (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
+            );
+
+            if (cellIndex === -1) return 1; // Fallback if not found
+
+            // Count non-paratext cells up to and including this one
+            let visibleCellCount = 0;
+            for (let i = 0; i <= cellIndex; i++) {
+                const cellIdParts = allCells[i].cellMarkers[0].split(":");
+                if (
+                    allCells[i].cellType !== CodexCellTypes.PARATEXT &&
+                    cellIdParts.length < 3 &&
+                    !allCells[i].merged
+                ) {
+                    visibleCellCount++;
+                }
+            }
+
+            return visibleCellCount;
+        },
+        []
+    );
+
     const generateCellLabel = useCallback(
         (cell: QuillCellContent, currentCellsArray: QuillCellContent[]): string => {
             // If cell already has a label, use it
@@ -416,54 +449,73 @@ const CellList: React.FC<CellListProps> = ({
             // Get global visible cell number (skipping paratext cells)
             return getGlobalVisibleCellNumber(cell, fullDocumentTranslationUnits).toString();
         },
-        [fullDocumentTranslationUnits]
-    );
-
-    // Helper function to get the global visible cell number (skipping paratext cells)
-    const getGlobalVisibleCellNumber = useCallback(
-        (cell: QuillCellContent, allCells: QuillCellContent[]): number => {
-            const cellIndex = allCells.findIndex(
-                (unit) => unit.cellMarkers[0] === cell.cellMarkers[0]
-            );
-
-            if (cellIndex === -1) return 1; // Fallback if not found
-
-            // Count non-paratext cells up to and including this one
-            let visibleCellCount = 0;
-            for (let i = 0; i <= cellIndex; i++) {
-                const cellIdParts = allCells[i].cellMarkers[0].split(":");
-                if (
-                    allCells[i].cellType !== CodexCellTypes.PARATEXT &&
-                    cellIdParts.length < 3 &&
-                    !allCells[i].merged
-                ) {
-                    visibleCellCount++;
-                }
-            }
-
-            return visibleCellCount;
-        },
-        []
+        [fullDocumentTranslationUnits, getGlobalVisibleCellNumber]
     );
 
     // Helper function to determine if cell content is effectively empty
     const isCellContentEmpty = (cellContent: string | undefined): boolean => {
         if (!cellContent) return true;
-        
+
         // Create a temporary div to parse HTML and extract text content
-        const tempDiv = document.createElement('div');
+        const tempDiv = document.createElement("div");
         tempDiv.innerHTML = cellContent;
-        const textContent = tempDiv.textContent || tempDiv.innerText || '';
-        
+        const textContent = tempDiv.textContent || tempDiv.innerText || "";
+
         // Check if the text content contains only whitespace characters (including non-breaking spaces)
         // This regex matches any combination of:
         // - Regular spaces (\s)
         // - Non-breaking spaces (\u00A0)
         // - Other Unicode whitespace characters
         const onlyWhitespaceRegex = /^[\s\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]*$/;
-        
+
         return onlyWhitespaceRegex.test(textContent);
     };
+
+    const openCellById = useCallback(
+        (cellId: string) => {
+            const cellToOpen = workingTranslationUnits.find(
+                (unit) => unit.cellMarkers[0] === cellId
+            );
+            if (unsavedChanges || (isSourceText && !isCorrectionEditorMode)) {
+                toggleFlashingBorder();
+                return;
+            }
+            const documentUri =
+                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
+
+            if (cellToOpen) {
+                debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
+                setContentBeingUpdated({
+                    cellMarkers: cellToOpen.cellMarkers,
+                    cellContent: cellToOpen.cellContent,
+                    cellChanged: true,
+                    cellLabel: cellToOpen.cellLabel,
+                    timestamps: cellToOpen.timestamps,
+                    uri: documentUri,
+                } as EditorCellContent);
+                vscode.postMessage({
+                    command: "setCurrentIdToGlobalState",
+                    content: {
+                        currentLineId: cellToOpen.cellMarkers[0],
+                    },
+                } as EditorPostMessages);
+            } else {
+                vscode.postMessage({
+                    command: "showErrorMessage",
+                    text: `Cell with ID ${cellId} not found.`,
+                });
+            }
+        },
+        [
+            workingTranslationUnits,
+            setContentBeingUpdated,
+            vscode,
+            unsavedChanges,
+            isSourceText,
+            isCorrectionEditorMode,
+            toggleFlashingBorder,
+        ]
+    );
 
     const renderCellGroup = useCallback(
         (group: typeof workingTranslationUnits, startIndex: number) => (
@@ -519,6 +571,7 @@ const CellList: React.FC<CellListProps> = ({
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
+                                unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                             />
                         </span>
                     );
@@ -528,7 +581,6 @@ const CellList: React.FC<CellListProps> = ({
         [
             cellDisplayMode,
             textDirection,
-            setContentBeingUpdated,
             vscode,
             isSourceText,
             duplicateCellIds,
@@ -544,45 +596,9 @@ const CellList: React.FC<CellListProps> = ({
             calculateFootnoteOffset,
             isCorrectionEditorMode,
             workingTranslationUnits,
+            cellCommentsCount,
+            openCellById,
         ]
-    );
-
-    const openCellById = useCallback(
-        (cellId: string) => {
-            const cellToOpen = workingTranslationUnits.find(
-                (unit) => unit.cellMarkers[0] === cellId
-            );
-            if (unsavedChanges || (isSourceText && !isCorrectionEditorMode)) {
-                toggleFlashingBorder();
-                return;
-            }
-            const documentUri =
-                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
-
-            if (cellToOpen) {
-                debug("openCellById", { cellToOpen, text: cellToOpen.cellContent });
-                setContentBeingUpdated({
-                    cellMarkers: cellToOpen.cellMarkers,
-                    cellContent: cellToOpen.cellContent,
-                    cellChanged: true,
-                    cellLabel: cellToOpen.cellLabel,
-                    timestamps: cellToOpen.timestamps,
-                    uri: documentUri,
-                } as EditorCellContent);
-                vscode.postMessage({
-                    command: "setCurrentIdToGlobalState",
-                    content: {
-                        currentLineId: cellToOpen.cellMarkers[0],
-                    },
-                } as EditorPostMessages);
-            } else {
-                vscode.postMessage({
-                    command: "showErrorMessage",
-                    text: `Cell with ID ${cellId} not found.`,
-                });
-            }
-        },
-        [workingTranslationUnits, setContentBeingUpdated, vscode]
     );
 
     const renderCells = useCallback(() => {
@@ -685,7 +701,16 @@ const CellList: React.FC<CellListProps> = ({
                                     gap: "0.5rem",
                                     padding: "4px 4px 4px 12px",
                                     width: "calc(100% - 20px)",
-                                    height: "21px",
+                                    height:
+                                        fontSize > 14
+                                            ? fontSize <= 18
+                                                ? "25px"
+                                                : fontSize <= 22
+                                                ? "29px"
+                                                : fontSize <= 26
+                                                ? "33px"
+                                                : "37px"
+                                            : "21px",
                                     boxSizing: "border-box",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
@@ -785,6 +810,14 @@ const CellList: React.FC<CellListProps> = ({
                                         textDirection={textDirection}
                                         vscode={vscode}
                                         openCellById={openCellById}
+                                        fontSize={fontSize}
+                                    />
+                                </div>
+                                {/* Comments Badge positioned on the right */}
+                                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
+                                    <CommentsBadge
+                                        cellId={cellMarkers[0]}
+                                        unresolvedCount={cellCommentsCount.get(cellMarkers[0]) || 0}
                                     />
                                 </div>
                             </div>
@@ -793,6 +826,26 @@ const CellList: React.FC<CellListProps> = ({
                                 style={{
                                     height: "15px",
                                     padding: "2px",
+                                    marginTop:
+                                        fontSize > 14
+                                            ? fontSize <= 18
+                                                ? "2px"
+                                                : fontSize <= 22
+                                                ? "4px"
+                                                : fontSize <= 26
+                                                ? "6px"
+                                                : "8px"
+                                            : "0px",
+                                    marginBottom:
+                                        fontSize > 14
+                                            ? fontSize <= 18
+                                                ? "2px"
+                                                : fontSize <= 22
+                                                ? "4px"
+                                                : fontSize <= 26
+                                                ? "6px"
+                                                : "8px"
+                                            : "0px",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,
                                         successfulCompletions.size > 0
@@ -839,10 +892,72 @@ const CellList: React.FC<CellListProps> = ({
         isCellInTranslationProcess,
         getCellTranslationState,
         successfulCompletions,
-        audioAttachments,
         calculateFootnoteOffset,
         isCorrectionEditorMode,
+        cellCommentsCount,
+        isSaving,
+        fontSize,
     ]);
+
+    // Fetch comments count for all visible cells
+    useEffect(() => {
+        const fetchCommentsForAllCells = () => {
+            workingTranslationUnits.forEach((unit) => {
+                const cellId = unit.cellMarkers[0];
+                const messageContent: EditorPostMessages = {
+                    command: "getCommentsForCell",
+                    content: {
+                        cellId: cellId,
+                    },
+                };
+                vscode.postMessage(messageContent);
+            });
+        };
+
+        if (workingTranslationUnits.length > 0) {
+            fetchCommentsForAllCells();
+        }
+    }, [workingTranslationUnits, vscode]);
+
+    // Handle comments count responses
+    useEffect(() => {
+        const handleCommentsResponse = (event: MessageEvent) => {
+            if (event.data.type === "commentsForCell") {
+                const { cellId, unresolvedCount } = event.data.content;
+                setCellCommentsCount((prev) => {
+                    const newMap = new Map(prev);
+                    newMap.set(cellId, unresolvedCount || 0);
+                    return newMap;
+                });
+            }
+        };
+
+        window.addEventListener("message", handleCommentsResponse);
+        return () => window.removeEventListener("message", handleCommentsResponse);
+    }, []);
+
+    // Handle refresh comments request
+    useEffect(() => {
+        const handleRefreshComments = (event: MessageEvent) => {
+            if (event.data.type === "refreshCommentCounts") {
+                console.log("Refreshing comment counts due to comments file change");
+                // Re-fetch comments count for all cells
+                workingTranslationUnits.forEach((unit) => {
+                    const cellId = unit.cellMarkers[0];
+                    const messageContent: EditorPostMessages = {
+                        command: "getCommentsForCell",
+                        content: {
+                            cellId: cellId,
+                        },
+                    };
+                    vscode.postMessage(messageContent);
+                });
+            }
+        };
+
+        window.addEventListener("message", handleRefreshComments);
+        return () => window.removeEventListener("message", handleRefreshComments);
+    }, [workingTranslationUnits, vscode]);
 
     // Debug log to see the structure of translationUnits
     useEffect(() => {
