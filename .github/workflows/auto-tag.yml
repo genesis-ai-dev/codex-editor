@@ -43,7 +43,7 @@ jobs:
               if: steps.version-check.outputs.version_changed == 'true'
               run: |
                   VERSION=${{ steps.version-check.outputs.new_version }}
-                  TAG_NAME="v$VERSION"
+                  TAG_NAME="$VERSION"
 
                   # Configure git
                   git config user.name "github-actions[bot]"
