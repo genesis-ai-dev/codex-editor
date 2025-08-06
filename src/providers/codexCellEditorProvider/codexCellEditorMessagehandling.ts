@@ -99,10 +99,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
             const projectDir = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project");
             const commentsFilePath = vscode.Uri.joinPath(projectDir, "comments.json");
-            
+
             const comments = await getCommentsFromFile(commentsFilePath.fsPath);
             const unresolvedCount = getUnresolvedCommentsCountForCell(comments, typedEvent.content.cellId);
-            
+
             safePostMessageToPanel(webviewPanel, {
                 type: "commentsForCell",
                 content: {
@@ -122,12 +122,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
     },
 
-    openCommentsForCell: async ({ event }) => {
+    openCommentsForCell: async ({ event, document, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "openCommentsForCell"; }>;
         try {
+            // First, update the global state to set the current cell ID
+            const uri = document.uri.toString();
+            provider.updateCellIdState(typedEvent.content.cellId, uri);
+
             // Open the comments view and navigate to the specific cell
             await vscode.commands.executeCommand("codex-editor-extension.focusCommentsView");
-            
+
             // Send a message to the comments view to navigate to this cell
             vscode.commands.executeCommand("codex-editor-extension.navigateToCellInComments", typedEvent.content.cellId);
         } catch (error) {
