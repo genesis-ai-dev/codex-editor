@@ -117,6 +117,9 @@ export const useVSCodeMessageHandler = ({
                 case "updateNotebookMetadata":
                     updateNotebookMetadata(message.content);
                     break;
+                case "providerUpdatesNotebookMetadataForWebview":
+                    updateNotebookMetadata(message.content);
+                    break;
                 case "updateVideoUrlInWebview":
                     updateVideoUrl(message.content);
                     break;

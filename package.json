@@ -207,6 +207,11 @@
                 "title": "Analyze Edits"
             },
             {
+                "command": "codex-editor.setGlobalFontSize",
+                "title": "Set Global Font Size",
+                "category": "Codex Project"
+            },
+            {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
             },

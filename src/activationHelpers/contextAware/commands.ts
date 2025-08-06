@@ -58,6 +58,35 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const refreshAllWebviewsCommand = vscode.commands.registerCommand(
+        "codex-editor.refreshAllWebviews",
+        async () => {
+            try {
+                console.log("Refreshing all webviews due to font size changes");
+
+                // Import GlobalProvider here to avoid circular dependencies
+                const { GlobalProvider } = await import("../../globalProvider");
+                const globalProvider = GlobalProvider.getInstance();
+
+                // Send refresh message to all registered webview providers
+                globalProvider.postMessageToAllWebviews({
+                    command: "refreshFontSizes",
+                    content: { type: "cellId", cellId: "refresh-all" }
+                });
+
+                // Also refresh CodexCellEditor instances by accessing the registered provider
+                // The CodexCellEditorProvider should handle this message and refresh all open editor instances
+                globalProvider.postMessageToAllProviders({
+                    command: "refreshAllEditors",
+                    destination: "provider"
+                });
+
+            } catch (error) {
+                console.error("Error refreshing webviews:", error);
+            }
+        }
+    );
+
     const notebookSerializer = vscode.workspace.registerNotebookSerializer(
         NOTEBOOK_TYPE,
         new CodexContentSerializer(),
@@ -304,7 +333,32 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const setGlobalFontSizeCommand = vscode.commands.registerCommand(
+        "codex-editor.setGlobalFontSize",
+        async () => {
+            try {
+                // Get the main menu provider instance from the global provider
+                const { GlobalProvider } = await import("../../globalProvider");
+                const globalProvider = GlobalProvider.getInstance();
 
+                // Get the registered main menu provider
+                const providers = (globalProvider as any).providers;
+                const mainMenuProvider = providers?.get("codex-editor.mainMenu");
+
+                if (mainMenuProvider && typeof mainMenuProvider.handleSetGlobalFontSize === 'function') {
+                    // Directly call the method on the main menu provider
+                    await mainMenuProvider.handleSetGlobalFontSize();
+                } else {
+                    // Fallback: navigate to main menu and show instructions
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    vscode.window.showInformationMessage("Please use the 'Set Global Font Size' button in the Main Menu panel.");
+                }
+            } catch (error) {
+                console.error("Error executing global font size command:", error);
+                vscode.window.showErrorMessage(`Failed to set global font size: ${error}`);
+            }
+        }
+    );
 
     context.subscriptions.push(
         notebookSerializer,
@@ -322,6 +376,8 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         downloadSourceBibleCommand,
         analyzeEditsCommand,
         navigateToMainMenuCommand,
+        refreshAllWebviewsCommand,
+        setGlobalFontSizeCommand,
 
         deduplicateSourceCellsCommand,
         testProjectLoadingPerformanceCommand,

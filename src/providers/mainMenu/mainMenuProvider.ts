@@ -21,6 +21,7 @@ import { getNotebookMetadataManager } from "../../utils/notebookMetadataManager"
 import { SyncManager } from "../../projectManager/syncManager";
 import { manualUpdateCheck } from "../../utils/updateChecker";
 import { CommentsMigrator } from "../../utils/commentsMigrationUtils";
+import * as path from "path";
 
 const DEBUG_MODE = false; // Set to true to enable debug logging
 
@@ -498,6 +499,12 @@ export class MainMenuProvider extends BaseWebviewProvider {
                     vscode.window.showErrorMessage(`Failed to open URL: ${error}`);
                 }
                 break;
+            case "refreshFontSizes":
+                // Refresh the main menu state to reflect any font size changes
+                console.log("MainMenu: Refreshing state due to font size changes");
+                await this.store.refreshState();
+                this.sendProjectStateToWebview();
+                break;
         }
 
         // Handle project manager messages
@@ -542,6 +549,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openEditAnalysis":
                 await vscode.commands.executeCommand("codex-editor-extension.analyzeEdits");
+                break;
+            case "setGlobalFontSize":
+                await this.handleSetGlobalFontSize();
                 break;
             case "publishProject":
                 await this.publishProject();
@@ -737,6 +747,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "openBookNameEditor":
                 await vscode.commands.executeCommand("codex-editor.openBookNameEditor");
+                break;
+            case "setGlobalFontSize":
+                await this.handleSetGlobalFontSize();
                 break;
             default:
                 throw new Error(`Unknown command: ${commandName}`);
@@ -942,6 +955,213 @@ export class MainMenuProvider extends BaseWebviewProvider {
         } catch (error) {
             console.error("Error installing update:", error);
             vscode.window.showErrorMessage(`Install failed: ${(error as Error).message}`);
+        }
+    }
+
+    public async handleSetGlobalFontSize() {
+        try {
+            // Step 1: Choose file scope
+            const fileScope = await vscode.window.showQuickPick(
+                [
+                    { label: "Source files only", value: "source" },
+                    { label: "Target files only", value: "target" },
+                    { label: "Both source and target files", value: "both" }
+                ],
+                {
+                    placeHolder: "Choose which files to update",
+                    title: "Global Font Size - File Scope"
+                }
+            );
+
+            if (!fileScope) {
+                return; // User cancelled
+            }
+
+            // Step 2: Choose update behavior
+            const updateBehavior = await vscode.window.showQuickPick(
+                [
+                    { label: "Update all files (including those with existing font sizes)", value: "all" },
+                    { label: "Skip files that already have font sizes set", value: "skip" }
+                ],
+                {
+                    placeHolder: "Choose update behavior",
+                    title: "Global Font Size - Update Behavior"
+                }
+            );
+
+            if (!updateBehavior) {
+                return; // User cancelled
+            }
+
+            // Step 3: Choose font size
+            const fontSizeOption = await vscode.window.showQuickPick(
+                [
+                    { label: "8px", value: 8 },
+                    { label: "9px", value: 9 },
+                    { label: "10px", value: 10 },
+                    { label: "11px", value: 11 },
+                    { label: "12px", value: 12 },
+                    { label: "14px (Default)", value: 14 },
+                    { label: "18px", value: 18 },
+                    { label: "24px", value: 24 }
+                ],
+                {
+                    placeHolder: "Select font size",
+                    title: "Choose Font Size"
+                }
+            );
+
+            if (!fontSizeOption) {
+                return; // User cancelled
+            }
+
+            const fontSize = fontSizeOption.value;
+
+            // Step 4: Confirm the action
+            const confirmMessage = `This will set font size to ${fontSize}px for ${fileScope.label.toLowerCase()} ${updateBehavior.label.toLowerCase()}. Continue?`;
+            const confirmed = await vscode.window.showWarningMessage(
+                confirmMessage,
+                { modal: true },
+                "Yes, Continue"
+            );
+
+            if (!confirmed) {
+                return; // User cancelled
+            }
+
+            // Step 5: Execute the update
+            await this.updateGlobalFontSize(fontSize, fileScope.value, updateBehavior.value);
+
+        } catch (error) {
+            console.error("Error setting global font size:", error);
+            vscode.window.showErrorMessage("Failed to set global font size");
+        }
+    }
+
+    private async updateGlobalFontSize(fontSize: number, fileScope: string, updateBehavior: string) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        // Show progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Updating Global Font Size",
+                cancellable: false
+            },
+            async (progress) => {
+                try {
+                    // Find files based on scope
+                    const filesToUpdate: vscode.Uri[] = [];
+
+                    if (fileScope === "source" || fileScope === "both") {
+                        const sourceFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source")
+                        );
+                        filesToUpdate.push(...sourceFiles);
+                    }
+
+                    if (fileScope === "target" || fileScope === "both") {
+                        const targetFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, "files/target/*.codex")
+                        );
+                        filesToUpdate.push(...targetFiles);
+                    }
+
+                    progress.report({ message: `Found ${filesToUpdate.length} files to process` });
+
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+
+                    for (let i = 0; i < filesToUpdate.length; i++) {
+                        const file = filesToUpdate[i];
+                        progress.report({
+                            message: `Processing ${path.basename(file.fsPath)} (${i + 1}/${filesToUpdate.length})`,
+                            increment: (100 / filesToUpdate.length)
+                        });
+
+                        try {
+                            const updated = await this.updateFileFontSize(file, fontSize, updateBehavior);
+                            if (updated) {
+                                updatedCount++;
+                            } else {
+                                skippedCount++;
+                            }
+                        } catch (error) {
+                            console.error(`Error updating font size for ${file.fsPath}:`, error);
+                        }
+                    }
+
+                    // Show completion message
+                    const message = `Font size update complete: ${updatedCount} files updated, ${skippedCount} files skipped`;
+                    vscode.window.showInformationMessage(message);
+
+                    // Refresh webviews to show the updated font sizes immediately
+                    await this.refreshWebviewsAfterFontSizeUpdate();
+
+                } catch (error) {
+                    console.error("Error during font size update:", error);
+                    throw error;
+                }
+            }
+        );
+    }
+
+    private async updateFileFontSize(fileUri: vscode.Uri, fontSize: number, updateBehavior: string): Promise<boolean> {
+        try {
+            // Read the file content
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileData = JSON.parse(fileContent.toString());
+
+            // Check if file already has font size set
+            const currentFontSize = fileData.metadata?.fontSize;
+            const currentFontSizeSource = fileData.metadata?.fontSizeSource;
+
+            // For "skip" behavior, skip files that have local font changes
+            // This preserves user's manual font size adjustments
+            if (updateBehavior === "skip" && currentFontSize !== undefined && currentFontSizeSource === "local") {
+                return false; // Skip this file
+            }
+
+            // Update the font size and mark it as globally set
+            if (!fileData.metadata) {
+                fileData.metadata = {};
+            }
+            fileData.metadata.fontSize = fontSize;
+            fileData.metadata.fontSizeSource = "global"; // Mark as globally set
+
+            // Write the updated content back to the file
+            const updatedContent = JSON.stringify(fileData, null, 2);
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(updatedContent, 'utf8'));
+
+            return true; // File was updated
+
+        } catch (error) {
+            console.error(`Error updating font size for ${fileUri.fsPath}:`, error);
+            return false;
+        }
+    }
+
+    private async refreshWebviewsAfterFontSizeUpdate() {
+        try {
+            // Refresh the main menu webview
+            if (this._view) {
+                await this.store.refreshState();
+                this.sendProjectStateToWebview();
+            }
+
+            // Notify other webviews that font sizes have changed
+            // Send a message to all active webviews to refresh their content
+            vscode.commands.executeCommand("codex-editor.refreshAllWebviews");
+
+            // Also refresh the metadata manager to ensure all webviews get updated data
+            const metadataManager = getNotebookMetadataManager();
+            await metadataManager.loadMetadata();
+
+        } catch (error) {
+            console.error("Error refreshing webviews after font size update:", error);
         }
     }
 

@@ -1259,6 +1259,16 @@ export const handleGlobalMessage = async (
             }
             break;
         }
+        case "refreshAllEditors": {
+            console.log("refreshAllEditors message received", { event });
+            // Send refreshFontSizes message to all open editor webviews
+            provider.getWebviewPanels().forEach((panel) => {
+                provider.postMessageToWebview(panel, {
+                    type: "refreshFontSizes"
+                });
+            });
+            break;
+        }
         // Add more cases here for other global message commands
     }
 };
