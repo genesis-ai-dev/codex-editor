@@ -27,7 +27,7 @@ export async function registerLanguageServer(
 
         // Validate server module exists
         try {
-            const fs = require('fs');
+            const fs = require('fs'); // eslint-disable-line @typescript-eslint/no-var-requires
             if (!fs.existsSync(serverModule)) {
                 console.error("[Language Server] Server module file not found:", {
                     expectedPath: serverModule,

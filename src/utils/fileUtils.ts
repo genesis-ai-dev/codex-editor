@@ -132,7 +132,7 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         // ============= MIGRATION CLEANUP (TODO: Remove after all users updated) =============
         // Always clean up legacy fields when reading
         const cleanedComments = rawComments.map((thread: any) => {
-            let result = { ...thread };
+            const result = { ...thread };
 
             // Remove legacy fields if they exist
             delete result.version;
