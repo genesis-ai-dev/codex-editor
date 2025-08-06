@@ -441,7 +441,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // Comments-related commands
     context.subscriptions.push(
         vscode.commands.registerCommand("codex-editor-extension.focusCommentsView", () => {
-            vscode.commands.executeCommand("codex-editor-extension.comments-sidebar.focus");
+            vscode.commands.executeCommand("comments-sidebar.focus");
         })
     );
 
