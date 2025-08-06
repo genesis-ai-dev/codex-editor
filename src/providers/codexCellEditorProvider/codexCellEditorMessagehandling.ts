@@ -1311,6 +1311,17 @@ export const handleGlobalMessage = async (
             }
             break;
         }
+        case "commentsUpdated": {
+            if (event.content.type === "commentsFileChanged") {
+                // Send a direct message to all active webview panels to refresh comment counts
+                // Access webviewPanels through a public method
+                provider.postMessageToWebviews({
+                    type: "refreshCommentCounts",
+                    timestamp: event.content.timestamp
+                });
+            }
+            break;
+        }
         // Add more cases here for other global message commands
     }
 };

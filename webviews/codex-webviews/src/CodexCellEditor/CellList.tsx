@@ -903,6 +903,29 @@ const CellList: React.FC<CellListProps> = ({
         return () => window.removeEventListener("message", handleCommentsResponse);
     }, []);
 
+    // Handle refresh comments request
+    useEffect(() => {
+        const handleRefreshComments = (event: MessageEvent) => {
+            if (event.data.type === "refreshCommentCounts") {
+                console.log("Refreshing comment counts due to comments file change");
+                // Re-fetch comments count for all cells
+                workingTranslationUnits.forEach((unit) => {
+                    const cellId = unit.cellMarkers[0];
+                    const messageContent: EditorPostMessages = {
+                        command: "getCommentsForCell",
+                        content: {
+                            cellId: cellId,
+                        },
+                    };
+                    vscode.postMessage(messageContent);
+                });
+            }
+        };
+
+        window.addEventListener("message", handleRefreshComments);
+        return () => window.removeEventListener("message", handleRefreshComments);
+    }, [workingTranslationUnits, vscode]);
+
     // Debug log to see the structure of translationUnits
     useEffect(() => {
         if (DEBUG_ENABLED && workingTranslationUnits.length > 0) {

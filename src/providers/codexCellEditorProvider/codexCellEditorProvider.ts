@@ -581,6 +581,17 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         }
     }
 
+    public postMessageToWebviews(message: any) {
+        debug("Posting direct message to webviews:", message);
+        if (this.webviewPanels.size > 0) {
+            this.webviewPanels.forEach((panel) => {
+                panel.webview.postMessage(message);
+            });
+        } else {
+            console.error("No active webview panels");
+        }
+    }
+
     private scheduleCommit(document: CodexCellDocument) {
         debug("Scheduling commit for:", document.uri.toString());
         // Use the SyncManager instead of direct timer

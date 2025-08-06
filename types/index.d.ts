@@ -99,6 +99,10 @@ type GlobalContentType =
         targetText: string;
         sourceText: string;
         cellId: string;
+    }
+    | {
+        type: "commentsFileChanged";
+        timestamp: string;
     };
 
 interface GlobalMessage {
@@ -867,12 +871,12 @@ type EditorReceiveMessages =
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }
-    | { 
-        type: "commentsForCell"; 
-        content: { 
-            cellId: string; 
-            unresolvedCount: number; 
-        }; 
+    | {
+        type: "commentsForCell";
+        content: {
+            cellId: string;
+            unresolvedCount: number;
+        };
     }
     | { type: "providerSendsPromptedEditResponse"; content: string; }
     | { type: "providerSendsSimilarCellIdsResponse"; content: { cellId: string; score: number; }[]; }
@@ -1005,6 +1009,10 @@ type EditorReceiveMessages =
             success: boolean;
             error?: string;
         };
+    }
+    | {
+        type: "refreshCommentCounts";
+        timestamp: string;
     };
 
 type AlertCodesServerResponse = {

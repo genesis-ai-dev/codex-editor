@@ -286,7 +286,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
     // Handle comments count response
     useEffect(() => {
         const handleCommentsResponse = (event: MessageEvent) => {
-            if (event.data.type === "commentsForCell" && event.data.content.cellId === cellMarkers[0]) {
+            if (
+                event.data.type === "commentsForCell" &&
+                event.data.content.cellId === cellMarkers[0]
+            ) {
                 setUnresolvedCommentsCount(event.data.content.unresolvedCount);
             }
         };
@@ -1101,23 +1104,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 }
                             />
                         ) : (
-                            <div
-                                className="flex items-center gap-2 cursor-pointer"
-                                onClick={() =>
-                                    setIsEditorControlsExpanded(!isEditorControlsExpanded)
-                                }
-                            >
-                                <span className="text-lg font-semibold">{cellMarkers[0]}</span>
-                                {editableLabel && (
-                                    <span className="text-sm text-muted-foreground">
-                                        {editableLabel}
-                                    </span>
-                                )}
-                                <CommentsBadge 
-                                    cellId={cellMarkers[0]} 
+                            <div className="flex items-center gap-2 cursor-pointer">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-lg font-semibold">{cellMarkers[0]}</span>
+                                    {editableLabel && (
+                                        <span className="text-sm text-muted-foreground">
+                                            {editableLabel}
+                                        </span>
+                                    )}
+                                    <Pencil
+                                        onClick={() =>
+                                            setIsEditorControlsExpanded(!isEditorControlsExpanded)
+                                        }
+                                        className="h-4 w-4"
+                                    />
+                                </div>
+                                <CommentsBadge
+                                    cellId={cellMarkers[0]}
                                     unresolvedCount={unresolvedCommentsCount}
                                 />
-                                <Pencil className="h-4 w-4" />
                             </div>
                         )}
                     </div>
