@@ -191,6 +191,10 @@ export class GlobalProvider {
         });
     }
 
+    public getProvider(key: string): CodexCellEditorProvider | CustomWebviewProvider | undefined {
+        return this.providers.get(key);
+    }
+
     public handleMessage(message: any) {
         if ("destination" in message) {
 

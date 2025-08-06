@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "../components/ui/button";
-import { VSCodeBadge, VSCodeDropdown, VSCodeOption } from "@vscode/webview-ui-toolkit/react";
+import { VSCodeBadge } from "@vscode/webview-ui-toolkit/react";
 import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 import NotebookMetadataModal from "./NotebookMetadataModal";
 import { AutocompleteModal } from "./modals/AutocompleteModal";
@@ -67,6 +67,7 @@ interface ChapterNavigationHeaderProps {
     onTriggerSync?: () => void;
     isCorrectionEditorMode?: boolean;
     chapterProgress?: Record<number, { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }>;
+    allCellsForChapter?: QuillCellContent[];
     onTempFontSizeChange?: (fontSize: number) => void;
     onFontSizeSave?: (fontSize: number) => void;
 }
@@ -114,6 +115,7 @@ export function ChapterNavigationHeader({
     onTriggerSync,
     isCorrectionEditorMode,
     chapterProgress,
+    allCellsForChapter,
     onTempFontSizeChange,
     onFontSizeSave,
 }: // Removed onToggleCorrectionEditor since it will be a VS Code command now
@@ -332,6 +334,44 @@ ChapterNavigationHeaderProps) {
 
     const subsections = getSubsectionsForChapter(chapterNumber);
 
+    // Calculate progress for each subsection/page
+    const calculateSubsectionProgress = (subsection: Subsection) => {
+        // Use allCellsForChapter if available, otherwise fall back to translationUnitsForSection
+        const allChapterCells = allCellsForChapter || translationUnitsForSection;
+        
+        // Get cells for this specific subsection from the full chapter data
+        const subsectionCells = allChapterCells.slice(subsection.startIndex, subsection.endIndex);
+        
+        // Filter out paratext and merged cells for progress calculation
+        const validCells = subsectionCells.filter(cell => {
+            const cellId = cell?.cellMarkers?.[0];
+            return cellId && !cellId.startsWith("paratext-") && !cell.merged;
+        });
+
+        if (validCells.length === 0) {
+            return { isFullyTranslated: false, isFullyValidated: false };
+        }
+
+        // Check if all cells have content (translated)
+        const translatedCells = validCells.filter(
+            cell => cell.cellContent && cell.cellContent.trim().length > 0 && cell.cellContent !== "<span></span>"
+        );
+        const isFullyTranslated = translatedCells.length === validCells.length;
+
+        // Check if all cells are validated
+        let isFullyValidated = false;
+        if (isFullyTranslated) {
+            const minimumValidationsRequired = 1; // Can be made configurable later
+            const validatedCells = validCells.filter(cell => {
+                const validatedBy = cell.editHistory?.slice().reverse().find(edit => edit.cellValue === cell.cellContent)?.validatedBy || [];
+                return validatedBy.filter(v => !v.isDeleted).length >= minimumValidationsRequired;
+            });
+            isFullyValidated = validatedCells.length === validCells.length;
+        }
+
+        return { isFullyTranslated, isFullyValidated };
+    };
+
     return (
         <div className="flex flex-row p-2">
             <div className="flex items-center justify-start">
@@ -467,21 +507,69 @@ ChapterNavigationHeaderProps) {
                 {subsections.length > 0 && (
                     <div className="flex items-center ml-4">
                         <span className="mr-2">Page:</span>
-                        <VSCodeDropdown
-                            value={currentSubsectionIndex.toString()}
-                            onChange={(e: any) => {
-                                const newIndex = parseInt(e.target.value);
-                                if (!isNaN(newIndex)) {
-                                    setCurrentSubsectionIndex(newIndex);
-                                }
-                            }}
-                        >
-                            {subsections.map((section, index) => (
-                                <VSCodeOption key={section.id} value={index.toString()}>
-                                    {section.label}
-                                </VSCodeOption>
-                            ))}
-                        </VSCodeDropdown>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" className="flex items-center gap-2">
+                                    {(() => {
+                                        const currentSection = subsections[currentSubsectionIndex];
+                                        const progress = calculateSubsectionProgress(currentSection);
+                                        return (
+                                            <>
+                                                <span>{currentSection?.label || ""}</span>
+                                                {progress.isFullyValidated && (
+                                                    <div 
+                                                        className="w-2 h-2 rounded-full"
+                                                        style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
+                                                        title="Page fully validated"
+                                                    />
+                                                )}
+                                                {!progress.isFullyValidated && progress.isFullyTranslated && (
+                                                    <div 
+                                                        className="w-2 h-2 rounded-full"
+                                                        style={{ backgroundColor: "var(--vscode-charts-blue)" }}
+                                                        title="Page fully translated"
+                                                    />
+                                                )}
+                                                <i className="codicon codicon-chevron-down" />
+                                            </>
+                                        );
+                                    })()}
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-48" style={{ zIndex: 99999 }}   >
+                                {subsections.map((section, index) => {
+                                    const progress = calculateSubsectionProgress(section);
+                                    return (
+                                        <DropdownMenuItem
+                                            key={section.id}
+                                            onClick={() => setCurrentSubsectionIndex(index)}
+                                            className="flex items-center justify-between cursor-pointer"
+                                        >
+                                            <span>{section.label}</span>
+                                            <div className="flex items-center gap-1">
+                                                {progress.isFullyValidated && (
+                                                    <div 
+                                                        className="w-2 h-2 rounded-full"
+                                                        style={{ backgroundColor: "var(--vscode-editorWarning-foreground)" }}
+                                                        title="Page fully validated"
+                                                    />
+                                                )}
+                                                    {currentSubsectionIndex === index && (
+                                                        <i className="codicon codicon-check" style={{ fontSize: "12px" }} />
+                                                    )}
+                                                {!progress.isFullyValidated && progress.isFullyTranslated && (
+                                                    <div 
+                                                        className="w-2 h-2 rounded-full"
+                                                        style={{ backgroundColor: "var(--vscode-charts-blue)" }}
+                                                        title="Page fully translated"
+                                                    />
+                                                )}
+                                            </div>
+                                        </DropdownMenuItem>
+                                    );
+                                })}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     </div>
                 )}
             </div>
