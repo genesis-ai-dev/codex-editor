@@ -778,6 +778,72 @@ const CodexCellEditor: React.FC = () => {
 
     const totalChapters = calculateTotalChapters(translationUnits);
 
+    // Calculate progress for each chapter based on translation and validation status
+    const calculateChapterProgress = useCallback(
+        (chapterNum: number) => {
+            // Filter cells for the specific chapter (excluding paratext and merged cells)
+            const cellsForChapter = translationUnits.filter((cell) => {
+                const cellId = cell?.cellMarkers?.[0];
+                if (!cellId || cellId.startsWith("paratext-") || cell.merged) {
+                    return false;
+                }
+                const sectionCellIdParts = cellId.split(" ")?.[1]?.split(":");
+                const sectionCellNumber = sectionCellIdParts?.[0];
+                return sectionCellNumber === chapterNum.toString();
+            });
+
+            const totalCells = cellsForChapter.length;
+            if (totalCells === 0) {
+                return { percentTranslationsCompleted: 0, percentFullyValidatedTranslations: 0 };
+            }
+
+            // Count cells with content (translated)
+            const cellsWithValues = cellsForChapter.filter(
+                (cell) =>
+                    cell.cellContent &&
+                    cell.cellContent.trim().length > 0 &&
+                    cell.cellContent !== "<span></span>"
+            ).length;
+
+            // Calculate validation data using the same logic as navigation provider
+            const cellWithValidatedData = cellsForChapter.map((cell) => {
+                return getCellValueData({
+                    cellContent: cell.cellContent,
+                    cellMarkers: cell.cellMarkers,
+                    cellType: cell.cellType,
+                    cellLabel: cell.cellLabel,
+                    editHistory: cell.editHistory,
+                });
+            });
+
+            // Get minimum validations required from config (default 1)
+            const minimumValidationsRequired = 1; // Can be made configurable later
+            const fullyValidatedCells = cellWithValidatedData.filter(
+                (cell) =>
+                    cell.validatedBy?.filter((v) => !v.isDeleted).length >=
+                    minimumValidationsRequired
+            ).length;
+
+            const percentTranslationsCompleted = (cellsWithValues / totalCells) * 100;
+            const percentFullyValidatedTranslations = (fullyValidatedCells / totalCells) * 100;
+
+            return { percentTranslationsCompleted, percentFullyValidatedTranslations };
+        },
+        [translationUnits]
+    );
+
+    // Calculate progress for all chapters
+    const allChapterProgress = useMemo(() => {
+        const progress: Record<
+            number,
+            { percentTranslationsCompleted: number; percentFullyValidatedTranslations: number }
+        > = {};
+        for (let i = 1; i <= totalChapters; i++) {
+            progress[i] = calculateChapterProgress(i);
+        }
+        return progress;
+    }, [calculateChapterProgress, totalChapters]);
+
     // Get all cells for the current chapter first
     const allCellsForChapter = translationUnits.filter((verse) => {
         const cellId = verse?.cellMarkers?.[0];
@@ -1690,6 +1756,7 @@ const CodexCellEditor: React.FC = () => {
                             fileStatus={fileStatus}
                             onTriggerSync={handleTriggerSync}
                             isCorrectionEditorMode={isCorrectionEditorMode}
+                            chapterProgress={allChapterProgress}
                         />
                     </div>
                 </div>

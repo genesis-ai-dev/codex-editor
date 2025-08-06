@@ -46,6 +46,15 @@ async function loadBooksLookup(): Promise<BookInfo[]> {
 export async function getUsfmCodeFromBookName(bookName: string): Promise<string | null> {
     const books = await loadBooksLookup();
 
+    // First check if the input is already a valid USFM code
+    const upperBookName = bookName.toUpperCase().trim();
+    if (/^[A-Z0-9]{3,4}$/.test(upperBookName)) {
+        const directMatch = books.find(book => book.abbr === upperBookName);
+        if (directMatch) {
+            return upperBookName;
+        }
+    }
+
     // First try exact English name match
     const exactMatch = books.find(book => book.name === bookName);
     if (exactMatch) {
