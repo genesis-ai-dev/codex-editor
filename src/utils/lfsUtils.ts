@@ -2,9 +2,13 @@ import * as vscode from "vscode";
 import git from "isomorphic-git";
 import fs from "fs";
 import http from "isomorphic-git/http/web";
-import { pointsToLFS } from '@fetsorn/isogit-lfs';
-import { readPointer, downloadBlobFromPointer, uploadBlob, formatPointerInfo } from '@fetsorn/isogit-lfs';
+import lfs from '@fetsorn/isogit-lfs';
+// Patch the LFS library to work with GitLab responses
+import { patchLFSLibrary } from './lfsLibraryPatch';
 import path from "path";
+
+// Apply the patch when the module is loaded
+patchLFSLibrary();
 
 /**
  * LFS utilities for handling large files in Codex projects
@@ -32,6 +36,89 @@ export class LFSHelper {
     }
 
     /**
+ * Check if the remote repository has LFS support
+ */
+    static async checkLFSSupport(workspaceUri: vscode.Uri): Promise<{ supported: boolean; error?: string; }> {
+        try {
+            const workspaceFolder = workspaceUri.fsPath;
+
+            // Get remote URL
+            const remoteURL = await git.getConfig({
+                fs,
+                dir: workspaceFolder,
+                path: 'remote.origin.url'
+            });
+
+            if (!remoteURL) {
+                return { supported: false, error: "No remote URL configured" };
+            }
+
+            // Parse URL to extract credentials
+            const { cleanUrl, auth } = this.parseGitUrl(remoteURL);
+
+            // Try to make a simple LFS API request to check if LFS is enabled
+            const lfsUrl = cleanUrl.replace(/\.git$/, '') + '.git/info/lfs';
+            console.log("[LFS] Checking LFS support at:", lfsUrl);
+
+            try {
+                // Make a simple request to the LFS endpoint
+                const response = await http.request({
+                    url: lfsUrl,
+                    method: 'GET',
+                    headers: auth ? {
+                        'Authorization': `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`
+                    } : {}
+                });
+
+                console.log("[LFS] LFS endpoint response status:", response.statusCode);
+
+                // If we get a 200 or 401 (auth required), LFS is likely enabled
+                if (response.statusCode === 200 || response.statusCode === 401 || response.statusCode === 403) {
+                    return { supported: true };
+                } else {
+                    return { supported: false, error: `LFS endpoint returned status ${response.statusCode}` };
+                }
+            } catch (requestError: any) {
+                console.warn("[LFS] Could not verify LFS support:", requestError.message);
+                // Don't fail completely, just warn
+                return { supported: true }; // Assume it's supported and let actual operations fail if not
+            }
+        } catch (error) {
+            console.error("[LFS] Error checking LFS support:", error);
+            return { supported: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
+
+    /**
+     * Extract credentials from URL and return clean URL + auth
+     */
+    private static parseGitUrl(url: string): { cleanUrl: string; auth?: { username: string; password: string; }; } {
+        try {
+            const urlObj = new URL(url);
+
+            // Check if URL has embedded credentials
+            if (urlObj.username || urlObj.password) {
+                const auth = {
+                    username: decodeURIComponent(urlObj.username),
+                    password: decodeURIComponent(urlObj.password)
+                };
+
+                // Remove credentials from URL
+                urlObj.username = '';
+                urlObj.password = '';
+
+                return { cleanUrl: urlObj.toString(), auth };
+            }
+
+            return { cleanUrl: url };
+        } catch (error) {
+            // If URL parsing fails, return as-is
+            console.warn("[LFS] Could not parse URL, using as-is:", error);
+            return { cleanUrl: url };
+        }
+    }
+
+    /**
      * Upload a file to LFS and get pointer info
      */
     static async uploadToLFS(
@@ -53,19 +140,63 @@ export class LFSHelper {
                 return { success: false, error: "No remote URL configured" };
             }
 
-            // Upload blob to LFS
-            const pointerInfo = await uploadBlob({
+            // Parse URL to extract credentials
+            const { cleanUrl, auth } = this.parseGitUrl(remoteURL);
+            console.log("[LFS] Using clean URL for upload:", cleanUrl);
+
+            // Upload blobs to LFS (uploadBlobs expects an array) - now using patched version
+            console.log("[LFS] Attempting upload with auth:", auth ? "credentials provided" : "no auth");
+
+            const pointerInfos = await lfs.uploadBlobs({
                 fs,
                 http,
-                url: remoteURL,
+                url: cleanUrl,
                 headers: {},
-                auth: undefined // You may need to add auth here
-            }, fileContent);
+                auth // Pass extracted credentials
+            }, [fileContent]);
+
+            const pointerInfo = pointerInfos[0]; // Get first result since we uploaded one blob
+            console.log("[LFS] Upload successful, pointer info:", pointerInfo);
 
             return { success: true, pointerInfo };
         } catch (error) {
             console.error("[LFS] Upload failed:", error);
-            return { success: false, error: error instanceof Error ? error.message : String(error) };
+
+            // If LFS upload fails, let's fall back to adding the file normally to Git
+            // This ensures the user's workflow isn't completely blocked
+            console.warn("[LFS] Falling back to regular Git storage due to LFS upload failure");
+
+            const workspaceFolder = workspaceUri.fsPath;
+
+            try {
+                // Add file to Git normally (without LFS)
+                // Use filePath directly since it should already be relative to workspace
+                const relativePath = path.isAbsolute(filePath) ? path.relative(workspaceFolder, filePath) : filePath;
+
+                // Ensure the path doesn't go outside the workspace
+                if (relativePath.startsWith('..')) {
+                    throw new Error(`File path is outside workspace: ${relativePath}`);
+                }
+
+                await git.add({
+                    fs,
+                    dir: workspaceFolder,
+                    filepath: relativePath
+                });
+
+                console.log("[LFS] File added to Git (without LFS) as fallback");
+
+                return {
+                    success: false,
+                    error: `LFS upload failed, file was added to Git normally instead: ${error instanceof Error ? error.message : String(error)}`
+                };
+            } catch (gitError) {
+                console.error("[LFS] Fallback to Git also failed:", gitError);
+                return {
+                    success: false,
+                    error: `Both LFS upload and Git fallback failed: ${error instanceof Error ? error.message : String(error)}`
+                };
+            }
         }
     }
 
@@ -96,7 +227,7 @@ export class LFSHelper {
             });
 
             // Check if this blob points to LFS
-            if (pointsToLFS(gitObject.blob)) {
+            if (lfs.pointsToLFS(gitObject.blob)) {
                 console.log("[LFS] File points to LFS, downloading...");
 
                 // Get remote URL
@@ -110,19 +241,22 @@ export class LFSHelper {
                     return { success: false, error: "No remote URL configured for LFS" };
                 }
 
+                // Parse URL to extract credentials
+                const { cleanUrl, auth } = this.parseGitUrl(remoteURL);
+
                 // Deserialize pointer
-                const pointer = readPointer({
+                const pointer = lfs.readPointer({
                     gitdir: path.join(workspaceFolder, '.git'),
                     content: gitObject.blob
                 });
 
                 // Download from LFS
-                const lfsContent = await downloadBlobFromPointer({
+                const lfsContent = await lfs.downloadBlobFromPointer({
                     fs,
-                    url: remoteURL,
+                    url: cleanUrl,
                     http,
                     headers: {},
-                    auth: undefined // You may need to add auth here
+                    auth // Pass extracted credentials
                 }, pointer);
 
                 return { success: true, content: lfsContent };
@@ -162,7 +296,7 @@ export class LFSHelper {
                 }
 
                 // Create pointer file content
-                const pointerContent = formatPointerInfo(uploadResult.pointerInfo!);
+                const pointerContent = lfs.formatPointerInfo(uploadResult.pointerInfo!);
 
                 // Write pointer file to working directory
                 await fs.promises.writeFile(fullPath, pointerContent);

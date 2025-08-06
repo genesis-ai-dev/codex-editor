@@ -90,6 +90,22 @@ export function registerLFSCommands(context: vscode.ExtensionContext) {
                 return;
             }
 
+            // First check if LFS is supported on the remote
+            const lfsCheck = await LFSHelper.checkLFSSupport(workspaceFolder.uri);
+            if (!lfsCheck.supported) {
+                console.error("[LFS] Remote may not support LFS:", lfsCheck.error);
+
+                const continueAnyway = await vscode.window.showWarningMessage(
+                    `⚠️ Git LFS may not be enabled on the remote repository.\n\n${lfsCheck.error || 'The remote server may not have LFS configured.'}\n\nMake sure:\n1. The remote repository has LFS enabled\n2. You have proper permissions\n3. The Git server supports LFS\n\nDo you want to continue anyway?`,
+                    { modal: true },
+                    "Continue Anyway", "Cancel"
+                );
+
+                if (continueAnyway !== "Continue Anyway") {
+                    return;
+                }
+            }
+
             const confirmed = await vscode.window.showWarningMessage(
                 "Migrate existing large attachments to Git LFS? This will move large audio/video files to LFS storage.",
                 { modal: true },
@@ -122,6 +138,11 @@ export function registerLFSCommands(context: vscode.ExtensionContext) {
                         message += `\n\n⚠️ Some files had issues:\n${result.errors.slice(0, 5).join('\n')}`;
                         if (result.errors.length > 5) {
                             message += `\n... and ${result.errors.length - 5} more`;
+                        }
+
+                        // If all files failed with JSON structure error, provide more guidance
+                        if (result.errors.every(e => e.includes('Unexpected JSON structure'))) {
+                            message += "\n\n📝 This error usually means the Git server doesn't have LFS enabled. Please contact your Git server administrator.";
                         }
                     }
 
