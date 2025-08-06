@@ -272,4 +272,98 @@ export class LFSAudioHandler {
             return { totalFiles: 0, lfsFiles: 0, regularFiles: 0, totalSize: 0, lfsSavings: 0 };
         }
     }
+
+    /**
+     * Download/checkout all LFS files to restore them locally
+     */
+    static async checkoutLFSFiles(
+        workspaceFolder: vscode.WorkspaceFolder,
+        progressCallback?: (current: number, total: number, fileName: string) => void
+    ): Promise<{ success: boolean; downloadedCount: number; errors: string[]; }> {
+        try {
+            const attachmentsRoot = path.join(workspaceFolder.uri.fsPath, '.project', 'attachments');
+            const errors: string[] = [];
+            let downloadedCount = 0;
+
+            // Check if attachments directory exists
+            if (!fs.existsSync(attachmentsRoot)) {
+                return { success: true, downloadedCount: 0, errors: ['No attachments directory found'] };
+            }
+
+            // Find all LFS pointer files
+            const lfsFiles: string[] = [];
+
+            const walkDir = async (dirPath: string) => {
+                const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dirPath, entry.name);
+                    if (entry.isDirectory()) {
+                        await walkDir(fullPath);
+                    } else if (entry.isFile()) {
+                        const ext = path.extname(entry.name).toLowerCase();
+                        if (['.wav', '.mp3', '.m4a', '.ogg', '.webm'].includes(ext)) {
+                            // Check if this is an LFS pointer file
+                            try {
+                                const content = await fs.promises.readFile(fullPath, 'utf8');
+                                if (content.startsWith('version https://git-lfs.github.com/spec/v1')) {
+                                    const relativePath = path.relative(workspaceFolder.uri.fsPath, fullPath);
+                                    lfsFiles.push(relativePath);
+                                }
+                            } catch (err) {
+                                // Ignore files we can't read
+                            }
+                        }
+                    }
+                }
+            };
+
+            await walkDir(attachmentsRoot);
+
+            if (lfsFiles.length === 0) {
+                return { success: true, downloadedCount: 0, errors: ['No LFS files found to download'] };
+            }
+
+            // Download each LFS file
+            for (let i = 0; i < lfsFiles.length; i++) {
+                const filePath = lfsFiles[i];
+                const fileName = path.basename(filePath);
+
+                if (progressCallback) {
+                    progressCallback(i + 1, lfsFiles.length, fileName);
+                }
+
+                try {
+                    // Read the LFS file using our LFS helper
+                    const result = await LFSHelper.readFileWithLFS(workspaceFolder.uri, filePath);
+
+                    if (result.success && result.content) {
+                        // Write the actual content back to the file
+                        const fullPath = path.join(workspaceFolder.uri.fsPath, filePath);
+                        await fs.promises.writeFile(fullPath, result.content);
+                        downloadedCount++;
+                        console.log(`[LFS] Downloaded: ${fileName}`);
+                    } else {
+                        errors.push(`Failed to download ${fileName}: ${result.error}`);
+                    }
+                } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    errors.push(`Failed to download ${fileName}: ${errorMsg}`);
+                }
+            }
+
+            return {
+                success: downloadedCount > 0 || errors.length === 0,
+                downloadedCount,
+                errors
+            };
+
+        } catch (error) {
+            console.error("[LFS] Checkout failed:", error);
+            return {
+                success: false,
+                downloadedCount: 0,
+                errors: [error instanceof Error ? error.message : String(error)]
+            };
+        }
+    }
 }

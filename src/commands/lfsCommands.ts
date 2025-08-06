@@ -154,6 +154,59 @@ export function registerLFSCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    // Checkout/download LFS files
+    const checkoutLFS = vscode.commands.registerCommand(
+        'codex-editor-extension.lfs.checkout',
+        async () => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            if (!workspaceFolder) {
+                vscode.window.showErrorMessage("No workspace folder found");
+                return;
+            }
+
+            const confirmed = await vscode.window.showInformationMessage(
+                "Download all LFS files to local workspace? This will restore the actual audio files from LFS storage.",
+                { modal: true },
+                "Yes", "No"
+            );
+
+            if (confirmed !== "Yes") {
+                return;
+            }
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: "Downloading LFS files...",
+                cancellable: false
+            }, async (progress) => {
+                const result = await LFSAudioHandler.checkoutLFSFiles(
+                    workspaceFolder,
+                    (current, total, fileName) => {
+                        progress.report({
+                            message: `Downloading ${fileName} (${current}/${total})`,
+                            increment: (1 / total) * 100
+                        });
+                    }
+                );
+
+                if (result.success) {
+                    let message = `✅ LFS checkout completed! Downloaded ${result.downloadedCount} files.`;
+
+                    if (result.errors.length > 0) {
+                        message += `\n\n⚠️ Some files had issues:\n${result.errors.slice(0, 3).join('\n')}`;
+                        if (result.errors.length > 3) {
+                            message += `\n... and ${result.errors.length - 3} more`;
+                        }
+                    }
+
+                    vscode.window.showInformationMessage(message);
+                } else {
+                    vscode.window.showErrorMessage(`LFS checkout failed: ${result.errors.join(', ')}`);
+                }
+            });
+        }
+    );
+
     // Show LFS help/documentation
     const showLFSHelp = vscode.commands.registerCommand(
         'codex-editor-extension.lfs.help',
@@ -248,6 +301,7 @@ Instead of storing large files directly in Git (which can make repositories slow
         initializeLFS,
         checkLFSStatus,
         migrateToLFS,
+        checkoutLFS,
         showLFSHelp
     );
 

@@ -412,6 +412,11 @@
                 "category": "Codex LFS"
             },
             {
+                "command": "codex-editor-extension.lfs.checkout",
+                "title": "Download LFS Files",
+                "category": "Codex LFS"
+            },
+            {
                 "command": "codex-editor-extension.lfs.help",
                 "title": "LFS Help & Documentation",
                 "category": "Codex LFS"
