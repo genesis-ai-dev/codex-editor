@@ -11,6 +11,7 @@ import http from "isomorphic-git/http/web";
 import { BookCompletionData } from "../progressReporting/progressReportingService";
 import { ProgressReportingService, registerProgressReportingCommands } from "../progressReporting/progressReportingService";
 import { CommentsMigrator } from "../utils/commentsMigrationUtils";
+import { checkMetadataVersionsForSync } from "../utils/extensionVersionChecker";
 // Define TranslationProgress interface locally since it's not exported from types
 interface BookProgress {
     bookId: string;
@@ -103,6 +104,7 @@ export class SyncManager {
     private CONNECTION_ERROR_COOLDOWN = 60000; // 1 minute cooldown for connection messages
     private currentSyncStage: string = "";
     private syncStatusListeners: Array<(isSyncInProgress: boolean, syncStage: string) => void> = [];
+    private extensionContext?: vscode.ExtensionContext;
 
     private constructor() {
         // Initialize with configuration values
@@ -114,6 +116,11 @@ export class SyncManager {
             SyncManager.instance = new SyncManager();
         }
         return SyncManager.instance;
+    }
+
+    // Set the extension context for version checking
+    public setExtensionContext(context: vscode.ExtensionContext): void {
+        this.extensionContext = context;
     }
 
     // Register a listener for sync status updates
@@ -168,14 +175,16 @@ export class SyncManager {
 
         // Schedule the new sync
         this.pendingSyncTimeout = setTimeout(() => {
-            this.executeSync(commitMessage);
+            this.executeSync(commitMessage, true, undefined, false); // Auto-sync
         }, delayMs);
     }
 
     // Execute the sync operation immediately
     public async executeSync(
         commitMessage: string = "Manual sync",
-        showInfoOnConnectionIssues: boolean = true
+        showInfoOnConnectionIssues: boolean = true,
+        context?: vscode.ExtensionContext,
+        isManualSync: boolean = false
     ): Promise<void> {
         if (this.isSyncInProgress) {
             console.log("Sync already in progress, skipping");
@@ -217,6 +226,35 @@ export class SyncManager {
                 );
             }
             return;
+        }
+
+        // Check extension versions against metadata requirements
+        const contextToUse = context || this.extensionContext;
+        if (contextToUse) {
+            console.log("🔍 Checking extension version compatibility with project metadata...");
+            try {
+                const canSync = await checkMetadataVersionsForSync(contextToUse, isManualSync);
+                if (!canSync) {
+                    console.log("🚫 Sync blocked due to extension version incompatibility");
+                    if (showInfoOnConnectionIssues) {
+                        vscode.window.showWarningMessage(
+                            "Sync cancelled due to extension version requirements. Please update your extensions and try again."
+                        );
+                    }
+                    return; // Cancel sync entirely
+                }
+                console.log("✅ Extension versions compatible with project metadata");
+            } catch (error) {
+                console.error("Error checking extension versions:", error);
+                if (showInfoOnConnectionIssues) {
+                    vscode.window.showWarningMessage(
+                        "Could not verify extension versions. Proceeding with sync."
+                    );
+                }
+                // Continue with sync on version check error to avoid blocking user
+            }
+        } else {
+            console.warn("⚠️ No extension context available for version checking, proceeding with sync");
         }
 
         // Set sync in progress flag and show immediate feedback
@@ -646,13 +684,16 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     // Register progress reporting commands with background service
     registerProgressReportingCommands(context);
 
+    // Set the extension context in the sync manager for version checking
+    const syncManager = SyncManager.getInstance();
+    syncManager.setExtensionContext(context);
+
     // Command to trigger immediate sync
     context.subscriptions.push(
         vscode.commands.registerCommand(
             "codex-editor-extension.triggerSync",
             async (message?: string) => {
-                const syncManager = SyncManager.getInstance();
-                await syncManager.executeSync(message || "Manual sync triggered");
+                await syncManager.executeSync(message || "Manual sync triggered", true, context, true);
             }
         )
     );
@@ -661,7 +702,6 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
             console.log("manualCommit called, scheduling sync operation");
-            const syncManager = SyncManager.getInstance();
             syncManager.scheduleSyncOperation(message);
         })
     );
@@ -673,7 +713,7 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
                 event.affectsConfiguration("codex-project-manager.autoSyncEnabled") ||
                 event.affectsConfiguration("codex-project-manager.syncDelayMinutes")
             ) {
-                SyncManager.getInstance().updateFromConfiguration();
+                syncManager.updateFromConfiguration();
             }
         })
     );

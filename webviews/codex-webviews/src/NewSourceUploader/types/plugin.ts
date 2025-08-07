@@ -173,6 +173,32 @@ export type AlignmentHelper = (
 ) => Promise<AlignedCell[]>;
 
 /**
+ * Download progress information
+ */
+export interface DownloadProgress {
+    stage: string;
+    message: string;
+    progress: number;
+}
+
+/**
+ * Generic download handler function that plugins can define
+ */
+export type DownloadHandler = () => Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+}>;
+
+/**
+ * Helper function for plugins to request downloads from the provider
+ */
+export type DownloadHelper = (
+    pluginId: string,
+    progressCallback?: (progress: DownloadProgress) => void
+) => Promise<any>;
+
+/**
  * Props passed to each importer component
  */
 export interface ImporterComponentProps {
@@ -216,6 +242,12 @@ export interface ImporterComponentProps {
      * Handles fetching target cells and running alignment algorithms
      */
     alignContent?: AlignmentHelper;
+
+    /**
+     * Optional: Helper function for downloading resources from the provider
+     * Allows plugins to define download logic while execution happens on backend
+     */
+    downloadResource?: DownloadHelper;
 }
 
 /**
@@ -321,4 +353,24 @@ export interface OverwriteResponseMessage {
     originalMessage: WriteNotebooksMessage;
 }
 
-export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage; 
+export interface DownloadResourceMessage {
+    command: 'downloadResource';
+    pluginId: string;
+    requestId: string; // Unique ID to match request with response
+}
+
+export interface DownloadResourceProgressMessage {
+    command: 'downloadResourceProgress';
+    requestId: string;
+    progress: DownloadProgress;
+}
+
+export interface DownloadResourceCompleteMessage {
+    command: 'downloadResourceComplete';
+    requestId: string;
+    success: boolean;
+    data?: any;
+    error?: string;
+}
+
+export type ProviderMessage = WriteNotebooksMessage | WriteTranslationMessage | NotificationMessage | ImportBookNamesMessage | OverwriteConfirmationMessage | OverwriteResponseMessage | DownloadResourceMessage | DownloadResourceProgressMessage | DownloadResourceCompleteMessage; 

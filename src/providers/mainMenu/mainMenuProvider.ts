@@ -594,7 +594,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 console.log("Syncing project");
                 const syncManager = SyncManager.getInstance();
                 // Don't manually set sync status - let SyncManager handle it through listeners
-                await syncManager.executeSync("Syncing project");
+                await syncManager.executeSync("Syncing project", true, undefined, true);
                 break;
             }
             case "getSyncSettings": {
@@ -650,7 +650,7 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "triggerSync": {
                 const syncManager = SyncManager.getInstance();
                 // Don't manually set sync status - let SyncManager handle it through listeners
-                await syncManager.executeSync("Manual sync triggered from main menu");
+                await syncManager.executeSync("Manual sync triggered from main menu", true, undefined, true);
                 break;
             }
             case "openBookNameEditor":
