@@ -69,7 +69,7 @@ export async function openSystemMessageEditor() {
                             progress.report({ message: "Loading configuration..." });
                             const llmConfig: CompletionConfig = {
                                 apiKey: config.get("openAIKey") || "",
-                                model: config.get("model") || "gpt-4",
+                                model: config.get("model") || "gpt-4o",
                                 endpoint: config.get("endpoint") || "https://api.openai.com/v1",
                                 maxTokens: 500,
                                 temperature: 0.3,
