@@ -31,6 +31,7 @@ import { IntentSelection } from "./components/IntentSelection";
 import { SourceFileSelection } from "./components/SourceFileSelection";
 import { EmptySourceState } from "./components/EmptySourceState";
 import { PluginSelection } from "./components/PluginSelection";
+import { createDownloadHelper } from "./utils/downloadHelper";
 import "./App.css";
 import "../tailwind.css";
 
@@ -481,6 +482,7 @@ const NewSourceUploader: React.FC = () => {
             onCancel: handleCancel,
             onCancelImport: handleCancelImport,
             wizardContext,
+            downloadResource: createDownloadHelper(), // Provide download helper for all plugins
             // Only provide existingFiles for source imports (not implemented yet for target imports)
             ...(isTargetImport
                 ? {

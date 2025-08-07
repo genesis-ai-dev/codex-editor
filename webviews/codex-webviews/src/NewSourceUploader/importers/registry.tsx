@@ -17,6 +17,7 @@ import { docxImporterPlugin } from "./docx/index.tsx";
 import { markdownImporterPlugin } from "./markdown/index.tsx";
 import { usfmImporterPlugin } from "./usfm/index.tsx";
 import { ebibleDownloadImporterPlugin } from "./ebibleCorpus/index.tsx";
+import { maculaBibleImporterPlugin } from "./maculaBible/index.tsx";
 import { subtitlesImporterPlugin } from "./subtitles/index.tsx";
 import { obsImporterPlugin } from "./obs/index.tsx";
 import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
@@ -90,6 +91,17 @@ export const importerPlugins: ImporterPlugin[] = [
         name: "eBible Download",
         description: "Download directly from eBible.org",
         tags: [...(ebibleDownloadImporterPlugin.tags || []), "Specialized", "Bible", "Download"],
+    },
+    {
+        ...maculaBibleImporterPlugin,
+        name: "Macula Bible",
+        description: "Hebrew and Greek with annotations",
+        tags: [
+            ...(maculaBibleImporterPlugin.tags || []),
+            "Specialized",
+            "Bible",
+            "Original Languages",
+        ],
     },
     {
         ...obsImporterPlugin,

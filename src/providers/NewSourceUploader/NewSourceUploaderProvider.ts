@@ -126,6 +126,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             error: error instanceof Error ? error.message : "Unknown error",
                         });
                     }
+                } else if (message.command === "downloadResource") {
+                    // Handle generic plugin download requests
+                    await this.handleDownloadResource(message, webviewPanel);
                 } else if (message.command === "fetchTargetFile") {
                     // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
@@ -709,6 +712,45 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         } catch (error) {
             console.error(`Error fetching details for file ${filePath}:`, error);
             throw error;
+        }
+    }
+
+    private async handleDownloadResource(message: any, webviewPanel: vscode.WebviewPanel): Promise<void> {
+        const { pluginId, requestId } = message;
+
+        try {
+            // Import the download handler registry
+            const { executeDownloadHandler } = await import("./downloadHandlerRegistry");
+
+            // Execute the download with progress reporting
+            const result = await executeDownloadHandler(
+                pluginId,
+                (progress) => {
+                    webviewPanel.webview.postMessage({
+                        command: "downloadResourceProgress",
+                        requestId: requestId,
+                        progress: progress
+                    });
+                }
+            );
+
+            // Send the result back to the webview
+            webviewPanel.webview.postMessage({
+                command: "downloadResourceComplete",
+                requestId: requestId,
+                success: result.success,
+                data: result.data,
+                error: result.error
+            });
+
+        } catch (error) {
+            console.error(`Download resource failed for plugin ${pluginId}:`, error);
+            webviewPanel.webview.postMessage({
+                command: "downloadResourceComplete",
+                requestId: requestId,
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error occurred"
+            });
         }
     }
 
