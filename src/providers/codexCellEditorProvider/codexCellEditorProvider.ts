@@ -569,7 +569,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Use the SyncManager for immediate sync
         const syncManager = SyncManager.getInstance();
         await syncManager.executeSync(
-            `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
+            `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`,
+            true,
+            undefined,
+            true // Manual sync
         );
     }
     public postMessage(message: GlobalMessage) {
@@ -2677,7 +2680,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Execute sync immediately rather than scheduling
                 syncManager
-                    .executeSync(`manual sync for ${fileName}`)
+                    .executeSync(`manual sync for ${fileName}`, true, undefined, true)
                     .then(() => {
                         // FIXED: Don't automatically call updateFileStatus here
                         // Let the sync completion handle status updates

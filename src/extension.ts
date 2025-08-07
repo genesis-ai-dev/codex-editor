@@ -46,7 +46,7 @@ import {
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
-import { checkExtensionVersionsOnStartup, registerVersionCheckCommands } from "./utils/extensionVersionChecker";
+import { checkExtensionVersionsOnStartup, registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 
 export interface ActivationTiming {
@@ -425,6 +425,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register extension version check commands
         registerVersionCheckCommands(context);
 
+        // Reset version modal cooldown on extension activation
+        await resetVersionModalCooldown(context);
+
         // Don't close splash screen yet - we still have sync operations to show
         // The splash screen will be closed after all operations complete
     } catch (error) {
@@ -583,7 +586,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                     const syncManager = SyncManager.getInstance();
                     // During startup, don't show info messages for connection issues
                     try {
-                        await syncManager.executeSync("Initial workspace sync", false, context);
+                        await syncManager.executeSync("Initial workspace sync", false, context, false);
                         trackTiming("Completing Project Synchronization", syncStart);
                         updateSplashScreenSync(100, "Synchronization complete");
                         console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");

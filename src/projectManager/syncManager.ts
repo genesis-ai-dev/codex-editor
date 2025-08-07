@@ -175,7 +175,7 @@ export class SyncManager {
 
         // Schedule the new sync
         this.pendingSyncTimeout = setTimeout(() => {
-            this.executeSync(commitMessage, true);
+            this.executeSync(commitMessage, true, undefined, false); // Auto-sync
         }, delayMs);
     }
 
@@ -183,7 +183,8 @@ export class SyncManager {
     public async executeSync(
         commitMessage: string = "Manual sync",
         showInfoOnConnectionIssues: boolean = true,
-        context?: vscode.ExtensionContext
+        context?: vscode.ExtensionContext,
+        isManualSync: boolean = false
     ): Promise<void> {
         if (this.isSyncInProgress) {
             console.log("Sync already in progress, skipping");
@@ -232,7 +233,7 @@ export class SyncManager {
         if (contextToUse) {
             console.log("🔍 Checking extension version compatibility with project metadata...");
             try {
-                const canSync = await checkMetadataVersionsForSync(contextToUse);
+                const canSync = await checkMetadataVersionsForSync(contextToUse, isManualSync);
                 if (!canSync) {
                     console.log("🚫 Sync blocked due to extension version incompatibility");
                     if (showInfoOnConnectionIssues) {
@@ -692,7 +693,7 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
         vscode.commands.registerCommand(
             "codex-editor-extension.triggerSync",
             async (message?: string) => {
-                await syncManager.executeSync(message || "Manual sync triggered", true, context);
+                await syncManager.executeSync(message || "Manual sync triggered", true, context, true);
             }
         )
     );

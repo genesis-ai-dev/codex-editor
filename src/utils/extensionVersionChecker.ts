@@ -42,8 +42,8 @@ interface VersionCheckResult {
 }
 
 const EXTENSION_CHECK_KEY = 'codex-editor.extensionVersionCheck';
-// Removed cooldown - check on every startup to ensure extensions are always up to date
-// const EXTENSION_CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const VERSION_MODAL_COOLDOWN_KEY = 'codex-editor.versionModalLastShown';
+const VERSION_MODAL_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
 
 // Extension configurations
 const EXTENSIONS_TO_CHECK = [
@@ -576,6 +576,48 @@ async function saveMetadata(metadataPath: vscode.Uri, metadata: ProjectMetadata)
 }
 
 /**
+ * Checks if we should show the version modal based on cooldown period
+ */
+function shouldShowVersionModal(context: vscode.ExtensionContext, isManualSync: boolean): boolean {
+    // Always show for manual sync
+    if (isManualSync) {
+        console.log('[VersionModalCooldown] Manual sync - showing modal');
+        return true;
+    }
+
+    // Check cooldown for auto-sync
+    const lastShown = context.workspaceState.get<number>(VERSION_MODAL_COOLDOWN_KEY, 0);
+    const now = Date.now();
+    const timeSinceLastShown = now - lastShown;
+
+    if (timeSinceLastShown >= VERSION_MODAL_COOLDOWN_MS) {
+        console.log(`[VersionModalCooldown] Auto-sync - cooldown expired (${Math.round(timeSinceLastShown / 1000 / 60)} minutes ago), showing modal`);
+        return true;
+    } else {
+        const remainingMs = VERSION_MODAL_COOLDOWN_MS - timeSinceLastShown;
+        const remainingMinutes = Math.round(remainingMs / 1000 / 60);
+        console.log(`[VersionModalCooldown] Auto-sync - in cooldown period, ${remainingMinutes} minutes remaining`);
+        return false;
+    }
+}
+
+/**
+ * Updates the timestamp for when the version modal was last shown
+ */
+async function updateVersionModalTimestamp(context: vscode.ExtensionContext): Promise<void> {
+    await context.workspaceState.update(VERSION_MODAL_COOLDOWN_KEY, Date.now());
+    console.log('[VersionModalCooldown] Updated last shown timestamp');
+}
+
+/**
+ * Resets the version modal cooldown (called on extension activation)
+ */
+export async function resetVersionModalCooldown(context: vscode.ExtensionContext): Promise<void> {
+    await context.workspaceState.update(VERSION_MODAL_COOLDOWN_KEY, 0);
+    console.log('[VersionModalCooldown] Reset cooldown timestamp on extension activation');
+}
+
+/**
  * Shows notification for metadata version mismatches
  */
 async function showMetadataVersionMismatchNotification(
@@ -610,8 +652,10 @@ async function showMetadataVersionMismatchNotification(
                         }
                     });
                 }
-                return false; // Don't allow sync until updated
 
+                // Update timestamp when modal is shown
+                await updateVersionModalTimestamp(context);
+                return false; // Don't allow sync until updated
 
             default:
                 return false; // Cancel the sync operation
@@ -625,7 +669,10 @@ async function showMetadataVersionMismatchNotification(
 /**
  * Checks metadata versions and handles user interaction for sync operations
  */
-export async function checkMetadataVersionsForSync(context: vscode.ExtensionContext): Promise<boolean> {
+export async function checkMetadataVersionsForSync(
+    context: vscode.ExtensionContext,
+    isManualSync: boolean = false
+): Promise<boolean> {
     const result = await checkAndUpdateMetadataVersions();
 
     if (result.canSync) {
@@ -633,8 +680,17 @@ export async function checkMetadataVersionsForSync(context: vscode.ExtensionCont
     }
 
     if (result.needsUserAction && result.outdatedExtensions) {
-        // Show user notification and get their choice
-        return await showMetadataVersionMismatchNotification(context, result.outdatedExtensions);
+        // Check if we should show the modal based on cooldown period
+        const shouldShow = shouldShowVersionModal(context, isManualSync);
+
+        if (shouldShow) {
+            // Show user notification and get their choice
+            return await showMetadataVersionMismatchNotification(context, result.outdatedExtensions);
+        } else {
+            // In cooldown period for auto-sync, silently block sync
+            console.log('[MetadataVersionChecker] Auto-sync blocked due to outdated extensions (in cooldown period)');
+            return false;
+        }
     }
 
     // For other failures, just log and don't allow sync
