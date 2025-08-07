@@ -46,6 +46,7 @@ import {
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
+import { checkExtensionVersionsOnStartup, registerVersionCheckCommands } from "./utils/extensionVersionChecker";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 
 export interface ActivationTiming {
@@ -421,6 +422,9 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register update commands and check for updates (non-blocking)
         registerUpdateCommands(context);
 
+        // Register extension version check commands
+        registerVersionCheckCommands(context);
+
         // Don't close splash screen yet - we still have sync operations to show
         // The splash screen will be closed after all operations complete
     } catch (error) {
@@ -545,9 +549,28 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
         console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
 
+        // Check extension versions before allowing sync operations
+        updateSplashScreenSync(50, "Checking extension versions...");
+        console.log("🔍 [SPLASH SCREEN PHASE] Checking extension versions...");
+        const versionCheckStart = globalThis.performance.now();
+
+        let allowSync = true;
+        try {
+            allowSync = await checkExtensionVersionsOnStartup(context);
+            if (!allowSync) {
+                updateSplashScreenSync(100, "Sync disabled (extensions outdated)");
+                trackTiming("Checking Extension Versions (sync disabled)", versionCheckStart);
+                return; // Skip sync entirely
+            } else {
+                trackTiming("Checking Extension Versions", versionCheckStart);
+            }
+        } catch (error) {
+            trackTiming("Checking Extension Versions (error)", versionCheckStart);
+            // Continue with sync on error to avoid blocking the user
+        }
+
         // Perform initial sync during splash screen phase if auth API is available and user is authenticated
         updateSplashScreenSync(60, "Checking authentication...");
-        console.log("🔄 [SPLASH SCREEN PHASE] Starting sync during splash screen...");
 
         if (authApi) {
             try {
@@ -560,7 +583,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                     const syncManager = SyncManager.getInstance();
                     // During startup, don't show info messages for connection issues
                     try {
-                        await syncManager.executeSync("Initial workspace sync", false);
+                        await syncManager.executeSync("Initial workspace sync", false, context);
                         trackTiming("Completing Project Synchronization", syncStart);
                         updateSplashScreenSync(100, "Synchronization complete");
                         console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");

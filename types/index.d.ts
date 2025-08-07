@@ -1168,6 +1168,11 @@ type ProjectMetadata = {
         normalization: string;
         comments?: string[];
         primarySourceText?: vscode.Uri;
+        /** Extension version requirements for sync compatibility */
+        requiredExtensions?: {
+            codexEditor?: string;
+            frontierAuthentication?: string;
+        };
     };
     idAuthorities: {
         [key: string]: {
