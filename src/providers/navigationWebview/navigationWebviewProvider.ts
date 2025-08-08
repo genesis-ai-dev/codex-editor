@@ -69,7 +69,11 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
 
     private loadBibleBookMap(): void {
         console.log("Loading bible book map for Navigation...");
-        let bookDataToUse: any[] = bibleData;
+
+        // Start with default Bible data
+        const defaultBooks: any[] = [...bibleData];
+        const localizedOverrides: Record<string, any> = {};
+
         try {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (workspaceFolders && workspaceFolders.length > 0) {
@@ -78,29 +82,44 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 if (fs.existsSync(localizedPath)) {
                     console.log("Navigation: Found localized-books.json, loading...");
                     const raw = fs.readFileSync(localizedPath, "utf8");
-                    bookDataToUse = JSON.parse(raw);
-                    console.log("Navigation: Localized books loaded successfully");
+                    const localizedBooks = JSON.parse(raw);
+
+                    // Only use localized books if the array is not empty
+                    if (Array.isArray(localizedBooks) && localizedBooks.length > 0) {
+                        // Create a map of localized overrides
+                        localizedBooks.forEach((book: any) => {
+                            if (book.abbr) {
+                                localizedOverrides[book.abbr] = book;
+                            }
+                        });
+                        console.log("Navigation: Localized books loaded successfully, overrides:", Object.keys(localizedOverrides).length);
+                    } else {
+                        console.log("Navigation: localized-books.json is empty, using defaults.");
+                    }
                 } else {
                     console.log("Navigation: localized-books.json not found, using defaults.");
                 }
             }
         } catch (err) {
             console.error("Navigation: Error loading localized-books.json:", err);
-            bookDataToUse = bibleData;
         }
 
+        // Build the final book map, merging defaults with localized overrides
         this.bibleBookMap.clear();
-        bookDataToUse.forEach((book) => {
+        defaultBooks.forEach((book) => {
             if (book.abbr) {
+                // Use localized override if available, otherwise use default
+                const finalBook = localizedOverrides[book.abbr] || book;
                 this.bibleBookMap.set(book.abbr, {
-                    name: book.name,
-                    abbr: book.abbr,
-                    ord: book.ord,
-                    testament: book.testament,
-                    osisId: book.osisId,
+                    name: finalBook.name,
+                    abbr: finalBook.abbr,
+                    ord: finalBook.ord || book.ord, // Preserve original order if not overridden
+                    testament: finalBook.testament || book.testament, // Preserve original testament if not overridden
+                    osisId: finalBook.osisId || book.osisId, // Preserve original osisId if not overridden
                 });
             }
         });
+
         console.log(
             "Navigation: Bible book map created/updated with size:",
             this.bibleBookMap.size
@@ -308,6 +327,35 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 } catch (error) {
                     console.error("Error opening source upload:", error);
                     vscode.window.showErrorMessage(`Failed to open source upload: ${error}`);
+                }
+                break;
+            }
+            case "editBookName": {
+                try {
+                    await vscode.commands.executeCommand("codex-editor.openBookNameEditor");
+                } catch (error) {
+                    console.error("Error opening book name editor:", error);
+                    vscode.window.showErrorMessage(`Failed to open book name editor: ${error}`);
+                }
+                break;
+            }
+            case "editCorpusMarker": {
+                try {
+                    const { corpusLabel, newCorpusName } = message.content;
+
+                    // Confirm with user before proceeding
+                    const confirmed = await vscode.window.showWarningMessage(
+                        `Are you sure you want to rename corpus "${corpusLabel}" to "${newCorpusName}"? This will update all files in this corpus.`,
+                        { modal: true },
+                        "Rename"
+                    );
+
+                    if (confirmed === "Rename") {
+                        await this.updateCorpusMarker(corpusLabel, newCorpusName);
+                    }
+                } catch (error) {
+                    console.error("Error updating corpus marker:", error);
+                    vscode.window.showErrorMessage(`Failed to update corpus marker: ${error}`);
                 }
                 break;
             }
@@ -640,6 +688,87 @@ export class NavigationWebviewProvider extends BaseWebviewProvider {
                 ? item.children.map((child) => this.serializeItem(child))
                 : undefined,
         };
+    }
+
+    private async updateCorpusMarker(oldCorpusLabel: string, newCorpusName: string): Promise<void> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders?.length) {
+            vscode.window.showErrorMessage("No workspace folder found");
+            return;
+        }
+
+        const rootUri = workspaceFolders[0].uri;
+        const codexPattern = new vscode.RelativePattern(
+            rootUri.fsPath,
+            "files/target/**/*.codex"
+        );
+
+        try {
+            // Find all codex files
+            const codexUris = await vscode.workspace.findFiles(codexPattern);
+            let updatedCount = 0;
+
+            // Show progress
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Updating corpus marker from "${oldCorpusLabel}" to "${newCorpusName}"`,
+                cancellable: false
+            }, async (progress) => {
+                const total = codexUris.length;
+
+                for (let i = 0; i < codexUris.length; i++) {
+                    const uri = codexUris[i];
+                    progress.report({
+                        increment: (100 / total),
+                        message: `Processing ${path.basename(uri.fsPath)}...`
+                    });
+
+                    try {
+                        // Read the codex file
+                        const content = await vscode.workspace.fs.readFile(uri);
+                        const notebookData = await this.serializer.deserializeNotebook(
+                            content,
+                            new vscode.CancellationTokenSource().token
+                        );
+
+                        // Check if this file's corpus marker matches the old label
+                        const metadata = notebookData.metadata as any;
+                        if (metadata && metadata.corpusMarker === oldCorpusLabel) {
+                            // Update the corpus marker
+                            metadata.corpusMarker = newCorpusName;
+
+                            // Serialize and save the updated notebook
+                            const updatedContent = await this.serializer.serializeNotebook(
+                                notebookData,
+                                new vscode.CancellationTokenSource().token
+                            );
+
+                            await vscode.workspace.fs.writeFile(uri, updatedContent);
+                            updatedCount++;
+                        }
+                    } catch (error) {
+                        console.error(`Error updating ${uri.fsPath}:`, error);
+                        // Continue with other files even if one fails
+                    }
+                }
+            });
+
+            // Show success message
+            if (updatedCount > 0) {
+                vscode.window.showInformationMessage(
+                    `Successfully updated corpus marker in ${updatedCount} file(s) from "${oldCorpusLabel}" to "${newCorpusName}"`
+                );
+                // Refresh the navigation view to show the changes
+                await this.buildInitialData();
+            } else {
+                vscode.window.showInformationMessage(
+                    `No files found with corpus marker "${oldCorpusLabel}"`
+                );
+            }
+        } catch (error) {
+            console.error("Error updating corpus markers:", error);
+            vscode.window.showErrorMessage(`Failed to update corpus markers: ${error}`);
+        }
     }
 
     public dispose(): void {

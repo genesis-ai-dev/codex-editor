@@ -7,6 +7,7 @@ import {
     createStandardCellId,
     createProcessedCell,
 } from '../../utils/workflowHelpers';
+import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
 
 // Dynamic import to handle usfm-grammar in browser environment
 let USFMParser: any;
@@ -208,6 +209,7 @@ export const createNotebookPair = (
             originalFileName: baseName,
             importerType,
             createdAt: new Date().toISOString(),
+            corpusMarker: getCorpusMarkerForBook(baseName) || metadata.corpusMarker,
             ...metadata,
         },
     };

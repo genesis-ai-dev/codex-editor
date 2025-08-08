@@ -12,6 +12,7 @@ import {
 import {
     createNotebookPair,
 } from '../common/usfmUtils';
+import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
 
 // This is a special importer that doesn't use files but downloads from eBible repository
 const SUPPORTED_EXTENSIONS: string[] = []; // No file extensions since this is download-based
@@ -361,6 +362,7 @@ const createBookNotebooks = (
                 translationId: metadata.translationId,
                 verseCount: verses.length,
                 chapters: [...new Set(verses.map(v => v.chapter))].sort((a, b) => a - b),
+                corpusMarker: getCorpusMarkerForBook(bookCode), // Ensure corpus marker is set
             }
         );
 

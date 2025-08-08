@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 import { notebookToImportedContent } from "../common/translationHelper";
+import { getCorpusMarkerForBook } from "../../utils/corpusUtils";
 
 export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props) => {
     const {
@@ -107,36 +108,7 @@ export const MaculaBibleImporterForm: React.FC<ImporterComponentProps> = (props)
                             originalFileName: `${bookName}.macula`,
                             importerType: "macula-bible",
                             createdAt: new Date().toISOString(),
-                            corpusMarker:
-                                bookName.startsWith("MAT") ||
-                                bookName.startsWith("MRK") ||
-                                bookName.startsWith("LUK") ||
-                                bookName.startsWith("JHN") ||
-                                bookName.startsWith("ACT") ||
-                                bookName.startsWith("ROM") ||
-                                bookName.startsWith("1CO") ||
-                                bookName.startsWith("2CO") ||
-                                bookName.startsWith("GAL") ||
-                                bookName.startsWith("EPH") ||
-                                bookName.startsWith("PHP") ||
-                                bookName.startsWith("COL") ||
-                                bookName.startsWith("1TH") ||
-                                bookName.startsWith("2TH") ||
-                                bookName.startsWith("1TI") ||
-                                bookName.startsWith("2TI") ||
-                                bookName.startsWith("TIT") ||
-                                bookName.startsWith("PHM") ||
-                                bookName.startsWith("HEB") ||
-                                bookName.startsWith("JAS") ||
-                                bookName.startsWith("1PE") ||
-                                bookName.startsWith("2PE") ||
-                                bookName.startsWith("1JN") ||
-                                bookName.startsWith("2JN") ||
-                                bookName.startsWith("3JN") ||
-                                bookName.startsWith("JUD") ||
-                                bookName.startsWith("REV")
-                                    ? "New Testament"
-                                    : "Old Testament",
+                            corpusMarker: getCorpusMarkerForBook(bookName) || "OT",
                         },
                     };
 

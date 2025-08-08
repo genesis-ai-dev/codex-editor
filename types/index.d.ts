@@ -711,6 +711,8 @@ export type EditorPostMessages =
         };
     }
     | { command: "openBookNameEditor"; }
+    | { command: "editBookName"; content: { bookAbbr: string; }; }
+    | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }
     | { command: "requestAudioAttachments"; }
@@ -1390,6 +1392,8 @@ type ProjectManagerMessageFromWebview =
     }
     | { command: "triggerSync"; }
     | { command: "openBookNameEditor"; }
+    | { command: "editBookName"; content: { bookAbbr: string; }; }
+    | { command: "editCorpusMarker"; content: { corpusLabel: string; newCorpusName: string; }; }
     | { command: "openCellLabelImporter"; }
     | { command: "navigateToMainMenu"; }
     | { command: "getProjectProgress"; }

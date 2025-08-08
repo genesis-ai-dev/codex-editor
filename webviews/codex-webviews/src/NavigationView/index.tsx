@@ -33,6 +33,11 @@ interface State {
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
     openMenu: string | null;
     hasReceivedInitialData: boolean;
+    renameModal: {
+        isOpen: boolean;
+        item: CodexItem | null;
+        newName: string;
+    };
 }
 
 // Redesigned styles following Jobs/DHH principles: clean, purposeful, delightful
@@ -385,6 +390,78 @@ const styles = {
         fontSize: "16px",
         fontWeight: "bold",
     },
+    // Modal styles
+    modalOverlay: {
+        position: "fixed" as const,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: "rgba(0, 0, 0, 0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 2000,
+    },
+    modalContent: {
+        backgroundColor: "var(--vscode-editor-background)",
+        border: "1px solid var(--vscode-editorWidget-border)",
+        borderRadius: "8px",
+        padding: "20px",
+        minWidth: "300px",
+        maxWidth: "350px",
+        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
+    },
+    modalTitle: {
+        fontSize: "16px",
+        fontWeight: "600",
+        color: "var(--vscode-foreground)",
+        marginBottom: "16px",
+    },
+    modalDescription: {
+        fontSize: "14px",
+        color: "var(--vscode-descriptionForeground)",
+        marginBottom: "20px",
+        lineHeight: "1.5",
+    },
+    modalInput: {
+        width: "100%",
+        padding: "8px 12px",
+        fontSize: "14px",
+        backgroundColor: "var(--vscode-input-background)",
+        color: "var(--vscode-input-foreground)",
+        border: "1px solid var(--vscode-input-border)",
+        borderRadius: "4px",
+        marginBottom: "20px",
+        outline: "none",
+    },
+    modalButtons: {
+        display: "flex",
+        gap: "12px",
+        justifyContent: "flex-end",
+    },
+    modalButton: {
+        padding: "8px 16px",
+        fontSize: "14px",
+        borderRadius: "4px",
+        border: "none",
+        cursor: "pointer",
+        fontWeight: "500",
+    },
+    modalButtonPrimary: {
+        backgroundColor: "var(--vscode-button-background)",
+        color: "var(--vscode-button-foreground)",
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-hoverBackground)",
+        },
+    },
+    modalButtonSecondary: {
+        backgroundColor: "var(--vscode-button-secondaryBackground)",
+        color: "var(--vscode-button-secondaryForeground)",
+        "&:hover": {
+            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
+        },
+    },
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -457,6 +534,11 @@ function NavigationView() {
         bibleBookMap: undefined,
         openMenu: null,
         hasReceivedInitialData: false,
+        renameModal: {
+            isOpen: false,
+            item: null,
+            newName: "",
+        },
     });
 
     // Initialize Bible book map on component mount
@@ -570,18 +652,18 @@ function NavigationView() {
 
         const filteredCodexItems = filterItems(state.codexItems);
         const filteredDictionaryItems = filterItems(state.dictionaryItems);
-        
+
         // Calculate total number of visible items if all groups were expanded
         let totalItems = 0;
-        
-        filteredCodexItems.forEach(item => {
+
+        filteredCodexItems.forEach((item) => {
             totalItems += 1; // Group header
             if (item.type === "corpus" && item.children) {
                 totalItems += item.children.length; // Child items
             }
         });
-        
-        filteredDictionaryItems.forEach(item => {
+
+        filteredDictionaryItems.forEach((item) => {
             totalItems += 1;
             if (item.type === "corpus" && item.children) {
                 totalItems += item.children.length;
@@ -592,29 +674,29 @@ function NavigationView() {
         // Assuming each item takes about 50px height and container has about 400px usable height
         const estimatedHeight = totalItems * 50;
         const availableHeight = 400; // Approximate available height for items
-        
+
         if (estimatedHeight <= availableHeight) {
             // Auto-expand all groups that have search results
-            setState(prev => {
+            setState((prev) => {
                 const newExpandedGroups = new Set(prev.expandedGroups);
-                
+
                 // Expand codex groups with results
-                filteredCodexItems.forEach(item => {
+                filteredCodexItems.forEach((item) => {
                     if (item.type === "corpus" && item.children && item.children.length > 0) {
                         newExpandedGroups.add(item.label);
                     }
                 });
-                
+
                 // Expand dictionary groups with results
-                filteredDictionaryItems.forEach(item => {
+                filteredDictionaryItems.forEach((item) => {
                     if (item.type === "corpus" && item.children && item.children.length > 0) {
                         newExpandedGroups.add(item.label);
                     }
                 });
-                
+
                 return {
                     ...prev,
-                    expandedGroups: newExpandedGroups
+                    expandedGroups: newExpandedGroups,
                 };
             });
         }
@@ -697,6 +779,69 @@ function NavigationView() {
         vscode.postMessage({
             command: "openSourceUpload",
         });
+    };
+
+    const handleEditBookName = (item: CodexItem) => {
+        closeMenu();
+        vscode.postMessage({
+            command: "editBookName",
+            content: { bookAbbr: item.label },
+        });
+    };
+
+    const handleEditCorpusMarker = (item: CodexItem) => {
+        closeMenu();
+        setState((prev) => ({
+            ...prev,
+            renameModal: {
+                isOpen: true,
+                item: item,
+                newName: item.label,
+            },
+        }));
+    };
+
+    const handleRenameModalClose = () => {
+        setState((prev) => ({
+            ...prev,
+            renameModal: {
+                isOpen: false,
+                item: null,
+                newName: "",
+            },
+        }));
+    };
+
+    const handleRenameModalInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setState((prev) => ({
+            ...prev,
+            renameModal: {
+                ...prev.renameModal,
+                newName: e.target.value,
+            },
+        }));
+    };
+
+    const handleRenameModalConfirm = () => {
+        const { item, newName } = state.renameModal;
+        if (item && newName.trim() !== "" && newName.trim() !== item.label) {
+            vscode.postMessage({
+                command: "editCorpusMarker",
+                content: {
+                    corpusLabel: item.label,
+                    newCorpusName: newName.trim(),
+                },
+            });
+        }
+        handleRenameModalClose();
+    };
+
+    const handleRenameModalKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === "Enter") {
+            handleRenameModalConfirm();
+        } else if (e.key === "Escape") {
+            handleRenameModalClose();
+        }
     };
 
     // Close menu when clicking outside
@@ -870,7 +1015,7 @@ function NavigationView() {
                     }}
                     onClick={handleItemClick}
                     onMouseEnter={(e) => {
-                        if (!isGroup && !isProjectDict) {
+                        if ((!isGroup || item.type === "corpus") && !isProjectDict) {
                             const menuButton = e.currentTarget.querySelector(
                                 ".menu-button"
                             ) as HTMLElement;
@@ -881,7 +1026,7 @@ function NavigationView() {
                         }
                     }}
                     onMouseLeave={(e) => {
-                        if (!isGroup && !isProjectDict && !isMenuOpen) {
+                        if ((!isGroup || item.type === "corpus") && !isProjectDict && !isMenuOpen) {
                             const menuButton = e.currentTarget.querySelector(
                                 ".menu-button"
                             ) as HTMLElement;
@@ -912,7 +1057,7 @@ function NavigationView() {
                     </div>
 
                     {/* Menu button positioned absolutely */}
-                    {!isGroup && (
+                    {(!isGroup || item.type === "corpus") && (
                         <>
                             <button
                                 className="menu-button"
@@ -927,16 +1072,42 @@ function NavigationView() {
                             </button>
                             {isMenuOpen && (
                                 <div style={styles.popover}>
-                                    <div
-                                        style={styles.popoverItem}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDelete(item);
-                                        }}
-                                    >
-                                        <i className="codicon codicon-trash" />
-                                        Delete
-                                    </div>
+                                    {item.type === "codexDocument" && (
+                                        <div
+                                            style={styles.popoverItem}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditBookName(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-edit" />
+                                            Edit Book Name
+                                        </div>
+                                    )}
+                                    {item.type === "corpus" && (
+                                        <div
+                                            style={styles.popoverItem}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditCorpusMarker(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-edit" />
+                                            Rename Corpus
+                                        </div>
+                                    )}
+                                    {!isGroup && (
+                                        <div
+                                            style={styles.popoverItem}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDelete(item);
+                                            }}
+                                        >
+                                            <i className="codicon codicon-trash" />
+                                            Delete
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </>
@@ -1018,6 +1189,52 @@ function NavigationView() {
                 {/* Project Dictionary */}
                 {projectDictionary && renderItem(projectDictionary)}
             </div>
+
+            {/* Rename Modal */}
+            {state.renameModal.isOpen && (
+                <div style={styles.modalOverlay} onClick={handleRenameModalClose}>
+                    <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+                        <div style={styles.modalTitle}>Rename Corpus</div>
+                        <div style={styles.modalDescription}>
+                            Enter new name for "{state.renameModal.item?.label}":
+                        </div>
+                        <input
+                            type="text"
+                            style={styles.modalInput}
+                            value={state.renameModal.newName}
+                            onChange={handleRenameModalInputChange}
+                            onKeyDown={handleRenameModalKeyPress}
+                            placeholder="Enter new corpus name"
+                            autoFocus
+                        />
+                        <div style={styles.modalButtons}>
+                            <button
+                                style={{
+                                    ...styles.modalButton,
+                                    ...styles.modalButtonSecondary,
+                                }}
+                                onClick={handleRenameModalClose}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                style={{
+                                    ...styles.modalButton,
+                                    ...styles.modalButtonPrimary,
+                                }}
+                                onClick={handleRenameModalConfirm}
+                                disabled={
+                                    !state.renameModal.newName.trim() ||
+                                    state.renameModal.newName.trim() ===
+                                        state.renameModal.item?.label
+                                }
+                            >
+                                Rename
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
