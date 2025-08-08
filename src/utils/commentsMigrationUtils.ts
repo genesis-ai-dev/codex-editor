@@ -831,6 +831,18 @@ export class CommentsMigrator {
 
             console.log('[CommentsMigrator] Checking for corrupted comment data...');
 
+            // Check if file exists before trying to read it
+            try {
+                await vscode.workspace.fs.stat(commentsFilePath);
+            } catch (error) {
+                if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+                    // File doesn't exist, nothing to repair
+                    return;
+                } else {
+                    throw error;
+                }
+            }
+
             // Read existing comments file
             const fileContent = await vscode.workspace.fs.readFile(commentsFilePath);
             let comments: any[];
