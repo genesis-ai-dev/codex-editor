@@ -3,6 +3,13 @@ import { ActivationTiming } from "../../extension";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 
+const DEBUG_SPLASH_SCREEN_PROVIDER = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_SPLASH_SCREEN_PROVIDER) {
+        console.log(`[SplashScreenProvider] ${message}`, ...args);
+    }
+}
+
 export interface SyncDetails {
     progress: number;
     message: string;
@@ -30,17 +37,17 @@ export class SplashScreenProvider {
 
     public async show(activationStart: number) {
         this._activationStart = activationStart;
-        console.log("[SplashScreen] Attempting to show splash screen...");
+        debug("[SplashScreen] Attempting to show splash screen...");
 
         // If the panel is already showing, just reveal it
         if (this._panel) {
-            console.log("[SplashScreen] Panel already exists, revealing...");
+            debug("[SplashScreen] Panel already exists, revealing...");
             this._panel.reveal(vscode.ViewColumn.One);
             return;
         }
 
         // Create and show panel immediately - don't await UI commands that might delay visibility
-        console.log("[SplashScreen] Creating new webview panel...");
+        debug("[SplashScreen] Creating new webview panel...");
         this._panel = vscode.window.createWebviewPanel(
             SplashScreenProvider.viewType,
             "Codex Editor",
@@ -54,7 +61,7 @@ export class SplashScreenProvider {
                 retainContextWhenHidden: true,
             }
         );
-        console.log("[SplashScreen] Panel created successfully");
+        debug("[SplashScreen] Panel created successfully");
 
         // Set webview options
         this._panel.webview.options = {
@@ -65,14 +72,14 @@ export class SplashScreenProvider {
         // Immediately set the HTML content and reveal the panel
         this._updateWebview();
         this._panel.reveal(vscode.ViewColumn.One, false); // Take focus for loading screen experience
-        console.log("[SplashScreen] Panel revealed and focused");
+        debug("[SplashScreen] Panel revealed and focused");
 
         // Execute UI commands in background after splash is visible
         setTimeout(async () => {
             try {
                 // Maximize editor and hide tab bar after splash is shown
                 await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
-                console.log("[SplashScreen] Maximized editor layout");
+                debug("[SplashScreen] Maximized editor layout");
             } catch (error) {
                 console.warn("Failed to execute maximize command:", error);
             }
@@ -80,7 +87,7 @@ export class SplashScreenProvider {
 
         // Reset when the panel is disposed
         this._panel.onDidDispose(() => {
-            console.log("[SplashScreen] Panel disposed");
+            debug("[SplashScreen] Panel disposed");
             this._panel = undefined;
         });
 
@@ -100,7 +107,7 @@ export class SplashScreenProvider {
     public updateTimings(timings: ActivationTiming[]) {
         this._timings = timings;
         if (this._panel && !this._panel.webview) {
-            console.log("[SplashScreen] Panel exists but webview is disposed, skipping update");
+            debug("[SplashScreen] Panel exists but webview is disposed, skipping update");
             return;
         }
         if (this._panel) {
@@ -128,15 +135,15 @@ export class SplashScreenProvider {
     }
 
     public markComplete() {
-        console.log("[SplashScreen] markComplete() called");
+        debug("[SplashScreen] markComplete() called");
         if (this._panel) {
             // Send message to the webview that loading is complete
             safePostMessageToPanel(this._panel, {
                 command: "complete",
             }, "SplashScreen");
-            console.log("[SplashScreen] Sent 'complete' message to webview");
+            debug("[SplashScreen] Sent 'complete' message to webview");
         } else {
-            console.log("[SplashScreen] No panel to mark complete");
+            debug("[SplashScreen] No panel to mark complete");
         }
     }
 

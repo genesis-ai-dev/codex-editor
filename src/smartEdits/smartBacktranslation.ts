@@ -122,7 +122,6 @@ Backtranslation: ${bt.backtranslation}
             const fileContent = await vscode.workspace.fs.readFile(fileUri);
             return JSON.parse(fileContent.toString());
         } catch (error) {
-            console.log("No existing saved backtranslations found, starting with empty object");
             return {};
         }
     }

@@ -8,13 +8,20 @@ interface ProjectLanguage {
     projectStatus: string;
 }
 
+const DEBUG_COPILOT_SETTINGS = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_COPILOT_SETTINGS) {
+        console.log(`[CopilotSettings] ${message}`, ...args);
+    }
+}
+
 export async function debugValidationSetting() {
     const config = vscode.workspace.getConfiguration("codex-editor-extension");
     const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples");
     const inspectResult = config.inspect("useOnlyValidatedExamples");
 
-    console.log("[debugValidationSetting] Raw config value:", useOnlyValidatedExamples);
-    console.log("[debugValidationSetting] Config inspect result:", inspectResult);
+    debug("[debugValidationSetting] Raw config value:", useOnlyValidatedExamples);
+    debug("[debugValidationSetting] Config inspect result:", inspectResult);
 
     vscode.window.showInformationMessage(
         `Validation Setting Debug:\n` +
@@ -40,7 +47,7 @@ export async function openSystemMessageEditor() {
     const config = vscode.workspace.getConfiguration("codex-editor-extension");
     const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
     const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") as boolean ?? false;
-    console.log("[openSystemMessageEditor] Initial useOnlyValidatedExamples value:", useOnlyValidatedExamples);
+    debug("[openSystemMessageEditor] Initial useOnlyValidatedExamples value:", useOnlyValidatedExamples);
 
     const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
     const sourceLanguage = projectConfig.get("sourceLanguage") as ProjectLanguage;
@@ -132,7 +139,7 @@ export async function openSystemMessageEditor() {
                 panel.dispose();
                 break;
             case "saveSettings": {
-                console.log("[CopilotSettings] Saving validation setting:", message.useOnlyValidatedExamples);
+                debug("[CopilotSettings] Saving validation setting:", message.useOnlyValidatedExamples);
                 // Save validation setting
                 await config.update(
                     "useOnlyValidatedExamples",
@@ -141,7 +148,7 @@ export async function openSystemMessageEditor() {
                 );
                 // Verify the setting was saved
                 const savedValue = config.get("useOnlyValidatedExamples");
-                console.log("[CopilotSettings] Setting saved, current value:", savedValue);
+                debug("[CopilotSettings] Setting saved, current value:", savedValue);
 
                 // Save system message if provided
                 if (message.text !== undefined) {
@@ -399,7 +406,7 @@ function getWebviewContent(
                 }
 
                 function saveValidationSetting(checked) {
-                    console.log('[saveValidationSetting] Auto-saving validation setting:', checked);
+                    debug('[saveValidationSetting] Auto-saving validation setting:', checked);
                     vscode.postMessage({
                         command: 'saveSettings',
                         useOnlyValidatedExamples: checked

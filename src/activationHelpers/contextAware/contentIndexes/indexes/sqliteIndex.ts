@@ -2493,7 +2493,7 @@ export class SQLiteIndexManager {
 
         if (confirm === "Yes, Reset AI") {
             // Log AI reset to console instead of showing to user
-            console.log("[SQLiteIndex] AI preparing to learn from scratch...");
+            debug("[SQLiteIndex] AI preparing to learn from scratch...");
 
             // Close current database connection
             await this.close();
@@ -2501,7 +2501,7 @@ export class SQLiteIndexManager {
             // Delete the database file
             await this.deleteDatabaseFile();
 
-            console.log("[SQLiteIndex] ✅ AI reset complete.");
+            debug("[SQLiteIndex] ✅ AI reset complete.");
             vscode.window.showInformationMessage("AI reset complete. Please reload the extension to continue.");
         }
     }

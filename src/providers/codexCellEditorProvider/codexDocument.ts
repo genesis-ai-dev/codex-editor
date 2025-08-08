@@ -467,7 +467,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
             return decoder.decode(fileData);
         } catch (error) {
             // File might not exist yet (new file) or there might be a read error
-            console.log("[CodexDocument] Could not read current file content:", error);
+            debug("[CodexDocument] Could not read current file content:", error);
             return null;
         }
     }

@@ -1602,20 +1602,24 @@ export const SourceUploader: React.FC = () => {
                                 ? "Bible content has been successfully downloaded and processed."
                                 : "Your source file has been successfully imported."}
                         </p>
-                        <div style={{ display: "flex", gap: "1rem", justifyContent: "center", flexWrap: "wrap" }}>
-                            <VSCodeButton 
+                        <div
+                            style={{
+                                display: "flex",
+                                gap: "1rem",
+                                justifyContent: "center",
+                                flexWrap: "wrap",
+                            }}
+                        >
+                            <VSCodeButton
                                 onClick={() => {
                                     vscode.postMessage({ command: "openTranslationFile" });
                                 }}
                                 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
                             >
-                                <i className="codicon codicon-file-code"></i>&nbsp;
-                                Start Translating
+                                <i className="codicon codicon-file-code"></i>&nbsp; Start
+                                Translating
                             </VSCodeButton>
-                            <VSCodeButton 
-                                appearance="secondary"
-                                onClick={handleUploadAnother}
-                            >
+                            <VSCodeButton appearance="secondary" onClick={handleUploadAnother}>
                                 Upload Another File
                             </VSCodeButton>
                         </div>

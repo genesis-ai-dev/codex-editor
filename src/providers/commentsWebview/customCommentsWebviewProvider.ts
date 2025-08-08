@@ -8,6 +8,13 @@ import { BaseWebviewProvider, GlobalProvider } from "../../globalProvider";
 import { safePostMessageToView } from "../../utils/webviewUtils";
 import { getAuthApi } from "../../extension";
 
+const DEBUG_COMMENTS_WEBVIEW_PROVIDER = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_COMMENTS_WEBVIEW_PROVIDER) {
+        console.log(`[CommentsWebviewProvider] ${message}`, ...args);
+    }
+}
+
 export class CustomWebviewProvider extends BaseWebviewProvider {
     selectionChangeListener: any;
     commentsFilePath: Uri | undefined;
@@ -42,7 +49,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
 
         if (this._isDirty && this._pendingChanges.size > 0) {
-            console.log("[CommentsProvider] External change detected with local unsaved changes, merging...");
+            debug("[CommentsProvider] External change detected with local unsaved changes, merging...");
 
             // Save our current changes with merge (this will handle the conflict)
             await this.saveCommentsWithMerge();
@@ -50,7 +57,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             // Optional: Show subtle notification about merge
             // vscode.window.showInformationMessage("Comments updated from external changes and merged with your local changes.", { modal: false });
         } else {
-            console.log("[CommentsProvider] External change detected with no local changes, reloading...");
+            debug("[CommentsProvider] External change detected with no local changes, reloading...");
 
             // No local changes, safe to reload from file
             await this.loadCommentsIntoMemory();
@@ -77,7 +84,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             this._isInitialized = true;
 
         } catch (error) {
-            console.log("[CommentsProvider] No existing comments file, starting with empty cache");
+            debug("[CommentsProvider] No existing comments file, starting with empty cache");
             this._inMemoryComments = [];
             this._isDirty = false;
             this._pendingChanges.clear();
@@ -183,14 +190,14 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
     private async initializeAuthState() {
         try {
-            console.log("[CommentsProvider] Initializing auth state...");
+            debug("[CommentsProvider] Initializing auth state...");
             if (this.authApi) {
                 const authStatus = this.authApi.getAuthStatus();
                 this.isAuthenticated = authStatus.isAuthenticated;
-                console.log("[CommentsProvider] Auth API found, isAuthenticated:", this.isAuthenticated);
+                debug("[CommentsProvider] Auth API found, isAuthenticated:", this.isAuthenticated);
             } else {
                 this.isAuthenticated = false;
-                console.log("[CommentsProvider] No auth API found, setting isAuthenticated to false");
+                debug("[CommentsProvider] No auth API found, setting isAuthenticated to false");
             }
         } catch (error) {
             console.error("[CommentsProvider] Failed to check authentication status:", error);
@@ -208,16 +215,16 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         const projectDir = vscode.Uri.joinPath(folders[0].uri, ".project");
         this.commentsFilePath = vscode.Uri.joinPath(projectDir, "comments.json");
 
-        console.log("[CommentsProvider] Comments file path:", this.commentsFilePath.fsPath);
+        debug("[CommentsProvider] Comments file path:", this.commentsFilePath.fsPath);
 
         try {
             // First ensure the .project directory exists
             try {
                 await vscode.workspace.fs.stat(projectDir);
-                console.log("[CommentsProvider] .project directory exists");
+                debug("[CommentsProvider] .project directory exists");
             } catch (error) {
                 if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-                    console.log("[CommentsProvider] Creating .project directory");
+                    debug("[CommentsProvider] Creating .project directory");
                     await vscode.workspace.fs.createDirectory(projectDir);
                 } else {
                     throw error;
@@ -230,13 +237,13 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             // Then check/create comments file
             try {
                 await vscode.workspace.fs.stat(this.commentsFilePath);
-                console.log("[CommentsProvider] Comments file exists");
+                debug("[CommentsProvider] Comments file exists");
 
                 // Note: Data repair is handled at startup and during sync when comments.json is changed
                 // See SyncManager and extension.ts for targeted repair logic
             } catch (error) {
                 if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-                    console.log("[CommentsProvider] Creating comments file");
+                    debug("[CommentsProvider] Creating comments file");
                     await vscode.workspace.fs.writeFile(this.commentsFilePath, new TextEncoder().encode(CommentsMigrator.formatCommentsForStorage([])));
                 } else {
                     throw error;
@@ -255,12 +262,12 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     private async sendCurrentUserInfo(webviewView: vscode.WebviewView) {
         // Refresh auth state before sending
         await this.initializeAuthState();
-        console.log("[CommentsProvider] sendCurrentUserInfo called, isAuthenticated:", this.isAuthenticated, "authApi exists:", !!this.authApi);
+        debug("[CommentsProvider] sendCurrentUserInfo called, isAuthenticated:", this.isAuthenticated, "authApi exists:", !!this.authApi);
 
         if (this.isAuthenticated && this.authApi) {
             try {
                 const user = await this.authApi.getUserInfo();
-                console.log("[CommentsProvider] Got user info:", user ? { username: user.username, email: user.email } : "null");
+                debug("[CommentsProvider] Got user info:", user ? { username: user.username, email: user.email } : "null");
 
                 if (user) {
                     const message = {
@@ -270,17 +277,17 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                             email: user.email || "",
                         },
                     } as CommentPostMessages;
-                    console.log("[CommentsProvider] Sending authenticated user message:", message);
+                    debug("[CommentsProvider] Sending authenticated user message:", message);
                     const sent = safePostMessageToView(webviewView, message);
-                    console.log("[CommentsProvider] Message send result:", sent);
+                    debug("[CommentsProvider] Message send result:", sent);
                 } else {
                     // Send unauthenticated state
                     const message = {
                         command: "updateUserInfo",
                     } as CommentPostMessages;
-                    console.log("[CommentsProvider] User is null, sending unauthenticated message:", message);
+                    debug("[CommentsProvider] User is null, sending unauthenticated message:", message);
                     const sent = safePostMessageToView(webviewView, message);
-                    console.log("[CommentsProvider] Message send result:", sent);
+                    debug("[CommentsProvider] Message send result:", sent);
                 }
             } catch (error) {
                 console.error("[CommentsProvider] Failed to get user info:", error);
@@ -288,18 +295,18 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 const message = {
                     command: "updateUserInfo",
                 } as CommentPostMessages;
-                console.log("[CommentsProvider] Error getting user, sending unauthenticated message:", message);
+                debug("[CommentsProvider] Error getting user, sending unauthenticated message:", message);
                 const sent = safePostMessageToView(webviewView, message);
-                console.log("[CommentsProvider] Message send result:", sent);
+                debug("[CommentsProvider] Message send result:", sent);
             }
         } else {
             // Send unauthenticated state
             const message = {
                 command: "updateUserInfo",
             } as CommentPostMessages;
-            console.log("[CommentsProvider] Not authenticated or no authApi, sending unauthenticated message:", message);
+            debug("[CommentsProvider] Not authenticated or no authApi, sending unauthenticated message:", message);
             const sent = safePostMessageToView(webviewView, message);
-            console.log("[CommentsProvider] Message send result:", sent);
+            debug("[CommentsProvider] Message send result:", sent);
         }
     }
 
@@ -311,7 +318,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             this.stateStoreListener = storeListener(
                 "cellId",
                 (value: CellIdGlobalState | undefined) => {
-                    console.log("[CommentsProvider] Cell ID change detected:", value);
+                    debug("[CommentsProvider] Cell ID change detected:", value);
                     if (value?.cellId && value?.uri && this._view) {
                         // Send reload message to webview with new cell ID
                         safePostMessageToView(this._view, {
@@ -324,14 +331,14 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     }
                 }
             );
-            console.log("[CommentsProvider] State store listener initialized successfully");
+            debug("[CommentsProvider] State store listener initialized successfully");
         } catch (error) {
             console.error("[CommentsProvider] Failed to initialize state store listener:", error);
         }
     }
 
     protected onWebviewResolved(webviewView: vscode.WebviewView): void {
-        console.log("[CommentsProvider] onWebviewResolved called");
+        debug("[CommentsProvider] onWebviewResolved called");
 
         // Initialize everything asynchronously
         this.initializeWebview(webviewView).catch(error => {
@@ -345,7 +352,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         commentsWatcher.onDidChange(async () => {
             try {
-                console.log("[CommentsProvider] Comments file changed externally, handling...");
+                debug("[CommentsProvider] Comments file changed externally, handling...");
 
                 // Handle external change with potential conflict resolution
                 await this.handleExternalFileChange();
@@ -363,7 +370,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                     }
                 });
 
-                console.log("[CommentsProvider] Successfully handled external comments file change and notified all providers");
+                debug("[CommentsProvider] Successfully handled external comments file change and notified all providers");
             } catch (error) {
                 console.error("[CommentsProvider] Error handling external comments file change:", error);
                 // Still try to send whatever we have in memory
@@ -378,7 +385,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         legacyCommentsWatcher.onDidCreate(async () => {
             try {
-                console.log("[CommentsProvider] Legacy comments file created, migrating...");
+                debug("[CommentsProvider] Legacy comments file created, migrating...");
                 await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
 
                 // Reload cache to pick up migrated comments
@@ -386,7 +393,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                 // Refresh the webview to show migrated content
                 this.sendCommentsToWebview(webviewView);
-                console.log("[CommentsProvider] Successfully migrated legacy comments");
+                debug("[CommentsProvider] Successfully migrated legacy comments");
             } catch (error) {
                 console.error("[CommentsProvider] Error migrating legacy comments on create:", error);
                 // Silent fallback - still try to send what we have
@@ -396,7 +403,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
         legacyCommentsWatcher.onDidChange(async () => {
             try {
-                console.log("[CommentsProvider] Legacy comments file changed, migrating...");
+                debug("[CommentsProvider] Legacy comments file changed, migrating...");
                 await CommentsMigrator.migrateProjectComments(vscode.workspace.workspaceFolders![0].uri);
 
                 // Reload cache to pick up migrated comments
@@ -404,7 +411,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
 
                 // Refresh the webview to show migrated content
                 this.sendCommentsToWebview(webviewView);
-                console.log("[CommentsProvider] Successfully migrated legacy comments");
+                debug("[CommentsProvider] Successfully migrated legacy comments");
             } catch (error) {
                 console.error("[CommentsProvider] Error migrating legacy comments on change:", error);
                 // Silent fallback - still try to send what we have
@@ -419,7 +426,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             if (this.stateStoreListener) {
                 this.stateStoreListener();
                 this.stateStoreListener = undefined;
-                console.log("[CommentsProvider] State store listener disposed");
+                debug("[CommentsProvider] State store listener disposed");
             }
         });
     }
@@ -454,7 +461,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
     protected async handleMessage(message: CommentPostMessages): Promise<void> {
         // Ensure comments file is initialized
         if (!this.commentsFilePath) {
-            console.log("[CommentsProvider] Comments file path not initialized, initializing now...");
+            debug("[CommentsProvider] Comments file path not initialized, initializing now...");
             await this.initializeCommentsFile();
         }
 
@@ -631,7 +638,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
                 return date.getTime();
             }
         } catch (error) {
-            console.log("[CommentsProvider] Failed to parse thread title date:", threadTitle, error);
+            debug("[CommentsProvider] Failed to parse thread title date:", threadTitle, error);
         }
         return null;
     }
@@ -716,10 +723,10 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
             }
 
             // If we couldn't parse it properly, return the original
-            console.log("[CommentsProvider] Could not convert to relative path:", uri);
+            debug("[CommentsProvider] Could not convert to relative path:", uri);
             return uri;
         } catch (error) {
-            console.log("[CommentsProvider] Error converting to relative path:", uri, error);
+            debug("[CommentsProvider] Error converting to relative path:", uri, error);
             return uri;
         }
     }

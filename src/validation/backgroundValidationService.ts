@@ -855,7 +855,7 @@ Last Integrity: ${status.lastValidationTimes.integrity || 'never'}`;
                         cancellable: false
                     }, async (progress) => {
                         // Log technical operation to console instead of showing to user
-                        console.log("[BackgroundValidation] 🔍 Rebuilding full-text search index...");
+                        debug("[BackgroundValidation] 🔍 Rebuilding full-text search index...");
                         progress.report({ message: "Refreshing search..." });
                         await sqliteIndex.refreshFTSIndex();
 

@@ -121,7 +121,7 @@ function processQuillContentForSaving(htmlContent: string): string {
         return "";
     }
 
-    console.log("[processQuillContentForSaving] Input:", htmlContent);
+    debug("[processQuillContentForSaving] Input:", htmlContent);
 
     try {
         // Create a temporary DOM element for proper HTML parsing
@@ -146,12 +146,12 @@ function processQuillContentForSaving(htmlContent: string): string {
         // Get all paragraph elements
         const paragraphs = tempDiv.querySelectorAll("p");
 
-        console.log("[processQuillContentForSaving] Found paragraphs:", paragraphs.length);
+        debug("[processQuillContentForSaving] Found paragraphs:", paragraphs.length);
 
         if (paragraphs.length === 0) {
             // No paragraphs found, wrap content in span
             const result = tempDiv.innerHTML ? `<span>${tempDiv.innerHTML}</span>` : "";
-            console.log("[processQuillContentForSaving] No paragraphs, result:", result);
+            debug("[processQuillContentForSaving] No paragraphs, result:", result);
             return result;
         }
 
@@ -161,7 +161,7 @@ function processQuillContentForSaving(htmlContent: string): string {
             // Check if there's actual content beyond just spaces
             const hasRealContent = content.trim().length > 0;
             const result = hasRealContent ? `<span>${content}</span>` : "";
-            console.log("[processQuillContentForSaving] Single paragraph, result:", result);
+            debug("[processQuillContentForSaving] Single paragraph, result:", result);
             return result;
         }
 
@@ -192,20 +192,20 @@ function processQuillContentForSaving(htmlContent: string): string {
         });
 
         const result = processedElements.join("");
-        console.log("[processQuillContentForSaving] Final result:", result);
+        debug("[processQuillContentForSaving] Final result:", result);
         return result;
     } catch (error) {
         console.warn("Error processing Quill content, falling back to simple processing:", error);
 
         // Enhanced fallback using regex
         const cleaned = htmlContent.trim();
-        console.log("[processQuillContentForSaving] Fallback processing:", cleaned);
+        debug("[processQuillContentForSaving] Fallback processing:", cleaned);
 
         // Count paragraphs using regex
         const paragraphMatches = cleaned.match(/<p[^>]*>[\s\S]*?<\/p>/g);
         const paragraphCount = paragraphMatches ? paragraphMatches.length : 0;
 
-        console.log("[processQuillContentForSaving] Fallback paragraph count:", paragraphCount);
+        debug("[processQuillContentForSaving] Fallback paragraph count:", paragraphCount);
 
         if (paragraphCount === 0) {
             return cleaned ? `<span>${cleaned}</span>` : "";
@@ -241,7 +241,7 @@ function processQuillContentForSaving(htmlContent: string): string {
                 .filter((p) => p !== "");
 
             const result = processedParagraphs.join("");
-            console.log("[processQuillContentForSaving] Fallback result:", result);
+            debug("[processQuillContentForSaving] Fallback result:", result);
             return result;
         }
 

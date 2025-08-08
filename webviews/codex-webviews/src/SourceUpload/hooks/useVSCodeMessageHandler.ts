@@ -86,9 +86,7 @@ export function useVSCodeMessageHandler() {
                     break;
 
                 case "bibleDownloadComplete":
-                    console.log("[useVSCodeMessageHandler] Received bibleDownloadComplete message");
                     setWorkflow((prev) => {
-                        console.log("[useVSCodeMessageHandler] Current step:", prev.step, "-> complete");
                         return {
                             ...prev,
                             step: "complete",

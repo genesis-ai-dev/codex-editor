@@ -76,9 +76,7 @@ interface MessageHandlerContext {
 
 // Individual message handlers
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
-    webviewReady: () => {
-        console.log("Webview is ready");
-    },
+    webviewReady: () => { },
 
     addWord: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
@@ -168,7 +166,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
         if (!spellcheckEnabled) {
-            console.log("Spellcheck is disabled, skipping spell check");
             return;
         }
 
@@ -190,7 +187,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             const spellcheckEnabled = config.get("spellcheckIsEnabled", false);
 
             if (!spellcheckEnabled) {
-                console.log("[Message Handler] Spellcheck is disabled, skipping alert codes");
+                debug("[Message Handler] Spellcheck is disabled, skipping alert codes");
                 return;
             }
 
@@ -356,7 +353,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
             typedEvent.content.cellId
         )) as { cellId: string; content: string; };
-        console.log("providerSendsSourceText", { sourceText });
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsSourceText",
             content: sourceText.content,
@@ -837,7 +833,6 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     requestAudioForCell: async ({ event, document, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell"; }>;
-        console.log("requestAudioForCell message received for cell:", typedEvent.content.cellId);
         const cellId = typedEvent.content.cellId;
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         if (!workspaceFolder) {

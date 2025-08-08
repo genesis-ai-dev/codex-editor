@@ -1027,7 +1027,7 @@ export class SourceUploadProvider
             // Trigger reindex after successful download
             try {
                 await vscode.commands.executeCommand("codex-editor-extension.forceReindex");
-                console.log("[SourceUploadProvider] Reindex completed successfully");
+                debug("[SourceUploadProvider] Reindex completed successfully");
             } catch (indexError) {
                 console.warn("[SourceUploadProvider] Reindex failed, but continuing:", indexError);
                 // Don't fail the entire process if indexing fails
@@ -1052,22 +1052,22 @@ export class SourceUploadProvider
             } as SourceUploadResponseMessages);
 
             // Now send the final completion message to advance to step 6
-            console.log("[SourceUploadProvider] Sending bibleDownloadComplete message");
-            console.log("[SourceUploadProvider] Webview panel visible:", webviewPanel.visible);
+            debug("[SourceUploadProvider] Sending bibleDownloadComplete message");
+            debug("[SourceUploadProvider] Webview panel visible:", webviewPanel.visible);
 
             // Try to send the completion message, but don't rely on visibility
             try {
                 webviewPanel.webview.postMessage({
                     command: "bibleDownloadComplete",
                 } as SourceUploadResponseMessages);
-                console.log("[SourceUploadProvider] Completion message sent directly");
+                debug("[SourceUploadProvider] Completion message sent directly");
             } catch (error) {
                 console.warn("[SourceUploadProvider] Failed to send completion message:", error);
                 // Fallback to safe method
                 const completionSent = this.safeSendMessage(webviewPanel, {
                     command: "bibleDownloadComplete",
                 } as SourceUploadResponseMessages);
-                console.log("[SourceUploadProvider] Fallback completion message sent:", completionSent);
+                debug("[SourceUploadProvider] Fallback completion message sent:", completionSent);
             }
         } catch (error) {
             await this.currentDownloadBibleTransaction?.rollback();

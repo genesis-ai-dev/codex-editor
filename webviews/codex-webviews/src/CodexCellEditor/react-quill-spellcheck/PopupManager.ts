@@ -120,7 +120,7 @@ export default class PopupManager {
         // Create a footer for dictionary and reject actions
         const footerDiv = document.createElement("div");
         footerDiv.className = "quill-spck-match-popup-footer";
-        
+
         // Add "Add to dictionary" button only if it's a dictionary error
         if (match.color !== "purple" && match.color !== "blue") {
             const addToDictionaryButton = this.createActionButton(
@@ -259,7 +259,6 @@ export default class PopupManager {
             rightToken: match.rightToken || "",
         };
 
-        console.log("[RYDER*]", { content, match, suggestion });
         // FIXME: how did we lose the leftToken and rightToken? check ./index.ts
 
         const message: EditorPostMessages = {

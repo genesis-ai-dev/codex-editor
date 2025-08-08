@@ -1138,7 +1138,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                         if (choice === "Yes, Reset") {
                             // Reset schema version to force migration
                             await (translationPairsIndex as any).setSchemaVersion(2);
-                            console.log("[SQLiteIndex] ✅ AI configuration reset.");
+                            debug("[SQLiteIndex] ✅ AI configuration reset.");
                             vscode.window.showInformationMessage("AI configuration reset. Please reload the extension to continue.");
                         }
                     } else {
@@ -1773,7 +1773,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                             cancellable: false
                         }, async (progress) => {
                             // Log technical operation to console instead of showing to user
-                            console.log("[SQLiteIndex] 🔍 Analyzing validation columns...");
+                            debug("[SQLiteIndex] 🔍 Analyzing validation columns...");
                             progress.report({ message: "Checking validation data..." });
 
                             const db = translationPairsIndex.database;

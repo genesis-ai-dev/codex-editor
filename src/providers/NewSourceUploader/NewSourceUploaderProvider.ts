@@ -10,6 +10,13 @@ import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSe
 import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
 
+const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_NEW_SOURCE_UPLOADER_PROVIDER) {
+        console.log(`[NewSourceUploaderProvider] ${message}`, ...args);
+    }
+}
+
 export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvider {
     public static readonly viewType = "newSourceUploaderProvider";
 
@@ -625,8 +632,8 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 vscode.workspace.findFiles("files/target/*.codex")
             ]);
 
-            console.log("[NEW SOURCE UPLOADER] Found source files:", sourceFileUris.length);
-            console.log("[NEW SOURCE UPLOADER] Found codex files:", codexFileUris.length);
+            debug("[NEW SOURCE UPLOADER] Found source files:", sourceFileUris.length);
+            debug("[NEW SOURCE UPLOADER] Found codex files:", codexFileUris.length);
 
             // Process source files (basic metadata only)
             for (const file of sourceFileUris) {
@@ -661,7 +668,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 targetFiles,
                 translationPairs,
             };
-            console.log("[NEW SOURCE UPLOADER] Final inventory result:", result);
+            debug("[NEW SOURCE UPLOADER] Final inventory result:", result);
             return result;
 
         } catch (error) {

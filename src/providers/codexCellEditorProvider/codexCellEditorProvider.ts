@@ -35,7 +35,7 @@ import path from "path";
 const DEBUG_MODE = false;
 function debug(...args: any[]) {
     if (DEBUG_MODE) {
-        console.log("[CodexCellEditorProvider]", ...args);
+        debug("[CodexCellEditorProvider]", ...args);
     }
 }
 
@@ -1773,7 +1773,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             // Save the target document
             await targetDocument.save(new vscode.CancellationTokenSource().token);
 
-            console.log(`Successfully unmerged cell ${cellIdToUnmerge} in ${isSourceToTarget ? 'target' : 'source'} file ${targetFileName}`);
+            debug(`Successfully unmerged cell ${cellIdToUnmerge} in ${isSourceToTarget ? 'target' : 'source'} file ${targetFileName}`);
 
             // Refresh the target webview if it's open
             const targetPanel = this.webviewPanels.get(targetDocumentUri);
@@ -2606,14 +2606,11 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 );
                 try {
                     await vscode.workspace.fs.stat(localizedPath);
-                    console.log("Navigation: Found localized-books.json, loading...");
                     const content = await vscode.workspace.fs.readFile(localizedPath);
                     const raw = new TextDecoder().decode(content);
                     bookData = JSON.parse(raw);
-                    console.log("Navigation: Localized books loaded successfully");
                 } catch (err) {
                     // File doesn't exist, use default data
-                    console.log("Navigation: Using default bible book data");
                 }
             }
         } catch (err) {
@@ -2695,7 +2692,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     .then(() => {
                         // FIXED: Don't automatically call updateFileStatus here
                         // Let the sync completion handle status updates
-                        console.log("Manual sync completed for:", fileName);
+                        debug("Manual sync completed for:", fileName);
                     })
                     .catch((error) => {
                         console.error("Error during manual sync:", error);

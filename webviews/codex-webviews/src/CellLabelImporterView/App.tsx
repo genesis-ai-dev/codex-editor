@@ -113,7 +113,6 @@ const App: React.FC = () => {
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            console.log("[App.tsx] Received message from extension:", message);
 
             switch (message.command) {
                 case "updateHeaders": // Sent after file is chosen, before processing

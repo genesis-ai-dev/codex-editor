@@ -20,6 +20,13 @@ import { resolveConflictFiles } from "./resolvers";
 import { getAuthApi } from "../../../extension";
 import { ConflictFile } from "./types";
 
+const DEBUG_MODE = false;
+function debug(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[Merge]", ...args);
+    }
+}
+
 export interface SyncResult {
     success: boolean;
     changedFiles: string[];
@@ -80,7 +87,6 @@ export async function stageAndCommitAllAndSync(
         try {
             remotes = await git.listRemotes({ fs, dir: workspaceFolder });
             if (remotes.length === 0) {
-                console.log("No remotes found");
                 return syncResult;
             }
         } catch (error) {
@@ -98,7 +104,7 @@ export async function stageAndCommitAllAndSync(
 
         if (conflictsResponse?.hasConflicts) {
             const conflicts = conflictsResponse.conflicts || [];
-            console.log(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
+            debug(`🔧 Processing ${conflicts.length} file conflicts from git sync...`);
 
             // Track which files are being modified
             for (const conflict of conflicts) {
@@ -117,16 +123,16 @@ export async function stageAndCommitAllAndSync(
             if (resolvedFiles.length > 0) {
                 try {
                     await authApi.completeMerge(resolvedFiles, undefined);
-                    console.log(`✅ Resolved ${resolvedFiles.length} file conflicts`);
+                    debug(`✅ Resolved ${resolvedFiles.length} file conflicts`);
                 } catch (completeMergeError) {
                     const errorMessage = completeMergeError instanceof Error ? completeMergeError.message : String(completeMergeError);
-                    console.log("errorMessage in retry", errorMessage);
+                    debug("errorMessage in retry", errorMessage);
                     if (retryCount < 3) {
-                        console.log(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
+                        debug(`⚠️ Complete merge failed with fast-forward error, retrying... (attempt ${retryCount + 1}/3)`);
 
                         // Exponential backoff starting at 30s: 30s, 60s, 120s
                         const backoffMs = 30 * Math.pow(2, retryCount) * 1000;
-                        console.log(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
+                        debug(`⏳ Waiting ${backoffMs / 1000} seconds before retrying...`);
                         await new Promise(resolve => setTimeout(resolve, backoffMs));
 
                         return stageAndCommitAllAndSync(commitMessage, showCompletionMessage, retryCount + 1);
@@ -146,7 +152,7 @@ export async function stageAndCommitAllAndSync(
         syncResult.totalChanges = syncResult.changedFiles.length + syncResult.newFiles.length + syncResult.deletedFiles.length;
         syncResult.success = true;
 
-        console.log(`📊 Git sync completed: ${syncResult.totalChanges} total changes (${syncResult.changedFiles.length} modified, ${syncResult.newFiles.length} new, ${syncResult.deletedFiles.length} deleted)`);
+        debug(`📊 Git sync completed: ${syncResult.totalChanges} total changes (${syncResult.changedFiles.length} modified, ${syncResult.newFiles.length} new, ${syncResult.deletedFiles.length} deleted)`);
 
         // Only show completion message if requested (not during startup with splash screen)
         if (showCompletionMessage) {

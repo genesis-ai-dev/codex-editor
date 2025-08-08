@@ -217,7 +217,7 @@ export class TranslationImportTransaction extends ImportTransaction {
     }
 
     async execute(
-        progress?: vscode.Progress<{ message?: string; increment?: number }>,
+        progress?: vscode.Progress<{ message?: string; increment?: number; }>,
         token?: vscode.CancellationToken
     ): Promise<void> {
         if (this.importedContent.length === 0) {
@@ -666,7 +666,7 @@ export class TranslationImportTransaction extends ImportTransaction {
         sourceEnd: number,
         targetStart: number,
         targetEnd: number
-    ): { sourceStart: number; sourceEnd: number; targetStart: number; targetEnd: number } {
+    ): { sourceStart: number; sourceEnd: number; targetStart: number; targetEnd: number; } {
         // If there's a large gap (e.g., hour difference), normalize by subtracting the difference
         const hourInSeconds = 3600;
         const sourceMidpoint = (sourceStart + sourceEnd) / 2;
@@ -704,7 +704,7 @@ export class TranslationImportTransaction extends ImportTransaction {
     ): Promise<AlignedCell[]> {
         const alignedCells: AlignedCell[] = [];
         let totalOverlaps = 0;
-        const sourceCellOverlapCount: { [key: string]: number } = {};
+        const sourceCellOverlapCount: { [key: string]: number; } = {};
 
         for (const importedItem of importedContent) {
             if (!importedItem.content.trim()) continue;

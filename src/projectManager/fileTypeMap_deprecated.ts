@@ -69,7 +69,7 @@ export async function importTranslations(
     let importedContent: ImportedContent[] = [];
     let cellAligner: CellAligner;
     let importedVttData: {
-        cues: { text: string; startTime: number; endTime: number; id: string }[];
+        cues: { text: string; startTime: number; endTime: number; id: string; }[];
     } = {
         cues: [],
     };
@@ -344,7 +344,7 @@ async function alignVTTCells(
     let totalOverlaps = 0;
 
     // Map to track how many overlaps each source cell has
-    const sourceCellOverlapCount: { [key: string]: number } = {};
+    const sourceCellOverlapCount: { [key: string]: number; } = {};
 
     importedContent.forEach((importedItem) => {
         if (!importedItem.content.trim()) {

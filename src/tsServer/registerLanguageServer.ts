@@ -7,6 +7,13 @@ import {
 } from "vscode-languageclient/node";
 import { NOTEBOOK_TYPE } from "../utils/codexNotebookUtils";
 
+const DEBUG_REGISTER_LANGUAGE_SERVER = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_REGISTER_LANGUAGE_SERVER) {
+        console.log(`[registerLanguageServer] ${message}`, ...args);
+    }
+}
+
 export async function registerLanguageServer(
     context: vscode.ExtensionContext
 ): Promise<LanguageClient | undefined> {
@@ -15,14 +22,14 @@ export async function registerLanguageServer(
         const isCopilotEnabled = config.get<boolean>("enable", true);
 
         if (!isCopilotEnabled) {
-            console.log("[Language Server] Language server is disabled by configuration");
+            debug("[Language Server] Language server is disabled by configuration");
             vscode.window.showInformationMessage(
                 "Codex Extension Server is disabled. Project was not indexed."
             );
             return undefined;
         }
 
-        console.log("[Language Server] Registering the Codex Copilot Language Server...");
+        debug("[Language Server] Registering the Codex Copilot Language Server...");
         const serverModule = context.asAbsolutePath("out/server.js");
 
         // Validate server module exists
@@ -65,7 +72,7 @@ export async function registerLanguageServer(
             },
         };
 
-        console.log("[Language Server] Creating the Codex Copilot Language Server client...");
+        debug("[Language Server] Creating the Codex Copilot Language Server client...");
         const client = new LanguageClient(
             "codexCopilotLanguageServer",
             "Codex Copilot Language Server",
@@ -73,7 +80,7 @@ export async function registerLanguageServer(
             clientOptions
         );
 
-        console.log("[Language Server] Attempting to start the Codex Copilot Language Server...");
+        debug("[Language Server] Attempting to start the Codex Copilot Language Server...");
 
         try {
             await client.start();
@@ -92,7 +99,7 @@ export async function registerLanguageServer(
                 // Continue - this is not critical for basic functionality
             }
 
-            console.log("[Language Server] Codex Copilot Language Server started successfully.");
+            debug("[Language Server] Codex Copilot Language Server started successfully.");
             return client;
         } catch (startError) {
             console.error("[Language Server] Failed to start language server on first attempt:", {
@@ -103,13 +110,13 @@ export async function registerLanguageServer(
             });
 
             // Attempt to restart the server
-            console.log("[Language Server] Attempting to restart the language server...");
+            debug("[Language Server] Attempting to restart the language server...");
             try {
                 await client.stop();
                 await new Promise((resolve) => setTimeout(resolve, 1000));
                 await client.start();
 
-                console.log("[Language Server] Codex Copilot Language Server restarted successfully.");
+                debug("[Language Server] Codex Copilot Language Server restarted successfully.");
                 context.subscriptions.push(client);
 
                 // Re-register notification handlers after restart
@@ -157,13 +164,13 @@ export async function registerLanguageServer(
 
 export function deactivate(client: LanguageClient): Thenable<void> | undefined {
     if (!client) {
-        console.log("[Language Server] No Codex Copilot Language Server client to stop.");
+        debug("[Language Server] No Codex Copilot Language Server client to stop.");
         return undefined;
     }
 
-    console.log("[Language Server] Stopping Codex Copilot Language Server...");
+    debug("[Language Server] Stopping Codex Copilot Language Server...");
     return client.stop().then(
-        () => console.log("[Language Server] Codex Copilot Language Server stopped successfully."),
+        () => debug("[Language Server] Codex Copilot Language Server stopped successfully."),
         (error) => {
             console.error("[Language Server] Error stopping Codex Copilot Language Server:", {
                 error: error instanceof Error ? error.message : String(error),

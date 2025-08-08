@@ -356,7 +356,6 @@ connection.onRequest("spellcheck/check", async (params: { text: string; cellId: 
         // Process ICE results
         if (iceResults && Array.isArray(iceResults)) {
             try {
-                console.log("[RYDER**] iceResults", { iceResults });
                 for (const suggestion of iceResults) {
                     try {
                         if (suggestion.rejected === true) continue;

@@ -2,6 +2,12 @@ import * as vscode from "vscode";
 import { NotebookCommentThread, NotebookComment } from "../../types";
 import { writeSerializedData } from "./fileUtils";
 
+const DEBUG_COMMENTS_MIGRATION = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_COMMENTS_MIGRATION) {
+        console.log(`[CommentsMigrator] ${message}`, ...args);
+    }
+}
 /**
  * Centralized comments migration utilities
  * Handles migration from file-comments.json to .project/comments.json
@@ -167,7 +173,7 @@ export class CommentsMigrator {
 
                 // Handle empty files
                 if (!fileContentString) {
-                    console.log("[CommentsMigrator] Legacy file-comments.json is completely empty, deleting");
+                    debug("[CommentsMigrator] Legacy file-comments.json is completely empty, deleting");
                     await vscode.workspace.fs.delete(legacyFilePath);
                 } else {
                     try {
@@ -176,7 +182,7 @@ export class CommentsMigrator {
                             legacyComments = parsedLegacyComments;
                             console.log(`[CommentsMigrator] Found ${legacyComments.length} threads in file-comments.json`);
                         } else {
-                            console.log("[CommentsMigrator] Legacy file-comments.json is empty array, deleting");
+                            debug("[CommentsMigrator] Legacy file-comments.json is empty array, deleting");
                         }
                         // Delete legacy file regardless of content
                         await vscode.workspace.fs.delete(legacyFilePath);
@@ -454,7 +460,7 @@ export class CommentsMigrator {
                 return date.getTime();
             }
         } catch (error) {
-            console.log("[CommentsMigrator] Failed to parse thread title date:", threadTitle, error);
+            debug("[CommentsMigrator] Failed to parse thread title date:", threadTitle, error);
         }
         return null;
     }
@@ -504,10 +510,10 @@ export class CommentsMigrator {
             }
 
             // If we couldn't parse it properly, return the original
-            console.log("[CommentsMigrator] Could not convert to relative path:", uri);
+            debug("[CommentsMigrator] Could not convert to relative path:", uri);
             return uri;
         } catch (error) {
-            console.log("[CommentsMigrator] Error converting to relative path:", uri, error);
+            debug("[CommentsMigrator] Error converting to relative path:", uri, error);
             return uri;
         }
     }
@@ -820,7 +826,7 @@ export class CommentsMigrator {
                     const fileStat = await vscode.workspace.fs.stat(commentsFilePath);
                     const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
                     if (fileStat.mtime > tenMinutesAgo) {
-                        console.log('[CommentsMigrator] Skipping repair - file was recently modified (may be actively edited)');
+                        debug('[CommentsMigrator] Skipping repair - file was recently modified (may be actively edited)');
                         return;
                     }
                 } catch (error) {
@@ -829,7 +835,7 @@ export class CommentsMigrator {
                 }
             }
 
-            console.log('[CommentsMigrator] Checking for corrupted comment data...');
+            debug('[CommentsMigrator] Checking for corrupted comment data...');
 
             // Check if file exists before trying to read it
             try {
@@ -915,7 +921,7 @@ export class CommentsMigrator {
                 console.log(`  - Properties normalized: ${totalPropertiesNormalized}`);
                 console.log(`  - Events repaired: ${totalEventsRepaired}`);
             } else {
-                console.log('[CommentsMigrator] ✅ No corrupted data found - comments file is clean');
+                debug('[CommentsMigrator] ✅ No corrupted data found - comments file is clean');
             }
 
         } catch (error) {
@@ -953,7 +959,7 @@ export class CommentsMigrator {
 
             return legacyExists || newExists;
         } catch (error) {
-            console.log("[CommentsMigrator] Error checking source control status:", error);
+            debug("[CommentsMigrator] Error checking source control status:", error);
             return false;
         }
     }

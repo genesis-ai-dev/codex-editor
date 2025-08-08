@@ -3,6 +3,13 @@ import { Database } from "fts5-sql-bundle";
 import * as vscode from "vscode";
 import { getEntry, bulkAddWords } from "../sqldb";
 
+const DEBUG_REGISTER_CLIENT_ON_REQUESTS = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_REGISTER_CLIENT_ON_REQUESTS) {
+        console.log(`[registerClientOnRequests] ${message}`, ...args);
+    }
+}
+
 // Define message types
 export const CustomRequests = {
     CheckWord: "custom/checkWord",
@@ -16,7 +23,7 @@ function generateId(): string {
 
 export default async function registerClientOnRequests(client: LanguageClient, db: Database) {
     try {
-        console.log("[Language Server] Registering client request handlers with database...");
+        debug("[Language Server] Registering client request handlers with database...");
 
         // Register handlers
         await client.start(); // Make sure client is started first
@@ -163,7 +170,7 @@ export default async function registerClientOnRequests(client: LanguageClient, d
             }
         });
 
-        console.log("[Language Server] Client request handlers registered successfully");
+        debug("[Language Server] Client request handlers registered successfully");
     } catch (error) {
         console.error("[Language Server] Critical failure registering client request handlers:", {
             error: error instanceof Error ? error.message : String(error),

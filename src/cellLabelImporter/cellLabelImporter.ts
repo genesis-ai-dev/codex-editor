@@ -14,6 +14,13 @@ import { updateCellLabels } from "./updater";
 import { getNonce } from "../providers/dictionaryTable/utilities/getNonce";
 import { safePostMessageToPanel } from "../utils/webviewUtils";
 
+const DEBUG_CELL_LABEL_IMPORTER = false;
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_CELL_LABEL_IMPORTER) {
+        console.log(`[CellLabelImporter] ${message}`, ...args);
+    }
+}
+
 // Interface for the cell label data
 interface CellLabelData {
     cellId: string;
@@ -193,7 +200,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
     }
 
     const messageListener = panel.webview.onDidReceiveMessage(async (message) => {
-        console.log("[Extension] Received message from CellLabelImporterView:", message);
+        debug("[Extension] Received message from CellLabelImporterView:", message);
         switch (message.command) {
             case "importFile":
                 try {
@@ -363,11 +370,11 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                 break;
 
             case "cancelImportCleanup": // New handler for webview's "Cancel Import"
-                console.log("[TempFileCleanup] Received cancelImportCleanup command.");
+                debug("[TempFileCleanup] Received cancelImportCleanup command.");
                 for (const tempUri of currentSessionTempFileUris) {
                     try {
                         await vscode.workspace.fs.delete(tempUri);
-                        console.log("[TempFileCleanup] Deleted on cancel import:", tempUri.fsPath);
+                        debug("[TempFileCleanup] Deleted on cancel import:", tempUri.fsPath);
                     } catch (e) {
                         console.warn(
                             "[TempFileCleanup] Failed to delete on cancel import:",
@@ -422,7 +429,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             disposables = [];
 
             // Final cleanup of any session temp files when panel is closed
-            console.log("[TempFileCleanup] Panel disposed. Cleaning up session temp files if any.");
+            debug("[TempFileCleanup] Panel disposed. Cleaning up session temp files if any.");
             const urisToClean = [...currentSessionTempFileUris]; // Copy before clearing
             currentSessionTempFileUris = [];
             currentImportSourceNames = [];
@@ -430,7 +437,7 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             for (const tempUri of urisToClean) {
                 vscode.workspace.fs.delete(tempUri).then(
                     () =>
-                        console.log("[TempFileCleanup] Deleted on panel dispose:", tempUri.fsPath),
+                        debug("[TempFileCleanup] Deleted on panel dispose:", tempUri.fsPath),
                     (e) =>
                         console.warn(
                             "[TempFileCleanup] Failed to delete on panel dispose:",

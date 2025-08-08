@@ -50,6 +50,13 @@ import { checkExtensionVersionsOnStartup, registerVersionCheckCommands, resetVer
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 
+const DEBUG_MODE = false;
+function debug(...args: any[]): void {
+    if (DEBUG_MODE) {
+        console.log("[Extension]", ...args);
+    }
+}
+
 export interface ActivationTiming {
     step: string;
     duration: number;
@@ -67,7 +74,7 @@ function trackTiming(step: string, stepStartTime: number): number {
     const duration = stepEndTime - stepStartTime; // Duration of THIS step only
 
     activationTimings.push({ step, duration, startTime: stepStartTime });
-    console.log(`[Activation] ${step}: ${duration.toFixed(2)}ms`);
+    debug(`[Activation] ${step}: ${duration.toFixed(2)}ms`);
 
     // Stop any previous real-time timer
     if (currentStepTimer) {
@@ -128,7 +135,7 @@ function finishRealtimeStep(): number {
         if (lastIndex >= 0 && activationTimings[lastIndex].step === currentStepName) {
             activationTimings[lastIndex].duration = finalDuration;
             updateSplashScreenTimings(activationTimings);
-            console.log(`[Activation] ${currentStepName}: ${finalDuration.toFixed(2)}ms`);
+            debug(`[Activation] ${currentStepName}: ${finalDuration.toFixed(2)}ms`);
         }
     }
 
@@ -398,7 +405,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Show activation summary
         const totalDuration = globalThis.performance.now() - activationStart;
         // Don't add "Total Activation Time" to timings array since it's already calculated above
-        console.log(`[Activation] Total Activation Time: ${totalDuration.toFixed(2)}ms`);
+        debug(`[Activation] Total Activation Time: ${totalDuration.toFixed(2)}ms`);
 
         // Sort timings by duration (descending) and format the message
         const sortedTimings = [...activationTimings].sort((a, b) => b.duration - a.duration);
@@ -492,7 +499,7 @@ export async function activate(context: vscode.ExtensionContext) {
 async function initializeExtension(context: vscode.ExtensionContext, metadataExists: boolean) {
     const initStart = globalThis.performance.now();
 
-    console.log("Initializing extension");
+    debug("Initializing extension");
 
     if (metadataExists) {
         // Break down language server initialization
@@ -502,7 +509,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const lsStart = globalThis.performance.now();
         client = await registerLanguageServer(context);
         const lsDuration = globalThis.performance.now() - lsStart;
-        console.log(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
+        debug(`[Activation]  Start Language Server: ${lsDuration.toFixed(2)}ms`);
 
         // Always register client commands to prevent "command not found" errors
         // If language server failed, commands will return appropriate fallbacks
@@ -510,7 +517,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         clientCommandsDisposable = registerClientCommands(context, client);
         context.subscriptions.push(clientCommandsDisposable);
         const regServicesDuration = globalThis.performance.now() - regServicesStart;
-        console.log(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
+        debug(`[Activation]  Register Language Services: ${regServicesDuration.toFixed(2)}ms`);
 
         if (client && global.db) {
             const optimizeStart = globalThis.performance.now();
@@ -521,7 +528,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                 console.error("Error registering client requests:", error);
             }
             const optimizeDuration = globalThis.performance.now() - optimizeStart;
-            console.log(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
+            debug(`[Activation]  Optimize Language Processing: ${optimizeDuration.toFixed(2)}ms`);
         } else {
             if (!client) {
                 console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
@@ -532,7 +539,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         }
         finishRealtimeStep();
         const totalLsDuration = globalThis.performance.now() - totalLsStart;
-        console.log(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
+        debug(`[Activation] Language Server Ready: ${totalLsDuration.toFixed(2)}ms`);
 
         // Break down index creation  
         const totalIndexStart = globalThis.performance.now();
@@ -540,7 +547,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const verseRefsStart = globalThis.performance.now();
         // Index verse refs would go here, but it seems to be missing from this section
         const verseRefsDuration = globalThis.performance.now() - verseRefsStart;
-        console.log(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
+        debug(`[Activation]  Index Verse Refs: ${verseRefsDuration.toFixed(2)}ms`);
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
@@ -551,20 +558,20 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
-        console.log(`[AI Learning] Total AI learning preparation: ${totalIndexDuration.toFixed(2)}ms`);
+        debug(`[AI Learning] Total AI learning preparation: ${totalIndexDuration.toFixed(2)}ms`);
 
         // Skip version check during splash screen - will be performed before sync
         updateSplashScreenSync(50, "Finalizing initialization...");
 
         // Skip sync during splash screen - will be performed after workspace loads
         updateSplashScreenSync(100, "Initialization complete");
-        console.log("✅ [SPLASH SCREEN PHASE] Extension initialization complete, sync will run after workspace loads");
+        debug("✅ [SPLASH SCREEN PHASE] Extension initialization complete, sync will run after workspace loads");
     }
 
     // Calculate and log total initialize extension time but don't add to main timing array
     // since it's a summary of the sub-steps already tracked
     const totalInitDuration = globalThis.performance.now() - initStart;
-    console.log(`[Activation] Total Initialize Extension: ${totalInitDuration.toFixed(2)}ms`);
+    debug(`[Activation] Total Initialize Extension: ${totalInitDuration.toFixed(2)}ms`);
 }
 
 let watcher: vscode.FileSystemWatcher | undefined;
@@ -646,7 +653,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
 
     // Close splash screen and then check if we need to show the welcome view
     closeSplashScreen(async () => {
-        console.log(
+        debug(
             "[Extension] Splash screen closed, checking if welcome view needs to be shown"
         );
         // Show tabs again after splash screen closes
@@ -661,21 +668,21 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         // First check if there's actually a Codex project open
         const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
         if (!hasCodexProject) {
-            console.log("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
+            debug("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
         } else if (authApi) {
             try {
                 const authStatus = authApi.getAuthStatus();
                 if (authStatus.isAuthenticated) {
-                    console.log("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, checking extension versions before sync...");
+                    debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, checking extension versions before sync...");
 
                     // Check extension versions right before syncing
                     let allowSync = true;
                     try {
                         allowSync = await checkExtensionVersionsOnStartup(context);
                         if (!allowSync) {
-                            console.log("🚫 [POST-WORKSPACE] Sync disabled due to outdated extensions");
+                            debug("🚫 [POST-WORKSPACE] Sync disabled due to outdated extensions");
                         } else {
-                            console.log("✅ [POST-WORKSPACE] Extension versions OK, proceeding with sync");
+                            debug("✅ [POST-WORKSPACE] Extension versions OK, proceeding with sync");
                         }
                     } catch (error) {
                         console.error("❌ [POST-WORKSPACE] Error checking extension versions:", error);
@@ -689,19 +696,19 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                         try {
                             await syncManager.executeSync("Initial workspace sync", true, context, false);
                             const syncDuration = globalThis.performance.now() - syncStart;
-                            console.log(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
+                            debug(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
                         } catch (error) {
                             console.error("❌ [POST-WORKSPACE] Error during post-workspace sync:", error);
                         }
                     }
                 } else {
-                    console.log("⏭️ [POST-WORKSPACE] User is not authenticated, skipping post-workspace sync");
+                    debug("⏭️ [POST-WORKSPACE] User is not authenticated, skipping post-workspace sync");
                 }
             } catch (error) {
                 console.error("❌ [POST-WORKSPACE] Error checking auth status for post-workspace sync:", error);
             }
         } else {
-            console.log("⏭️ [POST-WORKSPACE] Auth API not available, skipping post-workspace sync");
+            debug("⏭️ [POST-WORKSPACE] Auth API not available, skipping post-workspace sync");
         }
 
         // Check if we need to show the welcome view after initialization
