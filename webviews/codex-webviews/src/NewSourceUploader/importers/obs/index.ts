@@ -189,6 +189,7 @@ const downloadObsRepository = async (
                         documentId,
                         sectionId,
                         cellIndex: cellCounter,
+                        cellLabel: cellCounter.toString(),
                     });
                     storyCells.push(textCell);
                     cellCounter++;
@@ -215,6 +216,7 @@ const downloadObsRepository = async (
                             documentId,
                             sectionId,
                             cellIndex: cellCounter,
+                            cellLabel: cellCounter.toString(),
                         });
 
                         imageCell.images = [processedImage];
@@ -406,6 +408,7 @@ const parseObsMarkdown = async (
                 documentId,
                 sectionId,
                 cellIndex: cellCounter,
+                cellLabel: cellCounter.toString(),
             });
             cells.push(textCell);
             cellCounter++;
@@ -425,6 +428,7 @@ const parseObsMarkdown = async (
                     documentId,
                     sectionId,
                     cellIndex: cellCounter,
+                    cellLabel: cellCounter.toString(),
                     imageAlt: img.alt,
                     imageTitle: img.title,
                     imageSrc: img.src,

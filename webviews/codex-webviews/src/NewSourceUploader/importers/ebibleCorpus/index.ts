@@ -81,6 +81,7 @@ const parseFile = async (
                 book: verse.book,
                 chapter: verse.chapter,
                 verse: verse.verseNumber,
+                cellLabel: verse.verseNumber.toString(),
             });
         });
 
