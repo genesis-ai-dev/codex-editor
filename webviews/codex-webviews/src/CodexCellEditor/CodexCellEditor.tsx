@@ -183,6 +183,8 @@ const CodexCellEditor: React.FC = () => {
 
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
+    // Validation configuration (required validations) – requested once and derived for children
+    const [requiredValidations, setRequiredValidations] = useState<number | null>(null);
 
     // Temporary font size for preview - only applied when dropdown is open
     const [tempFontSize, setTempFontSize] = useState<number | null>(null);
@@ -289,6 +291,24 @@ const CodexCellEditor: React.FC = () => {
             window.removeEventListener("message", handleMessage);
         };
     }, []);
+
+    // Request required validation count once and listen for updates
+    useEffect(() => {
+        const handleValidationConfig = (event: MessageEvent) => {
+            const message = event.data;
+            if (message?.type === "validationCount") {
+                setRequiredValidations(message.content);
+            }
+            if (message?.type === "configurationChanged") {
+                // Re-request on configuration changes
+                vscode.postMessage({ command: "getValidationCount" } as EditorPostMessages);
+            }
+        };
+        window.addEventListener("message", handleValidationConfig);
+        // Initial request
+        vscode.postMessage({ command: "getValidationCount" } as EditorPostMessages);
+        return () => window.removeEventListener("message", handleValidationConfig);
+    }, [vscode]);
 
     useEffect(() => {
         if (highlightedCellId && scrollSyncEnabled && isSourceText) {
@@ -441,7 +461,6 @@ const CodexCellEditor: React.FC = () => {
             isSourceText: boolean,
             sourceCellMap: { [k: string]: { content: string; versions: string[] } }
         ) => {
-            console.log("content in cell editor", { content, isSourceText, sourceCellMap });
             setTranslationUnits(content);
             setIsSourceText(isSourceText);
             setSourceCellMap(sourceCellMap);
@@ -1662,11 +1681,7 @@ const CodexCellEditor: React.FC = () => {
             />
         );
     }
-    console.log("content in cell editor", {
-        translationUnitsWithCurrentEditorContent,
-        isCorrectionEditorMode,
-        isSourceText,
-    });
+
     return (
         <div className="cell-editor-container" style={{ direction: textDirection as any }}>
             {/* Menu toggle button */}

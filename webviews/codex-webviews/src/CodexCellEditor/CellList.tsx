@@ -42,6 +42,9 @@ export interface CellListProps {
     isSaving?: boolean;
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     fontSize?: number; // Font size for responsive styling
+    // Derived, shared state to avoid per-cell auth/validation lookups
+    currentUsername?: string | null;
+    requiredValidations?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -76,6 +79,8 @@ const CellList: React.FC<CellListProps> = ({
     isSaving = false,
     isCorrectionEditorMode = false,
     fontSize = 14,
+    currentUsername,
+    requiredValidations,
 }) => {
     const numberOfEmptyCellsToRender = 1;
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -97,7 +102,6 @@ const CellList: React.FC<CellListProps> = ({
         }
         return translationUnits;
     }, [translationUnits, isSourceText, isCorrectionEditorMode]);
-    console.log("filteredTranslationUnits", { filteredTranslationUnits, translationUnits });
     // Use filtered units for all operations
     const workingTranslationUnits = filteredTranslationUnits;
     // State to track completed translations (only successful ones) - REMOVED: Now handled by parent
@@ -520,7 +524,7 @@ const CellList: React.FC<CellListProps> = ({
     const renderCellGroup = useCallback(
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
-                key={`group-${startIndex}`}
+                key={`group-${group[0]?.cellMarkers?.[0] ?? startIndex}`}
                 className={`verse-group cell-display-${cellDisplayMode}`}
                 style={{
                     direction: textDirection,
@@ -539,7 +543,7 @@ const CellList: React.FC<CellListProps> = ({
 
                     return (
                         <span
-                            key={startIndex + index}
+                            key={`${cellMarkers[0]}:${startIndex + index}`}
                             style={{
                                 display:
                                     cellDisplayMode === CELL_DISPLAY_MODES.INLINE
@@ -572,6 +576,8 @@ const CellList: React.FC<CellListProps> = ({
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
                                 unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
+                                currentUsername={currentUsername || undefined}
+                                requiredValidations={requiredValidations}
                             />
                         </span>
                     );
@@ -645,7 +651,7 @@ const CellList: React.FC<CellListProps> = ({
 
                 result.push(
                     <span
-                        key={cellMarkers.join(" ")}
+                        key={`${cellMarkers.join(" ")}:editor`}
                         style={{ display: "inline-flex", alignItems: "center", width: "100%" }}
                     >
                         <CellEditor
@@ -803,7 +809,7 @@ const CellList: React.FC<CellListProps> = ({
                                     }}
                                 >
                                     <EmptyCellDisplay
-                                        key={cellMarkers.join(" ")}
+                                        key={`${cellMarkers.join(" ")}:empty`}
                                         cellMarkers={cellMarkers}
                                         cellLabel={""} // Pass empty label since we're already showing it
                                         setContentBeingUpdated={setContentBeingUpdated}
@@ -987,4 +993,4 @@ const CellList: React.FC<CellListProps> = ({
     );
 };
 
-export default React.memo(CellList);
+export default React.memo<CellListProps>(CellList);

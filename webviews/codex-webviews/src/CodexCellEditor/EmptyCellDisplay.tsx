@@ -39,9 +39,6 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
 
     const responsiveMargins = getResponsiveMargins();
 
-    // Debug logging to see what's happening
-    console.log('EmptyCellDisplay - fontSize:', fontSize, 'responsiveMargins:', responsiveMargins);
-
     // Effect to attach event listeners to footnote markers (if any)
     useEffect(() => {
         if (!contentRef.current) return;

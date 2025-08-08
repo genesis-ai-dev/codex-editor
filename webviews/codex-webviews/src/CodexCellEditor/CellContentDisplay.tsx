@@ -41,6 +41,9 @@ interface CellContentDisplayProps {
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     translationUnits?: QuillCellContent[]; // Full list of translation units for finding previous cell
     unresolvedCommentsCount?: number; // Number of unresolved comments for this cell
+    // Derived, shared state to avoid per-cell lookups
+    currentUsername?: string;
+    requiredValidations?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -207,13 +210,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
     isCorrectionEditorMode = false,
     translationUnits = [],
     unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
+    currentUsername,
+    requiredValidations,
 }) => {
     const { cellContent, timestamps, editHistory } = cell;
     const cellIds = cell.cellMarkers;
     const [fadingOut, setFadingOut] = useState(false);
-    const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(
-        initialUnresolvedCommentsCount
-    );
     const { showTooltip, hideTooltip } = useTooltip();
 
     const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
@@ -272,32 +274,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         setFadingOut(false);
     }, [allTranslationsComplete, translationState, isInTranslationProcess]);
 
-    // Fetch comments count for this cell
-    useEffect(() => {
-        const fetchCommentsCount = () => {
-            const messageContent: EditorPostMessages = {
-                command: "getCommentsForCell",
-                content: {
-                    cellId: cellIds[0],
-                },
-            };
-            vscode.postMessage(messageContent);
-        };
-
-        fetchCommentsCount();
-    }, [cellIds, vscode]);
-
-    // Handle comments count response
-    useEffect(() => {
-        const handleCommentsResponse = (event: MessageEvent) => {
-            if (event.data.type === "commentsForCell" && event.data.content.cellId === cellIds[0]) {
-                setUnresolvedCommentsCount(event.data.content.unresolvedCount);
-            }
-        };
-
-        window.addEventListener("message", handleCommentsResponse);
-        return () => window.removeEventListener("message", handleCommentsResponse);
-    }, [cellIds]);
+    // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
     // Helper function to check if this cell should be highlighted
     // Handles parent/child cell matching: child cells in target should highlight parent cells in source
@@ -633,6 +610,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                                                 cell={cell}
                                                 vscode={vscode}
                                                 isSourceText={isSourceText}
+                                                currentUsername={currentUsername}
+                                                requiredValidations={requiredValidations}
                                             />
                                         </div>
                                     )
@@ -736,7 +715,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         {getAlertDot()}
                         <CommentsBadge
                             cellId={cellIds[0]}
-                            unresolvedCount={unresolvedCommentsCount}
+                            unresolvedCount={initialUnresolvedCommentsCount}
                         />
                     </div>
                 )}
@@ -779,7 +758,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
 
             {/* Comments Badge positioned on the right */}
             <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                <CommentsBadge cellId={cellIds[0]} unresolvedCount={unresolvedCommentsCount} />
+                <CommentsBadge
+                    cellId={cellIds[0]}
+                    unresolvedCount={initialUnresolvedCommentsCount}
+                />
             </div>
         </div>
     );

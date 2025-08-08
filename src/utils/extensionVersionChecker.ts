@@ -66,18 +66,15 @@ async function fetchLatestVersionFromOpenVSX(openVsxPath: string): Promise<OpenV
     try {
         const url = `https://open-vsx.org/api/${openVsxPath}/latest`;
         debug(`Fetching version info from: ${url}`);
-        console.log(`[ExtensionVersionChecker] 🌐 API Request: ${url}`);
 
         const response = await fetch(url);
-        console.log(`[ExtensionVersionChecker] 📡 API Response: ${response.status} ${response.statusText}`);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const data = await response.json() as OpenVSXExtensionInfo;
-        debug(`Retrieved version: ${data.version}`);
-        console.log(`[ExtensionVersionChecker] 📋 API Data received: ${JSON.stringify({
+        debug(`Retrieved version: ${JSON.stringify({
             version: data.version,
             timestamp: data.timestamp,
             downloadCount: data.downloadCount,
@@ -106,7 +103,6 @@ function getCurrentExtensionVersion(extensionId: string): string | null {
  */
 export async function checkExtensionVersions(context: vscode.ExtensionContext): Promise<VersionCheckResult> {
     debug('Starting extension version check...');
-    console.log('[ExtensionVersionChecker] Starting comprehensive version check...');
 
     const results: ExtensionVersionInfo[] = [];
     let hasOutdatedExtensions = false;
@@ -117,14 +113,9 @@ export async function checkExtensionVersions(context: vscode.ExtensionContext): 
         .map(ext => `${ext.id} v${ext.packageJSON?.version || 'unknown'}`)
         .sort();
 
-    console.log('[ExtensionVersionChecker] All installed extensions:');
-    allInstalledExtensions.forEach(ext => console.log(`  - ${ext}`));
-
-    console.log('[ExtensionVersionChecker] Checking configured extensions:');
+    allInstalledExtensions.forEach(ext => debug(`  - ${ext}`));
 
     for (const extensionConfig of EXTENSIONS_TO_CHECK) {
-        console.log(`[ExtensionVersionChecker] === Checking ${extensionConfig.displayName} ===`);
-
         const currentVersion = getCurrentExtensionVersion(extensionConfig.id);
 
         if (!currentVersion) {
@@ -133,10 +124,8 @@ export async function checkExtensionVersions(context: vscode.ExtensionContext): 
             continue;
         }
 
-        console.log(`[ExtensionVersionChecker] 📦 Current: ${extensionConfig.displayName} v${currentVersion}`);
         debug(`Checking ${extensionConfig.displayName}: current version ${currentVersion}`);
 
-        console.log(`[ExtensionVersionChecker] 🔍 Fetching latest version from open-vsx.org...`);
         const latestInfo = await fetchLatestVersionFromOpenVSX(extensionConfig.openVsxPath);
 
         if (!latestInfo) {
@@ -146,8 +135,6 @@ export async function checkExtensionVersions(context: vscode.ExtensionContext): 
         }
 
         const latestVersion = latestInfo.version;
-        console.log(`[ExtensionVersionChecker] 🌐 Latest: ${extensionConfig.displayName} v${latestVersion} (published: ${latestInfo.timestamp})`);
-        console.log(`[ExtensionVersionChecker] 📊 Downloads: ${latestInfo.downloads?.universal ? 'Available' : 'N/A'}`);
 
         const isOutdated = semver.lt(currentVersion, latestVersion);
 
@@ -170,7 +157,6 @@ export async function checkExtensionVersions(context: vscode.ExtensionContext): 
         };
 
         results.push(versionInfo);
-        console.log(`[ExtensionVersionChecker] === End ${extensionConfig.displayName} ===\n`);
     }
 
     const result: VersionCheckResult = {
@@ -179,19 +165,14 @@ export async function checkExtensionVersions(context: vscode.ExtensionContext): 
         allExtensions: results
     };
 
-    console.log('[ExtensionVersionChecker] === VERSION CHECK SUMMARY ===');
-    console.log(`[ExtensionVersionChecker] Total extensions checked: ${results.length}`);
-    console.log(`[ExtensionVersionChecker] Up-to-date: ${results.filter(r => !r.isOutdated).length}`);
-    console.log(`[ExtensionVersionChecker] Outdated: ${result.outdatedExtensions.length}`);
-
     if (result.outdatedExtensions.length > 0) {
-        console.log('[ExtensionVersionChecker] Outdated extensions:');
+        debug('[ExtensionVersionChecker] Outdated extensions:');
         result.outdatedExtensions.forEach(ext => {
-            console.log(`[ExtensionVersionChecker]   - ${ext.displayName}: ${ext.currentVersion} → ${ext.latestVersion}`);
+            debug(`[ExtensionVersionChecker]   - ${ext.displayName}: ${ext.currentVersion} → ${ext.latestVersion}`);
         });
     }
 
-    console.log('[ExtensionVersionChecker] === END SUMMARY ===');
+    debug('[ExtensionVersionChecker] === END SUMMARY ===');
     debug(`Version check complete. Outdated extensions: ${result.outdatedExtensions.length}`);
     return result;
 }
@@ -251,12 +232,11 @@ async function disableAutoSync(): Promise<void> {
         const currentValue = config.get<boolean>('autoSyncEnabled', true);
 
         if (!currentValue) {
-            console.log('[ExtensionVersionChecker] ℹ️  Auto-sync was already disabled');
+            debug('[ExtensionVersionChecker] ℹ️  Auto-sync was already disabled');
             return;
         }
 
         await config.update('autoSyncEnabled', false, vscode.ConfigurationTarget.Global);
-        console.log('[ExtensionVersionChecker] 🔒 Auto-sync disabled due to outdated extensions');
         debug('Auto-sync disabled due to outdated extensions');
     } catch (error) {
         console.error('[ExtensionVersionChecker] ❌ Error disabling auto-sync:', error);
@@ -272,12 +252,11 @@ async function enableAutoSync(): Promise<void> {
         const currentValue = config.get<boolean>('autoSyncEnabled', true);
 
         if (currentValue) {
-            console.log('[ExtensionVersionChecker] ℹ️  Auto-sync was already enabled');
+            debug('[ExtensionVersionChecker] ℹ️  Auto-sync was already enabled');
             return;
         }
 
         await config.update('autoSyncEnabled', true, vscode.ConfigurationTarget.Global);
-        console.log('[ExtensionVersionChecker] 🔓 Auto-sync re-enabled - extensions are up to date');
         debug('Auto-sync re-enabled - extensions are up to date');
     } catch (error) {
         console.error('[ExtensionVersionChecker] ❌ Error enabling auto-sync:', error);
@@ -290,33 +269,31 @@ async function enableAutoSync(): Promise<void> {
  */
 export async function checkExtensionVersionsOnStartup(context: vscode.ExtensionContext): Promise<boolean> {
     try {
-        console.log('[ExtensionVersionChecker] ═══ STARTUP VERSION CHECK ═══');
-
         const now = Date.now();
         const lastCheck = context.globalState.get<number>(EXTENSION_CHECK_KEY, 0);
         const versionCheckDisabled = context.globalState.get<boolean>('codex-editor.versionCheckDisabled', false);
 
-        console.log(`[ExtensionVersionChecker] Version check disabled: ${versionCheckDisabled}`);
-        console.log(`[ExtensionVersionChecker] Last check: ${lastCheck > 0 ? new Date(lastCheck).toISOString() : 'Never'}`);
-        console.log(`[ExtensionVersionChecker] Time since last check: ${lastCheck > 0 ? Math.round((now - lastCheck) / 1000 / 60) : 'N/A'} minutes`);
+        debug(`[ExtensionVersionChecker] Version check disabled: ${versionCheckDisabled}`);
+        debug(`[ExtensionVersionChecker] Last check: ${lastCheck > 0 ? new Date(lastCheck).toISOString() : 'Never'}`);
+        debug(`[ExtensionVersionChecker] Time since last check: ${lastCheck > 0 ? Math.round((now - lastCheck) / 1000 / 60) : 'N/A'} minutes`);
 
         // If user has disabled version checking, allow syncing
         if (versionCheckDisabled) {
-            console.log('[ExtensionVersionChecker] ✅ Version checking is disabled by user - allowing sync');
+            debug('[ExtensionVersionChecker] ✅ Version checking is disabled by user - allowing sync');
             debug('Version checking is disabled by user');
             return true;
         }
 
         // Always perform version check on startup (no cooldown)
-        console.log('[ExtensionVersionChecker] 🔄 Version check will run on every startup (no cooldown)');
+        debug('[ExtensionVersionChecker] 🔄 Version check will run on every startup (no cooldown)');
 
-        console.log('[ExtensionVersionChecker] 🔍 Performing fresh extension version check...');
+        debug('[ExtensionVersionChecker] 🔍 Performing fresh extension version check...');
         debug('Performing extension version check...');
         const versionResult = await checkExtensionVersions(context);
 
         // Update the last check timestamp
         await context.globalState.update(EXTENSION_CHECK_KEY, now);
-        console.log('[ExtensionVersionChecker] ⏰ Updated last check timestamp');
+        debug('[ExtensionVersionChecker] ⏰ Updated last check timestamp');
 
         if (versionResult.hasOutdatedExtensions) {
             console.warn(
@@ -325,22 +302,22 @@ export async function checkExtensionVersionsOnStartup(context: vscode.ExtensionC
             );
 
             // Disable auto-sync immediately
-            console.log('[ExtensionVersionChecker] 🚫 Disabling auto-sync due to outdated extensions...');
+            debug('[ExtensionVersionChecker] 🚫 Disabling auto-sync due to outdated extensions...');
             await disableAutoSync();
 
             // Show notification and get user response
-            console.log('[ExtensionVersionChecker] 🔔 Showing user notification...');
+            debug('[ExtensionVersionChecker] 🔔 Showing user notification...');
             const allowSync = await showOutdatedExtensionsNotification(context, versionResult.outdatedExtensions);
 
             if (!allowSync) {
-                console.log('[ExtensionVersionChecker] 🛑 User chose to keep syncing disabled - sync blocked');
+                debug('[ExtensionVersionChecker] 🛑 User chose to keep syncing disabled - sync blocked');
             } else {
-                console.log('[ExtensionVersionChecker] ✅ User chose to allow syncing despite outdated extensions');
+                debug('[ExtensionVersionChecker] ✅ User chose to allow syncing despite outdated extensions');
             }
 
             return allowSync;
         } else {
-            console.log('[ExtensionVersionChecker] ✅ All extensions are up to date - allowing sync');
+            debug('[ExtensionVersionChecker] ✅ All extensions are up to date - allowing sync');
             debug('All extensions are up to date');
             // Ensure auto-sync is enabled (in case it was previously disabled)
             await enableAutoSync();
@@ -349,11 +326,11 @@ export async function checkExtensionVersionsOnStartup(context: vscode.ExtensionC
 
     } catch (error) {
         console.error('[ExtensionVersionChecker] ❌ Error during startup version check:', error);
-        console.log('[ExtensionVersionChecker] ⚠️  Allowing sync to continue despite error to avoid blocking user');
+        debug('[ExtensionVersionChecker] ⚠️  Allowing sync to continue despite error to avoid blocking user');
         // On error, allow syncing to avoid blocking the user
         return true;
     } finally {
-        console.log('[ExtensionVersionChecker] ═══ END STARTUP VERSION CHECK ═══\n');
+        debug('[ExtensionVersionChecker] ═══ END STARTUP VERSION CHECK ═══\n');
     }
 }
 
@@ -362,24 +339,24 @@ export async function checkExtensionVersionsOnStartup(context: vscode.ExtensionC
  */
 export async function manualVersionCheck(context: vscode.ExtensionContext): Promise<void> {
     try {
-        console.log('[ExtensionVersionChecker] ═══ MANUAL VERSION CHECK REQUESTED ═══');
-        console.log('[ExtensionVersionChecker] 👤 User-initiated version check starting...');
+        debug('[ExtensionVersionChecker] ═══ MANUAL VERSION CHECK REQUESTED ═══');
+        debug('[ExtensionVersionChecker] 👤 User-initiated version check starting...');
 
         const versionResult = await checkExtensionVersions(context);
 
         if (versionResult.hasOutdatedExtensions) {
-            console.log('[ExtensionVersionChecker] 🔔 Showing user notification for outdated extensions...');
+            debug('[ExtensionVersionChecker] 🔔 Showing user notification for outdated extensions...');
             const allowSync = await showOutdatedExtensionsNotification(context, versionResult.outdatedExtensions);
 
             if (allowSync) {
-                console.log('[ExtensionVersionChecker] ✅ User chose to allow sync despite outdated extensions');
+                debug('[ExtensionVersionChecker] ✅ User chose to allow sync despite outdated extensions');
                 await enableAutoSync();
             } else {
-                console.log('[ExtensionVersionChecker] 🚫 User chose to disable sync due to outdated extensions');
+                debug('[ExtensionVersionChecker] 🚫 User chose to disable sync due to outdated extensions');
                 await disableAutoSync();
             }
         } else {
-            console.log('[ExtensionVersionChecker] ✅ All extensions up to date - showing success message');
+            debug('[ExtensionVersionChecker] ✅ All extensions up to date - showing success message');
             vscode.window.showInformationMessage(
                 'All extensions are up to date!',
                 'OK'
@@ -387,7 +364,7 @@ export async function manualVersionCheck(context: vscode.ExtensionContext): Prom
             await enableAutoSync();
         }
 
-        console.log('[ExtensionVersionChecker] ═══ END MANUAL VERSION CHECK ═══');
+        debug('[ExtensionVersionChecker] ═══ END MANUAL VERSION CHECK ═══');
     } catch (error) {
         console.error('[ExtensionVersionChecker] ❌ Error during manual version check:', error);
         vscode.window.showErrorMessage(`Version check failed: ${(error as Error).message}`);
@@ -411,7 +388,7 @@ interface MetadataVersionCheckResult {
  */
 export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionCheckResult> {
     try {
-        console.log('[MetadataVersionChecker] ═══ METADATA VERSION CHECK ═══');
+        debug('[MetadataVersionChecker] ═══ METADATA VERSION CHECK ═══');
 
         // Get workspace folder and metadata file
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -441,9 +418,9 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
         const codexEditorVersion = getCurrentExtensionVersion('project-accelerate.codex-editor-extension');
         const frontierAuthVersion = getCurrentExtensionVersion('frontier-rnd.frontier-authentication');
 
-        console.log('[MetadataVersionChecker] 📦 Current versions:');
-        console.log(`  - Codex Editor: ${codexEditorVersion || 'not found'}`);
-        console.log(`  - Frontier Authentication: ${frontierAuthVersion || 'not found'}`);
+        debug('[MetadataVersionChecker] 📦 Current versions:');
+        debug(`  - Codex Editor: ${codexEditorVersion || 'not found'}`);
+        debug(`  - Frontier Authentication: ${frontierAuthVersion || 'not found'}`);
 
         // Check if either extension is missing
         if (!codexEditorVersion || !frontierAuthVersion) {
@@ -462,7 +439,7 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
 
         // Initialize requiredExtensions if it doesn't exist
         if (!metadata.meta.requiredExtensions) {
-            console.log('[MetadataVersionChecker] ➕ Adding extension version requirements to metadata');
+            debug('[MetadataVersionChecker] ➕ Adding extension version requirements to metadata');
             metadata.meta.requiredExtensions = {
                 codexEditor: codexEditorVersion,
                 frontierAuthentication: frontierAuthVersion
@@ -471,7 +448,7 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
             // Save updated metadata
             await saveMetadata(metadataPath, metadata);
 
-            console.log('[MetadataVersionChecker] ✅ Added current extension versions to metadata');
+            debug('[MetadataVersionChecker] ✅ Added current extension versions to metadata');
             return { canSync: true, metadataUpdated: true };
         }
 
@@ -479,9 +456,9 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
         const metadataCodexVersion = metadata.meta.requiredExtensions.codexEditor;
         const metadataFrontierVersion = metadata.meta.requiredExtensions.frontierAuthentication;
 
-        console.log('[MetadataVersionChecker] 📋 Metadata requires:');
-        console.log(`  - Codex Editor: ${metadataCodexVersion || 'not set'}`);
-        console.log(`  - Frontier Authentication: ${metadataFrontierVersion || 'not set'}`);
+        debug('[MetadataVersionChecker] 📋 Metadata requires:');
+        debug(`  - Codex Editor: ${metadataCodexVersion || 'not set'}`);
+        debug(`  - Frontier Authentication: ${metadataFrontierVersion || 'not set'}`);
 
         let metadataUpdated = false;
         const outdatedExtensions: ExtensionVersionInfo[] = [];
@@ -499,12 +476,12 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
                     displayName: 'Codex Editor'
                 });
             } else if (semver.gt(codexEditorVersion, metadataCodexVersion)) {
-                console.log(`[MetadataVersionChecker] 🚀 Updating Codex Editor version: ${metadataCodexVersion} → ${codexEditorVersion}`);
+                debug(`[MetadataVersionChecker] 🚀 Updating Codex Editor version: ${metadataCodexVersion} → ${codexEditorVersion}`);
                 metadata.meta.requiredExtensions.codexEditor = codexEditorVersion;
                 metadataUpdated = true;
             }
         } else {
-            console.log('[MetadataVersionChecker] ➕ Setting Codex Editor version in metadata');
+            debug('[MetadataVersionChecker] ➕ Setting Codex Editor version in metadata');
             metadata.meta.requiredExtensions.codexEditor = codexEditorVersion;
             metadataUpdated = true;
         }
@@ -522,12 +499,12 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
                     displayName: 'Frontier Authentication'
                 });
             } else if (semver.gt(frontierAuthVersion, metadataFrontierVersion)) {
-                console.log(`[MetadataVersionChecker] 🚀 Updating Frontier Authentication version: ${metadataFrontierVersion} → ${frontierAuthVersion}`);
+                debug(`[MetadataVersionChecker] 🚀 Updating Frontier Authentication version: ${metadataFrontierVersion} → ${frontierAuthVersion}`);
                 metadata.meta.requiredExtensions.frontierAuthentication = frontierAuthVersion;
                 metadataUpdated = true;
             }
         } else {
-            console.log('[MetadataVersionChecker] ➕ Setting Frontier Authentication version in metadata');
+            debug('[MetadataVersionChecker] ➕ Setting Frontier Authentication version in metadata');
             metadata.meta.requiredExtensions.frontierAuthentication = frontierAuthVersion;
             metadataUpdated = true;
         }
@@ -535,7 +512,7 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
         // Save metadata if updated
         if (metadataUpdated) {
             await saveMetadata(metadataPath, metadata);
-            console.log('[MetadataVersionChecker] 💾 Metadata updated with latest extension versions');
+            debug('[MetadataVersionChecker] 💾 Metadata updated with latest extension versions');
         }
 
         // Determine if sync is allowed
@@ -552,7 +529,7 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
             };
         }
 
-        console.log('[MetadataVersionChecker] ✅ All extension versions compatible with metadata');
+        debug('[MetadataVersionChecker] ✅ All extension versions compatible with metadata');
         return { canSync: true, metadataUpdated };
 
     } catch (error) {
@@ -563,7 +540,7 @@ export async function checkAndUpdateMetadataVersions(): Promise<MetadataVersionC
             reason: `Version check failed: ${(error as Error).message}`
         };
     } finally {
-        console.log('[MetadataVersionChecker] ═══ END METADATA VERSION CHECK ═══\n');
+        debug('[MetadataVersionChecker] ═══ END METADATA VERSION CHECK ═══\n');
     }
 }
 
@@ -581,7 +558,7 @@ async function saveMetadata(metadataPath: vscode.Uri, metadata: ProjectMetadata)
 function shouldShowVersionModal(context: vscode.ExtensionContext, isManualSync: boolean): boolean {
     // Always show for manual sync
     if (isManualSync) {
-        console.log('[VersionModalCooldown] Manual sync - showing modal');
+        debug('[VersionModalCooldown] Manual sync - showing modal');
         return true;
     }
 
@@ -591,12 +568,12 @@ function shouldShowVersionModal(context: vscode.ExtensionContext, isManualSync: 
     const timeSinceLastShown = now - lastShown;
 
     if (timeSinceLastShown >= VERSION_MODAL_COOLDOWN_MS) {
-        console.log(`[VersionModalCooldown] Auto-sync - cooldown expired (${Math.round(timeSinceLastShown / 1000 / 60)} minutes ago), showing modal`);
+        debug(`[VersionModalCooldown] Auto-sync - cooldown expired (${Math.round(timeSinceLastShown / 1000 / 60)} minutes ago), showing modal`);
         return true;
     } else {
         const remainingMs = VERSION_MODAL_COOLDOWN_MS - timeSinceLastShown;
         const remainingMinutes = Math.round(remainingMs / 1000 / 60);
-        console.log(`[VersionModalCooldown] Auto-sync - in cooldown period, ${remainingMinutes} minutes remaining`);
+        debug(`[VersionModalCooldown] Auto-sync - in cooldown period, ${remainingMinutes} minutes remaining`);
         return false;
     }
 }
@@ -606,7 +583,7 @@ function shouldShowVersionModal(context: vscode.ExtensionContext, isManualSync: 
  */
 async function updateVersionModalTimestamp(context: vscode.ExtensionContext): Promise<void> {
     await context.workspaceState.update(VERSION_MODAL_COOLDOWN_KEY, Date.now());
-    console.log('[VersionModalCooldown] Updated last shown timestamp');
+    debug('[VersionModalCooldown] Updated last shown timestamp');
 }
 
 /**
@@ -614,7 +591,7 @@ async function updateVersionModalTimestamp(context: vscode.ExtensionContext): Pr
  */
 export async function resetVersionModalCooldown(context: vscode.ExtensionContext): Promise<void> {
     await context.workspaceState.update(VERSION_MODAL_COOLDOWN_KEY, 0);
-    console.log('[VersionModalCooldown] Reset cooldown timestamp on extension activation');
+    debug('[VersionModalCooldown] Reset cooldown timestamp on extension activation');
 }
 
 /**
@@ -688,7 +665,7 @@ export async function checkMetadataVersionsForSync(
             return await showMetadataVersionMismatchNotification(context, result.outdatedExtensions);
         } else {
             // In cooldown period for auto-sync, silently block sync
-            console.log('[MetadataVersionChecker] Auto-sync blocked due to outdated extensions (in cooldown period)');
+            debug('[MetadataVersionChecker] Auto-sync blocked due to outdated extensions (in cooldown period)');
             return false;
         }
     }

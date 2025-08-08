@@ -31,6 +31,8 @@ interface ValidationButtonProps {
     cell: QuillCellContent;
     vscode: any;
     isSourceText: boolean;
+    currentUsername?: string | null;
+    requiredValidations?: number;
 }
 
 const ValidationButton: React.FC<ValidationButtonProps> = ({
@@ -38,10 +40,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
     cell,
     vscode,
     isSourceText,
+    currentUsername,
+    requiredValidations: requiredValidationsProp,
 }) => {
     const [isValidated, setIsValidated] = useState(false);
-    const [username, setUsername] = useState<string | null>(null);
-    const [requiredValidations, setRequiredValidations] = useState(1);
+    const [username, setUsername] = useState<string | null>(currentUsername ?? null);
+    const [requiredValidations, setRequiredValidations] = useState(requiredValidationsProp ?? 1);
     const [userCreatedLatestEdit, setUserCreatedLatestEdit] = useState(false);
     const [showPopover, setShowPopover] = useState(false);
     const [isPersistentPopover, setIsPersistentPopover] = useState(false);
@@ -82,9 +86,12 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Function to fetch validation count
     const fetchValidationCount = () => {
-        vscode.postMessage({
-            command: "getValidationCount",
-        });
+        // Only fetch if parent hasn't provided it
+        if (requiredValidationsProp == null) {
+            vscode.postMessage({
+                command: "getValidationCount",
+            });
+        }
     };
 
     // Update validation state when editHistory changes
@@ -121,15 +128,20 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
     // Get the current username when component mounts and listen for configuration changes
     useEffect(() => {
-        vscode.postMessage({
-            command: "getCurrentUsername",
-        });
+        // If parent supplied username, use it and skip request
+        if (currentUsername) {
+            setUsername(currentUsername);
+        } else {
+            vscode.postMessage({
+                command: "getCurrentUsername",
+            });
+        }
 
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            if (message.type === "currentUsername") {
+            if (!currentUsername && message.type === "currentUsername") {
                 setUsername(message.content.username);
-            } else if (message.type === "validationCount") {
+            } else if (requiredValidationsProp == null && message.type === "validationCount") {
                 setRequiredValidations(message.content);
 
                 // The component will re-render with the new requiredValidations value
@@ -165,7 +177,9 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                 fetchValidationCount();
             } else if (message.command === "updateValidationCount") {
                 setValidationUsers(message.content.validations || []);
-                setRequiredValidations(message.content.requiredValidations || 1);
+                if (requiredValidationsProp == null) {
+                    setRequiredValidations(message.content.requiredValidations || 1);
+                }
                 setIsValidated(message.content.isValidated);
                 setUserCreatedLatestEdit(message.content.userCreatedLatestEdit);
             } else if (message.type === "validationInProgress") {
@@ -187,7 +201,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [cellId, username]);
+    }, [cellId, username, currentUsername, requiredValidationsProp]);
 
     // Close popover when clicking outside of it
     useEffect(() => {
@@ -650,9 +664,7 @@ const ValidationButton: React.FC<ValidationButtonProps> = ({
                                                             popoverTracker.getActivePopover() ===
                                                             uniqueId.current
                                                         ) {
-                                                            popoverTracker.setActivePopover(
-                                                                null
-                                                            );
+                                                            popoverTracker.setActivePopover(null);
                                                         }
                                                     }}
                                                     title="Remove your validation"

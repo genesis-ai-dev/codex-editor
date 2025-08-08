@@ -27,6 +27,14 @@ interface TranslationProgress {
     bookProgress?: BookProgress[];
 }
 
+const DEBUG_SYNC_MANAGER = false;
+
+function debug(message: string, ...args: any[]): void {
+    if (DEBUG_SYNC_MANAGER) {
+        console.log(`[SyncManager] ${message}`, ...args);
+    }
+}
+
 // Progress report interface - moved to progressReportingService.ts
 // Keeping this for backward compatibility
 export interface ProjectProgressReport {
@@ -152,7 +160,7 @@ export class SyncManager {
         // Check if there's a workspace folder open first
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace) {
-            console.log("No workspace open, not scheduling sync operation");
+            debug("No workspace open, not scheduling sync operation");
             return;
         }
 
@@ -164,7 +172,7 @@ export class SyncManager {
         // Ensure minimum sync delay is 5 minutes
         if (syncDelayMinutes < 5) {
             syncDelayMinutes = 5;
-            console.log("Sync delay was less than 5 minutes, adjusting to 5 minutes");
+            debug("Sync delay was less than 5 minutes, adjusting to 5 minutes");
         }
 
         // Clear any pending sync operation
@@ -172,13 +180,13 @@ export class SyncManager {
 
         // If auto-sync is disabled, don't schedule
         if (!autoSyncEnabled) {
-            console.log("Auto-sync is disabled, not scheduling sync operation");
+            debug("Auto-sync is disabled, not scheduling sync operation");
             return;
         }
 
         // Convert minutes to milliseconds
         const delayMs = syncDelayMinutes * 60 * 1000;
-        console.log(`Scheduling sync operation in ${syncDelayMinutes} minutes`);
+        debug(`Scheduling sync operation in ${syncDelayMinutes} minutes`);
 
         // Schedule the new sync
         this.pendingSyncTimeout = setTimeout(() => {
@@ -189,19 +197,19 @@ export class SyncManager {
     // Execute the sync operation immediately
     public async executeSync(
         commitMessage: string = "Manual sync",
-        showInfoOnConnectionIssues: boolean = true,
+        showInfoOnConnectionIssues: boolean = false,
         context?: vscode.ExtensionContext,
         isManualSync: boolean = false
     ): Promise<void> {
         // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
         const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
         if (!hasWorkspace && !isManualSync) {
-            console.log("No workspace open, skipping sync operation");
+            debug("No workspace open, skipping sync operation");
             return;
         }
 
         if (this.isSyncInProgress) {
-            console.log("Sync already in progress, skipping");
+            debug("Sync already in progress, skipping");
             if (showInfoOnConnectionIssues) {
                 vscode.window.showInformationMessage(
                     "Sync already in progress. Please wait for the current synchronization to complete."
@@ -212,7 +220,7 @@ export class SyncManager {
         // Check authentication status
         const authApi = getAuthApi();
         if (!authApi) {
-            console.log("Auth API not available, cannot sync");
+            debug("Auth API not available, cannot sync");
             if (showInfoOnConnectionIssues) {
                 this.showConnectionIssueMessage(
                     "Unable to sync: Authentication service not available"
@@ -224,7 +232,7 @@ export class SyncManager {
         try {
             const authStatus = authApi.getAuthStatus();
             if (!authStatus.isAuthenticated) {
-                console.log("User is not authenticated, cannot sync");
+                debug("User is not authenticated, cannot sync");
                 if (showInfoOnConnectionIssues) {
                     this.showConnectionIssueMessage(
                         "Unable to sync: Please log in to sync your changes"
@@ -245,11 +253,11 @@ export class SyncManager {
         // Check extension versions against metadata requirements
         const contextToUse = context || this.extensionContext;
         if (contextToUse) {
-            console.log("🔍 Checking extension version compatibility with project metadata...");
+            debug("🔍 Checking extension version compatibility with project metadata...");
             try {
                 const canSync = await checkMetadataVersionsForSync(contextToUse, isManualSync);
                 if (!canSync) {
-                    console.log("🚫 Sync blocked due to extension version incompatibility");
+                    debug("🚫 Sync blocked due to extension version incompatibility");
                     if (showInfoOnConnectionIssues) {
                         vscode.window.showWarningMessage(
                             "Sync cancelled due to extension version requirements. Please update your extensions and try again."
@@ -257,7 +265,7 @@ export class SyncManager {
                     }
                     return; // Cancel sync entirely
                 }
-                console.log("✅ Extension versions compatible with project metadata");
+                debug("✅ Extension versions compatible with project metadata");
             } catch (error) {
                 console.error("Error checking extension versions:", error);
                 if (showInfoOnConnectionIssues) {
@@ -276,7 +284,7 @@ export class SyncManager {
         this.isSyncInProgress = true;
         this.currentSyncStage = "Starting sync...";
         this.notifySyncStatusListeners();
-        console.log("   nc operation in background with message:", commitMessage);
+        debug("Sync operation in background with message:", commitMessage);
 
         // Show progress indicator to user instead of simple message
         if (showInfoOnConnectionIssues) {
@@ -290,7 +298,7 @@ export class SyncManager {
         this.executeSyncInBackground(commitMessage, showInfoOnConnectionIssues);
 
         // Return immediately - don't wait for sync to complete
-        console.log("🔄 Sync operation started in background, UI is free to continue");
+        debug("🔄 Sync operation started in background, UI is free to continue");
     }
 
     // Execute the actual sync operation in the background
@@ -301,7 +309,7 @@ export class SyncManager {
         try {
             // Log sync timing for performance analysis
             const syncStartTime = performance.now();
-            console.log("🔄 Starting background sync operation...");
+            debug("🔄 Starting background sync operation...");
 
             // Update sync stage and splash screen
             this.currentSyncStage = "Preparing synchronization...";
@@ -321,7 +329,7 @@ export class SyncManager {
 
                     try {
                         await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                        console.log("[SyncManager] Pre-sync migration completed");
+                        debug("[SyncManager] Pre-sync migration completed");
                     } catch (error) {
                         console.error("[SyncManager] Error during pre-sync migration:", error);
                         // Don't fail sync due to migration errors
@@ -364,7 +372,7 @@ export class SyncManager {
 
             const syncEndTime = performance.now();
             const syncDuration = syncEndTime - syncStartTime;
-            console.log(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
+            debug(`✅ Background sync completed in ${syncDuration.toFixed(2)}ms`);
 
             // Check if comments.json was affected by the sync - if so, run targeted repair
             const commentsWasChanged = syncResult.changedFiles.includes('.project/comments.json') ||
@@ -392,7 +400,7 @@ export class SyncManager {
 
                     try {
                         await CommentsMigrator.migrateProjectComments(workspaceFolders[0].uri);
-                        console.log("[SyncManager] Post-sync migration completed");
+                        debug("[SyncManager] Post-sync migration completed");
                     } catch (error) {
                         console.error("[SyncManager] Error during post-sync migration:", error);
                         // Don't fail sync completion due to migration errors
@@ -408,7 +416,7 @@ export class SyncManager {
             // Schedule progress report after successful sync (when there are actual changes)
             const progressReportingService = ProgressReportingService.getInstance();
             progressReportingService.scheduleProgressReport();
-            console.log("📊 Progress report scheduled after successful sync");
+            debug("📊 Progress report scheduled after successful sync");
 
             // Rebuild indexes in the background after successful sync (truly async)
             // Pass the sync result to optimize database synchronization
@@ -450,26 +458,26 @@ export class SyncManager {
     private async rebuildIndexesInBackground(syncResult?: SyncResult): Promise<void> {
         try {
             const indexStartTime = performance.now();
-            console.log("AI learning from your latest changes...");
+            debug("AI learning from your latest changes...");
 
             // Log git sync information if available
             if (syncResult && syncResult.totalChanges > 0) {
-                console.log(`📥 Git sync brought ${syncResult.totalChanges} file changes:`);
-                console.log(`  📄 ${syncResult.changedFiles.length} modified files`);
-                console.log(`  ➕ ${syncResult.newFiles.length} new files`);
-                console.log(`  ➖ ${syncResult.deletedFiles.length} deleted files`);
+                debug(`📥 Git sync brought ${syncResult.totalChanges} file changes:`);
+                debug(`  📄 ${syncResult.changedFiles.length} modified files`);
+                debug(`  ➕ ${syncResult.newFiles.length} new files`);
+                debug(`  ➖ ${syncResult.deletedFiles.length} deleted files`);
 
                 // Log specific files for debugging (limit to first 10 for readability)
                 if (syncResult.changedFiles.length > 0) {
                     const filesToShow = syncResult.changedFiles.slice(0, 10);
-                    console.log(`  🔧 Modified: ${filesToShow.join(", ")}${syncResult.changedFiles.length > 10 ? ` and ${syncResult.changedFiles.length - 10} more...` : ""}`);
+                    debug(`  🔧 Modified: ${filesToShow.join(", ")}${syncResult.changedFiles.length > 10 ? ` and ${syncResult.changedFiles.length - 10} more...` : ""}`);
                 }
                 if (syncResult.newFiles.length > 0) {
                     const filesToShow = syncResult.newFiles.slice(0, 10);
-                    console.log(`  ✨ New: ${filesToShow.join(", ")}${syncResult.newFiles.length > 10 ? ` and ${syncResult.newFiles.length - 10} more...` : ""}`);
+                    debug(`  ✨ New: ${filesToShow.join(", ")}${syncResult.newFiles.length > 10 ? ` and ${syncResult.newFiles.length - 10} more...` : ""}`);
                 }
             } else {
-                console.log("📭 No git changes detected, checking if AI needs to learn from existing content...");
+                debug("📭 No git changes detected, checking if AI needs to learn from existing content...");
             }
 
             // Use the new FileSyncManager for efficient file-level synchronization
@@ -487,39 +495,39 @@ export class SyncManager {
             // If we have specific files from git sync, we could potentially optimize further
             // by checking only those files, but for now we'll check all files since
             // git changes might affect relationships between files
-            console.log("🔍 Checking which content AI needs to learn from...");
+            debug("🔍 Checking which content AI needs to learn from...");
             const syncStatus = await fileSyncManager.checkSyncStatus();
 
             if (!syncStatus.needsSync) {
-                console.log("✅ AI is already up to date with all your content");
+                debug("✅ AI is already up to date with all your content");
                 const indexEndTime = performance.now();
                 const indexDuration = indexEndTime - indexStartTime;
-                console.log(`✅ Knowledge check completed in ${indexDuration.toFixed(2)}ms`);
+                debug(`✅ Knowledge check completed in ${indexDuration.toFixed(2)}ms`);
                 return;
             }
 
-            console.log(`🔧 Found ${syncStatus.summary.changedFiles + syncStatus.summary.newFiles} files for AI to learn from`);
-            console.log(`📊 AI learning summary: ${syncStatus.summary.newFiles} new, ${syncStatus.summary.changedFiles} changed, ${syncStatus.summary.unchangedFiles} unchanged`);
+            debug(`🔧 Found ${syncStatus.summary.changedFiles + syncStatus.summary.newFiles} files for AI to learn from`);
+            debug(`📊 AI learning summary: ${syncStatus.summary.newFiles} new, ${syncStatus.summary.changedFiles} changed, ${syncStatus.summary.unchangedFiles} unchanged`);
 
             // Cross-reference with git changes for optimization insights
             if (syncResult && syncResult.totalChanges > 0) {
                 const gitChangedFiles = new Set([...syncResult.changedFiles, ...syncResult.newFiles]);
                 const dbChangedFiles = syncStatus.summary.changedFiles + syncStatus.summary.newFiles;
-                console.log(`🔍 Analysis: Git changed ${gitChangedFiles.size} files, AI needs to learn from ${dbChangedFiles} files`);
+                debug(`🔍 Analysis: Git changed ${gitChangedFiles.size} files, AI needs to learn from ${dbChangedFiles} files`);
             }
 
             // Perform optimized synchronization of only changed files
             const fileSyncResult = await fileSyncManager.syncFiles({
                 progressCallback: (message, progress) => {
-                    console.log(`[AI Learning] ${message} (${progress}%)`);
+                    debug(`[AI Learning] ${message} (${progress}%)`);
                 }
             });
 
             const indexEndTime = performance.now();
             const indexDuration = indexEndTime - indexStartTime;
 
-            console.log(`✅ AI learning completed in ${indexDuration.toFixed(2)}ms`);
-            console.log(`📊 Learning results: AI learned from ${fileSyncResult.syncedFiles} files, ${fileSyncResult.unchangedFiles} unchanged, ${fileSyncResult.errors.length} errors`);
+            debug(`✅ AI learning completed in ${indexDuration.toFixed(2)}ms`);
+            debug(`📊 Learning results: AI learned from ${fileSyncResult.syncedFiles} files, ${fileSyncResult.unchangedFiles} unchanged, ${fileSyncResult.errors.length} errors`);
 
             if (fileSyncResult.errors.length > 0) {
                 console.warn("⚠️ Some files had AI learning errors:");
@@ -530,10 +538,10 @@ export class SyncManager {
 
             // Log detailed file changes for debugging
             if (fileSyncResult.details.size > 0) {
-                console.log("📋 AI learning details:");
+                debug("📋 AI learning details:");
                 for (const [file, detail] of fileSyncResult.details) {
                     if (detail.reason !== "no changes detected") {
-                        console.log(`  - ${file}: ${detail.reason}`);
+                        debug(`  - ${file}: ${detail.reason}`);
                     }
                 }
             }
@@ -542,7 +550,7 @@ export class SyncManager {
             console.error("❌ AI learning failed:", error);
 
             // Fallback to basic index rebuild if file sync fails
-            console.log("🔄 Falling back to basic knowledge rebuild...");
+            debug("🔄 Falling back to basic knowledge rebuild...");
             try {
                 await this.fallbackIndexRebuild();
             } catch (fallbackError) {
@@ -558,15 +566,15 @@ export class SyncManager {
 
         if (indexManager) {
             const currentDocCount = indexManager.documentCount;
-            console.log(`[FallbackSync] Current index has ${currentDocCount} documents`);
+            debug(`[FallbackSync] Current index has ${currentDocCount} documents`);
 
             if (currentDocCount > 0) {
-                console.log("✅ Index is already up to date, skipping fallback rebuild");
+                debug("✅ Index is already up to date, skipping fallback rebuild");
                 return;
             }
         }
 
-        console.log("🔧 Running fallback index rebuild...");
+        debug("🔧 Running fallback index rebuild...");
 
         // Create a minimal mock context for the fallback
         const mockContext = {
@@ -599,7 +607,7 @@ export class SyncManager {
         };
 
         await createIndexWithContext(mockContext as unknown as vscode.ExtensionContext);
-        console.log("✅ Fallback index rebuild completed");
+        debug("✅ Fallback index rebuild completed");
     }
 
     // Show connection issue message with cooldown
@@ -610,7 +618,7 @@ export class SyncManager {
             this.lastConnectionErrorTime = now;
             vscode.window.showInformationMessage(message);
         } else {
-            console.log("Suppressing connection error notification due to cooldown");
+            debug("Suppressing connection error notification due to cooldown");
         }
     }
 
@@ -619,7 +627,7 @@ export class SyncManager {
         if (this.pendingSyncTimeout) {
             clearTimeout(this.pendingSyncTimeout);
             this.pendingSyncTimeout = null;
-            console.log("Cleared pending sync operation");
+            debug("Cleared pending sync operation");
         }
     }
 
@@ -636,7 +644,7 @@ export class SyncManager {
         if (!hasWorkspace) {
             // Disable autosync when no workspace is open
             autoSyncEnabled = false;
-            console.log("SyncManager: No workspace open, disabling autosync and clearing pending operations");
+            debug("SyncManager: No workspace open, disabling autosync and clearing pending operations");
 
             // Clear any pending sync operations
             this.clearPendingSync();
@@ -645,10 +653,10 @@ export class SyncManager {
         // Ensure minimum sync delay is 5 minutes
         if (syncDelayMinutes < 5) {
             syncDelayMinutes = 5;
-            console.log("Sync delay was less than 5 minutes, adjusting to 5 minutes");
+            debug("Sync delay was less than 5 minutes, adjusting to 5 minutes");
         }
 
-        console.log(
+        debug(
             `SyncManager configuration updated: autoSyncEnabled=${autoSyncEnabled}, syncDelayMinutes=${syncDelayMinutes}, hasWorkspace=${hasWorkspace}`
         );
     }
@@ -727,7 +735,7 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     // Command to schedule sync (replacing the manualCommit command)
     context.subscriptions.push(
         vscode.commands.registerCommand("extension.scheduleSync", (message: string) => {
-            console.log("manualCommit called, scheduling sync operation");
+            debug("manualCommit called, scheduling sync operation");
             syncManager.scheduleSyncOperation(message);
         })
     );
@@ -747,19 +755,19 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
     // Listen for workspace folder changes to disable autosync when project is closed
     context.subscriptions.push(
         vscode.workspace.onDidChangeWorkspaceFolders((event) => {
-            console.log(`SyncManager: Workspace folders changed - added: ${event.added.length}, removed: ${event.removed.length}`);
+            debug(`SyncManager: Workspace folders changed - added: ${event.added.length}, removed: ${event.removed.length}`);
 
             // If workspace folders were removed, clear any pending sync operations
             if (event.removed.length > 0) {
                 syncManager.clearPendingSync();
-                console.log("SyncManager: Cleared pending sync operations due to workspace folder removal");
+                debug("SyncManager: Cleared pending sync operations due to workspace folder removal");
             }
 
             // Update configuration to handle workspace changes (this will disable autosync if no workspace)
             syncManager.updateFromConfiguration();
 
             if (event.removed.length > 0 && (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0)) {
-                console.log("SyncManager: All workspace folders removed, autosync disabled and pending operations cleared");
+                debug("SyncManager: All workspace folders removed, autosync disabled and pending operations cleared");
             }
         })
     );
