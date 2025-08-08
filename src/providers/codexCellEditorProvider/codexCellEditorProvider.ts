@@ -288,8 +288,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         webviewPanel.onDidChangeViewState((e) => {
             debug("Webview panel state changed, active:", e.webviewPanel.active);
             if (e.webviewPanel.active) {
-                // Only update references without refreshing
+                // Update references and refresh content to ensure any changes (like font sizes) are applied
                 this.currentDocument = document;
+                // Refresh the webview to ensure it has the latest content and metadata
+                updateWebview();
             }
         });
 
@@ -392,6 +394,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 content: processedData,
                 isSourceText: isSourceText,
                 sourceCellMap: document._sourceCellMap,
+            });
+
+            // Also send updated metadata to ensure font size changes are reflected
+            this.postMessageToWebview(webviewPanel, {
+                type: "providerUpdatesNotebookMetadataForWebview",
+                content: notebookData.metadata,
             });
         };
 
@@ -543,18 +551,21 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async receiveMessage(message: any, updateWebview?: () => void) {
         debug("Cell Provider received message:", message);
         // NOTE: do not use this method to handled messages within the provider. This has access to the global context and can get crossed with other providers
-        // Find the active panel
+
+        // Handle global messages first - these don't require an active panel
+        if ("destination" in message) {
+            debug("Global message detected");
+            handleGlobalMessage(this, message as GlobalMessage);
+            return;
+        }
+
+        // For non-global messages, we need an active panel
         const activePanel = Array.from(this.webviewPanels.values()).find((panel) => panel.active);
         if (!activePanel || !this.currentDocument) {
             debug("No active panel or currentDocument is not initialized");
             return;
         }
 
-        if ("destination" in message) {
-            debug("Global message detected");
-            handleGlobalMessage(this, message as GlobalMessage);
-            return;
-        }
         handleMessages(
             message as EditorPostMessages,
             activePanel,
@@ -569,7 +580,10 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         // Use the SyncManager for immediate sync
         const syncManager = SyncManager.getInstance();
         await syncManager.executeSync(
-            `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`
+            `changes to ${vscode.workspace.asRelativePath(document.uri).split(/[/\\]/).pop()}`,
+            true,
+            undefined,
+            true // Manual sync
         );
     }
     public postMessage(message: GlobalMessage) {
@@ -2677,7 +2691,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                 // Execute sync immediately rather than scheduling
                 syncManager
-                    .executeSync(`manual sync for ${fileName}`)
+                    .executeSync(`manual sync for ${fileName}`, true, undefined, true)
                     .then(() => {
                         // FIXED: Don't automatically call updateFileStatus here
                         // Let the sync completion handle status updates

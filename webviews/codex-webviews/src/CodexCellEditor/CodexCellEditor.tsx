@@ -275,6 +275,14 @@ const CodexCellEditor: React.FC = () => {
             if (message.type === "correctionEditorModeChanged") {
                 setIsCorrectionEditorMode(message.enabled);
             }
+
+            // Handle font size refresh requests
+            if (message.type === "refreshFontSizes") {
+                // Clear temporary font size to ensure new font size takes effect
+                setTempFontSize(null);
+                // Request updated content to get the new font sizes
+                vscode.postMessage({ command: "getContent" } as EditorPostMessages);
+            }
         };
         window.addEventListener("message", handleMessage);
         return () => {
@@ -562,6 +570,8 @@ const CodexCellEditor: React.FC = () => {
         },
         updateNotebookMetadata: (newMetadata) => {
             setMetadata(newMetadata);
+            // Clear temporary font size when metadata updates to ensure new font size takes effect
+            setTempFontSize(null);
         },
         updateVideoUrl: (url: string) => {
             setTempVideoUrl(url);
@@ -1363,8 +1373,8 @@ const CodexCellEditor: React.FC = () => {
         setTempFontSize(null); // Clear temporary font size
         handleMetadataChange("fontSize", fontSize.toString());
         
-        // Save the metadata
-        const updatedMetadata = { ...metadata, fontSize };
+        // Save the metadata with local source marking
+        const updatedMetadata = { ...metadata, fontSize, fontSizeSource: "local" };
         vscode.postMessage({
             command: "updateNotebookMetadata",
             content: updatedMetadata,

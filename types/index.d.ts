@@ -914,6 +914,7 @@ type EditorReceiveMessages =
         cellId: string;
         error: string;
     }
+    | { type: "refreshFontSizes"; }
     | {
         type: "providerConfirmsBacktranslationSet";
         content: SavedBacktranslation | null;
@@ -1092,6 +1093,7 @@ export interface CustomNotebookMetadata {
     cellDisplayMode?: "inline" | "one-line-per-cell";
     validationMigrationComplete?: boolean;
     fontSize?: number;
+    fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1170,6 +1172,11 @@ type ProjectMetadata = {
         normalization: string;
         comments?: string[];
         primarySourceText?: vscode.Uri;
+        /** Extension version requirements for sync compatibility */
+        requiredExtensions?: {
+            codexEditor?: string;
+            frontierAuthentication?: string;
+        };
     };
     idAuthorities: {
         [key: string]: {
@@ -1402,7 +1409,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "checkForUpdates"; }
     | { command: "downloadUpdate"; }
     | { command: "installUpdate"; }
-    | { command: "openExternal"; url: string; };
+    | { command: "openExternal"; url: string; }
+    | { command: "setGlobalFontSize"; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

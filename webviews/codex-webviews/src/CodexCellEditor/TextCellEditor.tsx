@@ -203,6 +203,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
     >([]);
     const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
+    
+    // Add ref to track debounce timeout for footnote parsing
+    const footnoteParseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Audio-related state
     const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -616,8 +619,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         // First try to get footnotes from cell data
         if (cell?.data?.footnotes) {
             setFootnotes(cell.data.footnotes);
-            // Force re-parse to ensure correct chronological ordering
-            setTimeout(parseFootnotesFromContent, 10);
+            // Re-parse to ensure correct chronological ordering (debounced)
+            parseFootnotesFromContent();
             return;
         }
 
@@ -626,8 +629,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
         if (storedFootnotes) {
             try {
                 setFootnotes(JSON.parse(storedFootnotes));
-                // Force re-parse to ensure correct chronological ordering
-                setTimeout(parseFootnotesFromContent, 10);
+                // Re-parse to ensure correct chronological ordering (debounced)
+                parseFootnotesFromContent();
             } catch (e) {
                 console.error("Error parsing stored footnotes:", e);
             }
@@ -651,8 +654,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         ? prev.map((fn) => (fn.id === newFootnote.id ? newFootnote : fn))
                         : [...prev, newFootnote];
 
-                    // Force re-parse to ensure correct chronological ordering
-                    setTimeout(parseFootnotesFromContent, 10);
+                    // Re-parse to ensure correct chronological ordering (debounced)
+                    parseFootnotesFromContent();
 
                     return updatedFootnotes;
                 });
@@ -663,62 +666,79 @@ const CellEditor: React.FC<CellEditorProps> = ({
         return () => window.removeEventListener("message", handleMessage);
     }, [cellMarkers, cell?.data?.footnotes]);
 
-    // Function to parse footnotes from cell content
-    const parseFootnotesFromContent = () => {
-        if (!editorContent) return;
-
-        try {
-            const parser = new DOMParser();
-            // Clean spell check markup before parsing
-            const cleanedContent = getCleanedHtml(editorContent);
-            const doc = parser.parseFromString(cleanedContent, "text/html");
-            const footnoteElements = doc.querySelectorAll("sup.footnote-marker");
-
-            if (footnoteElements.length === 0) {
-                setFootnotes([]);
-                return;
-            }
-
-            const extractedFootnotes: Array<{ id: string; content: string; position: number }> = [];
-
-            footnoteElements.forEach((element) => {
-                const id = element.textContent || "";
-                const rawContent = element.getAttribute("data-footnote") || "";
-                // Clean spell check markup from footnote content as well
-                const content = getCleanedHtml(rawContent);
-
-                // Calculate the actual position of this element in the document
-                const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL);
-                let position = 0;
-                let current = treeWalker.nextNode();
-
-                while (current && current !== element) {
-                    position++;
-                    current = treeWalker.nextNode();
-                }
-
-                if (id && content) {
-                    extractedFootnotes.push({
-                        id,
-                        content,
-                        position,
-                    });
-                }
-            });
-
-            // Sort footnotes based on their actual DOM position (chronological order)
-            extractedFootnotes.sort((a, b) => a.position - b.position);
-
-            setFootnotes(extractedFootnotes);
-        } catch (error) {
-            console.error("Error parsing footnotes:", error);
+    // Function to parse footnotes from cell content with debouncing to prevent race conditions
+    const parseFootnotesFromContent = useCallback(() => {
+        // Clear any existing timeout to implement debouncing
+        if (footnoteParseTimeoutRef.current) {
+            clearTimeout(footnoteParseTimeoutRef.current);
         }
-    };
+
+        // Debounce the actual parsing to prevent race conditions during save operations
+        footnoteParseTimeoutRef.current = setTimeout(() => {
+            if (!editorContent) return;
+
+            try {
+                const parser = new DOMParser();
+                // Clean spell check markup before parsing
+                const cleanedContent = getCleanedHtml(editorContent);
+                const doc = parser.parseFromString(cleanedContent, "text/html");
+                const footnoteElements = doc.querySelectorAll("sup.footnote-marker");
+
+                if (footnoteElements.length === 0) {
+                    setFootnotes([]);
+                    return;
+                }
+
+                const extractedFootnotes: Array<{ id: string; content: string; position: number }> = [];
+
+                footnoteElements.forEach((element) => {
+                    const id = element.textContent || "";
+                    const rawContent = element.getAttribute("data-footnote") || "";
+                    // Clean spell check markup from footnote content as well
+                    const content = getCleanedHtml(rawContent);
+
+                    // Calculate the actual position of this element in the document
+                    const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_ALL);
+                    let position = 0;
+                    let current = treeWalker.nextNode();
+
+                    while (current && current !== element) {
+                        position++;
+                        current = treeWalker.nextNode();
+                    }
+
+                    if (id && content) {
+                        extractedFootnotes.push({
+                            id,
+                            content,
+                            position,
+                        });
+                    }
+                });
+
+                // Sort footnotes based on their actual DOM position (chronological order)
+                extractedFootnotes.sort((a, b) => a.position - b.position);
+
+                setFootnotes(extractedFootnotes);
+            } catch (error) {
+                console.error("Error parsing footnotes:", error);
+            }
+        }, 50); // 50ms debounce delay to prevent race conditions
+    }, [editorContent]);
 
     // Parse footnotes when content changes
     useEffect(() => {
         parseFootnotesFromContent();
     }, [editorContent]);
+
+    // Cleanup timeout on unmount to prevent memory leaks
+    useEffect(() => {
+        return () => {
+            if (footnoteParseTimeoutRef.current) {
+                clearTimeout(footnoteParseTimeoutRef.current);
+            }
+        };
+    }, []);
 
     // Smart tab switching - switch to an available tab if current becomes unavailable
     useEffect(() => {
@@ -1611,11 +1631,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                                     // Renumber footnotes to maintain chronological order
                                                                     setTimeout(() => {
                                                                         editorHandlesRef.current?.renumberFootnotes();
-                                                                        // Force parse footnotes again after renumbering
-                                                                        setTimeout(
-                                                                            parseFootnotesFromContent,
-                                                                            50
-                                                                        );
+                                                                        // Parse footnotes again after renumbering (debounced)
+                                                                        parseFootnotesFromContent();
                                                                     }, 50);
                                                                 }
                                                             }, 10);
