@@ -552,69 +552,12 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
         console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
 
-        // Check extension versions before allowing sync operations
-        updateSplashScreenSync(50, "Checking extension versions...");
-        console.log("🔍 [SPLASH SCREEN PHASE] Checking extension versions...");
-        const versionCheckStart = globalThis.performance.now();
+        // Skip version check during splash screen - will be performed before sync
+        updateSplashScreenSync(50, "Finalizing initialization...");
 
-        let allowSync = true;
-        try {
-            allowSync = await checkExtensionVersionsOnStartup(context);
-            if (!allowSync) {
-                updateSplashScreenSync(100, "Sync disabled (extensions outdated)");
-                trackTiming("Checking Extension Versions (sync disabled)", versionCheckStart);
-                return; // Skip sync entirely
-            } else {
-                trackTiming("Checking Extension Versions", versionCheckStart);
-            }
-        } catch (error) {
-            trackTiming("Checking Extension Versions (error)", versionCheckStart);
-            // Continue with sync on error to avoid blocking the user
-        }
-
-        // Perform initial sync during splash screen phase if auth API is available and user is authenticated
-        updateSplashScreenSync(60, "Checking authentication...");
-
-        if (authApi) {
-            try {
-                const authStatus = authApi.getAuthStatus();
-                if (authStatus.isAuthenticated) {
-                    console.log("🔄 [SPLASH SCREEN PHASE] User is authenticated, performing initial sync during splash screen");
-                    updateSplashScreenSync(70, "Synchronizing project...");
-                    const syncStart = globalThis.performance.now();
-
-                    const syncManager = SyncManager.getInstance();
-                    // During startup, don't show info messages for connection issues
-                    try {
-                        await syncManager.executeSync("Initial workspace sync", false, context, false);
-                        trackTiming("Completing Project Synchronization", syncStart);
-                        updateSplashScreenSync(100, "Synchronization complete");
-                        console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");
-                    } catch (error) {
-                        console.error("❌ [SPLASH SCREEN PHASE] Error during initial sync:", error);
-                        trackTiming("Failing Project Synchronization", syncStart);
-                        updateSplashScreenSync(100, "Synchronization failed");
-                    }
-                } else {
-                    console.log("⏭️ [SPLASH SCREEN PHASE] User is not authenticated, skipping initial sync");
-                    updateSplashScreenSync(85, "Skipping sync (not authenticated)");
-                    const skipStart = globalThis.performance.now();
-                    // Just log this, no need to track timing for a skip
-                    console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
-                }
-            } catch (error) {
-                console.error("❌ [SPLASH SCREEN PHASE] Error checking auth status or during initial sync:", error);
-                updateSplashScreenSync(85, "Authentication error");
-                const errorStart = globalThis.performance.now();
-                // Just log this, no need to track timing for an error
-                console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
-            }
-        } else {
-            console.log("⏭️ [SPLASH SCREEN PHASE] Auth API not available, skipping initial sync");
-            updateSplashScreenSync(85, "Skipping sync (offline mode)");
-            // Just log this, no need to track timing for a skip
-            console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
-        }
+        // Skip sync during splash screen - will be performed after workspace loads
+        updateSplashScreenSync(100, "Initialization complete");
+        console.log("✅ [SPLASH SCREEN PHASE] Extension initialization complete, sync will run after workspace loads");
     }
 
     // Calculate and log total initialize extension time but don't add to main timing array
@@ -707,6 +650,50 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
             .update("workbench.editor.showTabs", "multiple", true);
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
+
+        // Now run the sync operation after workspace has loaded
+        if (authApi) {
+            try {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated) {
+                    console.log("🔄 [POST-WORKSPACE] User is authenticated, checking extension versions before sync...");
+
+                    // Check extension versions right before syncing
+                    let allowSync = true;
+                    try {
+                        allowSync = await checkExtensionVersionsOnStartup(context);
+                        if (!allowSync) {
+                            console.log("🚫 [POST-WORKSPACE] Sync disabled due to outdated extensions");
+                        } else {
+                            console.log("✅ [POST-WORKSPACE] Extension versions OK, proceeding with sync");
+                        }
+                    } catch (error) {
+                        console.error("❌ [POST-WORKSPACE] Error checking extension versions:", error);
+                        // Continue with sync on error to avoid blocking the user
+                        allowSync = true;
+                    }
+
+                    if (allowSync) {
+                        const syncStart = globalThis.performance.now();
+                        const syncManager = SyncManager.getInstance();
+                        try {
+                            await syncManager.executeSync("Initial workspace sync", true, context, false);
+                            const syncDuration = globalThis.performance.now() - syncStart;
+                            console.log(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
+                        } catch (error) {
+                            console.error("❌ [POST-WORKSPACE] Error during post-workspace sync:", error);
+                        }
+                    }
+                } else {
+                    console.log("⏭️ [POST-WORKSPACE] User is not authenticated, skipping post-workspace sync");
+                }
+            } catch (error) {
+                console.error("❌ [POST-WORKSPACE] Error checking auth status for post-workspace sync:", error);
+            }
+        } else {
+            console.log("⏭️ [POST-WORKSPACE] Auth API not available, skipping post-workspace sync");
+        }
+
         // Check if we need to show the welcome view after initialization
         await showWelcomeViewIfNeeded();
     });
