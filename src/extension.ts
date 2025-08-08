@@ -637,6 +637,10 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         .getConfiguration()
         .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
 
+    await vscode.workspace
+        .getConfiguration()
+        .update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
+
     // Final splash screen update and close
     updateSplashScreenSync(100, "Finalizing setup...");
 
