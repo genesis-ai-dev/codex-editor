@@ -7,8 +7,7 @@ import { getWorkSpaceUri } from "./index";
 function sanitizePath(workspaceUri: vscode.Uri, filepath: string): string {
     const workspacePath = workspaceUri.fsPath;
     if (filepath.startsWith(workspacePath)) {
-        console.warn(`Duplicate workspace path detected in filepath: ${filepath}`);
-        console.warn(`Removing duplicate path.`);
+        // Remove duplicate workspace path if present
         return filepath.slice(workspacePath.length).replace(/^[/\\]+/, "");
     }
     return filepath;
@@ -106,7 +105,6 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
         }
         const sanitizedFileName = sanitizePath(workspaceUri, fileName);
         const uri = vscode.Uri.joinPath(workspaceUri, sanitizedFileName);
-        console.log(`[getCommentsFromFile] Reading from: ${uri.fsPath}`);
         const fileContentUint8Array = await vscode.workspace.fs.readFile(uri);
         const fileContent = new TextDecoder().decode(fileContentUint8Array);
         const rawComments = JSON.parse(fileContent);
@@ -151,6 +149,12 @@ export const getCommentsFromFile = async (fileName: string): Promise<NotebookCom
 
         return cleanedComments;
     } catch (error) {
+        // Handle file not found gracefully without logging
+        if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+            return []; // Return empty array when comments file doesn't exist yet
+        }
+
+        // Only log errors for actual file system or parsing issues
         console.error(`[getCommentsFromFile] Error reading file:`, error);
         throw new Error("Failed to parse notebook comments from file");
     }

@@ -70,7 +70,7 @@ export class CustomWebviewProvider extends BaseWebviewProvider {
         }
 
         try {
-            const existingComments = await getCommentsFromFile(this.commentsFilePath.fsPath);
+            const existingComments = await getCommentsFromFile(".project/comments.json");
             this._inMemoryComments = [...existingComments];
             this._isDirty = false;
             this._pendingChanges.clear();

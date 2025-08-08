@@ -94,13 +94,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         try {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders || workspaceFolders.length === 0) {
+                safePostMessageToPanel(webviewPanel, {
+                    type: "commentsForCell",
+                    content: {
+                        cellId: typedEvent.content.cellId,
+                        unresolvedCount: 0
+                    },
+                });
                 return;
             }
 
-            const projectDir = vscode.Uri.joinPath(workspaceFolders[0].uri, ".project");
-            const commentsFilePath = vscode.Uri.joinPath(projectDir, "comments.json");
-
-            const comments = await getCommentsFromFile(commentsFilePath.fsPath);
+            const comments = await getCommentsFromFile(".project/comments.json");
             const unresolvedCount = getUnresolvedCommentsCountForCell(comments, typedEvent.content.cellId);
 
             safePostMessageToPanel(webviewPanel, {
@@ -111,7 +115,11 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                 },
             });
         } catch (error) {
-            console.error("Error getting comments for cell:", error);
+            // Silent fallback - getCommentsFromFile now handles file not found gracefully
+            // Only log if it's an unexpected error (not file not found)
+            if (!(error instanceof Error && error.message === "Failed to parse notebook comments from file")) {
+                console.error("Unexpected error getting comments for cell:", error);
+            }
             safePostMessageToPanel(webviewPanel, {
                 type: "commentsForCell",
                 content: {
