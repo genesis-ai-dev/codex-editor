@@ -149,6 +149,13 @@ export class SyncManager {
 
     // Schedule a sync operation to occur after the configured delay
     public scheduleSyncOperation(commitMessage: string = "Auto-sync changes"): void {
+        // Check if there's a workspace folder open first
+        const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
+        if (!hasWorkspace) {
+            console.log("No workspace open, not scheduling sync operation");
+            return;
+        }
+
         // Get current configuration
         const config = vscode.workspace.getConfiguration("codex-project-manager");
         const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
@@ -186,6 +193,13 @@ export class SyncManager {
         context?: vscode.ExtensionContext,
         isManualSync: boolean = false
     ): Promise<void> {
+        // Check if there's a workspace folder open (unless it's a manual sync which user explicitly requested)
+        const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
+        if (!hasWorkspace && !isManualSync) {
+            console.log("No workspace open, skipping sync operation");
+            return;
+        }
+
         if (this.isSyncInProgress) {
             console.log("Sync already in progress, skipping");
             if (showInfoOnConnectionIssues) {
@@ -436,7 +450,7 @@ export class SyncManager {
     private async rebuildIndexesInBackground(syncResult?: SyncResult): Promise<void> {
         try {
             const indexStartTime = performance.now();
-            console.log("🤖 AI learning from your latest changes...");
+            console.log("AI learning from your latest changes...");
 
             // Log git sync information if available
             if (syncResult && syncResult.totalChanges > 0) {
@@ -613,8 +627,20 @@ export class SyncManager {
     public updateFromConfiguration(): void {
         // This method will be called when configuration changes
         const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
+        let autoSyncEnabled = config.get<boolean>("autoSyncEnabled", true);
         let syncDelayMinutes = config.get<number>("syncDelayMinutes", 5);
+
+        // Check if there's a workspace folder open
+        const hasWorkspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0;
+
+        if (!hasWorkspace) {
+            // Disable autosync when no workspace is open
+            autoSyncEnabled = false;
+            console.log("SyncManager: No workspace open, disabling autosync and clearing pending operations");
+
+            // Clear any pending sync operations
+            this.clearPendingSync();
+        }
 
         // Ensure minimum sync delay is 5 minutes
         if (syncDelayMinutes < 5) {
@@ -623,7 +649,7 @@ export class SyncManager {
         }
 
         console.log(
-            `SyncManager configuration updated: autoSyncEnabled=${autoSyncEnabled}, syncDelayMinutes=${syncDelayMinutes}`
+            `SyncManager configuration updated: autoSyncEnabled=${autoSyncEnabled}, syncDelayMinutes=${syncDelayMinutes}, hasWorkspace=${hasWorkspace}`
         );
     }
 
@@ -714,6 +740,26 @@ export function registerSyncCommands(context: vscode.ExtensionContext): void {
                 event.affectsConfiguration("codex-project-manager.syncDelayMinutes")
             ) {
                 syncManager.updateFromConfiguration();
+            }
+        })
+    );
+
+    // Listen for workspace folder changes to disable autosync when project is closed
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeWorkspaceFolders((event) => {
+            console.log(`SyncManager: Workspace folders changed - added: ${event.added.length}, removed: ${event.removed.length}`);
+
+            // If workspace folders were removed, clear any pending sync operations
+            if (event.removed.length > 0) {
+                syncManager.clearPendingSync();
+                console.log("SyncManager: Cleared pending sync operations due to workspace folder removal");
+            }
+
+            // Update configuration to handle workspace changes (this will disable autosync if no workspace)
+            syncManager.updateFromConfiguration();
+
+            if (event.removed.length > 0 && (!vscode.workspace.workspaceFolders || vscode.workspace.workspaceFolders.length === 0)) {
+                console.log("SyncManager: All workspace folders removed, autosync disabled and pending operations cleared");
             }
         })
     );

@@ -1245,7 +1245,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {
         try {
-            console.log(`[CodexDocument] 🤖 AI learning from your updates...`);
+            console.log(`[CodexDocument] AI learning from your updates...`);
 
             if (!this._indexManager) {
                 this._indexManager = getSQLiteIndexManager();

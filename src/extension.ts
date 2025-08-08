@@ -47,6 +47,7 @@ import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { checkExtensionVersionsOnStartup, registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
+import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 
 export interface ActivationTiming {
@@ -301,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Only initialize database if we have a workspace (database is for project content)
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-            startRealtimeStep("Loading Database Engine");
+            startRealtimeStep("AI preparing search capabilities");
             try {
                 global.db = await initializeSqlJs(context);
 
@@ -320,7 +321,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         } else {
             // No workspace, skip database initialization
-            stepStart = trackTiming("Loading Database Engine (skipped - no workspace)", globalThis.performance.now());
+            stepStart = trackTiming("AI search capabilities (skipped - no workspace)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -526,7 +527,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                 console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
             }
             if (!global.db) {
-                console.info("[Database] Database not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
+                console.info("[Database] Dictionary not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
             }
         }
         finishRealtimeStep();
@@ -543,78 +544,21 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("Initializing Search Database");
+        startRealtimeStep("AI learning your project structure");
         await createIndexWithContext(context);
         finishRealtimeStep();
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
-        console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
+        console.log(`[AI Learning] Total AI learning preparation: ${totalIndexDuration.toFixed(2)}ms`);
 
-        // Check extension versions before allowing sync operations
-        updateSplashScreenSync(50, "Checking extension versions...");
-        console.log("🔍 [SPLASH SCREEN PHASE] Checking extension versions...");
-        const versionCheckStart = globalThis.performance.now();
+        // Skip version check during splash screen - will be performed before sync
+        updateSplashScreenSync(50, "Finalizing initialization...");
 
-        let allowSync = true;
-        try {
-            allowSync = await checkExtensionVersionsOnStartup(context);
-            if (!allowSync) {
-                updateSplashScreenSync(100, "Sync disabled (extensions outdated)");
-                trackTiming("Checking Extension Versions (sync disabled)", versionCheckStart);
-                return; // Skip sync entirely
-            } else {
-                trackTiming("Checking Extension Versions", versionCheckStart);
-            }
-        } catch (error) {
-            trackTiming("Checking Extension Versions (error)", versionCheckStart);
-            // Continue with sync on error to avoid blocking the user
-        }
-
-        // Perform initial sync during splash screen phase if auth API is available and user is authenticated
-        updateSplashScreenSync(60, "Checking authentication...");
-
-        if (authApi) {
-            try {
-                const authStatus = authApi.getAuthStatus();
-                if (authStatus.isAuthenticated) {
-                    console.log("🔄 [SPLASH SCREEN PHASE] User is authenticated, performing initial sync during splash screen");
-                    updateSplashScreenSync(70, "Synchronizing project...");
-                    const syncStart = globalThis.performance.now();
-
-                    const syncManager = SyncManager.getInstance();
-                    // During startup, don't show info messages for connection issues
-                    try {
-                        await syncManager.executeSync("Initial workspace sync", false, context, false);
-                        trackTiming("Completing Project Synchronization", syncStart);
-                        updateSplashScreenSync(100, "Synchronization complete");
-                        console.log("✅ [SPLASH SCREEN PHASE] Sync completed during splash screen");
-                    } catch (error) {
-                        console.error("❌ [SPLASH SCREEN PHASE] Error during initial sync:", error);
-                        trackTiming("Failing Project Synchronization", syncStart);
-                        updateSplashScreenSync(100, "Synchronization failed");
-                    }
-                } else {
-                    console.log("⏭️ [SPLASH SCREEN PHASE] User is not authenticated, skipping initial sync");
-                    updateSplashScreenSync(85, "Skipping sync (not authenticated)");
-                    const skipStart = globalThis.performance.now();
-                    // Just log this, no need to track timing for a skip
-                    console.log(`[Activation] Project Synchronization Skipped (Not Authenticated): 0ms`);
-                }
-            } catch (error) {
-                console.error("❌ [SPLASH SCREEN PHASE] Error checking auth status or during initial sync:", error);
-                updateSplashScreenSync(85, "Authentication error");
-                const errorStart = globalThis.performance.now();
-                // Just log this, no need to track timing for an error
-                console.log(`[Activation] Project Synchronization Failed due to auth error: 0ms`);
-            }
-        } else {
-            console.log("⏭️ [SPLASH SCREEN PHASE] Auth API not available, skipping initial sync");
-            updateSplashScreenSync(85, "Skipping sync (offline mode)");
-            // Just log this, no need to track timing for a skip
-            console.log(`[Activation] Project Synchronization Skipped (Auth API Unavailable): 0ms`);
-        }
+        // Skip sync during splash screen - will be performed after workspace loads
+        updateSplashScreenSync(100, "Initialization complete");
+        console.log("✅ [SPLASH SCREEN PHASE] Extension initialization complete, sync will run after workspace loads");
     }
 
     // Calculate and log total initialize extension time but don't add to main timing array
@@ -707,6 +651,55 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
             .update("workbench.editor.showTabs", "multiple", true);
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
+
+        // Now run the sync operation after workspace has loaded (only if a Codex project is open)
+
+        // First check if there's actually a Codex project open
+        const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+        if (!hasCodexProject) {
+            console.log("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
+        } else if (authApi) {
+            try {
+                const authStatus = authApi.getAuthStatus();
+                if (authStatus.isAuthenticated) {
+                    console.log("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, checking extension versions before sync...");
+
+                    // Check extension versions right before syncing
+                    let allowSync = true;
+                    try {
+                        allowSync = await checkExtensionVersionsOnStartup(context);
+                        if (!allowSync) {
+                            console.log("🚫 [POST-WORKSPACE] Sync disabled due to outdated extensions");
+                        } else {
+                            console.log("✅ [POST-WORKSPACE] Extension versions OK, proceeding with sync");
+                        }
+                    } catch (error) {
+                        console.error("❌ [POST-WORKSPACE] Error checking extension versions:", error);
+                        // Continue with sync on error to avoid blocking the user
+                        allowSync = true;
+                    }
+
+                    if (allowSync) {
+                        const syncStart = globalThis.performance.now();
+                        const syncManager = SyncManager.getInstance();
+                        try {
+                            await syncManager.executeSync("Initial workspace sync", true, context, false);
+                            const syncDuration = globalThis.performance.now() - syncStart;
+                            console.log(`✅ [POST-WORKSPACE] Sync completed after workspace load: ${syncDuration.toFixed(2)}ms`);
+                        } catch (error) {
+                            console.error("❌ [POST-WORKSPACE] Error during post-workspace sync:", error);
+                        }
+                    }
+                } else {
+                    console.log("⏭️ [POST-WORKSPACE] User is not authenticated, skipping post-workspace sync");
+                }
+            } catch (error) {
+                console.error("❌ [POST-WORKSPACE] Error checking auth status for post-workspace sync:", error);
+            }
+        } else {
+            console.log("⏭️ [POST-WORKSPACE] Auth API not available, skipping post-workspace sync");
+        }
+
         // Check if we need to show the welcome view after initialization
         await showWelcomeViewIfNeeded();
     });
