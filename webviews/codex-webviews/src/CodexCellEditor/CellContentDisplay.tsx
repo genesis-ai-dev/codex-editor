@@ -713,10 +713,6 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                             )}
                         </div>
                         {getAlertDot()}
-                        <CommentsBadge
-                            cellId={cellIds[0]}
-                            unresolvedCount={initialUnresolvedCommentsCount}
-                        />
                     </div>
                 )}
                 <div

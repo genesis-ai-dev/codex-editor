@@ -604,6 +604,8 @@ const CellList: React.FC<CellListProps> = ({
             workingTranslationUnits,
             cellCommentsCount,
             openCellById,
+            currentUsername,
+            requiredValidations,
         ]
     );
 
@@ -908,22 +910,25 @@ const CellList: React.FC<CellListProps> = ({
     // Fetch comments count for all visible cells
     useEffect(() => {
         const fetchCommentsForAllCells = () => {
+            // Only request counts for cells we don't have yet to avoid redundant traffic
             workingTranslationUnits.forEach((unit) => {
                 const cellId = unit.cellMarkers[0];
-                const messageContent: EditorPostMessages = {
-                    command: "getCommentsForCell",
-                    content: {
-                        cellId: cellId,
-                    },
-                };
-                vscode.postMessage(messageContent);
+                if (!cellCommentsCount.has(cellId)) {
+                    const messageContent: EditorPostMessages = {
+                        command: "getCommentsForCell",
+                        content: {
+                            cellId: cellId,
+                        },
+                    };
+                    vscode.postMessage(messageContent);
+                }
             });
         };
 
         if (workingTranslationUnits.length > 0) {
             fetchCommentsForAllCells();
         }
-    }, [workingTranslationUnits, vscode]);
+    }, [workingTranslationUnits, vscode, cellCommentsCount]);
 
     // Handle comments count responses
     useEffect(() => {
