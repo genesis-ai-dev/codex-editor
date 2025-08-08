@@ -47,6 +47,7 @@ import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
 import { checkExtensionVersionsOnStartup, registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
+import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 
 export interface ActivationTiming {
@@ -651,12 +652,17 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
 
-        // Now run the sync operation after workspace has loaded
-        if (authApi) {
+        // Now run the sync operation after workspace has loaded (only if a Codex project is open)
+
+        // First check if there's actually a Codex project open
+        const hasCodexProject = await checkIfMetadataAndGitIsInitialized();
+        if (!hasCodexProject) {
+            console.log("⏭️ [POST-WORKSPACE] No Codex project open, skipping post-workspace sync");
+        } else if (authApi) {
             try {
                 const authStatus = authApi.getAuthStatus();
                 if (authStatus.isAuthenticated) {
-                    console.log("🔄 [POST-WORKSPACE] User is authenticated, checking extension versions before sync...");
+                    console.log("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, checking extension versions before sync...");
 
                     // Check extension versions right before syncing
                     let allowSync = true;
