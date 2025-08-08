@@ -522,6 +522,9 @@ function App() {
         }).length;
     }, [commentThreadArray, viewMode, cellId.cellId, searchQuery, showResolvedThreads]);
 
+    // Whether a user can start a new top-level comment thread (requires auth and active cell)
+    const canStartNewComment = currentUser.isAuthenticated && Boolean(cellId.cellId);
+
     // Helper function to render comment body with blockquotes
     const renderCommentBody = (body: string) => {
         if (!body) return null;
@@ -743,15 +746,31 @@ function App() {
                             </span>
                         </div>
 
-                        {currentUser.isAuthenticated && (
-                            <Button
-                                onClick={() => setShowNewCommentForm(true)}
-                                className="font-medium"
-                            >
-                                <Plus className="h-4 w-4 mr-1.5" />
-                                Comment
-                            </Button>
-                        )}
+                        {currentUser.isAuthenticated &&
+                            (canStartNewComment ? (
+                                <Button
+                                    onClick={() => setShowNewCommentForm(true)}
+                                    className="font-medium"
+                                >
+                                    <Plus className="h-4 w-4 mr-1.5" />
+                                    Comment
+                                </Button>
+                            ) : (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        {/* span wrapper so tooltip works with disabled button */}
+                                        <span>
+                                            <Button className="font-medium" disabled>
+                                                <Plus className="h-4 w-4 mr-1.5" />
+                                                Comment
+                                            </Button>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        Please select a cell to comment on first
+                                    </TooltipContent>
+                                </Tooltip>
+                            ))}
                     </div>
                 </div>
 
