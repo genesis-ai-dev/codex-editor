@@ -283,6 +283,36 @@ export const ParatextImporterForm: React.FC<ImporterComponentProps> = (props) =>
                 </Button>
             </div>
 
+            {/* Paratext Variety Warning */}
+            <Alert className="border-amber-200 bg-amber-50">
+                <Info className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800">
+                    <div className="space-y-2">
+                        <div className="font-medium">Important Note</div>
+                        <div className="text-sm">
+                            Paratext projects have a lot of variety in their structure and
+                            formatting. While we've tested with many different projects, you may
+                            encounter issues with your specific project. If you run into any
+                            problems, please let us know! We'd love to help and improve our
+                            importer.
+                        </div>
+                        <div className="text-sm">
+                            Connect with us on our{" "}
+                            <a
+                                href="https://codexeditor.app"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-amber-700 hover:text-amber-900 underline font-medium inline-flex items-center gap-1"
+                            >
+                                Discord server
+                                <ExternalLink className="h-3 w-3" />
+                            </a>{" "}
+                            (linked from our website) for support and feedback.
+                        </div>
+                    </div>
+                </AlertDescription>
+            </Alert>
+
             <Card>
                 <CardHeader>
                     <CardTitle>Select Paratext Project</CardTitle>
