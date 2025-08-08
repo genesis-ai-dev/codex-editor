@@ -126,7 +126,7 @@ export class SQLiteIndexManager {
         let stepStart = initStart;
 
         // Initialize SQL.js
-        stepStart = this.trackProgress("Initialize SQL.js WASM", stepStart);
+        stepStart = this.trackProgress("🤖 AI initializing learning engine", stepStart);
         const sqlWasmPath = vscode.Uri.joinPath(
             context.extensionUri,
             "out/node_modules/fts5-sql-bundle/dist/sql-wasm.wasm"
@@ -140,12 +140,12 @@ export class SQLiteIndexManager {
             throw new Error("Failed to initialize SQL.js");
         }
 
-        stepStart = this.trackProgress("SQL.js Ready", stepStart);
+        stepStart = this.trackProgress("🤖 AI learning engine ready", stepStart);
 
         // Load or create database
         await this.loadOrCreateDatabase();
 
-        this.trackProgress("Database Setup Complete", initStart);
+        this.trackProgress("🤖 AI learning capabilities ready", initStart);
     }
 
     private async loadOrCreateDatabase(): Promise<void> {
@@ -163,7 +163,7 @@ export class SQLiteIndexManager {
 
         try {
             const fileContent = await vscode.workspace.fs.readFile(dbPath);
-            stepStart = this.trackProgress("Load existing database file", stepStart);
+            stepStart = this.trackProgress("🤖 AI accessing previous learning", stepStart);
 
             this.db = new this.sql!.Database(fileContent);
             stepStart = this.trackProgress("Parse database structure", stepStart);
@@ -197,7 +197,7 @@ export class SQLiteIndexManager {
                 debug("Database file not found or other error, creating new database");
             }
 
-            stepStart = this.trackProgress("Create new database", stepStart);
+            stepStart = this.trackProgress("🤖 AI preparing fresh learning space", stepStart);
             console.log("Creating new index database");
             this.db = new this.sql!.Database();
 
@@ -212,7 +212,7 @@ export class SQLiteIndexManager {
             await this.saveDatabase();
         }
 
-        this.trackProgress("Database Load/Create Complete", loadStart);
+        this.trackProgress("🤖 AI learning space ready", loadStart);
     }
 
     private async createSchema(): Promise<void> {
@@ -486,7 +486,7 @@ export class SQLiteIndexManager {
 
             if (currentVersion === 0) {
                 // Scenario 1: No schema exists - create fresh schema
-                stepStart = this.trackProgress("Initialize new database schema", stepStart);
+                stepStart = this.trackProgress("🤖 AI organizing learning structure", stepStart);
                 debug("Setting up new database with latest schema");
                 await this.createSchema();
 
@@ -496,7 +496,7 @@ export class SQLiteIndexManager {
                 }
 
                 this.setSchemaVersion(CURRENT_SCHEMA_VERSION);
-                this.trackProgress("New database schema initialized", stepStart);
+                this.trackProgress("✨ AI learning structure organized", stepStart);
                 debug(`New database created with schema version ${CURRENT_SCHEMA_VERSION}`);
             } else if (currentVersion !== CURRENT_SCHEMA_VERSION) {
                 // Scenario 2: ANY version mismatch (ahead, behind, or different) - ALWAYS recreate everything
@@ -2437,7 +2437,7 @@ export class SQLiteIndexManager {
 
         // Step 3: Replace paragraph end tags with spaces to preserve word boundaries
         cleanContent = cleanContent.replace(/<\/p>/gi, ' ');
-        
+
         // Step 4: Remove all remaining HTML tags
         cleanContent = cleanContent.replace(/<[^>]*>/g, '');
 

@@ -302,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Only initialize database if we have a workspace (database is for project content)
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
-            startRealtimeStep("Loading Database Engine");
+            startRealtimeStep("🤖 AI preparing search capabilities");
             try {
                 global.db = await initializeSqlJs(context);
 
@@ -321,7 +321,7 @@ export async function activate(context: vscode.ExtensionContext) {
             }
         } else {
             // No workspace, skip database initialization
-            stepStart = trackTiming("Loading Database Engine (skipped - no workspace)", globalThis.performance.now());
+            stepStart = trackTiming("🤖 AI search capabilities (skipped - no workspace)", globalThis.performance.now());
         }
 
         vscode.workspace.getConfiguration().update("workbench.startupEditor", "none", true);
@@ -527,7 +527,7 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
                 console.warn("Language server failed to initialize - spellcheck and alert features will use fallback behavior");
             }
             if (!global.db) {
-                console.info("[Database] Database not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
+                console.info("[Database] Dictionary not available - dictionary features will be limited. This is normal during initial setup or if database initialization failed.");
             }
         }
         finishRealtimeStep();
@@ -544,14 +544,14 @@ async function initializeExtension(context: vscode.ExtensionContext, metadataExi
 
         // Use real-time progress for context index setup since it can take a while
         // Note: SQLiteIndexManager handles its own detailed progress tracking
-        startRealtimeStep("Initializing Search Database");
+        startRealtimeStep("🤖 AI learning your project structure");
         await createIndexWithContext(context);
         finishRealtimeStep();
 
         // Don't track "Total Index Creation" since it would show cumulative time
         // The individual steps above already show the breakdown
         const totalIndexDuration = globalThis.performance.now() - totalIndexStart;
-        console.log(`[Activation] Total Index Creation: ${totalIndexDuration.toFixed(2)}ms`);
+        console.log(`🤖 [AI Learning] Total AI learning preparation: ${totalIndexDuration.toFixed(2)}ms`);
 
         // Skip version check during splash screen - will be performed before sync
         updateSplashScreenSync(50, "Finalizing initialization...");

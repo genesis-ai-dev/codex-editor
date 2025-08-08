@@ -72,7 +72,7 @@ async function showAILearningProgress<T>(
                     progress.report({ message: undefined }); // Clear any existing message
                     // Update the existing notification to show completion
                     progress.report({
-                        message: "✨ Learning complete!"
+                        message: "🤖 Learning complete!"
                     });
 
                     // Keep the completion message visible for 1 second
@@ -1378,7 +1378,7 @@ export async function createIndexWithContext(context: vscode.ExtensionContext) {
                                 sourceTextIndex.documentCount
                             );
 
-                            progress.report({ message: "✨ AI learning complete!" });
+                            progress.report({ message: "🤖 AI learning complete!" });
                             await new Promise(res => setTimeout(res, 1000));
                         }
                     );
