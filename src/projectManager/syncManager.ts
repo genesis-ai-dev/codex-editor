@@ -450,7 +450,7 @@ export class SyncManager {
     private async rebuildIndexesInBackground(syncResult?: SyncResult): Promise<void> {
         try {
             const indexStartTime = performance.now();
-            console.log("🤖 AI learning from your latest changes...");
+            console.log("AI learning from your latest changes...");
 
             // Log git sync information if available
             if (syncResult && syncResult.totalChanges > 0) {
