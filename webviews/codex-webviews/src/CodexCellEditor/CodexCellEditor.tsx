@@ -183,7 +183,7 @@ const CodexCellEditor: React.FC = () => {
 
     // Add a state for tracking validation application in progress
     const [isApplyingValidations, setIsApplyingValidations] = useState(false);
-    
+
     // Temporary font size for preview - only applied when dropdown is open
     const [tempFontSize, setTempFontSize] = useState<number | null>(null);
 
@@ -1305,7 +1305,7 @@ const CodexCellEditor: React.FC = () => {
     useEffect(() => {
         const styleElement = document.createElement("style");
         // Use temporary font size if available, otherwise use metadata font size
-        const currentFontSize = tempFontSize !== null ? tempFontSize : (metadata?.fontSize || 14);
+        const currentFontSize = tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14;
         styleElement.textContent = `
             .ql-editor {
                 direction: ${textDirection} !important;
@@ -1372,7 +1372,7 @@ const CodexCellEditor: React.FC = () => {
     const handleFontSizeSave = (fontSize: number) => {
         setTempFontSize(null); // Clear temporary font size
         handleMetadataChange("fontSize", fontSize.toString());
-        
+
         // Save the metadata with local source marking
         const updatedMetadata = { ...metadata, fontSize, fontSizeSource: "local" };
         vscode.postMessage({
@@ -1860,7 +1860,9 @@ const CodexCellEditor: React.FC = () => {
                             audioAttachments={audioAttachments}
                             isSaving={isSaving}
                             isCorrectionEditorMode={isCorrectionEditorMode}
-                            fontSize={tempFontSize !== null ? tempFontSize : (metadata?.fontSize || 14)}
+                            fontSize={
+                                tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
+                            }
                         />
                     </div>
                 </div>

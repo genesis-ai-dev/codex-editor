@@ -12,6 +12,10 @@ import {
 } from '../../utils/workflowHelpers';
 import { extractImagesFromHtml } from '../../utils/imageProcessor';
 import { marked } from 'marked';
+import {
+    processMarkdownWithFootnotes
+} from '../../utils/markdownFootnoteExtractor';
+import { validateFootnotes } from '../../utils/footnoteUtils';
 
 const SUPPORTED_EXTENSIONS = ['md', 'markdown'];
 
@@ -219,6 +223,20 @@ export const parseFile = async (
 
         const text = await file.text();
 
+        onProgress?.(createProgress('Extracting Footnotes', 'Extracting footnotes from Markdown...', 25));
+
+        // Process Markdown content for footnotes
+        const { content: processedText, footnotes } = processMarkdownWithFootnotes(text);
+
+        // Validate footnotes
+        const footnoteValidation = validateFootnotes(footnotes);
+        if (!footnoteValidation.isValid) {
+            console.warn('Markdown footnote validation errors:', footnoteValidation.errors);
+        }
+        if (footnoteValidation.warnings.length > 0) {
+            console.warn('Markdown footnote validation warnings:', footnoteValidation.warnings);
+        }
+
         onProgress?.(createProgress('Parsing Markdown', 'Breaking down into individual elements...', 30));
 
         // Configure marked for consistent parsing
@@ -228,7 +246,7 @@ export const parseFile = async (
         });
 
         // Split markdown into individual elements instead of sections
-        const elements = splitMarkdownIntoElements(text);
+        const elements = splitMarkdownIntoElements(processedText);
 
         if (elements.length === 0) {
             throw new Error('No content elements could be extracted from the markdown file');
@@ -290,13 +308,15 @@ export const parseFile = async (
                 listItemCount,
                 imageCount,
                 wordCount,
+                footnoteCount: footnotes.length,
                 features: {
                     hasImages: imageCount > 0,
                     hasHeadings: headingCount > 0,
                     hasListItems: listItemCount > 0,
-                    hasTables: text.includes('|'),
-                    hasCodeBlocks: text.includes('```'),
-                    hasLinks: /\[.*?\]\(.*?\)/.test(text),
+                    hasTables: processedText.includes('|'),
+                    hasCodeBlocks: processedText.includes('```'),
+                    hasLinks: /\[.*?\]\(.*?\)/.test(processedText),
+                    hasFootnotes: footnotes.length > 0,
                 },
             },
         };
@@ -335,14 +355,16 @@ export const parseFile = async (
                 listItemCount,
                 imageCount,
                 wordCount,
+                footnoteCount: footnotes.length,
                 fileSize: file.size,
                 features: {
                     hasImages: imageCount > 0,
                     hasHeadings: headingCount > 0,
                     hasListItems: listItemCount > 0,
-                    hasTables: text.includes('|'),
-                    hasCodeBlocks: text.includes('```'),
-                    hasLinks: /\[.*?\]\(.*?\)/.test(text),
+                    hasTables: processedText.includes('|'),
+                    hasCodeBlocks: processedText.includes('```'),
+                    hasLinks: /\[.*?\]\(.*?\)/.test(processedText),
+                    hasFootnotes: footnotes.length > 0,
                 },
             },
         };

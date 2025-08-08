@@ -95,6 +95,7 @@ export const parseFile = async (file: File, onProgress?: ProgressCallback): Prom
                 verseCount: processedBook.verseCount,
                 paratextCount: processedBook.paratextCount,
                 chapters: processedBook.chapters,
+                footnoteCount: processedBook.footnoteCount,
             },
         };
 

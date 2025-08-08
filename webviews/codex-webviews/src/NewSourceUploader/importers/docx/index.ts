@@ -15,6 +15,20 @@ import {
 } from '../../utils/workflowHelpers';
 import { processImageData, extractImagesFromHtml } from '../../utils/imageProcessor';
 import { DocxParsingOptions, DocxMammothOptions } from './types';
+import {
+    extractDocxFootnotes,
+    integrateFootnotesIntoHtml
+} from '../../utils/docxFootnoteExtractor';
+import {
+    extractAndReplaceFootnotes,
+    validateFootnotes,
+    createFootnoteChildCells
+} from '../../utils/footnoteUtils';
+import { postProcessImportedFootnotes } from '../../utils/postProcessFootnotes';
+import { processMammothFootnotes } from '../../utils/mammothFootnoteHandler';
+import { extractFootnotesFromMammothMarkdown } from '../../utils/mammothMarkdownFootnoteExtractor';
+import { integrateFootnotesBeforeCellSplit } from '../../utils/footnoteIntegration';
+import { cleanIntegrateFootnotes } from '../../utils/cleanFootnoteIntegration';
 
 const SUPPORTED_EXTENSIONS = ['docx'];
 
@@ -90,6 +104,10 @@ export const parseFile = async (
                 "p[style-name='Heading 6'] => h6:fresh",
                 "p[style-name='Quote'] => blockquote:fresh",
                 "p[style-name='Footnote Text'] => p.footnote:fresh",
+                // Footnote and endnote handling
+                "footnote-reference => sup.footnote-ref",
+                "endnote-reference => sup.endnote-ref",
+                // Run styles
                 "r[style-name='Strong'] => strong",
                 "r[style-name='Emphasis'] => em",
                 "r[style-name='Code'] => code",
@@ -134,12 +152,91 @@ export const parseFile = async (
 
         // Convert to HTML
         const result = await mammoth.convertToHtml(mammothOptions as any);
-        const htmlContent = result.value;
+        let htmlContent = result.value;
 
-        onProgress?.(createProgress('Parsing Structure', 'Parsing HTML structure...', 60));
+        onProgress?.(createProgress('Processing Footnotes', 'Converting to markdown to extract footnotes...', 45));
 
-        // Parse HTML structure
-        const htmlSegments = await parseHtmlStructure(htmlContent);
+        // Also convert to Markdown to extract footnote content properly
+        const markdownResult = await mammoth.convertToMarkdown({ arrayBuffer });
+
+        onProgress?.(createProgress('Processing Footnotes', 'Processing footnotes from markdown output...', 50));
+
+        // Use markdown-based footnote extraction (more reliable)
+        const { footnotes, processedHtml } = await extractFootnotesFromMammothMarkdown(
+            file,
+            result,
+            markdownResult
+        );
+        htmlContent = processedHtml;
+
+        // Validate footnotes and log any issues
+        const footnoteValidation = validateFootnotes(footnotes);
+        if (!footnoteValidation.isValid) {
+            console.warn('DOCX footnote validation errors:', footnoteValidation.errors);
+        }
+        if (footnoteValidation.warnings.length > 0) {
+            console.warn('DOCX footnote validation warnings:', footnoteValidation.warnings);
+        }
+
+        onProgress?.(createProgress('Integrating Footnotes', 'Cleaning and integrating footnotes...', 55));
+
+        // Use clean footnote integration approach to avoid nested/malformed footnotes
+        htmlContent = cleanIntegrateFootnotes(htmlContent, footnotes);
+
+        onProgress?.(createProgress('Parsing Structure', 'Splitting HTML into segments...', 60));
+
+        // Split HTML into segments without XML re-parsing to preserve inline markup and attributes
+        let htmlSegments = htmlContent
+            .split(/(?=<(?:h[1-6]|p|div|table|ul|ol)\b[^>]*>)/i)
+            .map(segment => segment.trim())
+            .filter(segment => segment.length > 0);
+
+        // Merge segments where a standalone <p><sup>n</sup></p> (or Codex marker) paragraph should be inline in the previous paragraph
+        const escapeAttr = (s: string) =>
+            (s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\n/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+        const footnoteContentMap: Map<string, string> = new Map();
+        footnotes.forEach(fn => {
+            const m = fn.id.match(/footnote-(\d+)/);
+            const num = m ? m[1] : (fn.position ? String(fn.position) : undefined);
+            if (num) footnoteContentMap.set(num, fn.content);
+        });
+
+        const merged: string[] = [];
+        for (let i = 0; i < htmlSegments.length; i++) {
+            const seg = htmlSegments[i];
+            // Match standalone sup paragraph variants
+            const simpleSup = seg.match(/^<p>\s*(?:<a[^>]*>\s*<\/a>\s*)*<sup[^>]*>\s*(\d+)\s*<\/sup>\s*<\/p>$/i);
+            const codexSup = seg.match(/^<p>\s*(?:<a[^>]*>\s*<\/a>\s*)*<sup[^>]*class="footnote-marker"[^>]*>\s*(\d+)\s*<\/sup>\s*<\/p>$/i);
+            const nestedSup = seg.match(/^<p>\s*(?:<a[^>]*>\s*<\/a>\s*)*<sup[^>]*><a[^>]*><sup[^>]*>\s*(\d+)\s*<\/sup><\/a><\/sup>\s*<\/p>$/i);
+
+            const num = (simpleSup || codexSup || nestedSup)?.[1];
+            if (num && merged.length > 0) {
+                const prev = merged.pop() as string;
+                const content = footnoteContentMap.get(num) || '';
+                const codexMarker = `<sup class="footnote-marker" data-footnote="${escapeAttr(content)}">${num}</sup>`;
+                // Insert before trailing punctuation/quotes if present
+                const punctMatch = prev.match(/([\s\S]*?)(["'”’\)\]]*[\.,;:!?]+)<\/p>$/);
+                let updatedPrev: string;
+                if (punctMatch) {
+                    updatedPrev = `${punctMatch[1]}${codexMarker}${punctMatch[2]}</p>`;
+                } else {
+                    updatedPrev = prev.replace(/<\/p>\s*$/i, `${codexMarker}</p>`);
+                }
+                merged.push(updatedPrev);
+                continue; // drop the standalone sup segment
+            }
+            merged.push(seg);
+        }
+        htmlSegments = merged;
 
         onProgress?.(createProgress('Processing Images', 'Processing embedded images...', 80));
 
@@ -206,6 +303,7 @@ export const parseFile = async (
                 wordCount: countWordsInHtml(htmlContent),
                 segmentCount: cells.length,
                 imageCount: cells.reduce((count, cell) => count + cell.images.length, 0),
+                footnoteCount: footnotes.length,
             },
         };
 

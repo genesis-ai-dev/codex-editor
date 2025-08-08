@@ -24,6 +24,7 @@ import ScrollToContentContext from "./contextProviders/ScrollToContentContext";
 import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
+import SourceTextDisplay from "./SourceTextDisplay";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -203,7 +204,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     >([]);
     const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
-    
+
     // Add ref to track debounce timeout for footnote parsing
     const footnoteParseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -689,7 +690,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     return;
                 }
 
-                const extractedFootnotes: Array<{ id: string; content: string; position: number }> = [];
+                const extractedFootnotes: Array<{ id: string; content: string; position: number }> =
+                    [];
 
                 footnoteElements.forEach((element) => {
                     const id = element.textContent || "";
@@ -1427,15 +1429,10 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </TabsList>
 
                     <TabsContent value="source">
-                        <div className="content-section">
-                            <div
-                                className="prose prose-sm max-w-none"
-                                dangerouslySetInnerHTML={{
-                                    __html:
-                                        sourceText !== null ? sourceText : "Loading source text...",
-                                }}
-                            />
-                        </div>
+                        <SourceTextDisplay
+                            content={sourceText || ""}
+                            footnoteOffset={footnoteOffset}
+                        />
                     </TabsContent>
 
                     <TabsContent value="backtranslation">

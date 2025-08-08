@@ -141,7 +141,7 @@ const CellList: React.FC<CellListProps> = ({
                     // Extract footnotes from this cell's content
                     const tempDiv = document.createElement("div");
                     tempDiv.innerHTML = cell.cellContent || "";
-                    const footnoteMarkers = tempDiv.querySelectorAll(".footnote-marker");
+                    const footnoteMarkers = tempDiv.querySelectorAll("sup.footnote-marker");
                     footnoteCount += footnoteMarkers.length;
                 }
             }

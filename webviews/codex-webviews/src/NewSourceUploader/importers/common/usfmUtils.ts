@@ -8,6 +8,11 @@ import {
     createProcessedCell,
 } from '../../utils/workflowHelpers';
 import { getCorpusMarkerForBook } from '../../utils/corpusUtils';
+import {
+    extractUsfmFootnotes,
+    convertUsfmToHtmlWithFootnotes
+} from '../../utils/usfmFootnoteExtractor';
+import { validateFootnotes } from '../../utils/footnoteUtils';
 
 // Dynamic import to handle usfm-grammar in browser environment
 let USFMParser: any;
@@ -48,6 +53,8 @@ export interface ProcessedUsfmBook {
     paratextCount: number;
     chapters: number[];
     usfmContent: UsfmContent[];
+    footnoteCount: number;
+    footnotes: any[];
 }
 
 /**
@@ -106,6 +113,19 @@ export const processUsfmContent = async (
     const bookName = bookNames[bookCode] || bookCode;
     const usfmContent: UsfmContent[] = [];
     const chapters = new Set<number>();
+    const allFootnotes: any[] = [];
+
+    // Extract footnotes from the raw content first
+    const footnotes = extractUsfmFootnotes(content);
+
+    // Validate footnotes
+    const footnoteValidation = validateFootnotes(footnotes);
+    if (!footnoteValidation.isValid) {
+        console.warn('USFM footnote validation errors:', footnoteValidation.errors);
+    }
+    if (footnoteValidation.warnings.length > 0) {
+        console.warn('USFM footnote validation warnings:', footnoteValidation.warnings);
+    }
 
     // Process chapters and verses
     if (!jsonOutput.chapters || jsonOutput.chapters.length === 0) {
@@ -123,34 +143,46 @@ export const processUsfmContent = async (
 
         chapter.contents.forEach((content: any) => {
             if (content.verseNumber !== undefined && content.verseText !== undefined) {
-                // This is a verse
+                // This is a verse - process it for footnotes
                 const verseId = `${bookCode} ${chapterNumber}:${content.verseNumber}`;
+                let verseText = content.verseText.trim();
+
+                // Convert USFM to HTML with footnotes if needed
+                const { html: processedText } = convertUsfmToHtmlWithFootnotes(verseText);
+
                 usfmContent.push({
                     id: verseId,
-                    content: content.verseText.trim(),
+                    content: processedText,
                     type: 'verse',
                     metadata: {
                         bookCode,
                         bookName,
                         chapter: chapterNumber,
                         verse: content.verseNumber,
-                        originalText: content.verseText.trim(),
+                        originalText: verseText,
                         fileName,
+                        hasFootnotes: processedText.includes('footnote-marker'),
                     },
                 });
             } else if (content.text && !content.marker) {
                 // This is paratext (content without specific markers)
                 const paratextId = createStandardCellId(fileName, chapterNumber, usfmContent.length + 1);
+                let paratextContent = content.text.trim();
+
+                // Convert USFM to HTML with footnotes if needed
+                const { html: processedText } = convertUsfmToHtmlWithFootnotes(paratextContent);
+
                 usfmContent.push({
                     id: paratextId,
-                    content: content.text.trim(),
+                    content: processedText,
                     type: 'paratext',
                     metadata: {
                         bookCode,
                         bookName,
                         chapter: chapterNumber,
-                        originalText: content.text.trim(),
+                        originalText: paratextContent,
                         fileName,
+                        hasFootnotes: processedText.includes('footnote-marker'),
                     },
                 });
             }
@@ -184,6 +216,8 @@ export const processUsfmContent = async (
         paratextCount: usfmContent.filter(c => c.type === 'paratext').length,
         chapters: Array.from(chapters).sort((a, b) => a - b),
         usfmContent,
+        footnoteCount: footnotes.length,
+        footnotes,
     };
 };
 
