@@ -88,9 +88,54 @@ export async function stageAndCommitAllAndSync(
             return syncResult;
         }
 
-        // Instead of doing our own fetch, we'll rely on authApi.syncChanges()
-        // which handles authentication properly
-        const conflictsResponse = await authApi.syncChanges({ commitMessage });
+        // Check if we have local changes before deciding sync strategy
+        const hasChanges = await (async (): Promise<boolean> => {
+            try {
+                // Get the status matrix which shows all files and their status
+                const statusMatrix = await git.statusMatrix({
+                    fs,
+                    dir: workspaceFolder,
+                });
+
+                // statusMatrix format: [filepath, HEADStatus, WorkdirStatus, StageStatus]
+                // HEADStatus: 0 = absent, 1 = present
+                // WorkdirStatus: 0 = absent, 1 = identical to HEAD, 2 = different from HEAD
+                // StageStatus: 0 = absent, 1 = identical to HEAD, 2 = different from HEAD, 3 = different from HEAD and workdir
+
+                for (const [filepath, HEADStatus, WorkdirStatus, StageStatus] of statusMatrix) {
+                    // Check for any modifications:
+                    // - Workdir different from HEAD (WorkdirStatus === 2)
+                    // - Stage different from HEAD (StageStatus === 2 or 3)
+                    // - File deleted from workdir (WorkdirStatus === 0 and HEADStatus === 1)
+                    // - File added to stage (StageStatus > 0 and HEADStatus === 0)
+
+                    const hasWorkdirChanges = WorkdirStatus === 2 || (WorkdirStatus === 0 && HEADStatus === 1);
+                    const hasStagedChanges = StageStatus === 2 || StageStatus === 3 || (StageStatus > 0 && HEADStatus === 0);
+
+                    if (hasWorkdirChanges || hasStagedChanges) {
+                        console.log(`[SyncManager] Found changes in: ${filepath} (HEAD:${HEADStatus}, Workdir:${WorkdirStatus}, Stage:${StageStatus})`);
+                        return true;
+                    }
+                }
+
+                console.log("[SyncManager] No local changes detected in repository");
+                return false;
+            } catch (error) {
+                console.warn(`[SyncManager] Could not check repository status:`, error);
+                return true; // If we can't check, assume changes exist to be safe
+            }
+        })();
+
+        let conflictsResponse;
+        if (hasChanges) {
+            console.log("📝 Local changes detected - performing commit and sync");
+            // We have local changes, so commit them with the provided message
+            conflictsResponse = await authApi.syncChanges({ commitMessage });
+        } else {
+            console.log("📥 No local changes detected - performing fast-forward pull only");
+            // No local changes, just pull remote changes (fast-forward)
+            conflictsResponse = await authApi.syncChanges();
+        }
         if (conflictsResponse?.offline) {
             syncResult.offline = true;
             return syncResult;
