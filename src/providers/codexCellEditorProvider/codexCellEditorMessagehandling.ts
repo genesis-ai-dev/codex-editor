@@ -583,6 +583,17 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await provider.updateCachedChapter(document.uri.toString(), typedEvent.content);
     },
 
+    selectABTestVariant: async ({ event }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "selectABTestVariant"; }>;
+        const { cellId, selectedIndex, testId, selectionTimeMs } = (typedEvent as any).content || {};
+        
+        // Import and call the A/B testing feedback function
+        const { recordVariantSelection } = await import("../../utils/abTestingUtils");
+        await recordVariantSelection(testId, cellId, selectedIndex, selectionTimeMs);
+        
+        console.log(`A/B test feedback recorded: Cell ${cellId}, variant ${selectedIndex}, test ${testId}, took ${selectionTimeMs}ms`);
+    },
+
     updateCellDisplayMode: async ({ event, document, webviewPanel, provider }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellDisplayMode"; }>;
         const updatedMetadata = {

@@ -2194,8 +2194,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         this.singleCellQueueCancellation?.token ||
                         new vscode.CancellationTokenSource().token;
 
-                    // Perform LLM completion
-                    const result = await llmCompletion(
+                    // Perform LLM completion (always returns AB-style result)
+                    const completionResult = await llmCompletion(
                         notebookReader,
                         currentCellId,
                         completionConfig,
@@ -2208,6 +2208,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                         throw new Error("Translation cancelled");
                     }
 
+                    // If multiple variants are present, send to the webview for selection
+                    if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
+                        const { variants, testId } = completionResult as any;
+
+                        if (webviewPanel) {
+                            this.postMessageToWebview(webviewPanel, {
+                                type: "providerSendsABTestVariants",
+                                content: {
+                                    variants,
+                                    cellId: currentCellId,
+                                    testId: testId || `${currentCellId}-${Date.now()}`,
+                                },
+                            } as any);
+                        }
+
+                        // Mark single cell translation as complete so UI progress/spinners stop
+                        this.updateSingleCellTranslation(1.0);
+
+                        // Do not update the cell value now; the frontend will apply the chosen variant
+                        // Return an empty string for consistency with callers expecting a string
+                        debug("LLM completion A/B variants sent", { cellId: currentCellId, variantsCount: variants?.length });
+                        return "";
+                    }
+
+                    // Otherwise, handle as a single completion using the first variant
+                    const singleCompletion = (completionResult as any)?.variants?.[0] ?? "";
+
                     progress.report({ message: "Updating document...", increment: 40 });
 
                     // Update progress in state
@@ -2216,7 +2243,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update content and metadata atomically - only if not cancelled
                     currentDocument.updateCellContent(
                         currentCellId,
-                        result,
+                        singleCompletion,
                         EditType.LLM_GENERATION,
                         shouldUpdateValue
                     );
@@ -2224,8 +2251,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                     // Update progress in state
                     this.updateSingleCellTranslation(1.0);
 
-                    debug("LLM completion result", { result });
-                    return result;
+                    debug("LLM completion result", { completion: singleCompletion?.slice?.(0, 80) });
+                    return singleCompletion;
                 } catch (error: any) {
                     // Check if this is a cancellation error
                     if (error instanceof vscode.CancellationError ||

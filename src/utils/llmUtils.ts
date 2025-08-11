@@ -322,6 +322,8 @@ export interface CompletionConfig {
     numberOfFewShotExamples: number;
     debugMode: boolean;
     useOnlyValidatedExamples: boolean;
+    abTestingEnabled: boolean; // legacy flag; kept for type compatibility
+    abTestingVariants: number; // used as count hint only; defaults handled internally
 }
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
@@ -351,6 +353,9 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             numberOfFewShotExamples: (config.get("numberOfFewShotExamples") as number) || 30,
             debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
             useOnlyValidatedExamples: useOnlyValidatedExamples as boolean,
+            // Always-on A/B testing: ignore settings for enable; keep count as hint
+            abTestingEnabled: true,
+            abTestingVariants: (config.get("abTestingVariants") as number) ?? 2,
         };
         return completionConfig;
     } catch (error) {

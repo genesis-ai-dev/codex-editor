@@ -388,6 +388,9 @@ export async function activate(context: vscode.ExtensionContext) {
             initializeWebviews(context),
         ]);
 
+        // Initialize A/B testing registry (always-on, simple)
+        // initializeABTesting(); // disabled
+
         // Track total time for core components
         stepStart = trackTiming("Loading Core Components", coreComponentsStart);
 

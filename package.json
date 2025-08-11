@@ -778,6 +778,34 @@
                         "type": "boolean",
                         "default": false,
                         "description": "When enabled, AI will only use translation pairs that have been validated by users as examples for few-shot prompting. This ensures higher quality examples but may reduce the number of available examples."
+                    },
+                    "codex-editor-extension.abTestingEnabled": {
+                        "title": "Enable A/B Testing",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, the AI will generate multiple translation variants for you to choose from. This helps improve translation quality through user feedback."
+                    },
+                    "codex-editor-extension.abTestingVariants": {
+                        "title": "Number of A/B Testing Variants",
+                        "type": "number",
+                        "default": 2,
+                        "minimum": 2,
+                        "maximum": 4,
+                        "description": "How many translation variants to generate when A/B testing is enabled. More variants provide more choice but use more API calls."
+                    },
+                    "codex-editor-extension.searchAlgorithm": {
+                        "title": "Search Algorithm",
+                        "type": "string",
+                        "default": "fts5-bm25",
+                        "enum": [
+                            "fts5-bm25",
+                            "custom"
+                        ],
+                        "enumDescriptions": [
+                            "SQLite FTS5 full-text search with BM25 scoring (current default)",
+                            "Custom search algorithm (when available)"
+                        ],
+                        "description": "Choose which search algorithm to use for finding similar translation pairs for AI few-shot examples."
                     }
                 }
             }

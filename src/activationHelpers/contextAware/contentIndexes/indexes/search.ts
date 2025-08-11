@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { SourceCellVersions, TranslationPair } from "../../../../../types";
 import { searchTranslationPairs } from "./translationPairsIndex";
 import { SQLiteIndexManager } from "./sqliteIndex";
+import { SearchManager } from "../searchAlgorithms";
 
 type IndexType = SQLiteIndexManager;
 
@@ -171,85 +172,56 @@ export async function getTranslationPairsFromSourceCellQuery(
     k: number = 5,
     onlyValidated: boolean = false
 ): Promise<TranslationPair[]> {
-    // Use the new efficient method to search for complete translation pairs directly
-    // Request more results (k * 6) to have a good pool for filtering
-    const initialLimit = Math.max(k * 6, 30); // Ensure we get at least 30 candidates
+    // Prefer SearchManager abstraction to support algorithm selection and filtering
+    try {
+        const manager = new SearchManager(translationPairsIndex);
+        return await manager.getTranslationPairsFromSourceCellQuery(query, k, onlyValidated);
+    } catch (error) {
+        console.warn("[getTranslationPairsFromSourceCellQuery] SearchManager failed, falling back to legacy path:", error);
+    }
 
+    // Legacy fallback
+    const initialLimit = Math.max(k * 6, 30);
     let results: any[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
         results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
     } else {
-        // This case shouldn't happen in current implementation since IndexType is SQLiteIndexManager
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
         return [];
     }
 
-    // If we still don't have results, get some recent complete pairs as fallback
-    if (results.length === 0) {
-        if (translationPairsIndex instanceof SQLiteIndexManager) {
-            results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
-        }
+    if (results.length === 0 && translationPairsIndex instanceof SQLiteIndexManager) {
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
     }
 
-    // Convert results to TranslationPair format
     const translationPairs: TranslationPair[] = [];
     const seenCellIds = new Set<string>();
 
     for (const searchResult of results) {
         const cellId = searchResult.cellId || searchResult.cell_id;
-
-        // Skip duplicates
         if (seenCellIds.has(cellId)) continue;
         seenCellIds.add(cellId);
 
-        // For SQLite results from searchCompleteTranslationPairs, we already have both source and target
         if (searchResult.sourceContent && searchResult.targetContent) {
-            // Verify we have actual content (not just empty strings)
             if (searchResult.sourceContent.trim() && searchResult.targetContent.trim()) {
                 translationPairs.push({
-                    cellId: cellId,
-                    sourceCell: {
-                        cellId: cellId,
-                        content: searchResult.sourceContent,
-                        uri: searchResult.uri || "",
-                        line: searchResult.line || 0,
-                    },
-                    targetCell: {
-                        cellId: cellId,
-                        content: searchResult.targetContent,
-                        uri: searchResult.uri || "",
-                        line: searchResult.line || 0,
-                    }
+                    cellId,
+                    sourceCell: { cellId, content: searchResult.sourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
+                    targetCell: { cellId, content: searchResult.targetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                 });
             }
         } else {
-            // Fallback: fetch the complete translation pair (shouldn't be needed with new method)
             const translationPair = await translationPairsIndex.getTranslationPair(cellId);
-
-            if (translationPair &&
-                translationPair.sourceContent.trim() &&
-                translationPair.targetContent.trim()) {
-
+            if (translationPair && translationPair.sourceContent.trim() && translationPair.targetContent.trim()) {
                 translationPairs.push({
-                    cellId: cellId,
-                    sourceCell: {
-                        cellId: cellId,
-                        content: translationPair.sourceContent,
-                        uri: translationPair.uri || "",
-                        line: translationPair.line || 0,
-                    },
-                    targetCell: {
-                        cellId: cellId,
-                        content: translationPair.targetContent,
-                        uri: translationPair.uri || "",
-                        line: translationPair.line || 0,
-                    }
+                    cellId,
+                    sourceCell: { cellId, content: translationPair.sourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
+                    targetCell: { cellId, content: translationPair.targetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                 });
             }
         }
 
-        // Stop when we have enough results for the initial pool
         if (translationPairs.length >= initialLimit) break;
     }
 

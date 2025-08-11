@@ -131,6 +131,8 @@ export const useVSCodeMessageHandler = ({
                 case "wordAdded":
                     recheckAlertCodes();
                     break;
+
+                // New provider-centric state management
                 case "providerAutocompletionState":
                     if (updateAutocompletionState) {
                         updateAutocompletionState(message.state);
@@ -151,6 +153,8 @@ export const useVSCodeMessageHandler = ({
                         updateCellTranslationCompletion(message.cellId, message.success, message.cancelled, message.error);
                     }
                     break;
+
+                // Legacy handlers for backward compatibility
                 case "autocompleteChapterStart":
                     if (autocompleteChapterStart) {
                         autocompleteChapterStart(message);
@@ -189,17 +193,6 @@ export const useVSCodeMessageHandler = ({
                 case "singleCellTranslationFailed":
                     if (singleCellTranslationFailed) {
                         singleCellTranslationFailed();
-                    }
-                    break;
-                case "providerUpdatesCell":
-                    if (message.content?.cellId && message.content?.progress) {
-                        if (updateCell) {
-                            updateCell({
-                                cellId: message.content.cellId,
-                                newContent: message.content.text || "",
-                                progress: message.content.progress,
-                            });
-                        }
                     }
                     break;
                 case "setChapterNumber":
@@ -253,3 +246,5 @@ export const useVSCodeMessageHandler = ({
         showABTestVariants,
     ]);
 };
+
+

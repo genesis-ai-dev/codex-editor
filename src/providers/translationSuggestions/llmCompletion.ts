@@ -6,6 +6,15 @@ import { CodexNotebookReader } from "../../serializer";
 import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
+import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
+import { generateABTestVariants, storeABTestResult, ABTestResult } from "../../utils/abTestingUtils";
+import { abTestingRegistry, logABDecision } from "../../utils/abTestingRegistry";
+
+export interface LLMCompletionResult {
+    variants: string[]; // Always present; length 1 for non-AB scenarios
+    isABTest: boolean; // True only when variants.length > 1
+    testId?: string;
+}
 
 export async function llmCompletion(
     currentNotebookReader: CodexNotebookReader, // FIXME: if we just read the file as CodexNotebookAsJSONData (or whatever it's called), we can speed this up a lot because the notebook deserializer is really slow
@@ -13,7 +22,7 @@ export async function llmCompletion(
     completionConfig: CompletionConfig,
     token: vscode.CancellationToken,
     returnHTML: boolean = true
-): Promise<string> {
+): Promise<LLMCompletionResult> {
     const { contextSize, numberOfFewShotExamples, debugMode, chatSystemMessage } = completionConfig;
 
     if (!currentCellId) {
@@ -53,52 +62,13 @@ export async function llmCompletion(
             .map((cell) => cell!.content)
             .join(" ");
 
-        // Get similar source cells with complete translations
-        // Request more than needed since we'll filter for word overlap later
-        const initialCandidateCount = Math.max(numberOfFewShotExamples * 6, 30);
-        const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
-            "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
-            sourceContent || "empty",
-            initialCandidateCount, // Request more candidates for filtering
-            completionConfig.useOnlyValidatedExamples // Pass validation setting
+        // Get few-shot examples (existing behavior encapsulated)
+        const finalExamples = await fetchFewShotExamples(
+            sourceContent,
+            currentCellId,
+            numberOfFewShotExamples,
+            completionConfig.useOnlyValidatedExamples
         );
-
-        if (!similarSourceCells || similarSourceCells.length === 0) {
-            console.warn(`[llmCompletion] No complete translation pairs found for source content: "${sourceContent?.substring(0, 100)}..."`);
-            showNoResultsWarning();
-        }
-
-        // Filter complete translation pairs by word overlap with the current cell
-        // Since we now have a larger pool of complete pairs, this filtering will be more effective
-        const filteredSimilarSourceCells = similarSourceCells.filter((pair) => {
-            // don't use the current cell id if it was pulled in from a previous edit
-            // otherwise re-predicting will just result in generating the same content
-            // that already exists in the current cell
-            if (pair.cellId === currentCellId) {
-                return false;
-            }
-
-            const currentCellSourceContent = sourceContent;
-            const pairSourceContent = pair.sourceCell.content;
-            if (!pairSourceContent) return false;
-
-            const currentTokens = tokenizeText({
-                method: "whitespace_and_punctuation",
-                text: currentCellSourceContent,
-            });
-            const pairTokens = tokenizeText({
-                method: "whitespace_and_punctuation",
-                text: pairSourceContent,
-            });
-
-            return currentTokens.some((token) => pairTokens.includes(token));
-        });
-
-        const numberOfDroppedExamples =
-            similarSourceCells.length - filteredSimilarSourceCells.length;
-
-        // Take only the number we actually need for few-shot examples
-        const finalExamples = filteredSimilarSourceCells.slice(0, numberOfFewShotExamples);
 
         // Get preceding cells and their IDs, limited by context size
         const contextLimit = contextSize === "small" ? 5 : contextSize === "medium" ? 10 : 50;
@@ -113,47 +83,11 @@ export async function llmCompletion(
                 cell.metadata?.type === CodexCellTypes.TEXT && cell.metadata?.id !== currentCellId
         );
 
-        // The logic to get preceding translation pairs needs to account for range cells
-        const precedingTranslationPairs = await Promise.all(
-            textPrecedingCells.slice(-5).map(async (cellFromPrecedingContext) => {
-                const cellIndex = await currentNotebookReader.getCellIndex({
-                    id: cellFromPrecedingContext.metadata?.id,
-                });
-                const cellIds = await currentNotebookReader.getCellIds(cellIndex);
-
-                const sourceContents = await Promise.all(
-                    cellIds.map(
-                        (id) =>
-                            vscode.commands.executeCommand(
-                                "codex-editor-extension.getSourceCellByCellIdFromAllSourceCells",
-                                id
-                            ) as Promise<MinimalCellResult | null>
-                    )
-                );
-
-                if (sourceContents.some((content) => content === null)) {
-                    return null;
-                }
-
-                const combinedSourceContent = sourceContents
-                    .filter(Boolean)
-                    .map((cell) => cell!.content)
-                    .join(" ");
-
-                const notTranslatedYetMessage =
-                    "[not translated yet; do not try to translate this cell but focus on the final cell below]";
-
-                const cellContent = await currentNotebookReader.getEffectiveCellContent(cellIndex);
-                const cellContentWithoutHTMLTags =
-                    cellContent.replace(/<[^>]*?>/g, "").trim() || notTranslatedYetMessage;
-
-                // FIXME: if the last edit in the edit history is an LLM edit,
-                // then we don't want to use the cell content
-                // as it has not yet been verified by the user
-
-                const result = `${combinedSourceContent} -> ${cellContentWithoutHTMLTags}`;
-                return result;
-            })
+        const precedingTranslationPairs = await getPrecedingTranslationPairs(
+            currentNotebookReader,
+            currentCellId,
+            currentCellIndex,
+            contextSize
         );
 
         // Get the target language
@@ -165,12 +99,7 @@ export async function llmCompletion(
             const currentCellSourceContent = sourceContent;
 
             // Generate few-shot examples
-            const fewShotExamples = finalExamples
-                .map(
-                    (pair) =>
-                        `${pair.sourceCell.content} -> ${pair.targetCell?.content?.replace(/<[^>]*?>/g, "").trim()}` // remove HTML tags // NOTE: do we want to strip the HTML from the examples?
-                )
-                .join("\n");
+            const fewShotExamples = buildFewShotExamplesText(finalExamples);
 
             // Create the prompt
             const userMessageInstructions = [
@@ -191,32 +120,61 @@ export async function llmCompletion(
             // This controls whether only validated translation pairs are used in few-shot examples
             // The setting can be toggled in the copilot settings UI
 
-            const userMessage = [
-                "## Instructions",
-                "Follow the translation patterns and style as shown.",
-                "## Translation Memory",
+            const messages = buildMessages(
+                targetLanguage,
+                systemMessage,
+                userMessageInstructions.split("\n"),
                 fewShotExamples,
-                "## Current Context",
-                precedingTranslationPairs.filter(Boolean).join("\n"),
-                `${currentCellSourceContent} ->`,
-            ].join("\n\n");
+                precedingTranslationPairs,
+                currentCellSourceContent
+            );
 
-            const messages = [
-                { role: "system", content: systemMessage },
-                { role: "user", content: userMessage },
-            ] as ChatMessage[];
+            // Always-on A/B test via registry (simple probability gate)
+            const registryName = "llmGeneration";
+            const variants = await abTestingRegistry.maybeRun<{ messages: ChatMessage[]; completionConfig: CompletionConfig; token: vscode.CancellationToken; }, string>(
+                registryName,
+                { messages, completionConfig, token }
+            );
+            logABDecision(registryName, !!variants);
 
+            if (variants && variants.length > 1) {
+                const testId = `${currentCellId}-${Date.now()}`;
+                const abRecord: ABTestResult = {
+                    testId,
+                    cellId: currentCellId,
+                    timestamp: Date.now(),
+                    variants,
+                };
+                await storeABTestResult(abRecord);
+
+                if (debugMode) {
+                    await logDebugMessages(
+                        messages,
+                        `A/B Test Variants:\n${variants.map((v, i) => `${i + 1}: ${v}`).join('\n\n')}`
+                    );
+                }
+
+                return {
+                    variants: returnHTML ? variants.map(v => `<span>${v}</span>`) : variants,
+                    isABTest: true,
+                    testId,
+                };
+            }
+
+            // Single completion path (fallback)
             const completion = await callLLM(messages, completionConfig, token);
 
-            // Debug mode logging
             if (debugMode) {
                 await logDebugMessages(messages, completion);
             }
 
-            if (returnHTML) {
-                return `<span>${completion}</span>`;
-            }
-            return completion;
+            // Return single completion as single variant
+            const wrapped = returnHTML ? `<span>${completion}</span>` : completion;
+            return {
+                variants: [wrapped],
+                isABTest: false,
+                testId: undefined,
+            };
         } catch (error) {
             // Check if this is a cancellation error and re-throw as-is
             if (error instanceof vscode.CancellationError ||

@@ -90,6 +90,8 @@ export async function openSystemMessageEditor() {
                                 numberOfFewShotExamples: 0,
                                 debugMode: false,
                                 useOnlyValidatedExamples: false,
+                                abTestingEnabled: false,
+                                abTestingVariants: 2,
                             };
 
                             progress.report({ message: "Preparing prompt..." });

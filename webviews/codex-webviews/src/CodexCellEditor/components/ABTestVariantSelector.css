@@ -1,0 +1,211 @@
+.ab-test-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    backdrop-filter: blur(2px);
+}
+
+.ab-test-modal {
+    background-color: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-editorWidget-border);
+    border-radius: 8px;
+    box-shadow: var(--vscode-widget-shadow);
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 0;
+    font-family: var(--vscode-font-family);
+    color: var(--vscode-editor-foreground);
+}
+
+.ab-test-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--vscode-editorWidget-border);
+}
+
+.ab-test-header h3 {
+    margin: 0 0 8px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--vscode-editor-foreground);
+}
+
+.ab-test-header p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.ab-test-variants {
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.ab-test-variant {
+    border: 2px solid var(--vscode-editorWidget-border);
+    border-radius: 6px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    background-color: var(--vscode-editor-background);
+}
+
+.ab-test-variant:hover {
+    border-color: var(--vscode-focusBorder);
+    background-color: var(--vscode-list-hoverBackground);
+}
+
+.ab-test-variant.selected {
+    border-color: var(--vscode-button-background);
+    background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+.variant-number {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.variant-content {
+    font-size: 16px;
+    line-height: 1.5;
+    padding: 8px 0;
+    color: var(--vscode-editor-foreground);
+    word-wrap: break-word;
+}
+
+.variant-selected-indicator {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.ab-test-footer {
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--vscode-editorWidget-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.ab-test-cancel {
+    background-color: transparent;
+    border: 1px solid var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.ab-test-cancel:hover:not(:disabled) {
+    background-color: var(--vscode-button-secondaryHoverBackground);
+}
+
+.ab-test-cancel:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ab-test-help {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+    font-style: italic;
+}
+
+.ab-test-applying {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    padding: 12px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 0 0 8px 8px;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* Dark theme specific adjustments */
+.vscode-dark .ab-test-modal {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.vscode-dark .ab-test-variant:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.vscode-dark .ab-test-variant.selected {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+/* High contrast theme support */
+.vscode-high-contrast .ab-test-variant {
+    border-width: 2px;
+}
+
+.vscode-high-contrast .ab-test-variant:hover {
+    border-width: 3px;
+}
+
+.vscode-high-contrast .ab-test-variant.selected {
+    border-width: 3px;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .ab-test-modal {
+        max-width: 90vw;
+        margin: 0 16px;
+    }
+    
+    .ab-test-variants {
+        padding: 12px 16px;
+    }
+    
+    .ab-test-header,
+    .ab-test-footer {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+    
+    .variant-content {
+        font-size: 15px;
+    }
+    
+    .ab-test-footer {
+        flex-direction: column;
+        gap: 12px;
+        align-items: center;
+    }
+}
+
+

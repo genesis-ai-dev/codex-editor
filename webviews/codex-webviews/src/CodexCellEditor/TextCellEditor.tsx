@@ -190,6 +190,11 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const cellEditorRef = useRef<HTMLDivElement>(null);
     const sourceCellContent = sourceCellMap?.[cellMarkers[0]];
     const [editorContent, setEditorContent] = useState(cellContent);
+
+    // Sync editor content when cell content changes (e.g., from translation)
+    useEffect(() => {
+        setEditorContent(cellContent);
+    }, [cellContent]);
     const [sourceText, setSourceText] = useState<string | null>(null);
     const [backtranslation, setBacktranslation] = useState<SavedBacktranslation | null>(null);
     const [isEditingBacktranslation, setIsEditingBacktranslation] = useState(false);
