@@ -62,7 +62,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         "codex-editor.refreshAllWebviews",
         async () => {
             try {
-                console.log("Refreshing all webviews due to font size changes");
+                console.log("Refreshing all webviews due to metadata changes");
 
                 // Import GlobalProvider here to avoid circular dependencies
                 const { GlobalProvider } = await import("../../globalProvider");
@@ -70,7 +70,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
 
                 // Send refresh message to all registered webview providers
                 globalProvider.postMessageToAllWebviews({
-                    command: "refreshFontSizes",
+                    command: "refreshMetadata",
                     content: { type: "cellId", cellId: "refresh-all" }
                 });
 

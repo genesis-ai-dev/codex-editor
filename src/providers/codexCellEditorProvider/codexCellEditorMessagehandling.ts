@@ -1316,10 +1316,10 @@ export const handleGlobalMessage = async (
         }
         case "refreshAllEditors": {
             console.log("refreshAllEditors message received", { event });
-            // Send refreshFontSizes message to all open editor webviews
+            // Send refreshMetadata message to all open editor webviews
             provider.getWebviewPanels().forEach((panel) => {
                 provider.postMessageToWebview(panel, {
-                    type: "refreshFontSizes"
+                    type: "refreshMetadata"
                 });
             });
             break;

@@ -1075,6 +1075,7 @@ type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
 export interface CustomNotebookMetadata {
     id: string;
     textDirection?: "ltr" | "rtl";
+    textDirectionSource?: "global" | "local"; // Track whether text direction was set globally or locally
     perf?: any;
     attachments?: {
         [key: string]: {

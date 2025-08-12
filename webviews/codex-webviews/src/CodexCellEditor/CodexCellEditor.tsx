@@ -278,11 +278,11 @@ const CodexCellEditor: React.FC = () => {
                 setIsCorrectionEditorMode(message.enabled);
             }
 
-            // Handle font size refresh requests
-            if (message.type === "refreshFontSizes") {
-                // Clear temporary font size to ensure new font size takes effect
+            // Handle metadata refresh requests (font size, text direction, etc.)
+            if (message.type === "refreshFontSizes" || message.type === "refreshMetadata") {
+                // Clear temporary font size to ensure new metadata takes effect
                 setTempFontSize(null);
-                // Request updated content to get the new font sizes
+                // Request updated content to get the new font sizes and metadata
                 vscode.postMessage({ command: "getContent" } as EditorPostMessages);
             }
         };
@@ -591,6 +591,10 @@ const CodexCellEditor: React.FC = () => {
             setMetadata(newMetadata);
             // Clear temporary font size when metadata updates to ensure new font size takes effect
             setTempFontSize(null);
+            // Update text direction when metadata changes (for global text direction updates)
+            if (newMetadata.textDirection) {
+                setTextDirection(newMetadata.textDirection);
+            }
         },
         updateVideoUrl: (url: string) => {
             setTempVideoUrl(url);
@@ -1784,9 +1788,11 @@ const CodexCellEditor: React.FC = () => {
                             isAutocompletingChapter={isAutocompletingChapter}
                             onSetTextDirection={(direction) => {
                                 setTextDirection(direction);
+                                // Save the text direction with local source marking (similar to font size)
+                                const updatedMetadata = { ...metadata, textDirection: direction, textDirectionSource: "local" };
                                 vscode.postMessage({
-                                    command: "updateTextDirection",
-                                    direction,
+                                    command: "updateNotebookMetadata",
+                                    content: updatedMetadata,
                                 } as EditorPostMessages);
                             }}
                             textDirection={textDirection}

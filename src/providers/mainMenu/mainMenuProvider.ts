@@ -1324,17 +1324,20 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
             // Check if file already has text direction set
             const currentTextDirection = fileData.metadata?.textDirection;
+            const currentTextDirectionSource = fileData.metadata?.textDirectionSource;
 
-            // For "skip" behavior, skip files that already have text direction set
-            if (updateBehavior === "skip" && currentTextDirection !== undefined) {
+            // For "skip" behavior, skip files that have local text direction changes
+            // This preserves user's manual text direction adjustments
+            if (updateBehavior === "skip" && currentTextDirection !== undefined && currentTextDirectionSource === "local") {
                 return false; // Skip this file
             }
 
-            // Update the text direction
+            // Update the text direction and mark it as globally set
             if (!fileData.metadata) {
                 fileData.metadata = {};
             }
             fileData.metadata.textDirection = textDirection;
+            fileData.metadata.textDirectionSource = "global"; // Mark as globally set
 
             // Write the updated content back to the file
             const updatedContent = JSON.stringify(fileData, null, 2);
