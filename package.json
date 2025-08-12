@@ -212,6 +212,11 @@
                 "category": "Codex Project"
             },
             {
+                "command": "codex-editor.setGlobalTextDirection",
+                "title": "Set Global Text Direction",
+                "category": "Codex Project"
+            },
+            {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
             },

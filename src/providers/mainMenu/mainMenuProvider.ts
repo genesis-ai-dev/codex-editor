@@ -553,6 +553,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();
                 break;
+            case "setGlobalTextDirection":
+                await this.handleSetGlobalTextDirection();
+                break;
             case "publishProject":
                 await this.publishProject();
                 break;
@@ -750,6 +753,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 break;
             case "setGlobalFontSize":
                 await this.handleSetGlobalFontSize();
+                break;
+            case "setGlobalTextDirection":
+                await this.handleSetGlobalTextDirection();
                 break;
             default:
                 throw new Error(`Unknown command: ${commandName}`);
@@ -1038,6 +1044,80 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 
+    public async handleSetGlobalTextDirection() {
+        try {
+            // Step 1: Choose file scope
+            const fileScope = await vscode.window.showQuickPick(
+                [
+                    { label: "Source files only", value: "source" },
+                    { label: "Target files only", value: "target" },
+                    { label: "Both source and target files", value: "both" }
+                ],
+                {
+                    placeHolder: "Choose which files to update",
+                    title: "Global Text Direction - File Scope"
+                }
+            );
+
+            if (!fileScope) {
+                return; // User cancelled
+            }
+
+            // Step 2: Choose update behavior
+            const updateBehavior = await vscode.window.showQuickPick(
+                [
+                    { label: "Update all files (including those with existing text direction)", value: "all" },
+                    { label: "Skip files that already have text direction set", value: "skip" }
+                ],
+                {
+                    placeHolder: "Choose update behavior",
+                    title: "Global Text Direction - Update Behavior"
+                }
+            );
+
+            if (!updateBehavior) {
+                return; // User cancelled
+            }
+
+            // Step 3: Choose text direction
+            const textDirectionOption = await vscode.window.showQuickPick(
+                [
+                    { label: "LTR (Left-to-Right)", value: "ltr" },
+                    { label: "RTL (Right-to-Left)", value: "rtl" }
+                ],
+                {
+                    placeHolder: "Select text direction",
+                    title: "Choose Text Direction"
+                }
+            );
+
+            if (!textDirectionOption) {
+                return; // User cancelled
+            }
+
+            const textDirection = textDirectionOption.value as "ltr" | "rtl";
+
+            // Step 4: Confirm the action
+            const confirmMessage = `This will set text direction to ${textDirectionOption.label} for ${fileScope.label.toLowerCase()} ${updateBehavior.label.toLowerCase()}. Continue?`;
+            const confirmed = await vscode.window.showWarningMessage(
+                confirmMessage,
+                { modal: true },
+                "Yes, Continue"
+            );
+
+            if (!confirmed) {
+                return; // User cancelled
+            }
+
+            // Step 5: Execute the update
+            await this.updateGlobalTextDirection(textDirection, fileScope.value, updateBehavior.value);
+
+        } catch (error) {
+            console.error("Error setting global text direction:", error);
+            vscode.window.showErrorMessage("Failed to set global text direction");
+        }
+    }
+
     private async updateGlobalFontSize(fontSize: number, fileScope: string, updateBehavior: string) {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -1162,6 +1242,130 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         } catch (error) {
             console.error("Error refreshing webviews after font size update:", error);
+        }
+    }
+
+    private async updateGlobalTextDirection(textDirection: "ltr" | "rtl", fileScope: string, updateBehavior: string) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        // Show progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Updating Global Text Direction",
+                cancellable: false
+            },
+            async (progress) => {
+                try {
+                    // Find files based on scope
+                    const filesToUpdate: vscode.Uri[] = [];
+
+                    if (fileScope === "source" || fileScope === "both") {
+                        const sourceFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source")
+                        );
+                        filesToUpdate.push(...sourceFiles);
+                    }
+
+                    if (fileScope === "target" || fileScope === "both") {
+                        const targetFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, "files/target/*.codex")
+                        );
+                        filesToUpdate.push(...targetFiles);
+                    }
+
+                    progress.report({ message: `Found ${filesToUpdate.length} files to process` });
+
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+
+                    for (let i = 0; i < filesToUpdate.length; i++) {
+                        const file = filesToUpdate[i];
+                        progress.report({
+                            message: `Processing ${path.basename(file.fsPath)} (${i + 1}/${filesToUpdate.length})`,
+                            increment: (100 / filesToUpdate.length)
+                        });
+
+                        try {
+                            const updated = await this.updateFileTextDirection(file, textDirection, updateBehavior);
+                            if (updated) {
+                                updatedCount++;
+                            } else {
+                                skippedCount++;
+                            }
+                        } catch (error) {
+                            console.error(`Error updating text direction for ${file.fsPath}:`, error);
+                        }
+                    }
+
+                    // Show completion message
+                    const message = `Text direction update complete: ${updatedCount} files updated, ${skippedCount} files skipped`;
+                    vscode.window.showInformationMessage(message);
+
+                    // Refresh webviews to show the updated text direction immediately
+                    await this.refreshWebviewsAfterTextDirectionUpdate();
+
+                } catch (error) {
+                    console.error("Error during text direction update:", error);
+                    throw error;
+                }
+            }
+        );
+    }
+
+    private async updateFileTextDirection(fileUri: vscode.Uri, textDirection: "ltr" | "rtl", updateBehavior: string): Promise<boolean> {
+        try {
+            // Read the file content
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileData = JSON.parse(fileContent.toString());
+
+            // Check if file already has text direction set
+            const currentTextDirection = fileData.metadata?.textDirection;
+
+            // For "skip" behavior, skip files that already have text direction set
+            if (updateBehavior === "skip" && currentTextDirection !== undefined) {
+                return false; // Skip this file
+            }
+
+            // Update the text direction
+            if (!fileData.metadata) {
+                fileData.metadata = {};
+            }
+            fileData.metadata.textDirection = textDirection;
+
+            // Write the updated content back to the file
+            const updatedContent = JSON.stringify(fileData, null, 2);
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(updatedContent, 'utf8'));
+
+            return true; // File was updated
+
+        } catch (error) {
+            console.error(`Error updating text direction for ${fileUri.fsPath}:`, error);
+            return false;
+        }
+    }
+
+    private async refreshWebviewsAfterTextDirectionUpdate() {
+        try {
+            // Refresh the main menu webview
+            if (this._view) {
+                await this.store.refreshState();
+                this.sendProjectStateToWebview();
+            }
+
+            // Notify other webviews that text direction has changed
+            // Send a message to all active webviews to refresh their content
+            vscode.commands.executeCommand("codex-editor.refreshAllWebviews");
+
+            // Also refresh the metadata manager to ensure all webviews get updated data
+            const metadataManager = getNotebookMetadataManager();
+            await metadataManager.loadMetadata();
+
+        } catch (error) {
+            console.error("Error refreshing webviews after text direction update:", error);
         }
     }
 

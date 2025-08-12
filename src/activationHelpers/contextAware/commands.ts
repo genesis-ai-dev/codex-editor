@@ -360,6 +360,33 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const setGlobalTextDirectionCommand = vscode.commands.registerCommand(
+        "codex-editor.setGlobalTextDirection",
+        async () => {
+            try {
+                // Get the main menu provider instance from the global provider
+                const { GlobalProvider } = await import("../../globalProvider");
+                const globalProvider = GlobalProvider.getInstance();
+
+                // Get the registered main menu provider
+                const providers = (globalProvider as any).providers;
+                const mainMenuProvider = providers?.get("codex-editor.mainMenu");
+
+                if (mainMenuProvider && typeof mainMenuProvider.handleSetGlobalTextDirection === 'function') {
+                    // Directly call the method on the main menu provider
+                    await mainMenuProvider.handleSetGlobalTextDirection();
+                } else {
+                    // Fallback: navigate to main menu and show instructions
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    vscode.window.showInformationMessage("Please use the 'Set Global Text Direction' button in the Main Menu panel.");
+                }
+            } catch (error) {
+                console.error("Error executing global text direction command:", error);
+                vscode.window.showErrorMessage(`Failed to set global text direction: ${error}`);
+            }
+        }
+    );
+
     context.subscriptions.push(
         notebookSerializer,
         codexKernel,
@@ -378,6 +405,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         navigateToMainMenuCommand,
         refreshAllWebviewsCommand,
         setGlobalFontSizeCommand,
+        setGlobalTextDirectionCommand,
 
         deduplicateSourceCellsCommand,
         testProjectLoadingPerformanceCommand,
