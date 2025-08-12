@@ -7,8 +7,7 @@ import { CodexCellTypes } from "../../../types/enums";
 import { getAutoCompleteStatusBarItem } from "../../extension";
 import { tokenizeText } from "../../utils/nlpUtils";
 import { buildFewShotExamplesText, buildMessages, fetchFewShotExamples, getPrecedingTranslationPairs } from "./shared";
-import { generateABTestVariants, storeABTestResult, ABTestResult } from "../../utils/abTestingUtils";
-import { abTestingRegistry, logABDecision } from "../../utils/abTestingRegistry";
+// A/B testing disabled for now
 
 export interface LLMCompletionResult {
     variants: string[]; // Always present; length 1 for non-AB scenarios
@@ -115,6 +114,7 @@ export async function llmCompletion(
             let systemMessage = chatSystemMessage || `You are a helpful assistant`;
             systemMessage += `\n\nAlways translate from the source language to the target language, ${targetLanguage}, relying strictly on reference data and context provided by the user. The language may be an ultra-low resource language, so it is critical to follow the patterns and style of the provided reference data closely.`;
             systemMessage += `\n\n${userMessageInstructions}`;
+            // Note: Do not attempt to reduce reasoning via prompt text to avoid unintended behavior
 
             // Note: Validation filtering is now implemented via the useOnlyValidatedExamples setting
             // This controls whether only validated translation pairs are used in few-shot examples
@@ -129,51 +129,11 @@ export async function llmCompletion(
                 currentCellSourceContent
             );
 
-            // Always-on A/B test via registry (simple probability gate)
-            const registryName = "llmGeneration";
-            const variants = await abTestingRegistry.maybeRun<{ messages: ChatMessage[]; completionConfig: CompletionConfig; token: vscode.CancellationToken; }, string>(
-                registryName,
-                { messages, completionConfig, token }
-            );
-            logABDecision(registryName, !!variants);
-
-            if (variants && variants.length > 1) {
-                const testId = `${currentCellId}-${Date.now()}`;
-                const abRecord: ABTestResult = {
-                    testId,
-                    cellId: currentCellId,
-                    timestamp: Date.now(),
-                    variants,
-                };
-                await storeABTestResult(abRecord);
-
-                if (debugMode) {
-                    await logDebugMessages(
-                        messages,
-                        `A/B Test Variants:\n${variants.map((v, i) => `${i + 1}: ${v}`).join('\n\n')}`
-                    );
-                }
-
-                return {
-                    variants: returnHTML ? variants.map(v => `<span>${v}</span>`) : variants,
-                    isABTest: true,
-                    testId,
-                };
-            }
-
-            // Single completion path (fallback)
+            // A/B testing disabled: call LLM once, return single variant
             const completion = await callLLM(messages, completionConfig, token);
-
-            if (debugMode) {
-                await logDebugMessages(messages, completion);
-            }
-
-            // Return single completion as single variant
-            const wrapped = returnHTML ? `<span>${completion}</span>` : completion;
             return {
-                variants: [wrapped],
+                variants: returnHTML ? [`<span>${completion}</span>`] : [completion],
                 isABTest: false,
-                testId: undefined,
             };
         } catch (error) {
             // Check if this is a cancellation error and re-throw as-is

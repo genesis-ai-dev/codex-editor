@@ -32,6 +32,8 @@ interface ABTestState {
     variants: string[];
     cellId: string;
     testId: string;
+    names?: string[];
+    winRates?: number[];
 }
 
 export interface EditorRef {
@@ -128,15 +130,9 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                 selectionTimeMs,
                 totalVariants: abTestState.variants?.length ?? 0
             }
-        } as EditorPostMessages);
+        } as unknown as EditorPostMessages);
 
-        // Close A/B test UI
-        setAbTestState({
-            isActive: false,
-            variants: [],
-            cellId: '',
-            testId: ''
-        });
+        // Keep modal open to reveal names/stats; user closes manually
     };
 
     const handleDismissABTest = () => {
@@ -175,9 +171,15 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     }
                 } else if (event.data.type === "providerSendsABTestVariants") {
                     // Handle A/B test variants: show UI if 2+ variants exist, even if identical
-                    const { variants, cellId, testId } = event.data.content;
+                    const { variants, cellId, testId, names, winRates } = event.data.content as {
+                        variants: string[];
+                        cellId: string;
+                        testId: string;
+                        names?: string[];
+                        winRates?: number[];
+                    };
                     if (cellId === props.currentLineId && Array.isArray(variants) && variants.length > 1) {
-                        handleShowABTestVariants({ variants, cellId, testId });
+                        setAbTestState({ isActive: true, variants, cellId, testId, names, winRates });
                     }
                 }
                 updateHeaderLabel();
@@ -264,6 +266,7 @@ const EditorWithABTesting = forwardRef<EditorRef, EditorProps>((props, ref) => {
                     variants={abTestState.variants}
                     cellId={abTestState.cellId}
                     testId={abTestState.testId}
+                    names={abTestState.names}
                     onVariantSelected={handleVariantSelected}
                     onDismiss={handleDismissABTest}
                 />

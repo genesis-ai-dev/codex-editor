@@ -584,12 +584,7 @@
                         "default": "",
                         "description": "Your own OpenAI API key. Ignorable for local LLM. NOTE: Do not set this in workspace settings. This may compromise your key if .vscode/settings.json is saved to the cloud."
                     },
-                    "codex-editor-extension.max_tokens": {
-                        "title": "Max Tokens",
-                        "type": "number",
-                        "default": 2048,
-                        "description": "The maximum number of output tokens for the completion API."
-                    },
+                    
                     "codex-editor-extension.temperature": {
                         "title": "Temperature",
                         "type": "number",

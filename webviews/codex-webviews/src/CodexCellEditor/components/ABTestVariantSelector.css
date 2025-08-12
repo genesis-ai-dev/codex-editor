@@ -133,6 +133,20 @@
     font-style: italic;
 }
 
+.ab-test-apply {
+    background-color: var(--vscode-button-background);
+    border: 1px solid var(--vscode-button-border, transparent);
+    color: var(--vscode-button-foreground);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.ab-test-apply:hover {
+    filter: brightness(1.1);
+}
+
 .ab-test-applying {
     position: absolute;
     bottom: 0;

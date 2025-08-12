@@ -13,15 +13,20 @@ interface LlmGenerationContext {
 export function initializeABTesting() {
   // Register a simple A/B test for LLM generation with a default probability.
   // Probability means: chance to generate multiple variants instead of single completion.
-  const defaultProbability = 0.5;
+  const defaultProbability = 1.0; // Compare models on every run for now
   abTestingRegistry.register<LlmGenerationContext, string>(
     "llmGeneration",
     defaultProbability,
     async ({ messages, completionConfig, token }) => {
-      // For now: do ONE LLM call, then duplicate the result to simulate variants for UI testing
-      const single = await callLLM(messages, completionConfig, token);
-      const count = Math.max(2, completionConfig.abTestingVariants || 2);
-      return Array.from({ length: count }, () => single);
+      // Compare gpt-4o vs gpt-5 with graceful fallback if gpt-5 is unavailable
+      const config4o: CompletionConfig = { ...completionConfig, model: "gpt-4o", temperature: completionConfig.temperature };
+      const config5: CompletionConfig = { ...completionConfig, model: "gpt-5", temperature: 1, };
+
+      const [variant4o, variant5] = await Promise.all([
+        callLLM(messages, config4o, token),
+        callLLM(messages, config5, token),
+      ]);
+      return { variants: [variant4o, variant5], names: ["gpt-4o", "gpt-5"] };
     }
   );
 }

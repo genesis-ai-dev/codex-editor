@@ -5,6 +5,7 @@ interface ABTestVariantSelectorProps {
     variants: string[];
     cellId: string;
     testId: string;
+    names?: string[];
     onVariantSelected: (index: number, selectionTimeMs: number) => void;
     onDismiss: () => void;
 }
@@ -13,11 +14,13 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
     variants,
     cellId,
     testId,
+    names,
     onVariantSelected,
     onDismiss
 }) => {
     const [startTime] = useState(Date.now());
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+    const [order, setOrder] = useState<number[]>(() => variants.map((_, i) => i).sort(() => Math.random() - 0.5));
 
     // Auto-dismiss after 30 seconds if no selection made
     useEffect(() => {
@@ -50,22 +53,28 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
         <div className="ab-test-overlay" onClick={onDismiss}>
             <div className="ab-test-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="ab-test-header">
-                    <h3>Choose Translation</h3>
-                    <p>Select the translation that sounds most natural:</p>
+                    <h3>{selectedIndex === null ? 'Choose Translation' : 'Result'}</h3>
+                    {selectedIndex === null ? (
+                        <p>Select the translation that sounds most natural:</p>
+                    ) : (
+                        names && names.length === variants.length ? (
+                            <p>Tested: {names.join(' vs ')}</p>
+                        ) : null
+                    )}
                 </div>
                 
                 <div className="ab-test-variants">
-                    {variants.map((variant, index) => (
+                    {order.map((idx, displayIndex) => (
                         <div
-                            key={index}
-                            className={`ab-test-variant ${selectedIndex === index ? 'selected' : ''}`}
-                            onClick={() => handleVariantSelect(index)}
+                            key={idx}
+                            className={`ab-test-variant ${selectedIndex === idx ? 'selected' : ''}`}
+                            onClick={() => handleVariantSelect(idx)}
                         >
-                            <div className="variant-number">Option {index + 1}</div>
+                            <div className="variant-number">Option {displayIndex + 1}</div>
                             <div className="variant-content">
-                                {stripHtmlTags(variant)}
+                                {stripHtmlTags(variants[idx])}
                             </div>
-                            {selectedIndex === index && (
+                            {selectedIndex === idx && (
                                 <div className="variant-selected-indicator">✓ Selected</div>
                             )}
                         </div>
@@ -73,21 +82,24 @@ export const ABTestVariantSelector: React.FC<ABTestVariantSelectorProps> = ({
                 </div>
 
                 <div className="ab-test-footer">
-                    <button 
-                        className="ab-test-cancel"
-                        onClick={onDismiss}
-                        disabled={selectedIndex !== null}
-                    >
-                        Cancel
-                    </button>
-                    <span className="ab-test-help">
-                        Click on your preferred translation or it will auto-select in 30s
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto' }}>
+                        {selectedIndex === null && (
+                            <span className="ab-test-help">
+                                Click your preferred translation or it will auto-select in 30s
+                            </span>
+                        )}
+                        <button className="ab-test-apply" onClick={onDismiss} disabled={selectedIndex === null}>
+                            Close
+                        </button>
+                    </div>
                 </div>
 
                 {selectedIndex !== null && (
                     <div className="ab-test-applying">
-                        Applying selected translation...
+                        <div>Applied. {names && names.length === variants.length ? (
+                            <>Tested: {names.join(" vs ")}</>
+                        ) : null}
+                        </div>
                     </div>
                 )}
             </div>

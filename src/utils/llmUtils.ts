@@ -88,8 +88,8 @@ export async function callLLM(
                     const completion = await openai.chat.completions.create({
                         model: model,
                         messages: messages as ChatCompletionMessageParam[],
-                        max_tokens: config.maxTokens,
-                        temperature: config.temperature,
+                        // GPT-5: temperature must be 1; keep defaults for others
+                        ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature }),
                     }, {
                         signal: abortController.signal
                     });
@@ -122,8 +122,7 @@ export async function callLLM(
                 const completion = await openai.chat.completions.create({
                     model: model,
                     messages: messages as ChatCompletionMessageParam[],
-                    max_tokens: config.maxTokens,
-                    temperature: config.temperature,
+                    ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: config.temperature }),
                 });
 
                 if (
@@ -315,7 +314,6 @@ export interface CompletionConfig {
     additionalResourceDirectory: string;
     contextOmission: boolean;
     sourceBookWhitelist: string;
-    maxTokens: number;
     temperature: number;
     mainChatLanguage: string;
     chatSystemMessage: string;
@@ -345,7 +343,6 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             additionalResourceDirectory: (config.get("additionalResourcesDirectory") as string) || "",
             contextOmission: (config.get("experimentalContextOmission") as boolean) || false,
             sourceBookWhitelist: (config.get("sourceBookWhitelist") as string) || "",
-            maxTokens: (config.get("max_tokens") as number) || 2048,
             temperature: (config.get("temperature") as number) || 0.8,
             mainChatLanguage: (config.get("main_chat_language") as string) || "English",
             chatSystemMessage: (config.get("chatSystemMessage") as string) ||
@@ -353,8 +350,8 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             numberOfFewShotExamples: (config.get("numberOfFewShotExamples") as number) || 30,
             debugMode: config.get("debugMode") === true || config.get("debugMode") === "true",
             useOnlyValidatedExamples: useOnlyValidatedExamples as boolean,
-            // Always-on A/B testing: ignore settings for enable; keep count as hint
-            abTestingEnabled: true,
+            // A/B testing disabled for now
+            abTestingEnabled: false,
             abTestingVariants: (config.get("abTestingVariants") as number) ?? 2,
         };
         return completionConfig;

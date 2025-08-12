@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
-type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<TVariant[]>;
+type ABTestResultPayload<TVariant> = TVariant[] | { variants: TVariant[]; names?: string[] };
+type ABTestHandler<TContext, TVariant> = (context: TContext) => Promise<ABTestResultPayload<TVariant>>;
 
 interface ABTestEntry<TContext, TVariant> {
   name: string;
@@ -34,12 +35,16 @@ class ABTestingRegistry {
   async maybeRun<TContext, TVariant>(
     name: string,
     context: TContext
-  ): Promise<TVariant[] | null> {
+  ): Promise<{ variants: TVariant[]; names?: string[] } | null> {
     const entry = this.tests.get(name) as ABTestEntry<TContext, TVariant> | undefined;
     if (!entry) return null;
     if (!this.shouldRun(name)) return null;
     try {
-      return await entry.handler(context);
+      const result = await entry.handler(context);
+      if (Array.isArray(result)) {
+        return { variants: result };
+      }
+      return result;
     } catch (err) {
       console.error(`[ABTestingRegistry] Test '${name}' failed`, err);
       return null;

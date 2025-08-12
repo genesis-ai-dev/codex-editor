@@ -30,6 +30,7 @@ import "./TranslationAnimations.css";
 import { CellTranslationState } from "./CellTranslationStyles";
 import { getVSCodeAPI } from "../shared/vscodeApi";
 import { Subsection } from "../lib/types";
+import { ABTestVariantSelector } from "./components/ABTestVariantSelector";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export enum CELL_DISPLAY_MODES {
@@ -218,12 +219,15 @@ const CodexCellEditor: React.FC = () => {
         variants: string[];
         cellId: string;
         testId: string;
+        names?: string[];
+        winRates?: any;
     }>({
         isActive: false,
         variants: [],
         cellId: '',
         testId: ''
     });
+
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -238,13 +242,14 @@ const CodexCellEditor: React.FC = () => {
         // Apply the selected variant
         applyVariantToCell(abTestState.cellId, selectedVariant, abTestState.testId, selectedIndex, abTestState.variants.length, selectionTimeMs);
         
-        // Close A/B test UI
-        setAbTestState({
-            isActive: false,
-            variants: [],
-            cellId: '',
-            testId: ''
-        });
+        // Casual confirmation with variant name if available
+        const variantName = (abTestState as any).names?.[selectedIndex];
+        if (variantName) {
+            vscode.postMessage({ command: "showInfo", text: `Applied translation from ${variantName}.` } as any);
+        }
+
+        // Keep A/B modal open to show names and stats; user can close manually
+        // Do not allow re-vote (selector component already blocks further clicks)
     };
 
     const handleDismissABTest = () => {
@@ -307,6 +312,7 @@ const CodexCellEditor: React.FC = () => {
                     selectedIndex,
                     testId,
                     selectionTimeMs: selectionTimeMs || 0,
+                    names: (abTestState as any).names,
                 }
             } as unknown as EditorPostMessages);
         }
@@ -726,21 +732,24 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            debug("ab-test", "Received A/B test variants:", data);
-            
-            // For now, always show A/B UI if 2+ variants exist, even if they are identical (UI testing)
-            if (data.variants && data.variants.length > 1) {
-                setAbTestState({
-                    isActive: true,
-                    variants: data.variants,
-                    cellId: data.cellId,
-                    testId: data.testId
-                });
-                return;
-            }
-            // Fallback: single variant
-            if (data.variants && data.variants.length > 0) {
+            debug("ab-test", "Received A/B test variants (temporarily auto-applying first and not showing UI):", { cellId: data?.cellId, count: data?.variants?.length });
+
+            // Temporarily do not show the A/B selector UI; just apply the first variant if any
+            if (data.variants && data.variants.length > 0 && data.cellId) {
                 applyVariantToCell(data.cellId, data.variants[0], data.testId, 0, data.variants.length);
+
+                // Send feedback as if variant 0 was selected
+                vscode.postMessage({
+                    command: "selectABTestVariant",
+                    content: {
+                        cellId: data.cellId,
+                        selectedIndex: 0,
+                        testId: data.testId,
+                        selectionTimeMs: 0,
+                        totalVariants: data.variants.length,
+                        names: (data as any).names,
+                    },
+                } as any);
             }
         },
     });
@@ -2036,138 +2045,14 @@ const CodexCellEditor: React.FC = () => {
 
             {/* A/B Test Variant Selection Modal */}
             {abTestState.isActive && (
-                <div 
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 10000,
-                        backdropFilter: 'blur(2px)'
-                    }}
-                    onClick={handleDismissABTest}
-                >
-                    <div 
-                        style={{
-                            backgroundColor: 'var(--vscode-editor-background)',
-                            border: '1px solid var(--vscode-editorWidget-border)',
-                            borderRadius: '8px',
-                            boxShadow: 'var(--vscode-widget-shadow)',
-                            maxWidth: '600px',
-                            maxHeight: '80vh',
-                            overflowY: 'auto',
-                            padding: '0',
-                            fontFamily: 'var(--vscode-font-family)',
-                            color: 'var(--vscode-editor-foreground)'
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div style={{
-                            padding: '20px 24px 16px',
-                            borderBottom: '1px solid var(--vscode-editorWidget-border)'
-                        }}>
-                            <h3 style={{
-                                margin: '0 0 8px 0',
-                                fontSize: '18px',
-                                fontWeight: '600',
-                                color: 'var(--vscode-editor-foreground)'
-                            }}>Choose Translation</h3>
-                            <p style={{
-                                margin: '0',
-                                fontSize: '14px',
-                                color: 'var(--vscode-descriptionForeground)'
-                            }}>Select the translation that sounds most natural:</p>
-                        </div>
-                        
-                        <div style={{
-                            padding: '16px 24px',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '12px'
-                        }}>
-                            {abTestState.variants.map((variant, index) => (
-                                <div
-                                    key={index}
-                                    style={{
-                                        border: '2px solid var(--vscode-editorWidget-border)',
-                                        borderRadius: '6px',
-                                        padding: '16px',
-                                        cursor: 'pointer',
-                                        transition: 'all 0.2s ease',
-                                        backgroundColor: 'var(--vscode-editor-background)'
-                                    }}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.borderColor = 'var(--vscode-focusBorder)';
-                                        e.currentTarget.style.backgroundColor = 'var(--vscode-list-hoverBackground)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.borderColor = 'var(--vscode-editorWidget-border)';
-                                        e.currentTarget.style.backgroundColor = 'var(--vscode-editor-background)';
-                                    }}
-                                    onClick={() => {
-                                        const startTime = Date.now();
-                                        handleVariantSelected(index, startTime);
-                                    }}
-                                >
-                                    <div style={{
-                                        fontSize: '12px',
-                                        fontWeight: '600',
-                                        color: 'var(--vscode-descriptionForeground)',
-                                        marginBottom: '8px',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.5px'
-                                    }}>Option {index + 1}</div>
-                                    <div 
-                                        style={{
-                                            fontSize: '16px',
-                                            lineHeight: '1.5',
-                                            padding: '8px 0',
-                                            color: 'var(--vscode-editor-foreground)',
-                                            wordWrap: 'break-word'
-                                        }}
-                                        dangerouslySetInnerHTML={{ 
-                                            __html: variant.replace(/<[^>]*>/g, '').trim() 
-                                        }}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-
-                        <div style={{
-                            padding: '16px 24px',
-                            borderTop: '1px solid var(--vscode-editorWidget-border)',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center'
-                        }}>
-                            <button 
-                                style={{
-                                    padding: '8px 16px',
-                                    border: '1px solid var(--vscode-button-border)',
-                                    backgroundColor: 'var(--vscode-button-secondaryBackground)',
-                                    color: 'var(--vscode-button-secondaryForeground)',
-                                    borderRadius: '2px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px'
-                                }}
-                                onClick={handleDismissABTest}
-                            >
-                                Cancel
-                            </button>
-                            <span style={{
-                                fontSize: '12px',
-                                color: 'var(--vscode-descriptionForeground)'
-                            }}>
-                                Click on your preferred translation
-                            </span>
-                        </div>
-                    </div>
-                </div>
+                <ABTestVariantSelector
+                    variants={abTestState.variants}
+                    cellId={abTestState.cellId}
+                    testId={abTestState.testId}
+                    names={(abTestState as any).names}
+                    onVariantSelected={(idx, ms) => handleVariantSelected(idx, ms)}
+                    onDismiss={handleDismissABTest}
+                />
             )}
 
             {/* Floating button to apply pending validations */}

@@ -772,7 +772,19 @@ export type EditorPostMessages =
     | {
         command: "showErrorMessage";
         text: string;
+    }
+    | {
+        command: "selectABTestVariant";
+        content: {
+            cellId: string;
+            selectedIndex: number;
+            testId: string;
+            selectionTimeMs: number;
+            totalVariants: number;
+        };
     };
+
+
 
 type EditorReceiveMessages =
     | {
@@ -870,7 +882,7 @@ type EditorReceiveMessages =
     }
     | { type: "providerUpdatesTextDirection"; textDirection: "ltr" | "rtl"; }
     | { type: "providerSendsLLMCompletionResponse"; content: { completion: string; cellId: string; }; }
-    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; }; }
+    | { type: "providerSendsABTestVariants"; content: { variants: string[]; cellId: string; testId: string; names?: string[]; winRates?: number[]; }; }
     | { type: "jumpToSection"; content: string; }
     | { type: "providerUpdatesNotebookMetadataForWebview"; content: CustomNotebookMetadata; }
     | { type: "updateVideoUrlInWebview"; content: string; }

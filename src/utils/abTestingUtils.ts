@@ -8,6 +8,7 @@ export interface ABTestResult {
     cellId: string;
     timestamp: number;
     variants: string[];
+    names?: string[]; // optional names/labels for each variant
     selectedIndex?: number;
     selectionTimeMs?: number;
 }
@@ -72,7 +73,8 @@ export async function recordVariantSelection(
     testId: string,
     cellId: string,
     selectedIndex: number,
-    selectionTimeMs: number
+    selectionTimeMs: number,
+    names?: string[]
 ): Promise<void> {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -85,7 +87,8 @@ export async function recordVariantSelection(
             cellId,
             timestamp: Date.now(),
             selectedIndex,
-            selectionTimeMs
+            selectionTimeMs,
+            names
         };
         const newLine = new TextEncoder().encode(JSON.stringify(selectionRecord) + "\n");
         try {

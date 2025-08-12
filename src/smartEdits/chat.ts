@@ -111,8 +111,7 @@ class Chatbot {
                     role: this.mapMessageRole(message.role),
                     content: message.content,
                 })) as ChatCompletionMessageParam[],
-                max_tokens: this.config.get("max_tokens") || 2048,
-                temperature: this.config.get("temperature") || 0.8,
+                ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: this.config.get("temperature") || 0.8 }),
                 stream: false,
             });
 
@@ -173,8 +172,7 @@ class Chatbot {
                     role: this.mapMessageRole(message.role),
                     content: message.content,
                 })) as ChatCompletionMessageParam[],
-                max_tokens: this.config.get("max_tokens") || 2048,
-                temperature: this.config.get("temperature") || 0.8,
+                ...(model?.toLowerCase?.() === "gpt-5" ? { temperature: 1 } : { temperature: this.config.get("temperature") || 0.8 }),
                 stream: true,
             });
 

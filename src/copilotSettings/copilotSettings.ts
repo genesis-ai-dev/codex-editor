@@ -78,7 +78,7 @@ export async function openSystemMessageEditor() {
                                 apiKey: config.get("openAIKey") || "",
                                 model: config.get("model") || "gpt-4o",
                                 endpoint: config.get("endpoint") || "https://api.openai.com/v1",
-                                maxTokens: 500,
+                                // removed token limit parameter, models will use defaults
                                 temperature: 0.3,
                                 customModel: "",
                                 contextSize: "2000",

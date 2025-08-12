@@ -2210,7 +2210,45 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
                     // If multiple variants are present, send to the webview for selection
                     if (completionResult && Array.isArray((completionResult as any).variants) && (completionResult as any).variants.length > 1) {
-                        const { variants, testId } = completionResult as any;
+                        const { variants, testId, names } = completionResult as any;
+
+                        // Compute simple win rates per variant name from stored JSONL
+                        let winRates: Record<string, { wins: number; total: number; winRate: number; }> | undefined;
+                        if (names && Array.isArray(names) && names.length > 0) {
+                            try {
+                                const workspaceFolders = vscode.workspace.workspaceFolders;
+                                if (workspaceFolders && workspaceFolders.length > 0) {
+                                    const abTestPath = vscode.Uri.joinPath(workspaceFolders[0].uri, "files", "ab-test-results.jsonl");
+                                    const stats: Record<string, { wins: number; total: number; }> = {};
+                                    for (const n of names) stats[n] = { wins: 0, total: 0 };
+                                    try {
+                                        const data = await vscode.workspace.fs.readFile(abTestPath);
+                                        const content = new TextDecoder().decode(data);
+                                        const lines = content.split('\n').filter(l => !!l.trim());
+                                        for (const line of lines) {
+                                            try {
+                                                const rec = JSON.parse(line);
+                                                if (rec && Array.isArray(rec.names) && typeof rec.selectedIndex === 'number') {
+                                                    const pickedName = rec.names[rec.selectedIndex];
+                                                    // Count totals for any names mentioned
+                                                    for (const n of rec.names) {
+                                                        if (stats[n]) {
+                                                            stats[n].total += 1;
+                                                        }
+                                                    }
+                                                    if (pickedName && stats[pickedName]) {
+                                                        stats[pickedName].wins += 1;
+                                                    }
+                                                }
+                                            } catch {}
+                                        }
+                                        winRates = Object.fromEntries(Object.entries(stats).map(([n, s]) => [n, { wins: s.wins, total: s.total, winRate: s.total > 0 ? Math.round((s.wins / s.total) * 100) : 0 }]));
+                                    } catch {
+                                        // no stats file yet
+                                    }
+                                }
+                            } catch {}
+                        }
 
                         if (webviewPanel) {
                             this.postMessageToWebview(webviewPanel, {
@@ -2219,6 +2257,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                     variants,
                                     cellId: currentCellId,
                                     testId: testId || `${currentCellId}-${Date.now()}`,
+                                    names,
+                                    winRates,
                                 },
                             } as any);
                         }
