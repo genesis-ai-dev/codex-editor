@@ -7,12 +7,13 @@ import {
     CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { FileInput, FileOutput, ArrowRight } from "lucide-react";
+import { FileInput, FileOutput, ArrowRight, FileText } from "lucide-react";
 import { ImportIntent } from "../types/wizard";
 import { cn } from "../../lib/utils";
 
 interface IntentSelectionProps {
     onSelectIntent: (intent: ImportIntent) => void;
+    onStartTranslating: () => void;
     sourceFileCount: number;
     targetFileCount: number;
     translationPairCount: number;
@@ -20,6 +21,7 @@ interface IntentSelectionProps {
 
 export const IntentSelection: React.FC<IntentSelectionProps> = ({
     onSelectIntent,
+    onStartTranslating,
     sourceFileCount,
     targetFileCount,
     translationPairCount,
@@ -158,6 +160,21 @@ export const IntentSelection: React.FC<IntentSelectionProps> = ({
                     your existing translation work into the project.
                 </p>
             </div>
+
+            {/* Start Translating Button */}
+            {sourceFileCount > 0 && (
+                <div className="mt-6 text-center">
+                    <Button
+                        onClick={onStartTranslating}
+                        variant="outline"
+                        size="default"
+                        className="px-8 py-2"
+                    >
+                        <FileText className="h-4 w-4 mr-2" />
+                        Open Translation File
+                    </Button>
+                </div>
+            )}
         </div>
     );
 };

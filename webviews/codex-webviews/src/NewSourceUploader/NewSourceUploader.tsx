@@ -425,6 +425,12 @@ const NewSourceUploader: React.FC = () => {
         setIsDirty(false);
     }, []);
 
+    const handleStartTranslating = useCallback(() => {
+        vscode.postMessage({
+            command: "startTranslating",
+        });
+    }, []);
+
     const handleBack = useCallback(() => {
         setWizardState((prev) => {
             switch (prev.currentStep) {
@@ -509,6 +515,7 @@ const NewSourceUploader: React.FC = () => {
             return (
                 <IntentSelection
                     onSelectIntent={handleSelectIntent}
+                    onStartTranslating={handleStartTranslating}
                     sourceFileCount={wizardState.projectInventory.sourceFiles.length}
                     targetFileCount={wizardState.projectInventory.targetFiles.length}
                     translationPairCount={wizardState.projectInventory.translationPairs.length}

@@ -164,6 +164,24 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             error: error instanceof Error ? error.message : "Unknown error",
                         });
                     }
+                } else if (message.command === "startTranslating") {
+                    // Handle start translating - same as Welcome View's "Open Translation File"
+                    console.log("[NEW SOURCE UPLOADER] Opening navigation and closing window");
+
+                    try {
+                        // Focus the navigation view (same as Welcome View's handleOpenTranslationFile)
+                        await vscode.commands.executeCommand("codex-editor.navigation.focus");
+                        
+                        // Close the current webview panel
+                        webviewPanel.dispose();
+                    } catch (error) {
+                        console.error("Error opening navigation:", error);
+                        webviewPanel.webview.postMessage({
+                            command: "notification",
+                            type: "error",
+                            message: error instanceof Error ? error.message : "Failed to open navigation"
+                        });
+                    }
                 }
             } catch (error) {
                 console.error("Error handling message:", error);
