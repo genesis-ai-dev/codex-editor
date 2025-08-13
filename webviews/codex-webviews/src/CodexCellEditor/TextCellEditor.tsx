@@ -203,7 +203,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
     const [activeTab, setActiveTab] = useState<
-        "source" | "backtranslation" | "footnotes" | "audio"
+        "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
     >("source");
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
@@ -1380,7 +1380,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     defaultValue={activeTab}
                     value={activeTab}
                     onValueChange={(value) =>
-                        setActiveTab(value as "source" | "backtranslation" | "footnotes" | "timestamps" | "audio")
+                        setActiveTab(
+                            value as
+                                | "source"
+                                | "backtranslation"
+                                | "footnotes"
+                                | "timestamps"
+                                | "audio"
+                        )
                     }
                     className="w-full"
                 >
@@ -1417,16 +1424,18 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 </Badge>
                             )}
                         </TabsTrigger>
-                        {cellTimestamps && (cellTimestamps.startTime !== undefined || cellTimestamps.endTime !== undefined) && (
-                            <TabsTrigger value="timestamps">
-                                <Clock className="mr-2 h-4 w-4" />
-                                Timestamps
-                                <span
-                                    className="ml-2 h-2 w-2 rounded-full bg-blue-400"
-                                    title="Timestamps available"
-                                />
-                            </TabsTrigger>
-                        )}
+                        {cellTimestamps &&
+                            (cellTimestamps.startTime !== undefined ||
+                                cellTimestamps.endTime !== undefined) && (
+                                <TabsTrigger value="timestamps">
+                                    <Clock className="mr-2 h-4 w-4" />
+                                    Timestamps
+                                    <span
+                                        className="ml-2 h-2 w-2 rounded-full bg-blue-400"
+                                        title="Timestamps available"
+                                    />
+                                </TabsTrigger>
+                            )}
                         {USE_AUDIO_TAB && (
                             <TabsTrigger value="audio">
                                 <Mic className="mr-2 h-4 w-4" />
@@ -1678,12 +1687,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <TabsContent value="timestamps">
                         <div className="content-section space-y-4">
                             <h3 className="text-lg font-medium">Timestamps</h3>
-                            
-                            {cellTimestamps && (cellTimestamps.startTime !== undefined || cellTimestamps.endTime !== undefined) ? (
+
+                            {cellTimestamps &&
+                            (cellTimestamps.startTime !== undefined ||
+                                cellTimestamps.endTime !== undefined) ? (
                                 <div className="space-y-4">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <label htmlFor="startTime" className="text-sm font-medium">
+                                            <label
+                                                htmlFor="startTime"
+                                                className="text-sm font-medium"
+                                            >
                                                 Start Time (seconds)
                                             </label>
                                             <Input
@@ -1697,12 +1711,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     if (!isNaN(value) && value >= 0) {
                                                         const updatedTimestamps: Timestamps = {
                                                             ...cellTimestamps,
-                                                            startTime: value
+                                                            startTime: value,
                                                         };
                                                         // Update the cell content with new timestamps
                                                         setContentBeingUpdated({
                                                             ...contentBeingUpdated,
-                                                            cellTimestamps: updatedTimestamps
+                                                            cellTimestamps: updatedTimestamps,
                                                         });
                                                     }
                                                 }}
@@ -1710,9 +1724,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 className="font-mono"
                                             />
                                         </div>
-                                        
+
                                         <div className="space-y-2">
-                                            <label htmlFor="endTime" className="text-sm font-medium">
+                                            <label
+                                                htmlFor="endTime"
+                                                className="text-sm font-medium"
+                                            >
                                                 End Time (seconds)
                                             </label>
                                             <Input
@@ -1726,12 +1743,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     if (!isNaN(value) && value >= 0) {
                                                         const updatedTimestamps: Timestamps = {
                                                             ...cellTimestamps,
-                                                            endTime: value
+                                                            endTime: value,
                                                         };
                                                         // Update the cell content with new timestamps
                                                         setContentBeingUpdated({
                                                             ...contentBeingUpdated,
-                                                            cellTimestamps: updatedTimestamps
+                                                            cellTimestamps: updatedTimestamps,
                                                         });
                                                     }
                                                 }}
@@ -1740,30 +1757,37 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             />
                                         </div>
                                     </div>
-                                    
+
                                     <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                                         <div className="text-sm">
                                             <span className="font-medium">Duration:</span>{" "}
-                                            {cellTimestamps.startTime !== undefined && cellTimestamps.endTime !== undefined && cellTimestamps.endTime > cellTimestamps.startTime
-                                                ? `${(cellTimestamps.endTime - cellTimestamps.startTime).toFixed(3)}s`
-                                                : "Invalid duration"
-                                            }
+                                            {cellTimestamps.startTime !== undefined &&
+                                            cellTimestamps.endTime !== undefined &&
+                                            cellTimestamps.endTime > cellTimestamps.startTime
+                                                ? `${(
+                                                      cellTimestamps.endTime -
+                                                      cellTimestamps.startTime
+                                                  ).toFixed(3)}s`
+                                                : "Invalid duration"}
                                         </div>
                                         <div className="text-sm text-muted-foreground">
-                                            {cellTimestamps.startTime !== undefined && cellTimestamps.endTime !== undefined && cellTimestamps.endTime > cellTimestamps.startTime
-                                                ? `(${formatTime(cellTimestamps.startTime)} → ${formatTime(cellTimestamps.endTime)})`
-                                                : ""
-                                            }
+                                            {cellTimestamps.startTime !== undefined &&
+                                            cellTimestamps.endTime !== undefined &&
+                                            cellTimestamps.endTime > cellTimestamps.startTime
+                                                ? `(${formatTime(
+                                                      cellTimestamps.startTime
+                                                  )} → ${formatTime(cellTimestamps.endTime)})`
+                                                : ""}
                                         </div>
                                     </div>
-                                    
+
                                     <div className="flex gap-2">
                                         <Button
                                             onClick={() => {
                                                 // Clear timestamps
                                                 setContentBeingUpdated({
                                                     ...contentBeingUpdated,
-                                                    cellTimestamps: undefined
+                                                    cellTimestamps: undefined,
                                                 });
                                             }}
                                             variant="outline"
@@ -1778,7 +1802,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 <div className="text-center p-8 text-muted-foreground">
                                     <p>No timestamps available for this cell.</p>
                                     <p className="mt-2">
-                                        Timestamps are typically imported from subtitle files or video content.
+                                        Timestamps are typically imported from subtitle files or
+                                        video content.
                                     </p>
                                 </div>
                             )}
@@ -1982,7 +2007,9 @@ const formatTime = (timeInSeconds: number): string => {
     const minutes = Math.floor(timeInSeconds / 60);
     const seconds = Math.floor(timeInSeconds % 60);
     const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+    return `${minutes.toString().padStart(2, "0")}:${seconds
+        .toString()
+        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
 };
 
 export default CellEditor;

@@ -2240,14 +2240,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                         stats[pickedName].wins += 1;
                                                     }
                                                 }
-                                            } catch {}
+                                            } catch (error) {
+                                                debug("Error parsing AB test result", { line });
+                                            }
                                         }
                                         winRates = Object.fromEntries(Object.entries(stats).map(([n, s]) => [n, { wins: s.wins, total: s.total, winRate: s.total > 0 ? Math.round((s.wins / s.total) * 100) : 0 }]));
                                     } catch {
                                         // no stats file yet
                                     }
                                 }
-                            } catch {}
+                            } catch (error) {
+                                debug("Error computing AB test win rates", { error });
+                            }
                         }
 
                         if (webviewPanel) {
