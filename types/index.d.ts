@@ -927,7 +927,7 @@ type EditorReceiveMessages =
         cellId: string;
         error: string;
     }
-    | { type: "refreshFontSizes"; }
+    | { type: "refreshMetadata"; }
     | {
         type: "providerConfirmsBacktranslationSet";
         content: SavedBacktranslation | null;
@@ -1424,7 +1424,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "downloadUpdate"; }
     | { command: "installUpdate"; }
     | { command: "openExternal"; url: string; }
-    | { command: "setGlobalFontSize"; };
+    | { command: "setGlobalFontSize"; }
+    | { command: "setGlobalTextDirection"; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

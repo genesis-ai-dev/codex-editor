@@ -584,7 +584,6 @@
                         "default": "",
                         "description": "Your own OpenAI API key. Ignorable for local LLM. NOTE: Do not set this in workspace settings. This may compromise your key if .vscode/settings.json is saved to the cloud."
                     },
-                    
                     "codex-editor-extension.temperature": {
                         "title": "Temperature",
                         "type": "number",
@@ -658,6 +657,12 @@
                         "default": "This is a chat between a helpful Bible translation assistant and a Bible translator. The assistant will provide helpful answers and suggestions to the translator, often relying on the translator's current project and reference resources. The translator will ask questions and provide context to the assistant. The translator's aim is to be consistent and faithful in a fairly literalistic rendering of the source text.",
                         "description": "The system message controlling the behavior of the chat system and inline completion. You can customize this message to fit your needs, or ask the copilot to translate it for you into your preferred interface language.",
                         "editPresentation": "multilineText"
+                    },
+                    "codex-editor-extension.allowHtmlPredictions": {
+                        "title": "Allow HTML in AI Predictions",
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When enabled, the AI may output HTML (bold, italics, spans, etc.). If disabled, examples and AI outputs will be stripped to plain text before insertion."
                     },
                     "codex-editor-extension.sourceTextSelectionMode": {
                         "type": "string",
