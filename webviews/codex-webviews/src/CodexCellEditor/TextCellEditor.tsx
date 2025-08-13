@@ -1762,7 +1762,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 setContentBeingUpdated({
                                                     ...contentBeingUpdated,
                                                     cellTimestamps: updatedTimestamps,
+                                                    cellChanged: true,
                                                 });
+                                                setUnsavedChanges(true);
                                             }}
                                         />
                                         <div className="flex justify-between text-xs text-muted-foreground">
@@ -1790,71 +1792,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                             >
                                                 Save timestamps
                                             </Button>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-2">
-                                            <label
-                                                htmlFor="startTime"
-                                                className="text-sm font-medium"
-                                            >
-                                                Start Time (seconds)
-                                            </label>
-                                            <Input
-                                                id="startTime"
-                                                type="number"
-                                                step="0.001"
-                                                min="0"
-                                                value={effectiveTimestamps.startTime || ""}
-                                                onChange={(e) => {
-                                                    const value = parseFloat(e.target.value);
-                                                    if (!isNaN(value) && value >= 0) {
-                                                        const updatedTimestamps: Timestamps = {
-                                                            ...effectiveTimestamps,
-                                                            startTime: value,
-                                                        };
-                                                        // Update the cell content with new timestamps
-                                                        setContentBeingUpdated({
-                                                            ...contentBeingUpdated,
-                                                            cellTimestamps: updatedTimestamps,
-                                                        });
-                                                    }
-                                                }}
-                                                placeholder="0.000"
-                                                className="font-mono"
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <label
-                                                htmlFor="endTime"
-                                                className="text-sm font-medium"
-                                            >
-                                                End Time (seconds)
-                                            </label>
-                                            <Input
-                                                id="endTime"
-                                                type="number"
-                                                step="0.001"
-                                                min="0"
-                                                value={effectiveTimestamps.endTime || ""}
-                                                onChange={(e) => {
-                                                    const value = parseFloat(e.target.value);
-                                                    if (!isNaN(value) && value >= 0) {
-                                                        const updatedTimestamps: Timestamps = {
-                                                            ...effectiveTimestamps,
-                                                            endTime: value,
-                                                        };
-                                                        // Update the cell content with new timestamps
-                                                        setContentBeingUpdated({
-                                                            ...contentBeingUpdated,
-                                                            cellTimestamps: updatedTimestamps,
-                                                        });
-                                                    }
-                                                }}
-                                                placeholder="0.000"
-                                                className="font-mono"
-                                            />
                                         </div>
                                     </div>
 
