@@ -37,6 +37,7 @@ import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import "./TextCellEditor-overrides.css";
+import { Slider } from "../components/ui/slider";
 
 const USE_AUDIO_TAB = true;
 
@@ -110,6 +111,8 @@ interface CellEditorProps {
     cell: QuillCellContent;
     isSaving?: boolean;
     footnoteOffset?: number;
+    prevEndTime?: number;
+    nextStartTime?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -183,6 +186,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cell,
     isSaving = false,
     footnoteOffset = 1,
+    prevEndTime,
+    nextStartTime,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -273,6 +278,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
+
+    const handleSaveCell = () => {
+        handleSaveHtml();
+        const ts = contentBeingUpdated.cellTimestamps;
+        if (ts && (typeof ts.startTime === "number" || typeof ts.endTime === "number")) {
+            const messageContent: EditorPostMessages = {
+                command: "updateCellTimestamps",
+                content: {
+                    cellId: cellMarkers[0],
+                    timestamps: ts,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+    };
+
+    // Timestamp editing bounds and effective state
+    const previousEndBound = typeof prevEndTime === "number" ? prevEndTime : 0;
+    const nextStartBound =
+        typeof nextStartTime === "number" ? nextStartTime : Number.POSITIVE_INFINITY;
+    const effectiveTimestamps: Timestamps | undefined =
+        contentBeingUpdated.cellTimestamps ?? cellTimestamps;
+    const computedMaxBound = Number.isFinite(nextStartBound)
+        ? nextStartBound
+        : Math.max(effectiveTimestamps?.endTime ?? 0, (effectiveTimestamps?.startTime ?? 0) + 10);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -1278,7 +1308,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <Button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleSaveHtml();
+                                    handleSaveCell();
                                 }}
                                 variant="default"
                                 size="icon"
@@ -1688,10 +1718,80 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <div className="content-section space-y-4">
                             <h3 className="text-lg font-medium">Timestamps</h3>
 
-                            {cellTimestamps &&
-                            (cellTimestamps.startTime !== undefined ||
-                                cellTimestamps.endTime !== undefined) ? (
+                            {effectiveTimestamps &&
+                            (effectiveTimestamps.startTime !== undefined ||
+                                effectiveTimestamps.endTime !== undefined) ? (
                                 <div className="space-y-4">
+                                    {/* Scrubber with clamped handles */}
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Adjust range</label>
+                                        <Slider
+                                            min={Math.max(0, previousEndBound)}
+                                            max={Math.max(
+                                                computedMaxBound,
+                                                effectiveTimestamps.endTime ?? 0
+                                            )}
+                                            value={[
+                                                Math.max(
+                                                    Math.max(0, previousEndBound),
+                                                    effectiveTimestamps.startTime ?? 0
+                                                ),
+                                                Math.min(
+                                                    nextStartBound,
+                                                    effectiveTimestamps.endTime ??
+                                                        effectiveTimestamps.startTime ??
+                                                        0
+                                                ),
+                                            ]}
+                                            step={0.001}
+                                            onValueChange={(vals: number[]) => {
+                                                const [start, end] = vals;
+                                                const clampedStart = Math.max(
+                                                    Math.max(0, previousEndBound),
+                                                    Math.min(start, end)
+                                                );
+                                                const clampedEnd = Math.min(
+                                                    nextStartBound,
+                                                    Math.max(end, clampedStart)
+                                                );
+                                                const updatedTimestamps: Timestamps = {
+                                                    ...effectiveTimestamps,
+                                                    startTime: Number(clampedStart.toFixed(3)),
+                                                    endTime: Number(clampedEnd.toFixed(3)),
+                                                };
+                                                setContentBeingUpdated({
+                                                    ...contentBeingUpdated,
+                                                    cellTimestamps: updatedTimestamps,
+                                                });
+                                            }}
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>
+                                                Min: {Math.max(0, previousEndBound).toFixed(3)}s
+                                            </span>
+                                            <span>Max: {computedMaxBound.toFixed(3)}s</span>
+                                        </div>
+                                        <div className="flex justify-end">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    if (!contentBeingUpdated.cellTimestamps) return;
+                                                    const messageContent: EditorPostMessages = {
+                                                        command: "updateCellTimestamps",
+                                                        content: {
+                                                            cellId: cellMarkers[0],
+                                                            timestamps:
+                                                                contentBeingUpdated.cellTimestamps,
+                                                        },
+                                                    };
+                                                    window.vscodeApi.postMessage(messageContent);
+                                                }}
+                                            >
+                                                Save timestamps
+                                            </Button>
+                                        </div>
+                                    </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
                                             <label
@@ -1705,12 +1805,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 type="number"
                                                 step="0.001"
                                                 min="0"
-                                                value={cellTimestamps.startTime || ""}
+                                                value={effectiveTimestamps.startTime || ""}
                                                 onChange={(e) => {
                                                     const value = parseFloat(e.target.value);
                                                     if (!isNaN(value) && value >= 0) {
                                                         const updatedTimestamps: Timestamps = {
-                                                            ...cellTimestamps,
+                                                            ...effectiveTimestamps,
                                                             startTime: value,
                                                         };
                                                         // Update the cell content with new timestamps
@@ -1737,12 +1837,12 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 type="number"
                                                 step="0.001"
                                                 min="0"
-                                                value={cellTimestamps.endTime || ""}
+                                                value={effectiveTimestamps.endTime || ""}
                                                 onChange={(e) => {
                                                     const value = parseFloat(e.target.value);
                                                     if (!isNaN(value) && value >= 0) {
                                                         const updatedTimestamps: Timestamps = {
-                                                            ...cellTimestamps,
+                                                            ...effectiveTimestamps,
                                                             endTime: value,
                                                         };
                                                         // Update the cell content with new timestamps
@@ -1761,22 +1861,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                                         <div className="text-sm">
                                             <span className="font-medium">Duration:</span>{" "}
-                                            {cellTimestamps.startTime !== undefined &&
-                                            cellTimestamps.endTime !== undefined &&
-                                            cellTimestamps.endTime > cellTimestamps.startTime
+                                            {effectiveTimestamps.startTime !== undefined &&
+                                            effectiveTimestamps.endTime !== undefined &&
+                                            (effectiveTimestamps.endTime as number) >
+                                                (effectiveTimestamps.startTime as number)
                                                 ? `${(
-                                                      cellTimestamps.endTime -
-                                                      cellTimestamps.startTime
+                                                      (effectiveTimestamps.endTime as number) -
+                                                      (effectiveTimestamps.startTime as number)
                                                   ).toFixed(3)}s`
                                                 : "Invalid duration"}
                                         </div>
                                         <div className="text-sm text-muted-foreground">
-                                            {cellTimestamps.startTime !== undefined &&
-                                            cellTimestamps.endTime !== undefined &&
-                                            cellTimestamps.endTime > cellTimestamps.startTime
+                                            {effectiveTimestamps.startTime !== undefined &&
+                                            effectiveTimestamps.endTime !== undefined &&
+                                            (effectiveTimestamps.endTime as number) >
+                                                (effectiveTimestamps.startTime as number)
                                                 ? `(${formatTime(
-                                                      cellTimestamps.startTime
-                                                  )} → ${formatTime(cellTimestamps.endTime)})`
+                                                      effectiveTimestamps.startTime as number
+                                                  )} → ${formatTime(
+                                                      effectiveTimestamps.endTime as number
+                                                  )})`
                                                 : ""}
                                         </div>
                                     </div>
