@@ -37,6 +37,7 @@ import { Progress } from "../components/ui/progress";
 import { Separator } from "../components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 import "./TextCellEditor-overrides.css";
+import { Slider } from "../components/ui/slider";
 
 const USE_AUDIO_TAB = true;
 
@@ -68,6 +69,7 @@ import {
     NotebookPen,
     Save,
     RotateCcw,
+    Clock,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
@@ -109,6 +111,8 @@ interface CellEditorProps {
     cell: QuillCellContent;
     isSaving?: boolean;
     footnoteOffset?: number;
+    prevEndTime?: number;
+    nextStartTime?: number;
 }
 
 const DEBUG_ENABLED = false;
@@ -182,6 +186,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     cell,
     isSaving = false,
     footnoteOffset = 1,
+    prevEndTime,
+    nextStartTime,
 }) => {
     const { setUnsavedChanges, showFlashingBorder, unsavedChanges } =
         useContext(UnsavedChangesContext);
@@ -202,7 +208,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isGeneratingBacktranslation, setIsGeneratingBacktranslation] = useState(false);
     const [backtranslationProgress, setBacktranslationProgress] = useState(0);
     const [activeTab, setActiveTab] = useState<
-        "source" | "backtranslation" | "footnotes" | "audio"
+        "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
     >("source");
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
@@ -272,6 +278,31 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [isPinned, setIsPinned] = useState(false);
     const [showAdvancedControls, setShowAdvancedControls] = useState(false);
     const [unresolvedCommentsCount, setUnresolvedCommentsCount] = useState<number>(0);
+
+    const handleSaveCell = () => {
+        handleSaveHtml();
+        const ts = contentBeingUpdated.cellTimestamps;
+        if (ts && (typeof ts.startTime === "number" || typeof ts.endTime === "number")) {
+            const messageContent: EditorPostMessages = {
+                command: "updateCellTimestamps",
+                content: {
+                    cellId: cellMarkers[0],
+                    timestamps: ts,
+                },
+            };
+            window.vscodeApi.postMessage(messageContent);
+        }
+    };
+
+    // Timestamp editing bounds and effective state
+    const previousEndBound = typeof prevEndTime === "number" ? prevEndTime : 0;
+    const nextStartBound =
+        typeof nextStartTime === "number" ? nextStartTime : Number.POSITIVE_INFINITY;
+    const effectiveTimestamps: Timestamps | undefined =
+        contentBeingUpdated.cellTimestamps ?? cellTimestamps;
+    const computedMaxBound = Number.isFinite(nextStartBound)
+        ? nextStartBound
+        : Math.max(effectiveTimestamps?.endTime ?? 0, (effectiveTimestamps?.startTime ?? 0) + 10);
 
     useEffect(() => {
         setEditableLabel(cellLabel || "");
@@ -1154,7 +1185,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </div>
                     <div className="flex items-center gap-1">
-                        <TooltipProvider>
+                        {/* <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
@@ -1170,7 +1201,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     <p>Add All Words to Dictionary</p>
                                 </TooltipContent>
                             </Tooltip>
-                        </TooltipProvider>
+                        </TooltipProvider> */}
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1277,7 +1308,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             <Button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    handleSaveHtml();
+                                    handleSaveCell();
                                 }}
                                 variant="default"
                                 size="icon"
@@ -1379,21 +1410,30 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     defaultValue={activeTab}
                     value={activeTab}
                     onValueChange={(value) =>
-                        setActiveTab(value as "source" | "backtranslation" | "footnotes" | "audio")
+                        setActiveTab(
+                            value as
+                                | "source"
+                                | "backtranslation"
+                                | "footnotes"
+                                | "timestamps"
+                                | "audio"
+                        )
                     }
                     className="w-full"
                 >
-                    <TabsList className="grid w-full grid-cols-4">
+                    <TabsList
+                        className="flex w-full"
+                        style={{ justifyContent: "stretch", display: "flex" }}
+                    >
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
-                            Source
+
                             {!sourceText && (
                                 <span className="ml-2 h-2 w-2 rounded-full bg-gray-400" />
                             )}
                         </TabsTrigger>
                         <TabsTrigger value="backtranslation">
                             <RotateCcw className="mr-2 h-4 w-4" />
-                            Backtranslate
                             {backtranslation && (
                                 <span
                                     className="ml-2 h-2 w-2 rounded-full bg-green-400"
@@ -1409,17 +1449,27 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TabsTrigger>
                         <TabsTrigger value="footnotes">
                             <NotebookPen className="mr-2 h-4 w-4" />
-                            Footnotes
                             {footnotes.length > 0 && (
                                 <Badge variant="secondary" className="ml-2 h-5 px-1.5">
                                     {footnotes.length}
                                 </Badge>
                             )}
                         </TabsTrigger>
+                        {cellTimestamps &&
+                            (cellTimestamps.startTime !== undefined ||
+                                cellTimestamps.endTime !== undefined) && (
+                                <TabsTrigger value="timestamps">
+                                    <Clock className="mr-2 h-4 w-4" />
+                                    <span
+                                        className="ml-2 h-2 w-2 rounded-full bg-blue-400"
+                                        title="Timestamps available"
+                                    />
+                                </TabsTrigger>
+                            )}
                         {USE_AUDIO_TAB && (
                             <TabsTrigger value="audio">
                                 <Mic className="mr-2 h-4 w-4" />
-                                Audio
+
                                 {audioUrl &&
                                     (audioUrl.startsWith("blob:") ||
                                         audioUrl.startsWith("data:") ||
@@ -1443,7 +1493,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <TabsContent value="backtranslation">
                         <div className="content-section space-y-4">
                             <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-medium">Backtranslation</h3>
                                 <div className="flex items-center gap-2">
                                     {backtranslation && !isEditingBacktranslation && (
                                         <Button
@@ -1664,6 +1713,143 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </div>
                     </TabsContent>
 
+                    <TabsContent value="timestamps">
+                        <div className="content-section space-y-4">
+                            <h3 className="text-lg font-medium">Timestamps</h3>
+
+                            {effectiveTimestamps &&
+                            (effectiveTimestamps.startTime !== undefined ||
+                                effectiveTimestamps.endTime !== undefined) ? (
+                                <div className="space-y-4">
+                                    {/* Scrubber with clamped handles */}
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Adjust range</label>
+                                        <Slider
+                                            min={Math.max(0, previousEndBound)}
+                                            max={Math.max(
+                                                computedMaxBound,
+                                                effectiveTimestamps.endTime ?? 0
+                                            )}
+                                            value={[
+                                                Math.max(
+                                                    Math.max(0, previousEndBound),
+                                                    effectiveTimestamps.startTime ?? 0
+                                                ),
+                                                Math.min(
+                                                    nextStartBound,
+                                                    effectiveTimestamps.endTime ??
+                                                        effectiveTimestamps.startTime ??
+                                                        0
+                                                ),
+                                            ]}
+                                            step={0.001}
+                                            onValueChange={(vals: number[]) => {
+                                                const [start, end] = vals;
+                                                const clampedStart = Math.max(
+                                                    Math.max(0, previousEndBound),
+                                                    Math.min(start, end)
+                                                );
+                                                const clampedEnd = Math.min(
+                                                    nextStartBound,
+                                                    Math.max(end, clampedStart)
+                                                );
+                                                const updatedTimestamps: Timestamps = {
+                                                    ...effectiveTimestamps,
+                                                    startTime: Number(clampedStart.toFixed(3)),
+                                                    endTime: Number(clampedEnd.toFixed(3)),
+                                                };
+                                                setContentBeingUpdated({
+                                                    ...contentBeingUpdated,
+                                                    cellTimestamps: updatedTimestamps,
+                                                    cellChanged: true,
+                                                });
+                                                setUnsavedChanges(true);
+                                            }}
+                                        />
+                                        <div className="flex justify-between text-xs text-muted-foreground">
+                                            <span>
+                                                Min: {formatTime(Math.max(0, previousEndBound))}
+                                            </span>
+                                            <span>Max: {formatTime(computedMaxBound)}</span>
+                                        </div>
+                                        <div className="flex justify-end">
+                                            <Button
+                                                size="sm"
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    if (!contentBeingUpdated.cellTimestamps) return;
+                                                    const messageContent: EditorPostMessages = {
+                                                        command: "updateCellTimestamps",
+                                                        content: {
+                                                            cellId: cellMarkers[0],
+                                                            timestamps:
+                                                                contentBeingUpdated.cellTimestamps,
+                                                        },
+                                                    };
+                                                    window.vscodeApi.postMessage(messageContent);
+                                                }}
+                                            >
+                                                Save timestamps
+                                            </Button>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                                        <div className="text-sm">
+                                            <span className="font-medium">Duration:</span>{" "}
+                                            {effectiveTimestamps.startTime !== undefined &&
+                                            effectiveTimestamps.endTime !== undefined &&
+                                            (effectiveTimestamps.endTime as number) >
+                                                (effectiveTimestamps.startTime as number)
+                                                ? `${(
+                                                      (effectiveTimestamps.endTime as number) -
+                                                      (effectiveTimestamps.startTime as number)
+                                                  ).toFixed(3)}s`
+                                                : "Invalid duration"}
+                                        </div>
+                                        <div className="text-sm text-muted-foreground">
+                                            {effectiveTimestamps.startTime !== undefined &&
+                                            effectiveTimestamps.endTime !== undefined &&
+                                            (effectiveTimestamps.endTime as number) >
+                                                (effectiveTimestamps.startTime as number)
+                                                ? `(${formatTime(
+                                                      effectiveTimestamps.startTime as number
+                                                  )} → ${formatTime(
+                                                      effectiveTimestamps.endTime as number
+                                                  )})`
+                                                : ""}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <Button
+                                            onClick={() => {
+                                                // Clear timestamps
+                                                setContentBeingUpdated({
+                                                    ...contentBeingUpdated,
+                                                    cellTimestamps: undefined,
+                                                });
+                                            }}
+                                            variant="outline"
+                                            size="sm"
+                                        >
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Clear Timestamps
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="text-center p-8 text-muted-foreground">
+                                    <p>No timestamps available for this cell.</p>
+                                    <p className="mt-2">
+                                        Timestamps are typically imported from subtitle files or
+                                        video content.
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
+
                     <TabsContent value="audio">
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
@@ -1854,6 +2040,16 @@ const CellEditor: React.FC<CellEditorProps> = ({
             </CardContent>
         </Card>
     );
+};
+
+// Helper function to format time in MM:SS.mmm format
+const formatTime = (timeInSeconds: number): string => {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
+    return `${minutes.toString().padStart(2, "0")}:${seconds
+        .toString()
+        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
 };
 
 export default CellEditor;

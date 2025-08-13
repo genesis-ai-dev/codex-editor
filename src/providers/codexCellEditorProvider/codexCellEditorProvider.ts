@@ -172,7 +172,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.initializeStateStore();
 
         // Listen for configuration changes
-        vscode.workspace.onDidChangeConfiguration((e) => {
+        const configurationChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration("codex-project-manager.validationCount")) {
                 // Notify all webviews about the configuration change
                 this.webviewPanels.forEach((panel) => {
@@ -197,6 +197,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 });
             }
         });
+
+        this.context.subscriptions.push(configurationChangeDisposable);
 
         // Register a command to update validation indicators
         this.context.subscriptions.push(
@@ -285,7 +287,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         this.webviewPanels.set(document.uri.toString(), webviewPanel);
 
         // Listen for when this editor becomes active
-        webviewPanel.onDidChangeViewState((e) => {
+        const viewStateDisposable: vscode.Disposable = webviewPanel.onDidChangeViewState((e) => {
             debug("Webview panel state changed, active:", e.webviewPanel.active);
             if (e.webviewPanel.active) {
                 // Update references and refresh content to ensure any changes (like font sizes) are applied
@@ -426,6 +428,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
 
         // Set up document change listeners
         const listeners: vscode.Disposable[] = [];
+        listeners.push(viewStateDisposable);
 
         listeners.push(
             document.onDidChangeForVsCodeAndWebview((e) => {
@@ -476,6 +479,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             if (this.commitTimer) {
                 clearTimeout(this.commitTimer);
             }
+            if (this.autocompleteCancellation) {
+                try { this.autocompleteCancellation.cancel(); } catch { /* noop */ }
+                this.autocompleteCancellation.dispose();
+                this.autocompleteCancellation = undefined;
+            }
+            if (this.singleCellQueueCancellation) {
+                try { this.singleCellQueueCancellation.cancel(); } catch { /* noop */ }
+                this.singleCellQueueCancellation.dispose();
+                this.singleCellQueueCancellation = undefined;
+            }
             // Dispose of the state store listener
             if (this.stateStoreListener) {
                 this.stateStoreListener();
@@ -488,7 +501,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         // Handle messages from webview
-        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+        const onMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
             debug("Received message from webview:", e);
             if ("destination" in e) {
                 debug("Handling global message");
@@ -498,6 +511,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
             handleMessages(e, webviewPanel, document, updateWebview, this);
         });
+        listeners.push(onMessageDisposable);
 
         // Initial update
         debug("Performing initial webview update");
@@ -510,7 +524,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         });
 
         // Wait for webview ready event before scanning for audio attachments
-        webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
+        const onReadyMessageDisposable = webviewPanel.webview.onDidReceiveMessage(async (e: EditorPostMessages | GlobalMessage) => {
             if ('type' in e && e.type === 'webviewReady') {
                 try {
                     debug("Webview ready, scanning for audio attachments");
@@ -536,6 +550,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                 }
             }
         });
+        listeners.push(onReadyMessageDisposable);
 
         // Watch for configuration changes
         const configListenerDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -2240,14 +2255,18 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
                                                         stats[pickedName].wins += 1;
                                                     }
                                                 }
-                                            } catch {}
+                                            } catch (error) {
+                                                debug("Error parsing AB test result", { line });
+                                            }
                                         }
                                         winRates = Object.fromEntries(Object.entries(stats).map(([n, s]) => [n, { wins: s.wins, total: s.total, winRate: s.total > 0 ? Math.round((s.wins / s.total) * 100) : 0 }]));
                                     } catch {
                                         // no stats file yet
                                     }
                                 }
-                            } catch {}
+                            } catch (error) {
+                                debug("Error computing AB test win rates", { error });
+                            }
                         }
 
                         if (webviewPanel) {
