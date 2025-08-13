@@ -560,7 +560,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 direction: textDirection,
                 ...getBorderStyle(),
                 display: "flex",
-                alignItems: "flex-start",
+                flexDirection: "column",
                 gap: "0.5rem",
                 padding: "0.25rem",
                 cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
@@ -750,17 +750,53 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             </div>
 
             {/* Render content with footnotes */}
-            <div style={{ flex: 1 }}>{renderContent()}</div>
-
-            {/* Comments Badge positioned on the right */}
-            <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                <CommentsBadge
-                    cellId={cellIds[0]}
-                    unresolvedCount={initialUnresolvedCommentsCount}
-                />
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                <div style={{ flex: 1 }}>{renderContent()}</div>
+                {/* Comments Badge positioned on the right */}
+                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
+                    <CommentsBadge
+                        cellId={cellIds[0]}
+                        unresolvedCount={initialUnresolvedCommentsCount}
+                    />
+                </div>
             </div>
+
+            {/* Timestamp Display */}
+            {cell.timestamps && (cell.timestamps.startTime !== undefined || cell.timestamps.endTime !== undefined) && (
+                <div 
+                    className="timestamp-display"
+                    style={{
+                        fontSize: "0.75rem",
+                        color: "var(--vscode-descriptionForeground)",
+                        marginTop: "0.25rem",
+                        fontFamily: "monospace",
+                        opacity: 0.8,
+                        textAlign: "center",
+                        width: "100%"
+                    }}
+                >
+                    {cell.timestamps.startTime !== undefined && cell.timestamps.endTime !== undefined ? (
+                        <span>
+                            {formatTime(cell.timestamps.startTime)} → {formatTime(cell.timestamps.endTime)}
+                        </span>
+                    ) : cell.timestamps.startTime !== undefined ? (
+                        <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                    ) : cell.timestamps.endTime !== undefined ? (
+                        <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                    ) : null}
+                </div>
+            )}
+
         </div>
     );
+};
+
+// Helper function to format time in MM:SS.mmm format
+const formatTime = (timeInSeconds: number): string => {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
 };
 
 export default CellContentDisplay;

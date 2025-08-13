@@ -588,6 +588,7 @@ type EditorCellContent = {
     cellChanged: boolean;
     cellLabel?: string;
     uri?: string;
+    cellTimestamps?: Timestamps;
 };
 
 interface EditHistoryEntry {
