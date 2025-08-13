@@ -5,14 +5,26 @@ import { ExportOptions } from "./exportHandler";
 import * as vscode from "vscode";
 
 /**
+ * Inserts line breaks for dialogue patterns when missing.
+ * If there are no existing newlines, convert occurrences of " -" into "\n-" to split lines like:
+ * "-Line one. -Line two." -> "-Line one.\n-Line two."
+ */
+const ensureDialogueLineBreaks = (text: string): string => {
+    if (!text) return text;
+    // Insert a newline before any dialogue dash that is not already at the start of a line
+    // e.g., "-A. -B." => "-A.\n-B."
+    return text.replace(/(?<!\n)\s+-/g, "\n-");
+};
+
+/**
  * Process HTML content for VTT format - preserve supported HTML tags while converting paragraph breaks to newlines
  */
 const processVttContent = (content: string): string => {
-    return content
+    const processed = content
         // Convert block-level elements to newlines before processing
         .replace(/<\/p>/gi, "\n") // End of paragraph
         .replace(/<p[^>]*>/gi, "\n") // Start of paragraph - add newline before content
-        .replace(/<br\s*\/?>/gi, "\n") // Line breaks
+        .replace(/<br\s*\/>/gi, "\n") // Line breaks
         .replace(/<\/div>/gi, "\n") // End of div
         .replace(/<div[^>]*>/gi, "\n") // Start of div - add newline before content
         .replace(/<\/h[1-6]>/gi, "\n") // End of headings
@@ -38,6 +50,7 @@ const processVttContent = (content: string): string => {
         .replace(/\n\s*\n/g, "\n") // Replace multiple newlines with single newline
         .replace(/^\s+|\s+$/g, "") // Trim leading/trailing whitespace
         .replace(/[ \t]+/g, " "); // Replace multiple spaces/tabs with single space
+    return ensureDialogueLineBreaks(processed);
 };
 
 export const generateVttData = (
@@ -61,9 +74,11 @@ export const generateVttData = (
         .map((unit, index) => {
             const startTime = unit.metadata?.data?.startTime ?? index;
             const endTime = unit.metadata?.data?.endTime ?? index + 1;
+            const text = includeStyles ? processVttContent(unit.value) : removeHtmlTags(unit.value);
+            const finalText = ensureDialogueLineBreaks(text);
             return `${unit.metadata?.id}
 ${formatTime(Number(startTime))} --> ${formatTime(Number(endTime))}
-${includeStyles ? processVttContent(unit.value) : removeHtmlTags(unit.value)}
+${finalText}
 
 `;
         })

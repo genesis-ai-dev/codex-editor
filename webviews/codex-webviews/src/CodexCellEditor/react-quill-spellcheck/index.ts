@@ -44,9 +44,9 @@ export class QuillSpellChecker {
 
         this.setupEventListeners();
         this.disableNativeSpellcheckIfSet();
-        setTimeout(() => {
-            this.checkSpelling();
-        }, 100);
+        // setTimeout(() => {
+        //     this.checkSpelling();
+        // }, 100);
     }
 
     // Add dispose method for cleanup
@@ -118,7 +118,7 @@ export class QuillSpellChecker {
         // Add explicit handling for rejection updates
         if (message.type === "wordAdded" || message.type === "suggestionRejected") {
             debug("Forcing spell check after rejection/word addition");
-            this.forceCheckSpelling();
+            // this.forceCheckSpelling();
         }
     };
 
@@ -188,9 +188,9 @@ export class QuillSpellChecker {
         }
 
         // Set a new timer
-        this.typingTimer = window.setTimeout(() => {
-            this.checkSpelling();
-        }, this.typingDelay);
+        // this.typingTimer = window.setTimeout(() => {
+        //     this.checkSpelling();
+        // }, this.typingDelay);
     }
 
     public setOnRequestComplete(callback: () => void) {
@@ -198,93 +198,93 @@ export class QuillSpellChecker {
         this.onRequestComplete = callback;
     }
 
-    public forceCheckSpelling() {
-        debug("forceCheckSpelling called");
-        // Reset the last check time to ensure it runs
-        this.lastSpellCheckTime = 200;
-        return this.checkSpelling(true);
-    }
+    // public forceCheckSpelling() {
+    //     debug("forceCheckSpelling called");
+    //     // Reset the last check time to ensure it runs
+    //     this.lastSpellCheckTime = 200;
+    //     return this.checkSpelling(true);
+    // }
 
-    public async checkSpelling(force: boolean = false) {
-        debug("checkSpelling", { force });
-        const now = Date.now();
-        if (!force && now - this.lastSpellCheckTime < this.spellCheckCooldown) {
-            debug("Skipping spell check due to cooldown");
-            return;
-        }
+    // public async checkSpelling(force: boolean = false) {
+    //     debug("checkSpelling", { force });
+    //     const now = Date.now();
+    //     if (!force && now - this.lastSpellCheckTime < this.spellCheckCooldown) {
+    //         debug("Skipping spell check due to cooldown");
+    //         return;
+    //     }
 
-        this.lastSpellCheckTime = now;
+    //     this.lastSpellCheckTime = now;
 
-        if (document.querySelector("spck-toolbar")) {
-            debug("Skipping spell check due to toolbar");
-            return;
-        }
+    //     if (document.querySelector("spck-toolbar")) {
+    //         debug("Skipping spell check due to toolbar");
+    //         return;
+    //     }
 
-        const text = this.quill.getText().trim();
-        debug("checkSpelling text", { text });
+    //     const text = this.quill.getText().trim();
+    //     debug("checkSpelling text", { text });
 
-        if (!text) {
-            debug("Skipping spell check due to empty text");
-            return;
-        }
+    //     if (!text) {
+    //         debug("Skipping spell check due to empty text");
+    //         return;
+    //     }
 
-        try {
-            const results = await this.getSpellCheckerResults(text);
-            this.boxes.removeSuggestionBoxes();
-            debug("checkSpelling results", { results });
+    //     try {
+    //         const results = await this.getSpellCheckerResults(text);
+    //         this.boxes.removeSuggestionBoxes();
+    //         debug("checkSpelling results", { results });
 
-            if (results?.length) {
-                this.matches = results
-                    .filter((match) => match.replacements?.length)
-                    .map((match, index) => ({ ...match, id: index.toString() }));
-                debug("checkSpelling matches", { matches: this.matches });
-                this.boxes.addSuggestionBoxes();
-            } else {
-                this.matches = [];
-                this.boxes.removeSuggestionBoxes();
-            }
+    //         if (results?.length) {
+    //             this.matches = results
+    //                 .filter((match) => match.replacements?.length)
+    //                 .map((match, index) => ({ ...match, id: index.toString() }));
+    //             debug("checkSpelling matches", { matches: this.matches });
+    //             this.boxes.addSuggestionBoxes();
+    //         } else {
+    //             this.matches = [];
+    //             this.boxes.removeSuggestionBoxes();
+    //         }
 
-            this.onRequestComplete();
-        } catch (error) {
-            console.error("Error during spell check:", error);
-            this.matches = [];
-            this.boxes.removeSuggestionBoxes();
-            this.onRequestComplete();
-        }
-    }
+    //         this.onRequestComplete();
+    //     } catch (error) {
+    //         console.error("Error during spell check:", error);
+    //         this.matches = [];
+    //         this.boxes.removeSuggestionBoxes();
+    //         this.onRequestComplete();
+    //     }
+    // }
 
-    private async getSpellCheckerResults(text: string): Promise<MatchesEntity[] | null> {
-        debug("getSpellCheckerResults", { text });
-        if (!(window as any).vscodeApi) return null;
+    // private async getSpellCheckerResults(text: string): Promise<MatchesEntity[] | null> {
+    //     debug("getSpellCheckerResults", { text });
+    //     if (!(window as any).vscodeApi) return null;
 
-        try {
-            return new Promise((resolve, reject) => {
-                const messageListener = (event: MessageEvent) => {
-                    const message = event.data;
-                    if (message.type === "providerSendsSpellCheckResponse") {
-                        (window as any).removeEventListener("message", messageListener);
-                        debug("from-provider-getSpellCheckResponse", message.content);
-                        resolve(message.content);
-                    }
-                };
+    //     try {
+    //         return new Promise((resolve, reject) => {
+    //             const messageListener = (event: MessageEvent) => {
+    //                 const message = event.data;
+    //                 if (message.type === "providerSendsSpellCheckResponse") {
+    //                     (window as any).removeEventListener("message", messageListener);
+    //                     debug("from-provider-getSpellCheckResponse", message.content);
+    //                     resolve(message.content);
+    //                 }
+    //             };
 
-                (window as any).addEventListener("message", messageListener);
+    //             (window as any).addEventListener("message", messageListener);
 
-                (window as any).vscodeApi.postMessage({
-                    command: "from-quill-spellcheck-getSpellCheckResponse",
-                    content: { cellContent: text },
-                });
+    //             (window as any).vscodeApi.postMessage({
+    //                 command: "from-quill-spellcheck-getSpellCheckResponse",
+    //                 content: { cellContent: text },
+    //             });
 
-                setTimeout(() => {
-                    (window as any).removeEventListener("message", messageListener);
-                    reject(new Error("Spell check request timed out"));
-                }, 10000);
-            });
-        } catch (e) {
-            console.error("getSpellCheckerResults error", e);
-            return null;
-        }
-    }
+    //             setTimeout(() => {
+    //                 (window as any).removeEventListener("message", messageListener);
+    //                 reject(new Error("Spell check request timed out"));
+    //             }, 10000);
+    //         });
+    //     } catch (e) {
+    //         console.error("getSpellCheckerResults error", e);
+    //         return null;
+    //     }
+    // }
 
     public preventLoop() {
         debug("preventLoop");

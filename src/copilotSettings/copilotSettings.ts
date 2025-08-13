@@ -35,7 +35,7 @@ export async function debugValidationSetting() {
 export async function openSystemMessageEditor() {
     const panel = vscode.window.createWebviewPanel(
         "systemMessageEditor",
-        "AI Translation Instructions",
+        "Copilot Settings",
         vscode.ViewColumn.One,
         {
             enableScripts: true,
@@ -43,92 +43,71 @@ export async function openSystemMessageEditor() {
         }
     );
 
-    // Get configurations
+    const scriptUri = panel.webview.asWebviewUri(
+        vscode.Uri.joinPath(
+            vscode.extensions.getExtension('project-accelerate.codex-editor-extension')!.extensionUri,
+            'webviews', 'codex-webviews', 'dist', 'CopilotSettings', 'index.js'
+        )
+    );
+    const codiconsUri = panel.webview.asWebviewUri(
+        vscode.Uri.joinPath(
+            vscode.extensions.getExtension('project-accelerate.codex-editor-extension')!.extensionUri,
+            'node_modules', '@vscode', 'codicons', 'dist', 'codicon.css'
+        )
+    );
+
+    const nonce = Math.random().toString(36).slice(2);
+    panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.extensions.getExtension('project-accelerate.codex-editor-extension')!.extensionUri] };
+    panel.webview.html = `<!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Security-Policy" content="img-src https: data:; style-src 'unsafe-inline' ${panel.webview.cspSource}; script-src 'nonce-${nonce}';">
+        <link href="${codiconsUri}" rel="stylesheet">
+      </head>
+      <body>
+        <div id="root"></div>
+        <script nonce="${nonce}" src="${scriptUri}"></script>
+      </body>
+    </html>`;
+
+    // Initialize state for the webview React app
     const config = vscode.workspace.getConfiguration("codex-editor-extension");
     const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
     const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") as boolean ?? false;
-    debug("[openSystemMessageEditor] Initial useOnlyValidatedExamples value:", useOnlyValidatedExamples);
+    const allowHtmlPredictions = config.get("allowHtmlPredictions") as boolean ?? false;
 
-    const projectConfig = vscode.workspace.getConfiguration("codex-project-manager");
-    const sourceLanguage = projectConfig.get("sourceLanguage") as ProjectLanguage;
-    const targetLanguage = projectConfig.get("targetLanguage") as ProjectLanguage;
-
-    panel.webview.html = getWebviewContent(workspaceMessage, useOnlyValidatedExamples, sourceLanguage, targetLanguage);
+    const sendInit = () => {
+        panel.webview.postMessage({
+            command: 'init',
+            data: {
+                systemMessage: workspaceMessage,
+                useOnlyValidatedExamples,
+                allowHtmlPredictions,
+            }
+        });
+    };
+    // Send once optimistically; will also send upon 'webviewReady'
+    sendInit();
 
     panel.webview.onDidReceiveMessage(async (message) => {
         switch (message.command) {
-            case "generate":
-                try {
-                    if (!sourceLanguage?.refName || !targetLanguage?.refName) {
-                        await vscode.commands.executeCommand(
-                            "codex-project-manager.openProjectSettings"
-                        );
-                        return;
+            case "webviewReady": {
+                // Re-send init to ensure webview receives state after it is ready
+                const config = vscode.workspace.getConfiguration("codex-editor-extension");
+                const workspaceMessage = (config.inspect("chatSystemMessage")?.workspaceValue as string) ?? "";
+                const useOnlyValidatedExamples = config.get("useOnlyValidatedExamples") as boolean ?? false;
+                const allowHtmlPredictions = config.get("allowHtmlPredictions") as boolean ?? false;
+                panel.webview.postMessage({
+                    command: 'init',
+                    data: {
+                        systemMessage: workspaceMessage,
+                        useOnlyValidatedExamples,
+                        allowHtmlPredictions,
                     }
-
-                    return vscode.window.withProgress(
-                        {
-                            location: vscode.ProgressLocation.Notification,
-                            title: "Generating AI Translation Instructions",
-                            cancellable: false,
-                        },
-                        async (progress) => {
-                            progress.report({ message: "Loading configuration..." });
-                            const llmConfig: CompletionConfig = {
-                                apiKey: config.get("openAIKey") || "",
-                                model: config.get("model") || "gpt-4o",
-                                endpoint: config.get("endpoint") || "https://api.openai.com/v1",
-                                // removed token limit parameter, models will use defaults
-                                temperature: 0.3,
-                                customModel: "",
-                                contextSize: "2000",
-                                additionalResourceDirectory: "",
-                                contextOmission: false,
-                                sourceBookWhitelist: "",
-                                mainChatLanguage: "en",
-                                chatSystemMessage: "",
-                                numberOfFewShotExamples: 0,
-                                debugMode: false,
-                                useOnlyValidatedExamples: false,
-                                abTestingEnabled: false,
-                                abTestingVariants: 2,
-                            };
-
-                            progress.report({ message: "Preparing prompt..." });
-                            const prompt = `Generate a concise, one-paragraph set of linguistic instructions critical for a linguistically informed translator to keep in mind at all times when translating from ${sourceLanguage.refName} to ${targetLanguage.refName}. Keep it to a single plaintext paragraph. Note key lexicosemantic, information structuring, register-relevant and other key distinctions necessary for grammatical, natural text in ${targetLanguage.refName} if the starting place is ${sourceLanguage.refName}`;
-
-                            progress.report({ message: "Generating instructions with AI..." });
-                            const response = await callLLM(
-                                [
-                                    {
-                                        role: "user",
-                                        content: prompt,
-                                    },
-                                ],
-                                llmConfig
-                            );
-
-                            progress.report({ message: "Updating configuration..." });
-                            // Update the message and re-render the view
-                            await config.update(
-                                "chatSystemMessage",
-                                response,
-                                vscode.ConfigurationTarget.Workspace
-                            );
-                            panel.webview.html = getWebviewContent(
-                                response,
-                                useOnlyValidatedExamples,
-                                sourceLanguage,
-                                targetLanguage
-                            );
-                        }
-                    );
-                } catch (error) {
-                    vscode.window.showErrorMessage(
-                        "Failed to generate instructions. Please check your API configuration."
-                    );
-                }
+                });
                 break;
+            }
             case "save":
                 await config.update(
                     "chatSystemMessage",
@@ -148,6 +127,14 @@ export async function openSystemMessageEditor() {
                     message.useOnlyValidatedExamples,
                     vscode.ConfigurationTarget.Workspace
                 );
+                // Save allow HTML predictions setting (if provided)
+                if (typeof message.allowHtmlPredictions === "boolean") {
+                    await config.update(
+                        "allowHtmlPredictions",
+                        message.allowHtmlPredictions,
+                        vscode.ConfigurationTarget.Workspace
+                    );
+                }
                 // Verify the setting was saved
                 const savedValue = config.get("useOnlyValidatedExamples");
                 debug("[CopilotSettings] Setting saved, current value:", savedValue);
@@ -165,8 +152,9 @@ export async function openSystemMessageEditor() {
                     panel.dispose();
                 } else {
                     // Auto-save validation setting - show brief confirmation
+                    const allowHtml = typeof message.allowHtmlPredictions === "boolean" ? message.allowHtmlPredictions : allowHtmlPredictions;
                     vscode.window.showInformationMessage(
-                        `Few-shot examples will ${message.useOnlyValidatedExamples ? 'only use validated' : 'use all available'} translation pairs`
+                        `Few-shot examples will ${message.useOnlyValidatedExamples ? 'only use validated' : 'use all available'} translation pairs. HTML in AI predictions is ${allowHtml ? 'enabled' : 'disabled'}.`
                     );
                 }
                 break;
@@ -181,6 +169,7 @@ export async function openSystemMessageEditor() {
 function getWebviewContent(
     workspaceMessage: string,
     useOnlyValidatedExamples: boolean,
+    allowHtmlPredictions: boolean,
     sourceLanguage?: ProjectLanguage,
     targetLanguage?: ProjectLanguage
 ) {
@@ -360,6 +349,19 @@ function getWebviewContent(
                             </label>
                         </div>
 
+                        <div class="setting-item">
+                            <div class="setting-label">
+                                Allow HTML in AI Predictions
+                                <div class="setting-description">
+                                    When enabled, the AI may output HTML (bold, italics, spans, etc.). If disabled, examples and AI outputs will be stripped to plain text before insertion.
+                                </div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="allowHtmlPredictions" ${allowHtmlPredictions ? 'checked' : ''}>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
                     </div>
 
                     <div class="settings-section">
@@ -400,18 +402,22 @@ function getWebviewContent(
 
                 function save() {
                     const validationToggle = document.getElementById('useOnlyValidatedExamples');
+                    const allowHtmlToggle = document.getElementById('allowHtmlPredictions');
                     vscode.postMessage({
                         command: 'saveSettings',
                         text: input ? input.value : undefined,
-                        useOnlyValidatedExamples: validationToggle ? validationToggle.checked : false
+                        useOnlyValidatedExamples: validationToggle ? validationToggle.checked : false,
+                        allowHtmlPredictions: allowHtmlToggle ? allowHtmlToggle.checked : false
                     });
                 }
 
                 function saveValidationSetting(checked) {
                     debug('[saveValidationSetting] Auto-saving validation setting:', checked);
+                    const allowHtmlToggle = document.getElementById('allowHtmlPredictions');
                     vscode.postMessage({
                         command: 'saveSettings',
-                        useOnlyValidatedExamples: checked
+                        useOnlyValidatedExamples: checked,
+                        allowHtmlPredictions: allowHtmlToggle ? allowHtmlToggle.checked : false
                     });
                 }
 
@@ -442,6 +448,20 @@ function getWebviewContent(
                         console.log('Validation toggle changed:', this.checked);
                         // Auto-save when toggle changes
                         saveValidationSetting(this.checked);
+                    });
+                }
+
+                const allowHtmlToggle = document.getElementById('allowHtmlPredictions');
+                if (allowHtmlToggle) {
+                    allowHtmlToggle.addEventListener('change', function() {
+                        console.log('Allow HTML toggle changed:', this.checked);
+                        // Auto-save both settings together
+                        const validation = document.getElementById('useOnlyValidatedExamples');
+                        vscode.postMessage({
+                            command: 'saveSettings',
+                            useOnlyValidatedExamples: validation ? validation.checked : false,
+                            allowHtmlPredictions: this.checked
+                        });
                     });
                 }
             </script>

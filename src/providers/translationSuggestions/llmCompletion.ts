@@ -86,7 +86,8 @@ export async function llmCompletion(
             currentNotebookReader,
             currentCellId,
             currentCellIndex,
-            contextSize
+            contextSize,
+            Boolean(completionConfig.allowHtmlPredictions)
         );
 
         // Get the target language
@@ -98,7 +99,7 @@ export async function llmCompletion(
             const currentCellSourceContent = sourceContent;
 
             // Generate few-shot examples
-            const fewShotExamples = buildFewShotExamplesText(finalExamples);
+            const fewShotExamples = buildFewShotExamplesText(finalExamples, Boolean(completionConfig.allowHtmlPredictions));
 
             // Create the prompt
             const userMessageInstructions = [
@@ -109,6 +110,7 @@ export async function llmCompletion(
                 `5. Translate only into the target language ${targetLanguage}.`,
                 "6. Pay careful attention to the provided reference data.",
                 "7. If in doubt, err on the side of literalness.",
+                (completionConfig.allowHtmlPredictions ? "8. If the project has any styles, return HTML with the appropriate tags or classes as per the examples in the translation memory." : null)
             ].join("\n");
 
             let systemMessage = chatSystemMessage || `You are a helpful assistant`;
@@ -126,13 +128,30 @@ export async function llmCompletion(
                 userMessageInstructions.split("\n"),
                 fewShotExamples,
                 precedingTranslationPairs,
-                currentCellSourceContent
+                currentCellSourceContent,
+                Boolean(completionConfig.allowHtmlPredictions)
             );
 
             // A/B testing disabled: call LLM once, return single variant
             const completion = await callLLM(messages, completionConfig, token);
-            return {
-                variants: returnHTML ? [`<span>${completion}</span>`] : [completion],
+            const allowHtml = Boolean(completionConfig.allowHtmlPredictions);
+
+            // Preserve multi-line completions: strip any leading "->" markers per line, then join with <br/>
+            const lines = (completion || "").split(/\r?\n/);
+            const processed = lines
+                .map((line) => line.replace(/^\s*.*?->\s*/, "").trimEnd())
+                .join(allowHtml || returnHTML ? "<br/>" : "\n");
+
+            const variants = allowHtml
+                ? (returnHTML ? [processed] : [processed])
+                : (returnHTML ? [`<span>${processed}</span>`] : [processed]);
+            
+                if (debugMode) {
+                    logDebugMessages(messages, completion, variants);
+                }
+            
+                return {
+                variants,
                 isABTest: false,
             };
         } catch (error) {
@@ -167,7 +186,7 @@ export async function llmCompletion(
 
 // Helper functions
 
-async function logDebugMessages(messages: ChatMessage[], completion: string) {
+async function logDebugMessages(messages: ChatMessage[], completion: string, variants: string[]) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         throw new Error("No workspace folder is open.");
@@ -180,7 +199,11 @@ async function logDebugMessages(messages: ChatMessage[], completion: string) {
     try {
         await vscode.workspace.fs.writeFile(
             messagesFilePath,
-            new TextEncoder().encode(messagesContent + "\n\nAPI Response:\n" + completion)
+            new TextEncoder().encode(JSON.stringify({
+                messages: messagesContent,
+                apiResponse: completion,
+                variants: variants
+            }, null, 2))
         );
         console.log("Messages written to copilot-messages.log");
 
