@@ -1185,7 +1185,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         )}
                     </div>
                     <div className="flex items-center gap-1">
-                        <TooltipProvider>
+                        {/* <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
@@ -1201,7 +1201,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     <p>Add All Words to Dictionary</p>
                                 </TooltipContent>
                             </Tooltip>
-                        </TooltipProvider>
+                        </TooltipProvider> */}
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1421,17 +1421,19 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     }
                     className="w-full"
                 >
-                    <TabsList className="grid w-full grid-cols-5">
+                    <TabsList
+                        className="flex w-full"
+                        style={{ justifyContent: "stretch", display: "flex" }}
+                    >
                         <TabsTrigger value="source">
                             <FileCode className="mr-2 h-4 w-4" />
-                            Source
+
                             {!sourceText && (
                                 <span className="ml-2 h-2 w-2 rounded-full bg-gray-400" />
                             )}
                         </TabsTrigger>
                         <TabsTrigger value="backtranslation">
                             <RotateCcw className="mr-2 h-4 w-4" />
-                            Backtranslate
                             {backtranslation && (
                                 <span
                                     className="ml-2 h-2 w-2 rounded-full bg-green-400"
@@ -1447,7 +1449,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         </TabsTrigger>
                         <TabsTrigger value="footnotes">
                             <NotebookPen className="mr-2 h-4 w-4" />
-                            Footnotes
                             {footnotes.length > 0 && (
                                 <Badge variant="secondary" className="ml-2 h-5 px-1.5">
                                     {footnotes.length}
@@ -1459,7 +1460,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 cellTimestamps.endTime !== undefined) && (
                                 <TabsTrigger value="timestamps">
                                     <Clock className="mr-2 h-4 w-4" />
-                                    Timestamps
                                     <span
                                         className="ml-2 h-2 w-2 rounded-full bg-blue-400"
                                         title="Timestamps available"
@@ -1469,7 +1469,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         {USE_AUDIO_TAB && (
                             <TabsTrigger value="audio">
                                 <Mic className="mr-2 h-4 w-4" />
-                                Audio
+
                                 {audioUrl &&
                                     (audioUrl.startsWith("blob:") ||
                                         audioUrl.startsWith("data:") ||
@@ -1493,7 +1493,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     <TabsContent value="backtranslation">
                         <div className="content-section space-y-4">
                             <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-medium">Backtranslation</h3>
                                 <div className="flex items-center gap-2">
                                     {backtranslation && !isEditingBacktranslation && (
                                         <Button
@@ -1769,9 +1768,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         />
                                         <div className="flex justify-between text-xs text-muted-foreground">
                                             <span>
-                                                Min: {Math.max(0, previousEndBound).toFixed(3)}s
+                                                Min: {formatTime(Math.max(0, previousEndBound))}
                                             </span>
-                                            <span>Max: {computedMaxBound.toFixed(3)}s</span>
+                                            <span>Max: {formatTime(computedMaxBound)}</span>
                                         </div>
                                         <div className="flex justify-end">
                                             <Button
