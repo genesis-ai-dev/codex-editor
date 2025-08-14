@@ -249,9 +249,14 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
         // Configure editor layout
         const layoutStart = globalThis.performance.now();
-        // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
-        // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
-        await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+        // Check if UI minification is disabled
+        const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
+
+        if (!disableUiMinification) {
+            // Use maximizeEditorHideSidebar directly to create a clean, focused editor experience on startup
+            // note: there may be no active editor yet, so we need to see if the welcome view is needed initially
+            await vscode.commands.executeCommand("workbench.action.maximizeEditorHideSidebar");
+        }
         stepStart = trackTiming("Configuring Editor Layout", layoutStart);
 
         // Setup pre-activation commands
@@ -619,24 +624,31 @@ async function watchForInitialization(context: vscode.ExtensionContext, metadata
 }
 
 async function executeCommandsBefore(context: vscode.ExtensionContext) {
+    // Check if UI minification is disabled
+    const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
+
     // Start status bar command non-blocking
     void vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
 
     // Batch all config updates with Promise.all instead of sequential awaits
     const config = vscode.workspace.getConfiguration();
-    await Promise.all([
-        config.update("workbench.statusBar.visible", false, true),
-        config.update("breadcrumbs.filePath", "last", true),
-        config.update("breadcrumbs.enabled", false, true), // hide breadcrumbs for now... it shows the file name which cannot be localized
-        config.update("workbench.editor.editorActionsLocation", "hidden", true),
-        config.update("workbench.editor.showTabs", "none", true), // Hide tabs during splash screen
-        config.update("window.autoDetectColorScheme", true, true),
-        config.update("workbench.editor.revealIfOpen", true, true),
-        config.update("workbench.layoutControl.enabled", false, true),
-        config.update("workbench.tips.enabled", false, true),
-        config.update("workbench.editor.limit.perEditorGroup", false, true),
-        config.update("workbench.editor.limit.value", 4, true),
-    ]);
+
+    if (!disableUiMinification) {
+        // Only hide UI elements if minification is enabled
+        await Promise.all([
+            config.update("workbench.statusBar.visible", false, true),
+            config.update("breadcrumbs.filePath", "last", true),
+            config.update("breadcrumbs.enabled", false, true), // hide breadcrumbs for now... it shows the file name which cannot be localized
+            config.update("workbench.editor.editorActionsLocation", "hidden", true),
+            config.update("workbench.editor.showTabs", "none", true), // Hide tabs during splash screen
+            config.update("workbench.layoutControl.enabled", false, true),
+            config.update("workbench.tips.enabled", false, true),
+            config.update("workbench.editor.limit.perEditorGroup", false, true),
+            config.update("workbench.editor.limit.value", 4, true),
+            config.update("window.autoDetectColorScheme", true, true),
+            config.update("workbench.editor.revealIfOpen", true, true),
+        ]);
+    }
 
     registerCommandsBefore(context);
 }
@@ -673,10 +685,18 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         debug(
             "[Extension] Splash screen closed, checking if welcome view needs to be shown"
         );
-        // Show tabs again after splash screen closes
-        await vscode.workspace
-            .getConfiguration()
-            .update("workbench.editor.showTabs", "multiple", true);
+
+        // Check if UI minification is disabled
+        const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
+
+        // Only show tabs again if minification is enabled (default behavior)
+        // If minification is disabled, tabs should already be visible
+        if (!disableUiMinification) {
+            // Show tabs again after splash screen closes
+            await vscode.workspace
+                .getConfiguration()
+                .update("workbench.editor.showTabs", "multiple", true);
+        }
         // Restore tab layout after splash screen closes
         await restoreTabLayout(context);
 
