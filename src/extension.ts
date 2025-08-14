@@ -627,8 +627,11 @@ async function executeCommandsBefore(context: vscode.ExtensionContext) {
     // Check if UI minification is disabled
     const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
 
-    // Start status bar command non-blocking
-    void vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
+    // Only toggle status bar visibility if minification is enabled
+    if (!disableUiMinification) {
+        // Start status bar command non-blocking
+        void vscode.commands.executeCommand("workbench.action.toggleStatusbarVisibility");
+    }
 
     // Batch all config updates with Promise.all instead of sequential awaits
     const config = vscode.workspace.getConfiguration();
@@ -665,17 +668,23 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         console.warn("Failed to set editor font, possibly due to network issues:", error);
     }
 
-    // Configure auto-save in settings
-    await vscode.workspace
-        .getConfiguration()
-        .update("files.autoSave", "afterDelay", vscode.ConfigurationTarget.Global);
-    await vscode.workspace
-        .getConfiguration()
-        .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
+    // Check if UI minification is disabled
+    const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
 
-    await vscode.workspace
-        .getConfiguration()
-        .update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
+    // Only apply opinionated global settings if UI minification is enabled (not disabled)
+    if (!disableUiMinification) {
+        // Configure auto-save in settings - only when minification is enabled
+        await vscode.workspace
+            .getConfiguration()
+            .update("files.autoSave", "afterDelay", vscode.ConfigurationTarget.Global);
+        await vscode.workspace
+            .getConfiguration()
+            .update("files.autoSaveDelay", 1000, vscode.ConfigurationTarget.Global);
+
+        await vscode.workspace
+            .getConfiguration()
+            .update("codex-project-manager.spellcheckIsEnabled", false, vscode.ConfigurationTarget.Global);
+    }
 
     // Final splash screen update and close
     updateSplashScreenSync(100, "Finalizing setup...");
@@ -692,7 +701,7 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
         // Only show tabs again if minification is enabled (default behavior)
         // If minification is disabled, tabs should already be visible
         if (!disableUiMinification) {
-            // Show tabs again after splash screen closes
+            // Show tabs again after splash screen closes - only when minification was enabled
             await vscode.workspace
                 .getConfiguration()
                 .update("workbench.editor.showTabs", "multiple", true);

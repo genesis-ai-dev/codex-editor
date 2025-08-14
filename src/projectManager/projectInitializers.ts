@@ -56,19 +56,24 @@ export async function setTargetFont() {
                 );
             }
         }
-        const config = vscode.workspace.getConfiguration();
-        const fallbackFont = "serif";
-        // config.update(
-        //     "editor.fontFamily",
-        //     fallbackFont,
-        //     vscode.ConfigurationTarget.Workspace,
-        // );
-        config.update(
-            "editor.fontFamily",
-            `${defaultFontFamily} ${fallbackFont}`,
-            vscode.ConfigurationTarget.Workspace
-        );
-        console.log(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
+        // Check if UI minification is disabled before setting font
+        const disableUiMinification = vscode.workspace.getConfiguration("codex-editor-extension").get("disableUiMinification", false);
+        
+        if (!disableUiMinification) {
+            const config = vscode.workspace.getConfiguration();
+            const fallbackFont = "serif";
+            // config.update(
+            //     "editor.fontFamily",
+            //     fallbackFont,
+            //     vscode.ConfigurationTarget.Workspace,
+            // );
+            config.update(
+                "editor.fontFamily",
+                `${defaultFontFamily} ${fallbackFont}`,
+                vscode.ConfigurationTarget.Workspace
+            );
+            console.log(`Font set to ${defaultFontFamily} with fallback to ${fallbackFont}`);
+        }
     }
 }
 enum ConfirmationOptions {
