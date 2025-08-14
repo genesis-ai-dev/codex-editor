@@ -271,10 +271,10 @@ async function showMetadataVersionMismatchNotification(
     context: vscode.ExtensionContext,
     outdatedExtensions: ExtensionVersionInfo[]
 ): Promise<boolean> {
-    const extensionNames = outdatedExtensions.map(ext => ext.displayName).join(', ');
+    const extensionNames = outdatedExtensions.map(ext => ext.displayName).join(' and ');
     const message = outdatedExtensions.length === 1
-        ? `${extensionNames} extension needs to be updated.\n\nPlease update to enable syncing.`
-        : `${extensionNames} extensions need to be updated.\n\nPlease update to enable syncing.`;
+        ? `${extensionNames} needs to be updated to enable syncing.`
+        : `${extensionNames} need to be updated to enable syncing.`;
 
     const actions = ['Update Extensions'];
 
