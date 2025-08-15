@@ -1140,6 +1140,7 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
         "",
         "# System files",
         ".DS_Store",
+        ".project/attachments/files/**",
     ].join("\n");
 
     let existingContent = "";
