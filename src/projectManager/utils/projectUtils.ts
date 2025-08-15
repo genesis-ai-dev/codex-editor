@@ -1142,6 +1142,8 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
         ".DS_Store",
         ".project/attachments/files/**",
     ].join("\n");
+    // NOTE: we are ignoring the files dir in attachments because we also have a  pointers folder in the attachments dir. 
+    // the pointers folder will be used to store the pointers to the files in the files dir.
 
     let existingContent = "";
     let gitignoreExists = false;
