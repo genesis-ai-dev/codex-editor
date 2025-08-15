@@ -928,6 +928,7 @@ type EditorReceiveMessages =
         cellId: string;
         error: string;
     }
+    | { type: "refreshFontSizes"; }
     | { type: "refreshMetadata"; }
     | {
         type: "providerConfirmsBacktranslationSet";
