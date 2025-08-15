@@ -149,26 +149,27 @@ export class AudioAttachmentsMigrator {
         const targetPointersUri = vscode.Uri.joinPath(pointersDir, folderName);
 
         try {
-            // Track which files actually get copied to files/
-            const copiedFiles = new Set<string>();
+            // Process all files in the folder - each file is handled immediately (no tracking needed)
+            await this.copyDirectoryWithTracking(sourceFolderUri, targetFilesUri, targetPointersUri, new Set<string>());
+            debug(`Processed ${folderName} folder`);
 
-            // Copy to files folder and track what actually gets copied
-            await this.copyDirectoryWithTracking(sourceFolderUri, targetFilesUri, copiedFiles);
-            debug(`Processed ${folderName} to files folder (${copiedFiles.size} files copied)`);
-
-            // Only copy files to pointers that were actually copied to files
-            if (copiedFiles.size > 0) {
-                await this.copyTrackedFilesToPointers(targetFilesUri, targetPointersUri, copiedFiles);
-                debug(`Copied ${copiedFiles.size} files from ${folderName} to pointers folder`);
-            } else {
-                debug(`No files needed copying to pointers for ${folderName}`);
+            // Check if source folder is now empty (all files were processed and deleted)
+            let remainingEntries;
+            try {
+                remainingEntries = await vscode.workspace.fs.readDirectory(sourceFolderUri);
+            } catch {
+                // Folder might already be deleted if it was empty
+                remainingEntries = [];
             }
 
-            // Check if source folder is now empty (all files were identical and deleted)
-            const remainingEntries = await vscode.workspace.fs.readDirectory(sourceFolderUri);
             if (remainingEntries.length === 0) {
-                debug(`Source folder ${folderName} is empty after removing identical files - deleting folder`);
-                await vscode.workspace.fs.delete(sourceFolderUri, { recursive: true });
+                debug(`Source folder ${folderName} is empty after processing - deleting folder`);
+                try {
+                    await vscode.workspace.fs.delete(sourceFolderUri, { recursive: true });
+                } catch {
+                    // Folder might already be deleted
+                    debug(`Source folder ${folderName} was already deleted`);
+                }
             } else {
                 debug(`Source folder ${folderName} still has ${remainingEntries.length} items remaining`);
             }
@@ -181,22 +182,31 @@ export class AudioAttachmentsMigrator {
 
     /**
      * Copy a directory recursively with intelligent file comparison and tracking
-     * Compares file content and deletes identical files from source, tracks what gets copied
+     * Compares with files/ folder, checks pointers/ existence, deletes if fully migrated
      */
     private async copyDirectoryWithTracking(
         sourceUri: vscode.Uri,
-        targetUri: vscode.Uri,
+        targetFilesUri: vscode.Uri,
+        targetPointersUri: vscode.Uri,
         copiedFiles: Set<string>,
         relativePath: string = ''
     ): Promise<void> {
         try {
-            // Create target directory if it doesn't exist
+            // Create target directories if they don't exist
             try {
-                await vscode.workspace.fs.createDirectory(targetUri);
-                debug(`Created directory: ${targetUri.fsPath}`);
+                await vscode.workspace.fs.createDirectory(targetFilesUri);
+                debug(`Created files directory: ${targetFilesUri.fsPath}`);
             } catch (error) {
                 // Directory might already exist, which is fine for merging
-                debug(`Directory already exists: ${targetUri.fsPath}`);
+                debug(`Files directory already exists: ${targetFilesUri.fsPath}`);
+            }
+
+            try {
+                await vscode.workspace.fs.createDirectory(targetPointersUri);
+                debug(`Created pointers directory: ${targetPointersUri.fsPath}`);
+            } catch (error) {
+                // Directory might already exist, which is fine for merging
+                debug(`Pointers directory already exists: ${targetPointersUri.fsPath}`);
             }
 
             // Read source directory
@@ -205,82 +215,68 @@ export class AudioAttachmentsMigrator {
             // Process each entry
             for (const [name, type] of entries) {
                 const sourceEntryUri = vscode.Uri.joinPath(sourceUri, name);
-                const targetEntryUri = vscode.Uri.joinPath(targetUri, name);
+                const targetFilesEntryUri = vscode.Uri.joinPath(targetFilesUri, name);
+                const targetPointersEntryUri = vscode.Uri.joinPath(targetPointersUri, name);
                 const fileRelativePath = relativePath ? `${relativePath}/${name}` : name;
 
                 if (type === vscode.FileType.File) {
-                    // Check if target file exists
-                    try {
-                        await vscode.workspace.fs.stat(targetEntryUri);
+                    // Check if file exists in both files/ and pointers/ folders
+                    let filesEntryExists = false;
+                    let pointersEntryExists = false;
 
-                        // File exists - compare content
-                        const areIdentical = await this.areFilesIdentical(sourceEntryUri, targetEntryUri);
+                    try {
+                        await vscode.workspace.fs.stat(targetFilesEntryUri);
+                        filesEntryExists = true;
+                    } catch {
+                        filesEntryExists = false;
+                    }
+
+                    try {
+                        await vscode.workspace.fs.stat(targetPointersEntryUri);
+                        pointersEntryExists = true;
+                    } catch {
+                        pointersEntryExists = false;
+                    }
+
+                    if (!filesEntryExists && !pointersEntryExists) {
+                        // File doesn't exist in either location - this is a new file, copy to both
+                        const fileData = await vscode.workspace.fs.readFile(sourceEntryUri);
+                        await vscode.workspace.fs.writeFile(targetFilesEntryUri, fileData);
+                        await vscode.workspace.fs.writeFile(targetPointersEntryUri, fileData);
+                        await vscode.workspace.fs.delete(sourceEntryUri);
+                        debug(`Copied new file to both files/ and pointers/ and deleted: ${sourceEntryUri.fsPath}`);
+
+                    } else if (!filesEntryExists || !pointersEntryExists) {
+                        // File missing from only one folder - skip and hope it syncs properly next time
+                        debug(`Skipping file with incomplete migration state: ${sourceEntryUri.fsPath} (files: ${filesEntryExists}, pointers: ${pointersEntryExists})`);
+
+                    } else {
+                        // File exists in both files/ and pointers/ - check hash with files/
+                        const areIdentical = await this.areFilesIdentical(sourceEntryUri, targetFilesEntryUri);
 
                         if (areIdentical) {
-                            // Files are identical - delete source file (no need to copy)
+                            // Hash matches with files/ - file is already fully migrated, just delete
                             await vscode.workspace.fs.delete(sourceEntryUri);
-                            debug(`Deleted identical file from source: ${sourceEntryUri.fsPath}`);
+                            debug(`Deleted already migrated file: ${sourceEntryUri.fsPath} (exists in both files/ and pointers/ with matching hash)`);
+
                         } else {
-                            // Files are different - overwrite with source (newer/different content)
+                            // Hash is different - overwrite both files/ and pointers/, then delete
                             const fileData = await vscode.workspace.fs.readFile(sourceEntryUri);
-                            await vscode.workspace.fs.writeFile(targetEntryUri, fileData);
-                            copiedFiles.add(fileRelativePath);
-                            debug(`Overwrote with different content: ${sourceEntryUri.fsPath} → ${targetEntryUri.fsPath}`);
+                            await vscode.workspace.fs.writeFile(targetFilesEntryUri, fileData);
+                            await vscode.workspace.fs.writeFile(targetPointersEntryUri, fileData);
+                            await vscode.workspace.fs.delete(sourceEntryUri);
+                            debug(`Overwrote both files/ and pointers/ with different content and deleted: ${sourceEntryUri.fsPath}`);
                         }
-                    } catch {
-                        // Target file doesn't exist - copy it
-                        const fileData = await vscode.workspace.fs.readFile(sourceEntryUri);
-                        await vscode.workspace.fs.writeFile(targetEntryUri, fileData);
-                        copiedFiles.add(fileRelativePath);
-                        debug(`Copied new file: ${sourceEntryUri.fsPath} → ${targetEntryUri.fsPath}`);
                     }
                 } else if (type === vscode.FileType.Directory) {
                     // Recursively process subdirectory
-                    await this.copyDirectoryWithTracking(sourceEntryUri, targetEntryUri, copiedFiles, fileRelativePath);
+                    const targetFilesSubUri = vscode.Uri.joinPath(targetFilesUri, name);
+                    const targetPointersSubUri = vscode.Uri.joinPath(targetPointersUri, name);
+                    await this.copyDirectoryWithTracking(sourceEntryUri, targetFilesSubUri, targetPointersSubUri, copiedFiles, fileRelativePath);
                 }
             }
         } catch (error) {
-            console.error(`[AudioAttachmentsMigration] Error processing directory ${sourceUri.fsPath} to ${targetUri.fsPath}:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Copy only the tracked files to pointers directory from the files directory
-     */
-    private async copyTrackedFilesToPointers(
-        filesRootUri: vscode.Uri,
-        targetPointersUri: vscode.Uri,
-        copiedFiles: Set<string>
-    ): Promise<void> {
-        try {
-            // Create pointers directory structure
-            await this.ensureDirectoryExists(targetPointersUri);
-
-            // Copy each tracked file from files/ to pointers/
-            for (const relativePath of copiedFiles) {
-                const filesSourceUri = vscode.Uri.joinPath(filesRootUri, relativePath);
-                const targetFileUri = vscode.Uri.joinPath(targetPointersUri, relativePath);
-
-                // Ensure parent directory exists
-                const pathParts = relativePath.split('/');
-                if (pathParts.length > 1) {
-                    const parentPath = pathParts.slice(0, -1).join('/');
-                    const parentDir = vscode.Uri.joinPath(targetPointersUri, parentPath);
-                    await this.ensureDirectoryExists(parentDir);
-                }
-
-                // Copy the file from files/ to pointers/
-                try {
-                    const fileData = await vscode.workspace.fs.readFile(filesSourceUri);
-                    await vscode.workspace.fs.writeFile(targetFileUri, fileData);
-                    debug(`Copied tracked file to pointers: ${relativePath}`);
-                } catch (error) {
-                    console.error(`Failed to copy ${relativePath} to pointers:`, error);
-                }
-            }
-        } catch (error) {
-            console.error(`[AudioAttachmentsMigration] Error copying tracked files to pointers:`, error);
+            console.error(`[AudioAttachmentsMigration] Error processing directory ${sourceUri.fsPath} to ${targetFilesUri.fsPath}:`, error);
             throw error;
         }
     }
