@@ -49,6 +49,7 @@ import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/update
 import { registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
+import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -276,6 +277,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 });
             } catch (error) {
                 console.error("[Extension] Error during startup comments migration:", error);
+                // Don't fail startup due to migration errors
+            }
+
+            // Migrate audio attachments to new folder structure (async, don't block startup)
+            try {
+                migrateAudioAttachments(vscode.workspace.workspaceFolders[0]).catch(error => {
+                    console.error("[Extension] Error during audio attachments migration:", error);
+                    // Silent fallback - don't block startup if migration fails
+                });
+            } catch (error) {
+                console.error("[Extension] Error during audio attachments migration:", error);
                 // Don't fail startup due to migration errors
             }
         }
