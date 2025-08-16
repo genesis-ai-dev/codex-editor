@@ -46,9 +46,10 @@ import {
 import { openBookNameEditor } from "./bookNameSettings/bookNameSettings";
 import { openCellLabelImporter } from "./cellLabelImporter/cellLabelImporter";
 import { checkForUpdatesOnStartup, registerUpdateCommands } from "./utils/updateChecker";
-import { checkExtensionVersionsOnStartup, registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
+import { registerVersionCheckCommands, resetVersionModalCooldown } from "./utils/extensionVersionChecker";
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
+import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -276,6 +277,17 @@ export async function activate(context: vscode.ExtensionContext) {
                 });
             } catch (error) {
                 console.error("[Extension] Error during startup comments migration:", error);
+                // Don't fail startup due to migration errors
+            }
+
+            // Migrate audio attachments to new folder structure (async, don't block startup)
+            try {
+                migrateAudioAttachments(vscode.workspace.workspaceFolders[0]).catch(error => {
+                    console.error("[Extension] Error during audio attachments migration:", error);
+                    // Silent fallback - don't block startup if migration fails
+                });
+            } catch (error) {
+                console.error("[Extension] Error during audio attachments migration:", error);
                 // Don't fail startup due to migration errors
             }
         }
@@ -678,20 +690,9 @@ async function executeCommandsAfter(context: vscode.ExtensionContext) {
                 if (authStatus.isAuthenticated) {
                     debug("🔄 [POST-WORKSPACE] Codex project detected and user authenticated, checking extension versions before sync...");
 
-                    // Check extension versions right before syncing
-                    let allowSync = true;
-                    try {
-                        allowSync = await checkExtensionVersionsOnStartup(context);
-                        if (!allowSync) {
-                            debug("🚫 [POST-WORKSPACE] Sync disabled due to outdated extensions");
-                        } else {
-                            debug("✅ [POST-WORKSPACE] Extension versions OK, proceeding with sync");
-                        }
-                    } catch (error) {
-                        console.error("❌ [POST-WORKSPACE] Error checking extension versions:", error);
-                        // Continue with sync on error to avoid blocking the user
-                        allowSync = true;
-                    }
+                    // Note: Network-based extension version checking has been removed
+                    // Version compatibility is now checked during sync operations via metadata.json
+                    const allowSync = true;
 
                     if (allowSync) {
                         const syncStart = globalThis.performance.now();

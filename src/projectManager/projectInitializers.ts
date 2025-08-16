@@ -7,6 +7,7 @@ import {
     createProjectNotebooks,
     splitSourceFileByBook,
 } from "../utils/codexNotebookUtils";
+import { ensureAudioAttachmentsFolderStructure } from "../utils/audioAttachmentsMigrationUtils";
 
 export async function setTargetFont() {
     const projectMetadata = await getProjectMetadata();
@@ -191,6 +192,9 @@ export async function initializeProject(shouldImportUSFM: boolean) {
                     // Directory might already exist, which is fine
                     console.log("Files directory already exists or could not be created:", error);
                 }
+
+                // Ensure audio attachments folder structure exists for new projects
+                await ensureAudioAttachmentsFolderStructure(workspaceFolder);
 
                 await createProjectCommentFiles({
                     shouldOverWrite,

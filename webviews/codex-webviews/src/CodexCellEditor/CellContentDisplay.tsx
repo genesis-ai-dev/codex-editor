@@ -536,19 +536,68 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
         // Use the proper HTML processing utility instead of hacky approach
         const processedHtml = processHtmlContent(cell.cellContent || "");
 
-        return (
-            <div
-                ref={contentRef}
-                className="cell-content"
-                dangerouslySetInnerHTML={{
-                    __html: processedHtml,
-                }}
-                onClick={() => {
-                    hideTooltip();
-                    handleCellClick(cellIds[0]);
-                }}
-            />
-        );
+        if (!cell.timestamps?.startTime) {
+            return (
+                <div
+                    ref={contentRef}
+                    className="cell-content"
+                    dangerouslySetInnerHTML={{
+                        __html: processedHtml,
+                    }}
+                    onClick={() => {
+                        hideTooltip();
+                        handleCellClick(cellIds[0]);
+                    }}
+                />
+            );
+        } else {
+            return (
+                <div
+                    onClick={() => {
+                        hideTooltip();
+                        handleCellClick(cellIds[0]);
+                    }}
+                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                >
+                    <div
+                        ref={contentRef}
+                        className="cell-content"
+                        dangerouslySetInnerHTML={{
+                            __html: processedHtml,
+                        }}
+                    />
+                    {/* Timestamp Display */}
+                    {cell.timestamps &&
+                        (cell.timestamps.startTime !== undefined ||
+                            cell.timestamps.endTime !== undefined) && (
+                            <div
+                                className="timestamp-display"
+                                style={{
+                                    fontSize: "0.75rem",
+                                    color: "var(--vscode-descriptionForeground)",
+                                    marginTop: "0.25rem",
+                                    fontFamily: "monospace",
+                                    opacity: 0.8,
+                                    textAlign: "start",
+                                    width: "100%",
+                                }}
+                            >
+                                {cell.timestamps.startTime !== undefined &&
+                                cell.timestamps.endTime !== undefined ? (
+                                    <span>
+                                        {formatTime(cell.timestamps.startTime)} →{" "}
+                                        {formatTime(cell.timestamps.endTime)}
+                                    </span>
+                                ) : cell.timestamps.startTime !== undefined ? (
+                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                                ) : cell.timestamps.endTime !== undefined ? (
+                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                                ) : null}
+                            </div>
+                        )}
+                </div>
+            );
+        }
     };
 
     return (
@@ -754,6 +803,16 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             </div>
         </div>
     );
+};
+
+// Helper function to format time in MM:SS.mmm format
+const formatTime = (timeInSeconds: number): string => {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    const milliseconds = Math.floor((timeInSeconds % 1) * 1000);
+    return `${minutes.toString().padStart(2, "0")}:${seconds
+        .toString()
+        .padStart(2, "0")}.${milliseconds.toString().padStart(3, "0")}`;
 };
 
 export default CellContentDisplay;
