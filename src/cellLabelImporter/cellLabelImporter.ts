@@ -302,14 +302,14 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
             case "processLabels":
                 try {
                     safePostMessageToPanel(panel, { command: "setLoading", isLoading: true });
-                    const { data, selectedColumn, excludedFilePaths } = message; // URI no longer expected from webview
-                    if (!data || !selectedColumn) {
+                    const { data, selectedColumn, selectedColumns, excludedFilePaths } = message; // URI no longer expected from webview
+                    if (!data || (!selectedColumn && (!selectedColumns || selectedColumns.length === 0))) {
                         vscode.window.showErrorMessage(
-                            "Missing data or selected column for processing."
+                            "Missing data or selected column(s) for processing."
                         );
                         safePostMessageToPanel(panel, {
                             command: "showError",
-                            error: "Missing data or selected column.",
+                            error: "Missing data or selected column(s).",
                         });
                         // No return here, finally block will still execute for cleanup & setLoading
                     } else {
@@ -321,11 +321,12 @@ export async function openCellLabelImporter(context: vscode.ExtensionContext) {
                             );
                         }
 
+                        const labelSelector = selectedColumn || selectedColumns;
                         const matchedLabels = await matchCellLabels(
                             data, // Data already has normalized headers from importFile
                             filesToProcess,
                             targetFiles,
-                            selectedColumn // This selectedColumn is a normalized header from webview
+                            labelSelector as any // string or string[]
                         );
 
                         safePostMessageToPanel(panel, {

@@ -6,7 +6,7 @@ import { CodexNotebookAsJSONData, CustomNotebookCellData } from "../types";
 
 export interface CodexNotebookDocument extends vscode.NotebookDocument {
     cells: CustomNotebookCellData[];
-    metadata: { [key: string]: any };
+    metadata: { [key: string]: any; };
     getCells(): vscode.NotebookCell[];
     getCellIndex(cell: vscode.NotebookCell): number;
     cellAt(index: number): vscode.NotebookCell;
@@ -15,7 +15,7 @@ export interface CodexNotebookDocument extends vscode.NotebookDocument {
 
 interface RawNotebookData {
     cells: CustomNotebookCellData[];
-    metadata?: { [key: string]: any };
+    metadata?: { [key: string]: any; };
 }
 const DEBUG = false;
 
@@ -77,16 +77,14 @@ export class CodexContentSerializer implements vscode.NotebookSerializer {
         };
         for (const cell of data.cells) {
             debug("Processing cell for serialization", { id: cell.metadata?.id, kind: cell.kind });
+            // Preserve full metadata; only ensure id is kept
+            const md: any = { ...(cell.metadata || {}) };
+            if (cell.metadata?.id) md.id = cell.metadata.id;
             contents.cells.push({
                 kind: cell.kind,
                 languageId: cell.languageId,
                 value: cell.value,
-                metadata: {
-                    ...cell.metadata,
-                    id: cell.metadata?.id,
-                    type: cell.metadata?.type || "default", // FIXME: Add a default type if not present, user?
-                    edits: [],
-                },
+                metadata: md,
             });
         }
 
@@ -100,7 +98,7 @@ export class CodexNotebookReader {
     private notebookData: CodexNotebookAsJSONData | undefined;
     private isDirectMode: boolean = false;
 
-    constructor(private readonly uri: vscode.Uri) {}
+    constructor(private readonly uri: vscode.Uri) { }
 
     /**
      * Reads the notebook file directly as JSON without opening it as a VS Code notebook.
@@ -166,7 +164,7 @@ export class CodexNotebookReader {
         }
     }
 
-    async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string }): Promise<number> {
+    async getCellIndex(props: { cell?: vscode.NotebookCell; id?: string; }): Promise<number> {
         const { cell, id } = props;
 
         if (this.isDirectMode && this.notebookData) {

@@ -1,5 +1,5 @@
 import { CellLabelData, FileData, ImportedRow, CellMetadata } from "./types";
-import { convertTimestampToSeconds } from "./utils";
+import { convertTimestampToSeconds, parseTimestampRange } from "./utils";
 
 /**
  * Match imported labels with existing cell IDs
@@ -8,15 +8,16 @@ export async function matchCellLabels(
     importedRows: ImportedRow[],
     sourceFiles: FileData[],
     targetFiles: FileData[],
-    labelColumn: string
+    labelColumnOrColumns: string | string[]
 ): Promise<CellLabelData[]> {
     const result: CellLabelData[] = [];
     console.log(
-        `[matchCellLabels] Received ${importedRows.length} imported rows, ${sourceFiles.length} source files, ${targetFiles.length} target files. Label column: ${labelColumn}`
+        `[matchCellLabels] Received ${importedRows.length} imported rows, ${sourceFiles.length} source files, ${targetFiles.length} target files. Label selector: ${Array.isArray(labelColumnOrColumns) ? labelColumnOrColumns.join(",") : labelColumnOrColumns}`
     );
 
-    // Create a map of all cells by their start time
-    const cellMap = new Map<number, { cellId: string; currentLabel?: string }>();
+    // Create a map of all cells by their start time, and also keep a sorted list for nearest match
+    const cellMap = new Map<number, { cellId: string; currentLabel?: string; }>();
+    const cellTimes: number[] = [];
 
     // Extract all cells from source files and create a time-based lookup
     sourceFiles.forEach((file) => {
@@ -32,11 +33,13 @@ export async function matchCellLabels(
                         cellId,
                         currentLabel: (cell.metadata as CellMetadata).cellLabel,
                     });
+                    cellTimes.push(startTimeSeconds);
                 }
             }
         });
     });
     console.log(`[matchCellLabels] Populated cellMap with ${cellMap.size} cells.`);
+    cellTimes.sort((a, b) => a - b);
 
     // Process each imported row
     importedRows.forEach((row) => {
@@ -45,115 +48,166 @@ export async function matchCellLabels(
         const isCue =
             row.type === "cue" ||
             (row.start && row.end) || // Has time fields
-            Object.keys(row).some((key) => key.toLowerCase().includes("time")); // Has time-related fields
+            Object.keys(row).some((key) => key.toLowerCase().includes("time")) ||
+            (typeof row["ID"] === "string" && /cue-\d+(?:\.\d+)?-\d+(?:\.\d+)?/.test(row["ID"]));
 
         if (isCue) {
-            // Find start time field - could be named differently
-            let startField = "";
+            // Find start time from best available source in this priority:
+            // 1) explicit numeric start field ("start")
+            // 2) ID like "... cue-<start>-<end>"
+            // 3) TIMESTAMP range like "50.634 --> 51.468"
+            // 4) any time-like field
+            let startTimeSeconds = 0;
+            let startTimeDisplay = "";
             const rowKeys = Object.keys(row);
 
-            // Prioritize "start" if it exists
-            if (row.start) {
-                startField = "start";
-            } else {
-                // Look for "timecode in", "time in", etc.
-                const timeInKeyword = rowKeys.find(
-                    (key) =>
-                        key.toLowerCase().replace(/\s+/g, "") === "timecodein" || // "TIMECODE IN"
-                        key.toLowerCase().replace(/\s+/g, "") === "timein"
-                );
-                if (timeInKeyword) {
-                    startField = timeInKeyword;
-                } else {
-                    // Fallback to existing logic
-                    const possibleStarts = rowKeys.filter(
-                        (key) =>
-                            key.toLowerCase().includes("start") ||
-                            key.toLowerCase().includes("begin") ||
-                            key.toLowerCase().includes("from")
-                    );
-                    if (possibleStarts.length > 0) {
-                        startField = possibleStarts[0];
+            // 1) STARTTIME or START
+            if (row["STARTTIME"]) {
+                startTimeDisplay = row["STARTTIME"];
+                startTimeSeconds = convertTimestampToSeconds(row["STARTTIME"] || "");
+            } else if (row["START"]) {
+                startTimeDisplay = row["START"];
+                startTimeSeconds = convertTimestampToSeconds(row["START"] || "");
+            } else if (typeof row["ID"] === "string") {
+                const idMatch = row["ID"].match(/cue-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+                if (idMatch) {
+                    startTimeSeconds = parseFloat(idMatch[1]);
+                    startTimeDisplay = idMatch[1];
+                }
+            }
+
+            if (!startTimeSeconds) {
+                // Try TIMESTAMP range
+                const tsKey = rowKeys.find((k) => k.toLowerCase() === "timestamp" || k.toLowerCase().replace(/\s+/g, "") === "timestamp");
+                if (tsKey && typeof row[tsKey] === "string") {
+                    const [s] = parseTimestampRange(row[tsKey]);
+                    if (s) {
+                        startTimeSeconds = s;
+                        // set display to left side of range
+                        const left = String(row[tsKey]).split(/\s*-->\s*/)[0] || String(row[tsKey]);
+                        startTimeDisplay = left;
                     }
                 }
             }
 
-            // If no start field could be identified, skip this row
-            if (!startField) {
-                console.warn("Could not identify a start time field for row:", row);
+            if (!startTimeSeconds) {
+                // Try common alternatives
+                const startKey = rowKeys.find((key) =>
+                    key.toLowerCase().includes("start") ||
+                    key.toLowerCase().includes("begin") ||
+                    key.toLowerCase().replace(/\s+/g, "").includes("timein")
+                );
+                if (startKey) {
+                    startTimeDisplay = row[startKey];
+                    startTimeSeconds = convertTimestampToSeconds(row[startKey] || "");
+                }
+            }
+
+            // If no start time could be identified, skip this row
+            if (!startTimeSeconds) {
+                console.warn("Could not identify a start time for row:", row);
                 return;
             }
 
-            // Convert the imported row's start time to seconds
-            const startTimeSeconds = convertTimestampToSeconds(row[startField] || "");
-
-            // Find which field to use for the label based on user selection
-            const labelValue = row[labelColumn] ? row[labelColumn].toString().trim() : "";
+            // Find which field(s) to use for the label based on user selection
+            let labelValue = "";
+            if (Array.isArray(labelColumnOrColumns)) {
+                const cols = labelColumnOrColumns;
+                labelValue = cols
+                    .map((k) => (row[k] ? String(row[k]).trim() : ""))
+                    .filter((v) => v)
+                    .join(", ");
+            } else if (labelColumnOrColumns === "__CHARACTER_LABELS_CONCAT__") {
+                const rowKeys = Object.keys(row);
+                const characterKeys = rowKeys
+                    .filter((k) => k.toUpperCase().startsWith("CHARACTER LABEL"))
+                    .sort((a, b) => {
+                        const na = parseInt((a.match(/CHARACTER LABEL\s*(\d+)/i) || ["", "0"])[1]);
+                        const nb = parseInt((b.match(/CHARACTER LABEL\s*(\d+)/i) || ["", "0"])[1]);
+                        return na - nb;
+                    });
+                labelValue = characterKeys
+                    .map((k) => (row[k] ? String(row[k]).trim() : ""))
+                    .filter((v) => v)
+                    .join(", ");
+            } else {
+                const col = labelColumnOrColumns as string;
+                labelValue = row[col] ? row[col].toString().trim() : "";
+            }
 
             // Skip empty labels
             if (!labelValue) {
                 return;
             }
 
-            // Try to find a matching cell
-            // First, look for an exact time match
+            // Try to find a matching cell (exact or nearest within dynamic threshold)
             let match = cellMap.get(startTimeSeconds);
-
-            // If no exact match, look for the closest cell within a small threshold (e.g., 0.5 seconds)
             if (!match) {
-                const threshold = 0.5; // 0.5 second threshold
-                let closestDiff = threshold;
-                let closestCell: { cellId: string; currentLabel?: string } | undefined;
+                // Dynamic threshold: allow up to 300ms, but if input has no ms (integer seconds), allow 600ms
+                const hasMs = String(startTimeDisplay).match(/[.,]\d{1,3}$/) || String(startTimeSeconds).includes(".");
+                const threshold = hasMs ? 0.3 : 0.6; // seconds
 
-                cellMap.forEach((cell, time) => {
-                    const diff = Math.abs(time - startTimeSeconds);
-                    if (diff < closestDiff) {
-                        closestDiff = diff;
-                        closestCell = cell;
-                    }
-                });
+                // Binary search nearest in sorted array, then check neighbors within threshold
+                let lo = 0, hi = cellTimes.length - 1;
+                while (lo <= hi) {
+                    const mid = (lo + hi) >> 1;
+                    if (cellTimes[mid] < startTimeSeconds) lo = mid + 1;
+                    else hi = mid - 1;
+                }
+                const candidates: number[] = [];
+                if (lo < cellTimes.length) candidates.push(cellTimes[lo]);
+                if (lo - 1 >= 0) candidates.push(cellTimes[lo - 1]);
 
-                match = closestCell;
-            }
-
-            // Determine end time field
-            let endField = "end";
-            if (!row.end) {
-                // Try to find "timecode out" or "time out" if startField was a "timecode in" type
-                if (startField.toLowerCase().replace(/\s+/g, "").includes("timein")) {
-                    const timeOutKeyword = rowKeys.find(
-                        (key) =>
-                            key.toLowerCase().replace(/\s+/g, "") === "timecodeout" ||
-                            key.toLowerCase().replace(/\s+/g, "") === "timeout"
-                    );
-                    if (timeOutKeyword) {
-                        endField = timeOutKeyword;
-                    } else {
-                        // If no specific "out" found, don't assume an end field
-                        endField = "";
-                    }
-                } else {
-                    const possibleEnds = rowKeys.filter(
-                        (key) =>
-                            key.toLowerCase().includes("end") ||
-                            key.toLowerCase().includes("stop") ||
-                            key.toLowerCase().includes("to")
-                    );
-
-                    if (possibleEnds.length > 0) {
-                        endField = possibleEnds[0];
-                    } else {
-                        // If no end field found, it's okay, it might not be present
-                        endField = "";
+                let bestTime: number | null = null;
+                let bestDiff = Number.POSITIVE_INFINITY;
+                for (const t of candidates) {
+                    const diff = Math.abs(t - startTimeSeconds);
+                    if (diff < bestDiff && diff <= threshold) {
+                        bestDiff = diff;
+                        bestTime = t;
                     }
                 }
+                if (bestTime !== null) {
+                    match = cellMap.get(bestTime);
+                }
+            }
+
+            // Determine end time for display: prefer explicit end, else TIMESTAMP range, else ID end
+            let endTimeDisplay = "";
+            if (row["ENDTIME"]) {
+                endTimeDisplay = row["ENDTIME"];
+            } else if (row["END"]) {
+                endTimeDisplay = row["END"];
+            } else {
+                const tsKey = rowKeys.find((k) => k.toLowerCase() === "timestamp" || k.toLowerCase().replace(/\s+/g, "") === "timestamp");
+                if (tsKey && typeof row[tsKey] === "string") {
+                    const [, e] = parseTimestampRange(row[tsKey]);
+                    if (e) {
+                        const right = String(row[tsKey]).split(/\s*-->\s*/)[1] || "";
+                        endTimeDisplay = right;
+                    }
+                }
+                if (!endTimeDisplay && typeof row["ID"] === "string") {
+                    const idMatch = row["ID"].match(/cue-(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)/);
+                    if (idMatch) endTimeDisplay = idMatch[2];
+                }
+            }
+
+            // Build character string from any CHARACTER LABEL columns if present
+            let characterDisplay = "";
+            const characterKeys = rowKeys.filter((k) => k.toUpperCase().startsWith("CHARACTER LABEL"));
+            if (characterKeys.length > 0) {
+                characterDisplay = characterKeys
+                    .map((k) => (row[k] ? String(row[k]).trim() : ""))
+                    .filter((v) => v)
+                    .join(", ");
             }
 
             result.push({
                 cellId: match?.cellId || "",
-                startTime: row[startField] || "",
-                endTime: endField && row[endField] ? row[endField] : "", // Handle missing endField
-                character: row.character || row.CHARACTER || "",
+                startTime: startTimeDisplay,
+                endTime: endTimeDisplay,
+                character: row.character || row.CHARACTER || characterDisplay || "",
                 dialogue: row.dialogue || row.DIALOGUE || "",
                 newLabel: labelValue,
                 currentLabel: match?.currentLabel,

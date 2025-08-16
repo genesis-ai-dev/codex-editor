@@ -11,16 +11,8 @@ export interface FileData {
     uri: vscode.Uri;
     id: string;
     cells: Array<{
-        metadata?: {
-            type?: string;
-            id?: string;
-            edits?: Array<{
-                cellValue: string;
-                timestamp: number;
-                type: string;
-                author?: string;
-            }>;
-        };
+        // Preserve full metadata object to avoid losing fields like data.videoUrl, timestamps, etc.
+        metadata?: any;
         value: string;
     }>;
 }
@@ -97,11 +89,7 @@ async function readFile(
 
     // Transform notebook cells into our FileData format
     const cells = notebookData.cells.map((cell) => ({
-        metadata: {
-            type: cell.metadata?.type,
-            id: cell.metadata?.id,
-            edits: cell.metadata?.edits,
-        },
+        metadata: cell.metadata, // keep entire metadata object intact
         value: cell.value,
     }));
 
