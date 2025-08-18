@@ -1078,6 +1078,9 @@ type CustomCellMetaData = {
         [key: string]: {
             url: string;
             type: string;
+            createdAt: number;
+            updatedAt: number;
+            isDeleted: boolean;
         };
     };
     cellLabel?: string;

@@ -38,7 +38,7 @@ export enum CELL_DISPLAY_MODES {
     ONE_LINE_PER_CELL = "one-line-per-cell",
 }
 
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
 // Enhanced debug function with categories
 function debug(category: string, message: string | object, ...args: any[]): void {
@@ -224,10 +224,9 @@ const CodexCellEditor: React.FC = () => {
     }>({
         isActive: false,
         variants: [],
-        cellId: '',
-        testId: ''
+        cellId: "",
+        testId: "",
     });
-
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -238,14 +237,24 @@ const CodexCellEditor: React.FC = () => {
 
         const selectedVariant = abTestState.variants[selectedIndex];
         debug("ab-test", `User selected variant ${selectedIndex}:`, selectedVariant);
-        
+
         // Apply the selected variant
-        applyVariantToCell(abTestState.cellId, selectedVariant, abTestState.testId, selectedIndex, abTestState.variants.length, selectionTimeMs);
-        
+        applyVariantToCell(
+            abTestState.cellId,
+            selectedVariant,
+            abTestState.testId,
+            selectedIndex,
+            abTestState.variants.length,
+            selectionTimeMs
+        );
+
         // Casual confirmation with variant name if available
         const variantName = (abTestState as any).names?.[selectedIndex];
         if (variantName) {
-            vscode.postMessage({ command: "showInfo", text: `Applied translation from ${variantName}.` } as any);
+            vscode.postMessage({
+                command: "showInfo",
+                text: `Applied translation from ${variantName}.`,
+            } as any);
         }
 
         // Keep A/B modal open to show names and stats; user can close manually
@@ -257,15 +266,22 @@ const CodexCellEditor: React.FC = () => {
         setAbTestState({
             isActive: false,
             variants: [],
-            cellId: '',
-            testId: ''
+            cellId: "",
+            testId: "",
         });
     };
 
     // Helper function to apply a variant to a cell
-    const applyVariantToCell = (cellId: string, variant: string, testId: string | undefined, selectedIndex: number, totalVariants: number, selectionTimeMs: number = 0) => {
+    const applyVariantToCell = (
+        cellId: string,
+        variant: string,
+        testId: string | undefined,
+        selectedIndex: number,
+        totalVariants: number,
+        selectionTimeMs: number = 0
+    ) => {
         debug("ab-test", `Applying variant ${selectedIndex} to cell ${cellId}:`, variant);
-        
+
         // Update the translation units with the selected variant
         setTranslationUnits((prevUnits) =>
             prevUnits.map((unit) =>
@@ -285,7 +301,7 @@ const CodexCellEditor: React.FC = () => {
             setContentBeingUpdated((prev) => ({
                 ...prev,
                 cellContent: variant,
-                cellChanged: true
+                cellChanged: true,
             }));
         }
 
@@ -313,7 +329,7 @@ const CodexCellEditor: React.FC = () => {
                     testId,
                     selectionTimeMs: selectionTimeMs || 0,
                     names: (abTestState as any).names,
-                }
+                },
             } as unknown as EditorPostMessages);
         }
     };
@@ -732,11 +748,21 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            debug("ab-test", "Received A/B test variants (temporarily auto-applying first and not showing UI):", { cellId: data?.cellId, count: data?.variants?.length });
+            debug(
+                "ab-test",
+                "Received A/B test variants (temporarily auto-applying first and not showing UI):",
+                { cellId: data?.cellId, count: data?.variants?.length }
+            );
 
             // Temporarily do not show the A/B selector UI; just apply the first variant if any
             if (data.variants && data.variants.length > 0 && data.cellId) {
-                applyVariantToCell(data.cellId, data.variants[0], data.testId, 0, data.variants.length);
+                applyVariantToCell(
+                    data.cellId,
+                    data.variants[0],
+                    data.testId,
+                    0,
+                    data.variants.length
+                );
 
                 // Send feedback as if variant 0 was selected
                 vscode.postMessage({
@@ -1913,7 +1939,11 @@ const CodexCellEditor: React.FC = () => {
                             onSetTextDirection={(direction) => {
                                 setTextDirection(direction);
                                 // Save the text direction with local source marking (similar to font size)
-                                const updatedMetadata = { ...metadata, textDirection: direction, textDirectionSource: "local" };
+                                const updatedMetadata = {
+                                    ...metadata,
+                                    textDirection: direction,
+                                    textDirectionSource: "local",
+                                };
                                 vscode.postMessage({
                                     command: "updateNotebookMetadata",
                                     content: updatedMetadata,

@@ -1446,6 +1446,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
+            deleted: cell.metadata?.data?.deleted,
         }));
         debug("Translation units:", translationUnits);
 

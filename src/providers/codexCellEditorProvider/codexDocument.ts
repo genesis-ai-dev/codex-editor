@@ -1152,7 +1152,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
      * @param attachmentId The unique ID of the attachment
      * @param attachmentData The attachment data (url and type)
      */
-    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string; }): void {
+    public updateCellAttachment(cellId: string, attachmentId: string, attachmentData: { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }): void {
         const indexOfCellToUpdate = this._documentData.cells.findIndex(
             (cell) => cell.metadata?.id === cellId
         );

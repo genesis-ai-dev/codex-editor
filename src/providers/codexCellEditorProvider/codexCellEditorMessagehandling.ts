@@ -23,7 +23,7 @@ import { getAuthApi } from "@/extension";
 import { GlobalProvider } from "../../globalProvider";
 import { SyncManager } from "../../projectManager/syncManager";
 import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-lookup.json";
-import * as fs from "fs";
+// Use VS Code FS API for all file operations (supports remote and virtual workspaces)
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
 // Comment out problematic imports
@@ -40,6 +40,22 @@ function debug(...args: any[]): void {
     if (DEBUG_MODE) {
         console.log("[CodexCellEditorMessageHandling]", ...args);
     }
+}
+
+// Helpers to use VS Code FS API
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(filePath));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function readFileUtf8(filePath: string): Promise<string> {
+    const data = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
+    const decoder = new TextDecoder("utf-8");
+    return decoder.decode(data);
 }
 
 // Get a reference to the provider
@@ -868,9 +884,42 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                             ? attachmentPath
                             : path.join(workspaceFolder.uri.fsPath, attachmentPath);
 
-                        if (fs.existsSync(fullPath)) {
-                            const fileData = await fs.promises.readFile(fullPath);
-                            const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
+                        if (await pathExists(fullPath)) {
+                            // Resolve potential Git LFS pointer by preferring the parallel 'files' location
+                            let resolvedPath = fullPath;
+                            try {
+                                const stat = await vscode.workspace.fs.stat(vscode.Uri.file(fullPath));
+                                if (stat.size < 2048) {
+                                    const text = await readFileUtf8(fullPath);
+                                    const looksLikeLfsPointer = text.includes("version https://git-lfs.github.com/spec/") && text.includes("oid sha256:");
+                                    if (looksLikeLfsPointer || /\.project\/(?:attachments)\/pointers\//.test(attachmentPath)) {
+                                        const fileName = path.basename(fullPath);
+                                        const bookFolder = path.basename(path.dirname(fullPath));
+                                        const candidate = path.join(
+                                            workspaceFolder.uri.fsPath,
+                                            ".project",
+                                            "attachments",
+                                            "files",
+                                            bookFolder,
+                                            fileName
+                                        );
+                                        if (await pathExists(candidate)) {
+                                            resolvedPath = candidate;
+                                        }
+                                    }
+                                }
+                            } catch {
+                                // ignore and fall back to fullPath
+                            }
+
+                            const ext = path.extname(resolvedPath).toLowerCase();
+                            const mimeType = ext === ".webm" ? "audio/webm" :
+                                ext === ".mp3" ? "audio/mp3" :
+                                    ext === ".m4a" ? "audio/mp4" :
+                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
+
+                            const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(resolvedPath));
+                            const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                             safePostMessageToPanel(webviewPanel, {
                                 type: "providerSendsAudioData",
@@ -891,30 +940,41 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         // If no attachment in metadata, check filesystem for legacy files
         const bookAbbr = cellId.split(' ')[0];
-        const attachmentsPath = path.join(
+        const attachmentsFilesPath = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            "files",
+            bookAbbr
+        );
+        const legacyAttachmentsPath = path.join(
             workspaceFolder.uri.fsPath,
             ".project",
             "attachments",
             bookAbbr
         );
 
-        if (fs.existsSync(attachmentsPath)) {
-            const files = fs.readdirSync(attachmentsPath);
+        const tryPaths = [attachmentsFilesPath, legacyAttachmentsPath];
+        for (const attachmentsPath of tryPaths) {
+            if (!(await pathExists(attachmentsPath))) continue;
+            const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
             const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
 
-            for (const audioFile of files) {
+            for (const [entryName, entryType] of files) {
+                if (entryType !== vscode.FileType.File) continue;
+                const audioFile = entryName;
                 if (audioExtensions.some(ext => audioFile.toLowerCase().endsWith(ext))) {
                     const cellIdPattern = cellId.replace(/[:\s]/g, '_');
                     if (audioFile.includes(cellIdPattern) || audioFile.includes(cellId)) {
                         const fullPath = path.join(attachmentsPath, audioFile);
 
-                        const fileData = await fs.promises.readFile(fullPath);
+                        const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
                         const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
                             audioFile.endsWith('.mp3') ? 'audio/mp3' :
                                 audioFile.endsWith('.m4a') ? 'audio/mp4' :
                                     audioFile.endsWith('.ogg') ? 'audio/ogg' :
                                         'audio/wav';
-                        const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
+                        const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                         safePostMessageToPanel(webviewPanel, {
                             type: "providerSendsAudioData",
@@ -949,27 +1009,42 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             throw new Error("No workspace folder found");
         }
 
-        const attachmentsDir = path.join(
+        const pointersDir = path.join(
             workspaceFolder.uri.fsPath,
             ".project",
             "attachments",
+            "pointers",
+            documentSegment
+        );
+        const filesDir = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            "files",
             documentSegment
         );
 
-        await fs.promises.mkdir(attachmentsDir, { recursive: true });
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(pointersDir));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(filesDir));
 
         const fileName = `${typedEvent.content.audioId}.${typedEvent.content.fileExtension}`;
-        const filePath = path.join(attachmentsDir, fileName);
+        const pointersPath = path.join(pointersDir, fileName);
+        const filesPath = path.join(filesDir, fileName);
 
         const base64Data = typedEvent.content.audioData.split(',')[1] || typedEvent.content.audioData;
         const buffer = Buffer.from(base64Data, 'base64');
 
-        await fs.promises.writeFile(filePath, buffer);
+        // Write to both locations. Sync will later replace the 'pointers' blob with a Git LFS pointer
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(pointersPath), buffer);
+        await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), buffer);
 
-        const relativePath = path.relative(workspaceFolder.uri.fsPath, filePath);
+        const relativePath = path.relative(workspaceFolder.uri.fsPath, pointersPath);
         await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, {
             url: relativePath,
-            type: "audio"
+            type: "audio",
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            isDeleted: false
         });
 
         provider.postMessageToWebview(webviewPanel, {
@@ -992,7 +1067,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             attachments: audioCells as any,
         });
 
-        debug("Audio attachment saved successfully:", filePath);
+        debug("Audio attachment saved successfully:", { pointersPath, filesPath });
     },
 
     deleteAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
@@ -1008,25 +1083,37 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         }
 
         const documentSegment = typedEvent.content.cellId.split(' ')[0];
-        const attachmentsDir = path.join(
+        const pointersDir = path.join(
             workspaceFolder.uri.fsPath,
             ".project",
             "attachments",
+            "pointers",
+            documentSegment
+        );
+        const filesDir = path.join(
+            workspaceFolder.uri.fsPath,
+            ".project",
+            "attachments",
+            "files",
             documentSegment
         );
 
-        try {
-            const files = await fs.promises.readdir(attachmentsDir);
-            const audioFile = files.find(file => file.startsWith(typedEvent.content.audioId));
-
-            if (audioFile) {
-                const filePath = path.join(attachmentsDir, audioFile);
-                await fs.promises.unlink(filePath);
-                debug("Deleted audio file:", filePath);
+        const tryDelete = async (dir: string) => {
+            try {
+                const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(dir));
+                const audioFile = entries.find(([name, type]) => type === vscode.FileType.File && name.startsWith(typedEvent.content.audioId))?.[0];
+                if (audioFile) {
+                    const filePath = path.join(dir, audioFile);
+                    await vscode.workspace.fs.delete(vscode.Uri.file(filePath));
+                    debug("Deleted audio file:", filePath);
+                }
+            } catch (err) {
+                debug("Error reading attachments directory:", { dir, err });
             }
-        } catch (err) {
-            debug("Error reading attachments directory:", err);
-        }
+        };
+
+        await tryDelete(pointersDir);
+        await tryDelete(filesDir);
 
         await document.removeCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
@@ -1472,9 +1559,42 @@ export async function scanForAudioAttachments(
 
                                 try {
                                     // Check if file exists and read it
-                                    if (fs.existsSync(fullPath)) {
-                                        const fileData = await fs.promises.readFile(fullPath);
-                                        const base64Data = `data:audio/webm;base64,${fileData.toString('base64')}`;
+                                    if (await pathExists(fullPath)) {
+                                        // Resolve potential Git LFS pointer by preferring the parallel 'files' location
+                                        let resolvedPath = fullPath;
+                                        try {
+                                            const stat = await vscode.workspace.fs.stat(vscode.Uri.file(fullPath));
+                                            if (stat.size < 2048) {
+                                                const text = await readFileUtf8(fullPath);
+                                                const looksLikeLfsPointer = text.includes("version https://git-lfs.github.com/spec/") && text.includes("oid sha256:");
+                                                if (looksLikeLfsPointer || /\.project\/(?:attachments)\/pointers\//.test(attachmentPath)) {
+                                                    const fileName = path.basename(fullPath);
+                                                    const bookFolder = path.basename(path.dirname(fullPath));
+                                                    const candidate = path.join(
+                                                        workspaceFolder.uri.fsPath,
+                                                        ".project",
+                                                        "attachments",
+                                                        "files",
+                                                        bookFolder,
+                                                        fileName
+                                                    );
+                                                    if (await pathExists(candidate)) {
+                                                        resolvedPath = candidate;
+                                                    }
+                                                }
+                                            }
+                                        } catch {
+                                            // ignore and fall back to fullPath
+                                        }
+
+                                        const ext = path.extname(resolvedPath).toLowerCase();
+                                        const mimeType = ext === ".webm" ? "audio/webm" :
+                                            ext === ".mp3" ? "audio/mp3" :
+                                                ext === ".m4a" ? "audio/mp4" :
+                                                    ext === ".ogg" ? "audio/ogg" : "audio/wav";
+
+                                        const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(resolvedPath));
+                                        const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                                         // Send the audio data to the webview
                                         safePostMessageToPanel(webviewPanel, {
@@ -1486,11 +1606,11 @@ export async function scanForAudioAttachments(
                                             }
                                         });
 
-                                        audioAttachments[cellId] = fullPath;
+                                        audioAttachments[cellId] = resolvedPath;
                                         debug("Found audio attachment in metadata:", {
                                             cellId,
                                             attachmentId,
-                                            path: fullPath
+                                            path: resolvedPath
                                         });
                                     }
                                 } catch (err) {
@@ -1502,22 +1622,31 @@ export async function scanForAudioAttachments(
 
                     // Also check the filesystem for legacy audio files
                     const bookAbbr = cellId.split(' ')[0];
-                    const attachmentsPath = path.join(
+                    const attachmentsFilesPath = path.join(
+                        workspaceFolder.uri.fsPath,
+                        ".project",
+                        "attachments",
+                        "files",
+                        bookAbbr
+                    );
+                    const legacyAttachmentsPath = path.join(
                         workspaceFolder.uri.fsPath,
                         ".project",
                         "attachments",
                         bookAbbr
                     );
 
-                    if (fs.existsSync(attachmentsPath)) {
+                    for (const attachmentsPath of [attachmentsFilesPath, legacyAttachmentsPath]) {
+                        if (!(await pathExists(attachmentsPath))) continue;
                         try {
-                            const files = fs.readdirSync(attachmentsPath);
+                            const files = await vscode.workspace.fs.readDirectory(vscode.Uri.file(attachmentsPath));
 
                             // Look for any audio files that might match this cell
                             const audioExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.webm'];
-                            const audioFiles = files.filter(file =>
-                                audioExtensions.some(ext => file.toLowerCase().endsWith(ext))
-                            );
+                            const audioFiles = files
+                                .filter(([name, type]) => type === vscode.FileType.File)
+                                .map(([name]) => name)
+                                .filter(name => audioExtensions.some(ext => name.toLowerCase().endsWith(ext)));
 
                             for (const audioFile of audioFiles) {
                                 // Check if the file name contains the cell ID pattern
@@ -1529,13 +1658,13 @@ export async function scanForAudioAttachments(
                                     if (!audioAttachments[cellId]) {
                                         try {
                                             // Read the file and send as base64
-                                            const fileData = await fs.promises.readFile(fullAudioPath);
+                                            const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullAudioPath));
                                             const mimeType = audioFile.endsWith('.webm') ? 'audio/webm' :
                                                 audioFile.endsWith('.mp3') ? 'audio/mp3' :
                                                     audioFile.endsWith('.m4a') ? 'audio/mp4' :
                                                         audioFile.endsWith('.ogg') ? 'audio/ogg' :
                                                             'audio/wav';
-                                            const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
+                                            const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
 
                                             // Send the audio data to the webview
                                             safePostMessageToPanel(webviewPanel, {
