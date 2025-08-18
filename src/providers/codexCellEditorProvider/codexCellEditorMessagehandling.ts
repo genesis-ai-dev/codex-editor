@@ -401,6 +401,12 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         document.deleteCell(typedEvent.content.cellId);
     },
 
+    restoreCell: ({ event, document }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "restoreCell"; }>;
+        console.log("restoreCell message received", { event });
+        document.restoreCell(typedEvent.content.cellId);
+    },
+
     updateCellTimestamps: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "updateCellTimestamps"; }>;
         console.log("updateCellTimestamps message received", { event });

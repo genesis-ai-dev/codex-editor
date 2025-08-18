@@ -526,6 +526,8 @@ export class CodexCellDocument implements vscode.CustomDocument {
             editHistory: cell.metadata.edits || [],
             timestamps: cell.metadata.data,
             cellLabel: cell.metadata.cellLabel,
+            deleted: cell.metadata.data?.deleted || false,
+            data: cell.metadata.data,
         };
     }
 
@@ -566,7 +568,18 @@ export class CodexCellDocument implements vscode.CustomDocument {
         if (indexOfCellToDelete === -1) {
             throw new Error("Could not find cell to delete");
         }
-        this._documentData.cells.splice(indexOfCellToDelete, 1);
+        
+        // Instead of removing the cell, set the deleted flag
+        const cellToDelete = this._documentData.cells[indexOfCellToDelete];
+        if (cellToDelete.metadata?.data) {
+            cellToDelete.metadata.data.deleted = true;
+        } else {
+            // Initialize data if it doesn't exist
+            if (!cellToDelete.metadata) {
+                cellToDelete.metadata = {} as any;
+            }
+            cellToDelete.metadata.data = { deleted: true };
+        }
 
         // Record the edit
         this._edits.push({
@@ -579,6 +592,56 @@ export class CodexCellDocument implements vscode.CustomDocument {
             edits: [{ cellId }],
         });
     }
+
+    public restoreCell(cellId: string) {
+        const indexOfCellToRestore = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToRestore === -1) {
+            throw new Error("Could not find cell to restore");
+        }
+        
+        // Set the deleted flag to false
+        const cellToRestore = this._documentData.cells[indexOfCellToRestore];
+        if (cellToRestore.metadata?.data) {
+            cellToRestore.metadata.data.deleted = false;
+        } else {
+            // Initialize data if it doesn't exist
+            if (!cellToRestore.metadata) {
+                cellToRestore.metadata = {} as any;
+            }
+            cellToRestore.metadata.data = { deleted: false };
+        }
+
+        // Record the edit
+        this._edits.push({
+            type: "restoreCell",
+            cellId,
+        });
+
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId }],
+        });
+    }
+
+    /**
+     * Returns only the cells that are not marked as deleted
+     */
+    public getActiveCells() {
+        return this._documentData.cells.filter(cell => {
+            return !cell.metadata?.data?.deleted;
+        });
+    }
+
+    /**
+     * Returns all cells including deleted ones
+     */
+    public getAllCells() {
+        return this._documentData.cells;
+    }
+
     // Method to add a new cell
     public addCell(
         newCellId: string,

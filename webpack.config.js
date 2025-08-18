@@ -249,4 +249,35 @@ const testConfig = {
     },
 };
 
-module.exports = [extensionConfig, serverConfig, testConfig];
+const runTestConfig = {
+    name: "runTest",
+    target: "node",
+    mode: "none",
+    entry: "./src/test/runTest.ts",
+    output: {
+        path: path.resolve(__dirname, "out", "test"),
+        filename: "runTest.js",
+        libraryTarget: "commonjs2",
+    },
+    externals: {
+        vscode: "commonjs vscode",
+    },
+    resolve: {
+        extensions: [".ts", ".js"],
+        alias: {
+            "@": path.resolve(__dirname, "src"),
+        },
+    },
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                exclude: /node_modules/,
+                use: "ts-loader",
+            },
+        ],
+    },
+    devtool: "nosources-source-map",
+};
+
+module.exports = [extensionConfig, serverConfig, testConfig, runTestConfig];
