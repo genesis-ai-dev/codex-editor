@@ -21,6 +21,15 @@ export function convertTimestampToSeconds(timestamp: string): number {
         return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
     }
 
+    // Format: HH:MM:SS (no milliseconds)
+    match = timestamp.match(/^(\d+):(\d+):(\d+)$/);
+    if (match) {
+        const hours = parseInt(match[1]);
+        const minutes = parseInt(match[2]);
+        const seconds = parseInt(match[3]);
+        return hours * 3600 + minutes * 60 + seconds;
+    }
+
     // Format: MM:SS.mmm
     match = timestamp.match(/(\d+):(\d+)[,.](\d+)/);
     if (match) {
@@ -30,12 +39,36 @@ export function convertTimestampToSeconds(timestamp: string): number {
         return minutes * 60 + seconds + milliseconds / 1000;
     }
 
+    // Format: MM:SS (no milliseconds)
+    match = timestamp.match(/^(\d+):(\d+)$/);
+    if (match) {
+        const minutes = parseInt(match[1]);
+        const seconds = parseInt(match[2]);
+        return minutes * 60 + seconds;
+    }
+
     // If it's already in seconds format
     if (!isNaN(parseFloat(timestamp))) {
         return parseFloat(timestamp);
     }
 
     return 0;
+}
+
+/**
+ * Parse a timestamp range string like "50.634 --> 51.468" or "00:00:50.634 --> 00:00:51.468"
+ * Returns [startSeconds, endSeconds]. If parsing fails, returns [0, 0].
+ */
+export function parseTimestampRange(range: string): [number, number] {
+    if (!range) return [0, 0];
+    // Split on arrow, allowing spaces
+    const parts = range.split(/\s*-->\s*/);
+    if (parts.length === 2) {
+        const start = convertTimestampToSeconds(parts[0]);
+        const end = convertTimestampToSeconds(parts[1]);
+        return [start, end];
+    }
+    return [0, 0];
 }
 
 /**

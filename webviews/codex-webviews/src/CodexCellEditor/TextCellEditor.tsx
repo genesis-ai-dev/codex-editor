@@ -110,6 +110,8 @@ interface CellEditorProps {
     editHistory: EditHistory[];
     cell: QuillCellContent;
     isSaving?: boolean;
+    saveError?: boolean;
+    saveRetryCount?: number;
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
@@ -185,6 +187,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     openCellById,
     cell,
     isSaving = false,
+    saveError = false,
+    saveRetryCount = 0,
     footnoteOffset = 1,
     prevEndTime,
     nextStartTime,
@@ -1312,13 +1316,24 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 }}
                                 variant="default"
                                 size="icon"
-                                title={isSaving ? "Saving..." : "Save changes"}
-                                disabled={isSaving || isEditingFootnoteInline}
+                                title={
+                                    isSaving 
+                                        ? "Saving..." 
+                                        : saveError 
+                                            ? saveRetryCount >= 3
+                                                ? `Save failed after ${saveRetryCount} attempts - Click to retry (check connection)`
+                                                : `Save failed - Click to retry ${saveRetryCount > 0 ? `(${saveRetryCount} attempts)` : ""}`
+                                            : "Save changes"
+                                }
+                                disabled={(isSaving && !saveError) || isEditingFootnoteInline}
+                                className={cn(
+                                    saveError && "ring-2 ring-red-500 ring-offset-1 hover:ring-red-600"
+                                )}
                             >
-                                {isSaving ? (
+                                {isSaving && !saveError ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
-                                    <Check className="h-4 w-4" />
+                                    <Check className={cn("h-4 w-4", saveError && "text-red-500")} />
                                 )}
                             </Button>
                             <ConfirmationButton

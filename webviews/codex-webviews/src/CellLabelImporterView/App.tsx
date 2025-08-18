@@ -49,6 +49,8 @@ interface AppState {
     importData: ImportedRow[] | null;
     headers: string[];
     selectedColumn: string | null;
+    selectedColumns?: string[];
+    useMultiColumns?: boolean;
     importSource: string; // Filename(s) of the imported file(s)
     availableSourceFiles: SourceFileUIData[];
     excludedFilePathsFromLastRun: string[];
@@ -70,6 +72,8 @@ const App: React.FC = () => {
             importData: persistedState?.importData || null,
             headers: persistedState?.headers || [],
             selectedColumn: persistedState?.selectedColumn || null,
+            selectedColumns: persistedState?.selectedColumns || [],
+            useMultiColumns: persistedState?.useMultiColumns || false,
             importSource: persistedState?.importSource || "",
             availableSourceFiles: persistedState?.availableSourceFiles || [],
             excludedFilePathsFromLastRun: persistedState?.excludedFilePathsFromLastRun || [],
@@ -89,8 +93,63 @@ const App: React.FC = () => {
     }, [state.labels, state.itemsPerPage]);
 
     // --- Memoized values for views ---
+    const CONCAT_OPTION = "__CHARACTER_LABELS_CONCAT__";
+
+    const getCharacterLabelHeaders = useCallback((): string[] => {
+        const headers = state.headers || [];
+        const charHeaders = headers.filter((h) => h.toUpperCase().startsWith("CHARACTER LABEL"));
+        return charHeaders.sort((a, b) => {
+            const na = parseInt((a.match(/CHARACTER LABEL\s*(\d+)/i) || ["", "0"])[1]);
+            const nb = parseInt((b.match(/CHARACTER LABEL\s*(\d+)/i) || ["", "0"])[1]);
+            return na - nb;
+        });
+    }, [state.headers]);
+
     const columnPreview = useMemo(() => {
-        if (!state.selectedColumn || !state.importData) return "<em>No preview available</em>";
+        if (!state.importData) return "<em>No preview available</em>";
+        if (state.useMultiColumns && state.selectedColumns && state.selectedColumns.length > 0) {
+            const cols = state.selectedColumns;
+            return (
+                state.importData
+                    .slice(0, 5)
+                    .map((row) =>
+                        cols
+                            .map((h) =>
+                                row[h] !== undefined && row[h] !== null ? String(row[h]).trim() : ""
+                            )
+                            .filter((v) => v)
+                            .join(", ")
+                    )
+                    .map((val, idx) => (
+                        <div key={idx}>
+                            {String(val).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+                        </div>
+                    ))
+                    .join("") || "<em>No data in selected columns for preview</em>"
+            );
+        }
+        if (!state.selectedColumn) return "<em>No preview available</em>";
+        if (state.selectedColumn === CONCAT_OPTION) {
+            const charHeaders = getCharacterLabelHeaders();
+            return (
+                state.importData
+                    .slice(0, 5)
+                    .map((row) =>
+                        charHeaders
+                            .map((h) =>
+                                row[h] !== undefined && row[h] !== null ? String(row[h]).trim() : ""
+                            )
+                            .filter((v) => v)
+                            .join(", ")
+                    )
+                    .map((val, idx) => (
+                        <div key={idx}>
+                            {String(val).replace(/</g, "&lt;").replace(/>/g, "&gt;")}
+                        </div>
+                    ))
+                    .join("") || "<em>No data in these columns for preview</em>"
+            );
+        }
         return (
             state.importData
                 .slice(0, 5)
@@ -101,7 +160,13 @@ const App: React.FC = () => {
                 ))
                 .join("") || "<em>No data in this column for preview</em>"
         );
-    }, [state.selectedColumn, state.importData]);
+    }, [
+        state.selectedColumn,
+        state.selectedColumns,
+        state.useMultiColumns,
+        state.importData,
+        getCharacterLabelHeaders,
+    ]);
 
     const paginatedLabels = useMemo(() => {
         if (!state.labels) return [];
@@ -186,7 +251,12 @@ const App: React.FC = () => {
     }, []);
 
     const handleProcessLabels = useCallback(() => {
-        if (!state.selectedColumn) {
+        const usingMulti = !!(
+            state.useMultiColumns &&
+            state.selectedColumns &&
+            state.selectedColumns.length > 0
+        );
+        if (!usingMulti && !state.selectedColumn) {
             setState((prev) => ({
                 ...prev,
                 errorMessage: "Please select a column to use for labels.",
@@ -204,11 +274,18 @@ const App: React.FC = () => {
         vscode.postMessage({
             command: "processLabels",
             data: state.importData,
-            selectedColumn: state.selectedColumn,
+            selectedColumn: usingMulti ? undefined : state.selectedColumn,
+            selectedColumns: usingMulti ? state.selectedColumns : undefined,
             excludedFilePaths: state.excludedFilePathsFromLastRun, // Send current selection of excluded files
         });
         setState((prev) => ({ ...prev, isLoading: true, errorMessage: null }));
-    }, [state.importData, state.selectedColumn, state.excludedFilePathsFromLastRun]);
+    }, [
+        state.importData,
+        state.selectedColumn,
+        state.selectedColumns,
+        state.useMultiColumns,
+        state.excludedFilePathsFromLastRun,
+    ]);
 
     const handleSave = useCallback(() => {
         vscode.postMessage({
@@ -259,7 +336,29 @@ const App: React.FC = () => {
 
         const handleColumnChange = (e: any) => {
             const value = e.target.value;
-            setState((prev) => ({ ...prev, selectedColumn: value, errorMessage: null }));
+            setState((prev) => ({
+                ...prev,
+                selectedColumn: value,
+                useMultiColumns: false,
+                errorMessage: null,
+            }));
+        };
+
+        const toggleUseMultiColumns = (checked: boolean) => {
+            setState((prev) => ({
+                ...prev,
+                useMultiColumns: checked,
+                selectedColumn: checked ? null : prev.selectedColumn,
+            }));
+        };
+
+        const handleMultiColumnChange = (header: string, isChecked: boolean) => {
+            setState((prev) => {
+                const set = new Set(prev.selectedColumns || []);
+                if (isChecked) set.add(header);
+                else set.delete(header);
+                return { ...prev, selectedColumns: Array.from(set) };
+            });
         };
 
         const handleFileExclusionChange = (filePath: string, isChecked: boolean) => {
@@ -282,24 +381,56 @@ const App: React.FC = () => {
                     Imported from: <span>{state.importSource}</span>
                 </div>
                 <div className="column-selector-form">
-                    <h3>Select Column to Use as Cell Label</h3>
-                    <p>Choose which column from your spreadsheet will be used for cell labels:</p>
-                    <VSCodeDropdown
-                        value={state.selectedColumn || ""}
-                        onChange={handleColumnChange}
-                        style={{ maxWidth: "400px" }}
-                    >
-                        <VSCodeOption value="">-- Select a column --</VSCodeOption>
-                        {state.headers.map((header) => (
-                            <VSCodeOption key={header} value={header}>
-                                {header}
-                            </VSCodeOption>
-                        ))}
-                    </VSCodeDropdown>
+                    <h3>Select Column(s) to Use as Cell Label</h3>
+                    <p>Choose one column or enable multi-select to concatenate multiple columns:</p>
+                    <div style={{ marginBottom: "8px" }}>
+                        <VSCodeCheckbox
+                            checked={!!state.useMultiColumns}
+                            onChange={(e: any) => toggleUseMultiColumns(e.target.checked)}
+                        >
+                            Use multiple columns (concatenate)
+                        </VSCodeCheckbox>
+                    </div>
+                    {!state.useMultiColumns ? (
+                        <VSCodeDropdown
+                            value={state.selectedColumn || ""}
+                            onChange={handleColumnChange}
+                            style={{ maxWidth: "400px" }}
+                        >
+                            <VSCodeOption value="">-- Select a column --</VSCodeOption>
+                            {state.headers.map((header) => (
+                                <VSCodeOption key={header} value={header}>
+                                    {header}
+                                </VSCodeOption>
+                            ))}
+                        </VSCodeDropdown>
+                    ) : (
+                        <div
+                            style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                                gap: "6px",
+                                maxWidth: "640px",
+                                marginBottom: "8px",
+                            }}
+                        >
+                            {state.headers.map((header) => (
+                                <VSCodeCheckbox
+                                    key={header}
+                                    checked={!!state.selectedColumns?.includes(header)}
+                                    onChange={(e: any) =>
+                                        handleMultiColumnChange(header, e.target.checked)
+                                    }
+                                >
+                                    {header}
+                                </VSCodeCheckbox>
+                            ))}
+                        </div>
+                    )}
                     {state.errorMessage && <p className="error-message">{state.errorMessage}</p>}
                     <p>Preview of selected column:</p>
                     <div id="columnPreview" className="column-preview">
-                        {state.selectedColumn && state.importData ? (
+                        {state.selectedColumn && !state.useMultiColumns && state.importData ? (
                             state.importData
                                 .slice(0, 5)
                                 .some(
@@ -321,6 +452,22 @@ const App: React.FC = () => {
                             ) : (
                                 <em>No data in this column for preview</em>
                             )
+                        ) : state.useMultiColumns &&
+                          state.selectedColumns &&
+                          state.selectedColumns.length > 0 &&
+                          state.importData ? (
+                            state.importData.slice(0, 5).map((row, idx) => (
+                                <div key={idx} className="preview-item">
+                                    {state
+                                        .selectedColumns!.map((h) =>
+                                            row[h] !== undefined && row[h] !== null
+                                                ? String(row[h]).trim()
+                                                : ""
+                                        )
+                                        .filter((v) => v)
+                                        .join(", ")}
+                                </div>
+                            ))
                         ) : (
                             <em>No preview available</em>
                         )}
@@ -351,7 +498,12 @@ const App: React.FC = () => {
                     </div>
                     <VSCodeButton
                         onClick={handleProcessLabels}
-                        disabled={state.isLoading || !state.selectedColumn}
+                        disabled={
+                            state.isLoading ||
+                            (!state.useMultiColumns
+                                ? !state.selectedColumn
+                                : !(state.selectedColumns && state.selectedColumns.length > 0))
+                        }
                     >
                         Process Labels
                     </VSCodeButton>

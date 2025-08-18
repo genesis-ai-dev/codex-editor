@@ -608,9 +608,12 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,
                 ...getBorderStyle(),
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "0.5rem",
+                display: "grid",
+                gridTemplateColumns: "auto 1fr",
+                gridTemplateRows: "auto auto",
+                gridTemplateAreas: "'buttons label' 'buttons content'",
+                columnGap: "0.5rem",
+                rowGap: "0.25rem",
                 padding: "0.25rem",
                 cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                 border: "1px solid transparent",
@@ -627,9 +630,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             <div
                 className="cell-header"
                 style={{
+                    gridArea: "buttons",
                     display: "flex",
                     justifyContent: "space-between",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                 }}
             >
                 {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
@@ -764,42 +768,31 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
                         {getAlertDot()}
                     </div>
                 )}
-                <div
-                    className={`cell-label ${
-                        cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                            ? "font-medium whitespace-nowrap min-w-fit leading-normal flex items-center h-full"
-                            : ""
-                    }`}
-                >
+                <div style={{ gridArea: "label", minWidth: 0 }}>
                     {cellLabelOrGeneratedLabel && (
-                        <span
+                        <div
                             className="cell-label-text"
                             style={{
-                                ...(cellDisplayMode === CELL_DISPLAY_MODES.INLINE
-                                    ? {
-                                          fontSize: "0.7em",
-                                          verticalAlign: "super",
-                                          lineHeight: 1,
-                                          opacity: 0.85,
-                                          marginRight: "2px",
-                                          fontWeight: "normal",
-                                      }
-                                    : {}),
-                                whiteSpace: "nowrap",
+                                fontWeight:
+                                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                                        ? 500
+                                        : "normal",
+                                lineHeight: 1.2,
+                                display: "block",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
-                                maxWidth: "200px", // Adjust this value as needed
-                                display: "block",
+                                whiteSpace: "nowrap",
                             }}
+                            title={cellLabelOrGeneratedLabel}
                         >
                             {cellLabelOrGeneratedLabel}
-                        </span>
+                        </div>
                     )}
                 </div>
             </div>
 
             {/* Render content with footnotes */}
-            <div style={{ flex: 1 }}>{renderContent()}</div>
+            <div style={{ gridArea: "content", minWidth: 0 }}>{renderContent()}</div>
 
             {/* Comments Badge positioned on the right */}
             <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>

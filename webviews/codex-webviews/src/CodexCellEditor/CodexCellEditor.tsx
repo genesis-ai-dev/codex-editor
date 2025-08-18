@@ -199,6 +199,11 @@ const CodexCellEditor: React.FC = () => {
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
     const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState(false);
+    const [saveRetryCount, setSaveRetryCount] = useState(0);
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const SAVE_TIMEOUT_MS = 10000; // 10 seconds
+    const MAX_SAVE_RETRIES = 3; // Maximum number of retry attempts
     const [editorPosition, setEditorPosition] = useState<
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
@@ -587,7 +592,17 @@ const CodexCellEditor: React.FC = () => {
             // If we're currently saving, this content update likely means the save completed
             if (isSaving) {
                 debug("editor", "Content updated during save - save completed");
+                
+                // Clear the timeout timer
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+                
+                // Reset save state
                 setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
                 handleCloseEditor();
             }
         },
@@ -1092,10 +1107,44 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-        debug("editor", "Saving HTML content:", { cellId: content.cellMarkers?.[0], content });
+        const cellId = content.cellMarkers?.[0];
+        const isRetry = saveError;
+        const currentRetryCount = isRetry ? saveRetryCount : 0;
 
-        // Show saving spinner
+        debug("editor", "Saving HTML content:", { 
+            cellId, 
+            isRetry, 
+            retryCount: currentRetryCount,
+            content 
+        });
+
+        // Check if we've exceeded max retries
+        if (isRetry && currentRetryCount >= MAX_SAVE_RETRIES) {
+            debug("editor", "Maximum save retries exceeded", { cellId, retryCount: currentRetryCount });
+            // Show a more permanent error state but still allow manual retry
+            vscode.postMessage({
+                command: "showErrorMessage",
+                message: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
+            } as EditorPostMessages);
+            return;
+        }
+
+        // Clear any existing timeout
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
+
+        // Reset error state and show saving spinner
+        setSaveError(false);
         setIsSaving(true);
+
+        // Start timeout timer
+        saveTimeoutRef.current = setTimeout(() => {
+            debug("editor", "Save operation timed out", { cellId, attempt: currentRetryCount + 1 });
+            setIsSaving(false);
+            setSaveError(true);
+            setSaveRetryCount(prev => prev + 1);
+        }, SAVE_TIMEOUT_MS);
 
         vscode.postMessage({
             command: "saveHtml",
@@ -1151,6 +1200,15 @@ const CodexCellEditor: React.FC = () => {
 
         return () => window.removeEventListener("message", handleMessage);
     }, [vscode]); // Only run this once with vscode reference as the dependency
+
+    // Cleanup save timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+        };
+    }, []);
 
     // Debug effect to show when username changes
     useEffect(() => {
@@ -2034,6 +2092,8 @@ const CodexCellEditor: React.FC = () => {
                             successfulCompletions={successfulCompletions}
                             audioAttachments={audioAttachments}
                             isSaving={isSaving}
+                            saveError={saveError}
+                            saveRetryCount={saveRetryCount}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             fontSize={
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
