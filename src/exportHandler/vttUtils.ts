@@ -66,10 +66,10 @@ export const generateVttData = (
     };
 
     const cues = cells
-        // Filter out merged cells before processing
+        // Filter out merged and deleted cells before processing
         .filter((unit) => {
             const metadata = unit.metadata;
-            return !metadata?.data?.merged && !!unit.metadata?.data?.startTime;
+            return !metadata?.data?.merged && !metadata?.data?.deleted && !!unit.metadata?.data?.startTime;
         })
         .map((unit, index) => {
             const startTime = unit.metadata?.data?.startTime ?? index;

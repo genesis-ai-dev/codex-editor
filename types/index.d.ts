@@ -614,6 +614,7 @@ export type EditorPostMessages =
     | { command: "searchSimilarCellIds"; content: { cellId: string; }; }
     | { command: "updateCellTimestamps"; content: { cellId: string; timestamps: Timestamps; }; }
     | { command: "deleteCell"; content: { cellId: string; }; }
+    | { command: "restoreCell"; content: { cellId: string; }; }
     | { command: "addWord"; words: string[]; }
     | { command: "getAlertCodes"; content: GetAlertCodes; }
     | { command: "executeCommand"; content: { command: string; args: any[]; }; }

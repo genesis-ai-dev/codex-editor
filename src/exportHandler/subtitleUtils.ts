@@ -39,10 +39,10 @@ export function generateSrtData(
     let output = "";
     let index = 1;
 
-    // Filter out merged cells before processing
+    // Filter out merged and deleted cells before processing
     const activeCells = cells.filter((unit) => {
         const metadata = unit.metadata;
-        return !metadata?.data?.merged;
+        return !metadata?.data?.merged && !metadata?.data?.deleted;
     });
 
     activeCells.forEach((unit) => {

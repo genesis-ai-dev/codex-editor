@@ -1,17 +1,19 @@
 import React, { useState } from "react";
 import { Button } from "../components/ui/button";
-import { Check, X, Trash2 } from "lucide-react";
+import { Check, X, Trash2, RotateCcw } from "lucide-react";
 
 interface ConfirmationButtonProps {
     onClick: () => void;
     disabled?: boolean;
     icon: string;
+    title?: string;
 }
 
 const ConfirmationButton: React.FC<ConfirmationButtonProps> = ({
     onClick,
     disabled = false,
     icon,
+    title,
 }) => {
     const [showConfirmation, setShowConfirmation] = useState(false);
 
@@ -32,8 +34,21 @@ const ConfirmationButton: React.FC<ConfirmationButtonProps> = ({
         switch (icon) {
             case "trash":
                 return <Trash2 className="h-4 w-4" />;
+            case "RotateCcw":
+                return <RotateCcw className="h-4 w-4" />;
             default:
                 return <Trash2 className="h-4 w-4" />;
+        }
+    };
+
+    const getDefaultTitle = () => {
+        switch (icon) {
+            case "trash":
+                return "Delete";
+            case "RotateCcw":
+                return "Restore";
+            default:
+                return "Delete";
         }
     };
 
@@ -66,7 +81,7 @@ const ConfirmationButton: React.FC<ConfirmationButtonProps> = ({
             disabled={disabled}
             variant="ghost"
             size="icon"
-            title="Delete"
+            title={title || getDefaultTitle()}
         >
             {getIcon()}
         </Button>

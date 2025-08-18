@@ -1274,11 +1274,28 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                     </Button>
                                 )}
                                 {!sourceCellContent && (
-                                    <ConfirmationButton
-                                        icon="trash"
-                                        onClick={deleteCell}
-                                        disabled={cellHasContent}
-                                    />
+                                    cell.data?.deleted ? (
+                                        <ConfirmationButton
+                                            icon="RotateCcw"
+                                            onClick={() => {
+                                                const messageContent: EditorPostMessages = {
+                                                    command: "restoreCell",
+                                                    content: {
+                                                        cellId: cellMarkers[0],
+                                                    },
+                                                };
+                                                window.vscodeApi.postMessage(messageContent);
+                                            }}
+                                            title="Restore Cell"
+                                        />
+                                    ) : (
+                                        <ConfirmationButton
+                                            icon="trash"
+                                            onClick={deleteCell}
+                                            disabled={cellHasContent}
+                                            title="Delete Cell"
+                                        />
+                                    )
                                 )}
                                 <Button
                                     onClick={handlePinCell}

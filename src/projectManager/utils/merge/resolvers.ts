@@ -561,7 +561,12 @@ export async function resolveCodexCustomMerge(
                 value: finalValue,
                 metadata: {
                     ...{ ...theirCell.metadata, ...ourCell.metadata, }, // Fixme: this needs to be triangulated based on the last common commit
-                    data: { ...theirCell.metadata?.data, ...ourCell.metadata?.data, },
+                    data: { 
+                        ...theirCell.metadata?.data, 
+                        ...ourCell.metadata?.data,
+                        // Handle deleted flag: if either version marks the cell as deleted, keep it deleted
+                        deleted: (ourCell.metadata?.data?.deleted || theirCell.metadata?.data?.deleted) || false,
+                    },
                     cellLabel: cellLabelToUse,
                     id: cellId,
                     edits: finalEdits,

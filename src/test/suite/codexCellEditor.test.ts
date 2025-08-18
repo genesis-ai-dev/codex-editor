@@ -180,7 +180,7 @@ suite("CodexCellEditorProvider Test Suite", () => {
         );
     });
 
-    test("deleteCell deletes the cell", async () => {
+    test("deleteCell marks the cell as deleted", async () => {
         const document = await provider.openCustomDocument(
             tempUri,
             { backupId: undefined },
@@ -190,16 +190,48 @@ suite("CodexCellEditorProvider Test Suite", () => {
         document.deleteCell(cellId);
         const updatedContent = await document.getText();
         const cells = JSON.parse(updatedContent).cells;
-        // cells should not contain the deleted cell
+        // cells should still contain the same number of cells, but one should be marked as deleted
         assert.strictEqual(
             cells.length,
-            codexSubtitleContent.cells.length - 1,
-            "Cells should be one less"
+            codexSubtitleContent.cells.length,
+            "Cells should have the same count"
         );
+        const deletedCell = cells.find((c: any) => c.metadata.id === cellId);
         assert.strictEqual(
-            cells.find((c: any) => c.metadata.id === cellId),
-            undefined,
-            "Deleted cell should not be in the cells"
+            deletedCell.metadata.data.deleted,
+            true,
+            "Cell should be marked as deleted"
+        );
+    });
+
+    test("restoreCell restores a deleted cell", async () => {
+        const document = await provider.openCustomDocument(
+            tempUri,
+            { backupId: undefined },
+            new vscode.CancellationTokenSource().token
+        );
+        const cellId = codexSubtitleContent.cells[0].metadata.id;
+        
+        // First delete the cell
+        document.deleteCell(cellId);
+        let updatedContent = await document.getText();
+        let cells = JSON.parse(updatedContent).cells;
+        const deletedCell = cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(
+            deletedCell.metadata.data.deleted,
+            true,
+            "Cell should be marked as deleted"
+        );
+        
+        // Now restore the cell
+        document.restoreCell(cellId);
+        updatedContent = await document.getText();
+        cells = JSON.parse(updatedContent).cells;
+        const restoredCell = cells.find((c: any) => c.metadata.id === cellId);
+        assert.strictEqual(
+            restoredCell.metadata.data.deleted,
+            false,
+            "Cell should be marked as not deleted"
         );
     });
 

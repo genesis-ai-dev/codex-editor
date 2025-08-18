@@ -536,10 +536,10 @@ async function exportCodexContentAsPlaintext(
                     let currentChapter = "";
                     let chapterContent = "";
 
-                    // Filter out merged cells before processing
+                    // Filter out merged and deleted cells before processing
                     const activeCells = cells.filter((cell) => {
                         const metadata = cell.metadata;
-                        return !metadata?.data?.merged;
+                        return !metadata?.data?.merged && !metadata?.data?.deleted;
                     });
 
                     for (const cell of activeCells) {
@@ -825,7 +825,8 @@ async function exportCodexContentAsUsfm(
                                 return cell.kind === 2 && // vscode.NotebookCellKind.Code
                                     cell.metadata?.type &&
                                     cell.value.trim().length > 0 &&
-                                    !metadata?.merged; // Exclude merged cells
+                                    !metadata?.merged && // Exclude merged cells
+                                    !metadata?.deleted; // Exclude deleted cells
                             }
                         );
 
@@ -1210,10 +1211,10 @@ async function exportCodexContentAsHtml(
                     const bookCode = basename(file.fsPath).split(".")[0] || "";
                     const chapters: { [key: string]: string; } = {};
 
-                    // Filter out merged cells before processing
+                    // Filter out merged and deleted cells before processing
                     const activeCells = cells.filter((cell) => {
                         const metadata = cell.metadata;
-                        return !metadata?.data?.merged;
+                        return !metadata?.data?.merged && !metadata?.data?.deleted;
                     });
 
                     // First pass: Organize content by chapters
