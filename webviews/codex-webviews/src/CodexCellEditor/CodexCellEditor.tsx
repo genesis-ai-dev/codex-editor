@@ -1684,6 +1684,17 @@ const CodexCellEditor: React.FC = () => {
         untranslatedOrNotValidatedByCurrentUserUnitsForSection,
     ]);
 
+    // Request audio attachments for all cells when translation units are loaded
+    useEffect(() => {
+        if (translationUnitsForSection.length > 0) {
+            debug("audio", "Requesting audio attachments for all cells on initial load");
+            vscode.postMessage({
+                command: "requestAudioAttachments",
+                content: {},
+            } as EditorPostMessages);
+        }
+    }, [translationUnitsForSection.length, vscode]);
+
     // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
         // Check that the cell ID is valid

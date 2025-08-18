@@ -57,7 +57,7 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-}> = ({ cellId, vscode }) => {
+}> = React.memo(({ cellId, vscode }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -187,9 +187,9 @@ const AudioPlayButton: React.FC<{
             />
         </button>
     );
-};
+});
 
-const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
+const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
     cell,
     vscode,
     textDirection,
@@ -803,7 +803,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = ({
             </div>
         </div>
     );
-};
+});
 
 // Helper function to format time in MM:SS.mmm format
 const formatTime = (timeInSeconds: number): string => {
