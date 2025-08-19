@@ -1181,6 +1181,11 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Add or update the attachment
         cell.metadata.attachments[attachmentId] = attachmentData;
 
+        // Auto-select new audio recordings (overrides any existing selection)
+        if (attachmentData.type === "audio" && cell.metadata) {
+            cell.metadata.selectedAudioId = attachmentId;
+        }
+
         // Record the edit
         this._edits.push({
             type: "updateCellAttachment",
@@ -1197,7 +1202,307 @@ export class CodexCellDocument implements vscode.CustomDocument {
     }
 
     /**
-     * Removes an attachment from a cell's metadata
+     * Soft deletes an attachment by setting isDeleted to true
+     * @param cellId The ID of the cell to update
+     * @param attachmentId The unique ID of the attachment to soft delete
+     */
+    public softDeleteCellAttachment(cellId: string, attachmentId: string): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to soft delete attachment`);
+        }
+
+        const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Check if attachments exist
+        if (!cell.metadata?.attachments || !cell.metadata.attachments[attachmentId]) {
+            console.warn(`Attachment ${attachmentId} not found in cell ${cellId}`);
+            return;
+        }
+
+        // Soft delete the attachment by setting isDeleted to true and updating timestamp
+        const attachment = cell.metadata.attachments[attachmentId];
+        attachment.isDeleted = true;
+        attachment.updatedAt = Date.now();
+
+        // If we're deleting the selected audio, clear the selection (fall back to automatic)
+        if (attachment.type === "audio" && cell.metadata?.selectedAudioId === attachmentId) {
+            delete cell.metadata.selectedAudioId;
+        }
+
+        // Record the edit
+        this._edits.push({
+            type: "softDeleteCellAttachment",
+            cellId,
+            attachmentId,
+        });
+
+        // Mark as dirty and notify listeners
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: this._edits,
+        });
+    }
+
+    /**
+     * Gets the current attachment for a cell (either explicitly selected or latest non-deleted)
+     * @param cellId The ID of the cell
+     * @param attachmentType The type of attachment (e.g., "audio")
+     * @returns The current attachment or null if none found
+     */
+    public getCurrentAttachment(cellId: string, attachmentType: string): { attachmentId: string; attachment: any; } | null {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (!cell?.metadata?.attachments) {
+            return null;
+        }
+
+        // STEP 1: Check for explicit selection first
+        if (cell.metadata?.selectedAudioId && attachmentType === "audio") {
+            const selectedAttachment = cell.metadata.attachments?.[cell.metadata.selectedAudioId];
+
+            // Validate selection is still valid
+            if (selectedAttachment &&
+                selectedAttachment.type === attachmentType &&
+                !selectedAttachment.isDeleted) {
+                return {
+                    attachmentId: cell.metadata.selectedAudioId,
+                    attachment: selectedAttachment
+                };
+            }
+
+            // Selection is invalid - we'll clean it up later, but don't modify state during read operation
+            // Note: Invalid selection cleanup is deferred to avoid modifying document during initialization
+        }
+
+        // STEP 2: Fall back to latest non-deleted (automatic behavior)
+        const attachments = Object.entries(cell.metadata.attachments)
+            .filter(([_, attachment]: [string, any]) =>
+                attachment &&
+                attachment.type === attachmentType &&
+                !attachment.isDeleted
+            )
+            .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
+                (b.updatedAt || 0) - (a.updatedAt || 0)
+            );
+
+        if (attachments.length === 0) {
+            return null;
+        }
+
+        const [attachmentId, attachment] = attachments[0];
+        return { attachmentId, attachment };
+    }
+
+    /**
+     * Gets all attachments (including deleted ones) for a cell, sorted by timestamp
+     * @param cellId The ID of the cell
+     * @param attachmentType The type of attachment (e.g., "audio")
+     * @returns Array of attachment history entries
+     */
+    public getAttachmentHistory(cellId: string, attachmentType: string): Array<{ attachmentId: string; attachment: any; }> {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (!cell?.metadata?.attachments) {
+            return [];
+        }
+
+        try {
+            // Get all attachments of the specified type, sorted by createdAt (newest first)
+            return Object.entries(cell.metadata.attachments)
+                .filter(([_, attachment]: [string, any]) =>
+                    attachment && attachment.type === attachmentType
+                )
+                .sort(([_, a]: [string, any], [__, b]: [string, any]) =>
+                    (b.createdAt || 0) - (a.createdAt || 0)
+                )
+                .map(([attachmentId, attachment]) => ({ attachmentId, attachment }));
+        } catch (error) {
+            console.error(`Error getting attachment history for ${cellId}:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * Restores a soft-deleted attachment
+     * @param cellId The ID of the cell
+     * @param attachmentId The unique ID of the attachment to restore
+     */
+    public restoreCellAttachment(cellId: string, attachmentId: string): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to restore attachment`);
+        }
+
+        const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Check if attachments exist
+        if (!cell.metadata?.attachments || !cell.metadata.attachments[attachmentId]) {
+            console.warn(`Attachment ${attachmentId} not found in cell ${cellId}`);
+            return;
+        }
+
+        // Restore the attachment by setting isDeleted to false and updating timestamp
+        const attachment = cell.metadata.attachments[attachmentId];
+        attachment.isDeleted = false;
+        attachment.updatedAt = Date.now();
+
+        // Record the edit
+        this._edits.push({
+            type: "restoreCellAttachment",
+            cellId,
+            attachmentId,
+        });
+
+        // Mark as dirty and notify listeners
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: this._edits,
+        });
+    }
+
+    /**
+     * Explicitly selects an audio attachment for a cell
+     * @param cellId The ID of the cell
+     * @param audioId The unique ID of the audio attachment to select
+     */
+    public selectAudioAttachment(cellId: string, audioId: string): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to select audio attachment`);
+        }
+
+        const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        // Validate the attachment exists and is audio
+        if (!cell.metadata?.attachments || !cell.metadata.attachments[audioId]) {
+            throw new Error(`Audio attachment ${audioId} not found in cell ${cellId}`);
+        }
+
+        const attachment = cell.metadata.attachments[audioId];
+        if (attachment.type !== "audio") {
+            throw new Error(`Attachment ${audioId} is not an audio attachment`);
+        }
+
+        if (attachment.isDeleted) {
+            throw new Error(`Cannot select deleted audio attachment ${audioId}`);
+        }
+
+        // Set the explicit selection
+        cell.metadata.selectedAudioId = audioId;
+
+        // Record the edit
+        this._edits.push({
+            type: "selectAudioAttachment",
+            cellId,
+            audioId,
+        });
+
+        // Mark as dirty and notify listeners
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: this._edits,
+        });
+    }
+
+    /**
+     * Clears the explicit audio selection for a cell (falls back to automatic behavior)
+     * @param cellId The ID of the cell
+     */
+    public clearAudioSelection(cellId: string): void {
+        const indexOfCellToUpdate = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToUpdate === -1) {
+            throw new Error(`Could not find cell ${cellId} to clear audio selection`);
+        }
+
+        const cell = this._documentData.cells[indexOfCellToUpdate];
+
+        if (!cell.metadata?.selectedAudioId) {
+            return; // Nothing to clear
+        }
+
+        delete cell.metadata.selectedAudioId;
+
+        // Record the edit
+        this._edits.push({
+            type: "clearAudioSelection",
+            cellId,
+        });
+
+        // Mark as dirty and notify listeners
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: this._edits,
+        });
+    }
+
+    /**
+     * Gets the explicitly selected audio ID for a cell (null if using automatic selection)
+     * @param cellId The ID of the cell
+     * @returns The explicitly selected audio ID or null
+     */
+    public getExplicitAudioSelection(cellId: string): string | null {
+        const cell = this._documentData.cells.find(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        return cell?.metadata?.selectedAudioId ?? null;
+    }
+
+    /**
+     * Cleans up invalid audio selections for all cells (safe to call during document operations)
+     * This is separated from getCurrentAttachment to avoid modifying state during read operations
+     */
+    public cleanupInvalidAudioSelections(): void {
+        try {
+            let hasChanges = false;
+
+            for (const cell of this._documentData.cells) {
+                if (!cell.metadata?.selectedAudioId || !cell.metadata.attachments) {
+                    continue;
+                }
+
+                const selectedAttachment = cell.metadata.attachments[cell.metadata.selectedAudioId];
+
+                // Check if selection is invalid (deleted, wrong type, or missing)
+                if (!selectedAttachment ||
+                    selectedAttachment.type !== "audio" ||
+                    selectedAttachment.isDeleted) {
+
+                    delete cell.metadata.selectedAudioId;
+                    hasChanges = true;
+                }
+            }
+
+            if (hasChanges) {
+                this._isDirty = true;
+                this._onDidChangeForVsCodeAndWebview.fire({
+                    edits: this._edits,
+                });
+            }
+        } catch (error) {
+            console.error("Error cleaning up invalid audio selections:", error);
+        }
+    }
+
+    /**
+     * Removes an attachment from a cell's metadata (hard delete - use softDeleteCellAttachment instead)
      * @param cellId The ID of the cell to update
      * @param attachmentId The unique ID of the attachment to remove
      */

@@ -25,6 +25,7 @@ import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import SourceTextDisplay from "./SourceTextDisplay";
+import { AudioHistoryViewer } from "./AudioHistoryViewer";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -218,6 +219,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
     const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
+    const [showAudioHistory, setShowAudioHistory] = useState(false);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
 
     // Add ref to track debounce timeout for footnote parsing
@@ -1961,7 +1963,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             </>
                                         ) : (
-                                            <div className="grid grid-cols-2 gap-2 w-full">
+                                            <div className="grid grid-cols-3 gap-2 w-full">
                                                 <Button
                                                     onClick={() => setConfirmingDiscard(true)}
                                                     variant="outline"
@@ -1971,6 +1973,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     <Trash2 className="h-4 w-4" />
                                                     <span className="inline ml-2">
                                                         Remove Audio
+                                                    </span>
+                                                </Button>
+                                                <Button
+                                                    onClick={() => setShowAudioHistory(true)}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full"
+                                                >
+                                                    <History className="h-4 w-4" />
+                                                    <span className="inline ml-2">
+                                                        History
                                                     </span>
                                                 </Button>
                                                 <Button
@@ -2053,6 +2066,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </TabsContent>
                 </Tabs>
             </CardContent>
+            
+            {/* Audio History Viewer Modal */}
+            {showAudioHistory && (
+                <AudioHistoryViewer
+                    cellId={cellMarkers[0]}
+                    vscode={window.vscodeApi}
+                    onClose={() => setShowAudioHistory(false)}
+                />
+            )}
         </Card>
     );
 };
