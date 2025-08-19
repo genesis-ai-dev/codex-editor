@@ -592,13 +592,13 @@ const CodexCellEditor: React.FC = () => {
             // If we're currently saving, this content update likely means the save completed
             if (isSaving) {
                 debug("editor", "Content updated during save - save completed");
-                
+
                 // Clear the timeout timer
                 if (saveTimeoutRef.current) {
                     clearTimeout(saveTimeoutRef.current);
                     saveTimeoutRef.current = null;
                 }
-                
+
                 // Reset save state
                 setIsSaving(false);
                 setSaveError(false);
@@ -1111,20 +1111,23 @@ const CodexCellEditor: React.FC = () => {
         const isRetry = saveError;
         const currentRetryCount = isRetry ? saveRetryCount : 0;
 
-        debug("editor", "Saving HTML content:", { 
-            cellId, 
-            isRetry, 
+        debug("editor", "Saving HTML content:", {
+            cellId,
+            isRetry,
             retryCount: currentRetryCount,
-            content 
+            content,
         });
 
         // Check if we've exceeded max retries
         if (isRetry && currentRetryCount >= MAX_SAVE_RETRIES) {
-            debug("editor", "Maximum save retries exceeded", { cellId, retryCount: currentRetryCount });
+            debug("editor", "Maximum save retries exceeded", {
+                cellId,
+                retryCount: currentRetryCount,
+            });
             // Show a more permanent error state but still allow manual retry
             vscode.postMessage({
                 command: "showErrorMessage",
-                message: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
+                text: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
             } as EditorPostMessages);
             return;
         }
@@ -1143,7 +1146,7 @@ const CodexCellEditor: React.FC = () => {
             debug("editor", "Save operation timed out", { cellId, attempt: currentRetryCount + 1 });
             setIsSaving(false);
             setSaveError(true);
-            setSaveRetryCount(prev => prev + 1);
+            setSaveRetryCount((prev) => prev + 1);
         }, SAVE_TIMEOUT_MS);
 
         vscode.postMessage({
