@@ -3,7 +3,7 @@ import { CodexCellDocument } from "./codexDocument";
 import { safePostMessageToPanel } from "../../utils/webviewUtils";
 // Use type-only import to break circular dependency
 import type { CodexCellEditorProvider } from "./codexCellEditorProvider";
-import { GlobalMessage, EditorPostMessages, EditHistory } from "../../../types";
+import { GlobalMessage, EditorPostMessages, EditHistory, CodexNotebookAsJSONData } from "../../../types";
 import { EditType } from "../../../types/enums";
 import {
     QuillCellContent,
@@ -863,16 +863,16 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
         // Get the document data to check cell metadata
         const documentText = document.getText();
-        const notebookData = JSON.parse(documentText);
+        const notebookData: CodexNotebookAsJSONData = JSON.parse(documentText);
 
         // Find the specific cell
-        if (notebookData.cells && Array.isArray(notebookData.cells)) {
-            const cell = notebookData.cells.find((c: any) => c.metadata?.id === cellId);
+        if (notebookData && Array.isArray(notebookData.cells)) {
+            const cell = notebookData.cells.find((c) => c.metadata?.id === cellId);
 
             if (cell?.metadata?.attachments) {
                 // Check for audio attachments in metadata
                 for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                    if (attachment && (attachment as any).type === "audio") {
+                    if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
                         const attachmentPath = (attachment as any).url;
                         const fullPath = path.isAbsolute(attachmentPath)
                             ? attachmentPath
@@ -893,7 +893,10 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                                 content: {
                                     cellId: cellId,
                                     audioId: attachmentId,
-                                    audioData: base64Data
+                                    audioData: base64Data,
+                                    createdAt: attachment.createdAt,
+                                    updatedAt: attachment.updatedAt,
+                                    isDeleted: attachment.isDeleted
                                 }
                             });
 
@@ -1050,41 +1053,28 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             throw new Error("No workspace folder found");
         }
 
-        // Get the file path from cell metadata to know exactly which file to delete
+        // Soft delete: Mark the attachment as deleted instead of removing files
         const documentText = document.getText();
         const notebookData = JSON.parse(documentText);
         const cell = notebookData.cells?.find((c: any) => c.metadata?.id === typedEvent.content.cellId);
         const attachments = cell?.metadata?.attachments;
 
         if (attachments && attachments[typedEvent.content.audioId]) {
-            const attachmentUrl = attachments[typedEvent.content.audioId].url;
-            const filesPath = path.isAbsolute(attachmentUrl)
-                ? attachmentUrl
-                : path.join(workspaceFolder.uri.fsPath, attachmentUrl);
+            // Update the attachment metadata to mark as deleted
+            const currentAttachment = attachments[typedEvent.content.audioId];
+            const updatedAttachment = {
+                ...currentAttachment,
+                isDeleted: true,
+                updatedAt: Date.now()
+            };
 
-            // Delete from files directory (path stored in metadata)
-            try {
-                if (await pathExists(filesPath)) {
-                    await vscode.workspace.fs.delete(vscode.Uri.file(filesPath));
-                    debug("Deleted audio file from files:", filesPath);
-                }
-            } catch (err) {
-                debug("Error deleting from files directory:", err);
-            }
-
-            // Also delete from pointers directory (derive path from files path)
-            const pointersPath = filesPath.replace("/attachments/files/", "/attachments/pointers/");
-            try {
-                if (await pathExists(pointersPath)) {
-                    await vscode.workspace.fs.delete(vscode.Uri.file(pointersPath));
-                    debug("Deleted audio file from pointers:", pointersPath);
-                }
-            } catch (err) {
-                debug("Error deleting from pointers directory:", err);
-            }
+            await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, updatedAttachment);
+            debug("Marked audio attachment as deleted:", {
+                cellId: typedEvent.content.cellId,
+                audioId: typedEvent.content.audioId,
+                updatedAt: updatedAttachment.updatedAt
+            });
         }
-
-        await document.removeCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentDeleted",
@@ -1518,7 +1508,7 @@ export async function scanForAudioAttachments(
                     // Check if cell has attachments in metadata
                     if (cell.metadata.attachments) {
                         for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                            if (attachment && (attachment as any).type === "audio") {
+                            if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
                                 const attachmentPath = (attachment as any).url;
 
                                 // Build full path

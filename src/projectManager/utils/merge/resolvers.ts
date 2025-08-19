@@ -70,6 +70,40 @@ function isValidConflict(conflict: any): conflict is ConflictFile {
 }
 
 /**
+ * Merges attachments dictionaries from two cells by choosing, for each key,
+ * the entry with the latest updatedAt timestamp.
+ */
+function mergeAttachments(
+    ourAttachments?: Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }>,
+    theirAttachments?: Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }>
+): Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }> | undefined {
+    if (!ourAttachments && !theirAttachments) return undefined;
+
+    const result: Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }> = {};
+
+    const ourKeys = Object.keys(ourAttachments || {});
+    const theirKeys = Object.keys(theirAttachments || {});
+    const allKeys = new Set<string>([...ourKeys, ...theirKeys]);
+
+    allKeys.forEach((key) => {
+        const ours = ourAttachments?.[key];
+        const theirs = theirAttachments?.[key];
+
+        if (ours && theirs) {
+            const ourUpdatedAt = typeof ours.updatedAt === 'number' ? ours.updatedAt : -Infinity;
+            const theirUpdatedAt = typeof theirs.updatedAt === 'number' ? theirs.updatedAt : -Infinity;
+            result[key] = theirUpdatedAt > ourUpdatedAt ? theirs : ours;
+        } else if (ours) {
+            result[key] = ours;
+        } else if (theirs) {
+            result[key] = theirs;
+        }
+    });
+
+    return result;
+}
+
+/**
  * Generates a unique ID for comments
  */
 function generateCommentId(): string {
@@ -566,6 +600,8 @@ export async function resolveCodexCustomMerge(
                     id: cellId,
                     edits: finalEdits,
                     type: ourCell.metadata?.type || CodexCellTypes.TEXT,
+                    // Merge attachments choosing latest by updatedAt per key
+                    attachments: mergeAttachments(ourCell.metadata?.attachments, theirCell.metadata?.attachments),
                 },
             };
 
