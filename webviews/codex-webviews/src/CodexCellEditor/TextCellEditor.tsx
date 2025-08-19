@@ -1050,16 +1050,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
         }
     };
 
-    // Load existing audio when component mounts
-    useEffect(() => {
-        // Don't try to load from session storage or cell data directly
-        // Just request audio attachments from the provider which will send proper base64 data
+    // Preload audio when audio tab is accessed
+    const preloadAudioForTab = useCallback(() => {
+        console.log("🎵 Preloading audio for tab access");
         const messageContent: EditorPostMessages = {
             command: "requestAudioForCell",
             content: { cellId: cellMarkers[0] },
         };
         window.vscodeApi.postMessage(messageContent);
     }, [cellMarkers]);
+
+    // Load existing audio when component mounts
+    useEffect(() => {
+        // Don't try to load from session storage or cell data directly
+        // Just request audio attachments from the provider which will send proper base64 data
+        preloadAudioForTab();
+    }, [preloadAudioForTab]);
 
     // Handle audio data response
     useEffect(() => {
@@ -1431,16 +1437,21 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <Tabs
                     defaultValue={activeTab}
                     value={activeTab}
-                    onValueChange={(value) =>
-                        setActiveTab(
-                            value as
-                                | "source"
-                                | "backtranslation"
-                                | "footnotes"
-                                | "timestamps"
-                                | "audio"
-                        )
-                    }
+                    onValueChange={(value) => {
+                        const tabValue = value as
+                            | "source"
+                            | "backtranslation"
+                            | "footnotes"
+                            | "timestamps"
+                            | "audio";
+                        
+                        setActiveTab(tabValue);
+                        
+                        // Preload audio when audio tab is selected
+                        if (tabValue === "audio") {
+                            preloadAudioForTab();
+                        }
+                    }}
                     className="w-full"
                 >
                     <TabsList

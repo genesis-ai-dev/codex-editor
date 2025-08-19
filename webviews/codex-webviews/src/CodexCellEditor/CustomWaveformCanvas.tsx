@@ -319,6 +319,16 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
         const barCount = Math.min(peaks.length, numberOfBars);
         const progress = duration > 0 ? currentTime / duration : 0;
+        
+        // Debug progress calculation occasionally
+        if (Math.random() < 0.01) { // 1% chance to log
+            console.log("📊 Progress calculation:", {
+                currentTime: currentTime.toFixed(2),
+                duration: duration.toFixed(2),
+                progress: progress.toFixed(3),
+                progressPercent: (progress * 100).toFixed(1) + "%"
+            });
+        }
 
         // Draw bars
         for (let i = 0; i < barCount; i++) {
@@ -349,6 +359,35 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ctx.beginPath();
             ctx.roundRect(x, height - y - barHeight, barWidth, barHeight, barRadius);
             ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+
+        // Draw prominent progress line
+        if (duration > 0 && progress > 0) {
+            const progressX = progress * canvasWidth;
+            
+            // Draw a thick progress line
+            ctx.strokeStyle = normalizeColor(colors.progress);
+            ctx.lineWidth = 3;
+            ctx.globalAlpha = 0.8;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.moveTo(progressX, 0);
+            ctx.lineTo(progressX, height);
+            ctx.stroke();
+            
+            // Add a subtle glow effect
+            ctx.shadowColor = normalizeColor(colors.progress);
+            ctx.shadowBlur = 6;
+            ctx.strokeStyle = normalizeColor(colors.progress);
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(progressX, 0);
+            ctx.lineTo(progressX, height);
+            ctx.stroke();
+            
+            // Reset shadow and alpha
+            ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
         }
 
@@ -398,12 +437,22 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         showHover,
     ]);
 
-    // Animation loop for smooth updates
+    // Animation loop for visual updates AND time updates (backup for timeupdate event)
     useEffect(() => {
         const animate = () => {
-            if (audioRef.current && isPlaying) {
-                setCurrentTime(audioRef.current.currentTime);
+            // Backup time update in case timeupdate event doesn't fire
+            // Only update during normal playback, not during loading
+            if (audioRef.current && isPlaying && !isLoading && isFinite(duration) && duration > 0) {
+                const audioCurrentTime = audioRef.current.currentTime;
+                if (isFinite(audioCurrentTime) && audioCurrentTime >= 0 && audioCurrentTime !== currentTime) {
+                    // Throttle updates to prevent rapid traversal
+                    const timeDiff = Math.abs(audioCurrentTime - currentTime);
+                    if (timeDiff >= 0.1) { // Only update if difference is significant (100ms)
+                        setCurrentTime(audioCurrentTime);
+                    }
+                }
             }
+            
             drawWaveform();
             animationRef.current = requestAnimationFrame(animate);
         };
@@ -414,7 +463,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 cancelAnimationFrame(animationRef.current);
             }
         };
-    }, [drawWaveform, isPlaying]);
+    }, [drawWaveform, isPlaying, currentTime, isLoading, duration]);
 
     // Audio event handlers
     useEffect(() => {
@@ -422,22 +471,106 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         if (!audio) return;
 
         const handleLoadedMetadata = () => {
-            setDuration(audio.duration);
-            setIsLoading(false);
-            setError(null);
+            const audioDuration = audio.duration;
+            console.log("Audio metadata loaded, duration:", audioDuration);
+            
+            // Validate duration
+            if (isFinite(audioDuration) && audioDuration > 0) {
+                setDuration(audioDuration);
+                setIsLoading(false);
+                setError(null);
+                setCurrentTime(0); // Reset current time to prevent fast traversal
+                console.log("✅ Duration set successfully:", audioDuration);
+            } else {
+                console.warn("⚠️ Invalid audio duration:", audioDuration, "readyState:", audio.readyState);
+                // For base64 data URLs, duration might not be available until later
+                let retryCount = 0;
+                const retryDuration = () => {
+                    retryCount++;
+                    if (retryCount > 20) { // Stop after 2 seconds
+                        console.error("❌ Failed to get audio duration after retries");
+                        setIsLoading(false);
+                        return;
+                    }
+                    
+                    if (isFinite(audio.duration) && audio.duration > 0) {
+                        setDuration(audio.duration);
+                        setIsLoading(false);
+                        setError(null);
+                        setCurrentTime(0); // Reset current time
+                        console.log("✅ Duration set after retry:", audio.duration);
+                    } else {
+                        setTimeout(retryDuration, 100);
+                    }
+                };
+                retryDuration();
+            }
         };
         const handleEnded = () => setIsPlaying(false);
-        const handlePlay = () => setIsPlaying(true);
-        const handlePause = () => setIsPlaying(false);
+        const handlePlay = () => {
+            console.log("🎵 Audio play event");
+            setIsPlaying(true);
+        };
+        const handlePause = () => {
+            console.log("⏸️ Audio pause event");
+            setIsPlaying(false);
+        };
         const handleError = () => {
             setError("Error loading audio. Please try a different file.");
             setIsLoading(false);
         };
-        const handleCanPlay = () => setIsLoading(false);
+        const handleDurationChange = () => {
+            const audioDuration = audio.duration;
+            if (isFinite(audioDuration) && audioDuration > 0) {
+                setDuration(audioDuration);
+                setIsLoading(false);
+                setError(null);
+                setCurrentTime(0); // Reset current time
+                console.log("✅ Duration updated:", audioDuration);
+            }
+        };
+        
+        const handleCanPlay = () => {
+            setIsLoading(false);
+            // Sometimes duration becomes available at canplay instead of loadedmetadata
+            if (audio.duration && isFinite(audio.duration) && audio.duration > 0 && duration === 0) {
+                setDuration(audio.duration);
+                setCurrentTime(0); // Reset current time
+                console.log("✅ Duration loaded:", audio.duration);
+            }
+        };
+        
         const handleWaiting = () => setIsLoading(true);
-        const handlePlaying = () => setIsLoading(false);
+        
+        const handlePlaying = () => {
+            setIsLoading(false);
+            // Final fallback - sometimes duration is only available when playing starts
+            if (audio.duration && isFinite(audio.duration) && audio.duration > 0 && duration === 0) {
+                setDuration(audio.duration);
+                setCurrentTime(0); // Reset current time
+                console.log("✅ Duration loaded:", audio.duration);
+            }
+        };
+        
+        const handleTimeUpdate = () => {
+            // Only update time if audio is properly loaded and not in loading phase
+            if (isLoading || !isFinite(duration) || duration <= 0) {
+                return;
+            }
+            
+            const newTime = audio.currentTime;
+            if (isFinite(newTime) && newTime >= 0) {
+                setCurrentTime(newTime);
+                // Reduced logging frequency to avoid spam
+                if (Math.random() < 0.1) { // 10% chance to log
+                    console.log("Time update:", newTime.toFixed(2), "duration:", audio.duration?.toFixed(2));
+                }
+            }
+        };
 
         audio.addEventListener("loadedmetadata", handleLoadedMetadata);
+        audio.addEventListener("durationchange", handleDurationChange);
+        audio.addEventListener("timeupdate", handleTimeUpdate);
         audio.addEventListener("ended", handleEnded);
         audio.addEventListener("play", handlePlay);
         audio.addEventListener("pause", handlePause);
@@ -449,14 +582,29 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         // Set initial values
         audio.volume = volume;
         audio.playbackRate = playbackRate;
+        
+        // Aggressive metadata preloading for duration
+        audio.preload = "metadata";
+        audio.autoplay = false;
 
         // If audio is already loaded (e.g. from cache)
         if (audio.readyState >= 2) {
             handleLoadedMetadata();
         }
+        
+        // Force metadata reload when audio URL changes
+        if (audioUrl && audio.src !== audioUrl) {
+            setIsLoading(true);
+            setDuration(0);
+            setCurrentTime(0);
+            setIsPlaying(false);
+            audio.load();
+        }
 
         return () => {
             audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
+            audio.removeEventListener("durationchange", handleDurationChange);
+            audio.removeEventListener("timeupdate", handleTimeUpdate);
             audio.removeEventListener("ended", handleEnded);
             audio.removeEventListener("play", handlePlay);
             audio.removeEventListener("pause", handlePause);
@@ -467,28 +615,107 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         };
     }, [volume, playbackRate]);
 
+    // Handle audio URL changes
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio || !audioUrl) {
+            console.log("🔄 Audio URL change skipped:", { hasAudio: !!audio, audioUrl: !!audioUrl });
+            return;
+        }
+
+        console.log("🔄 Audio URL changed");
+        
+        // Reset state
+        setDuration(0);
+        setCurrentTime(0);
+        setIsPlaying(false);
+        setIsLoading(true);
+        setError(null);
+        
+        // Update audio source and force immediate metadata loading
+        audio.src = audioUrl;
+        audio.load();
+        
+        // Immediately check for metadata if already available
+        if (audio.readyState >= 1) {
+            console.log("📊 Metadata immediately available");
+            if (audio.duration && isFinite(audio.duration) && audio.duration > 0) {
+                setDuration(audio.duration);
+                setIsLoading(false);
+                setCurrentTime(0);
+                console.log("✅ Duration set immediately:", audio.duration);
+            }
+        }
+        
+        console.log("📊 State after URL change:", {
+            isLoading: true,
+            duration: 0,
+            currentTime: 0,
+            readyState: audio.readyState
+        });
+    }, [audioUrl]);
+
     const togglePlayPause = useCallback(() => {
         const audio = audioRef.current;
-        if (!audio || error) return;
+        
+        // More lenient conditions - only block for critical issues
+        if (!audio || error) {
+            console.log("Play/pause blocked:", { hasAudio: !!audio, error });
+            return;
+        }
+        
+        // Allow play even if duration isn't loaded yet (some audio formats load duration later)
+        if (isLoading && audio.readyState < 2) {
+            console.log("Play/pause blocked: Audio not ready yet", { 
+                isLoading, 
+                readyState: audio.readyState, 
+                duration 
+            });
+            return;
+        }
 
         if (isPlaying) {
             audio.pause();
         } else {
+            // Ensure playback rate is correct before playing
+            audio.playbackRate = playbackRate;
             audio.play().catch((e) => {
                 console.error("Error playing audio:", e);
                 setError("Could not play audio.");
             });
         }
-    }, [isPlaying, error]);
+    }, [isPlaying, error, isLoading, duration, playbackRate]);
 
     const handleSeekChange = useCallback(
         (value: number) => {
             const audio = audioRef.current;
-            if (!audio || error) return;
-            audio.currentTime = value;
-            setCurrentTime(value);
+            if (!audio || error || !isFinite(value) || value < 0) {
+                console.log("Seek change ignored:", { hasAudio: !!audio, error, value });
+                return;
+            }
+            
+            // Clamp the value to valid range
+            const clampedValue = Math.max(0, Math.min(duration || 0, value));
+            console.log("Seeking to:", clampedValue, "duration:", duration);
+            
+            try {
+                audio.currentTime = clampedValue;
+                setCurrentTime(clampedValue);
+                console.log("✅ Seek successful:", {
+                    requested: value,
+                    clamped: clampedValue,
+                    actualCurrentTime: audio.currentTime,
+                    duration: duration
+                });
+            } catch (e) {
+                console.error("❌ Error seeking audio:", e, {
+                    requested: value,
+                    clamped: clampedValue,
+                    duration: duration
+                });
+            }
         },
-        [error]
+        [error, duration]
     );
 
     const handleVolumeChange = useCallback((value: number) => {
@@ -508,15 +735,19 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
     const handleCanvasClick = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
-            if (!interact || !audioRef.current || duration === 0 || error) return;
+            if (!interact || !audioRef.current || !isFinite(duration) || duration <= 0 || error) {
+                console.log("Canvas click ignored:", { interact, hasAudio: !!audioRef.current, duration, error });
+                return;
+            }
 
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
 
             const x = e.clientX - rect.left;
-            const clickProgress = x / rect.width;
+            const clickProgress = Math.max(0, Math.min(1, x / rect.width)); // Clamp between 0 and 1
             const newTime = clickProgress * duration;
 
+            console.log("Canvas click seeking:", { clickProgress, newTime, duration });
             handleSeekChange(newTime);
         },
         [interact, duration, error, handleSeekChange]
@@ -572,6 +803,13 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         return () => window.removeEventListener("keydown", handleKeyPress);
     }, [currentTime, duration, togglePlayPause, handleSeekChange]);
 
+    // Log important state changes
+    useEffect(() => {
+        if (duration > 0 && !isLoading) {
+            console.log("🎵 Audio ready:", { duration, currentTime });
+        }
+    }, [duration, isLoading, currentTime]);
+
     const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
     return (
         <div
@@ -617,8 +855,16 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             variant="ghost"
                             className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-10 h-10 flex-shrink-0"
                             onClick={togglePlayPause}
-                            disabled={isLoading || !!error}
-                            title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                            disabled={!!error}
+                            title={
+                                error 
+                                    ? "Error loading audio"
+                                    : isLoading 
+                                        ? "Loading audio..."
+                                        : isPlaying 
+                                            ? "Pause (Space)" 
+                                            : "Play (Space)"
+                            }
                         >
                             {isPlaying ? (
                                 <Pause className="w-5 h-5" />
