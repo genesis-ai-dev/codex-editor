@@ -71,6 +71,8 @@ import {
     Save,
     RotateCcw,
     Clock,
+    ArrowLeft,
+    Upload,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
@@ -247,6 +249,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const audioChunksRef = useRef<Blob[]>([]);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+    const [showRecorder, setShowRecorder] = useState(false);
 
     // Transcription state
     const [isTranscribing, setIsTranscribing] = useState(false);
@@ -849,6 +852,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 // Save audio to cell data
                 saveAudioToCell(blob);
+                setShowRecorder(false);
             };
 
             recorder.start();
@@ -1046,7 +1050,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (file && file.type.startsWith("audio/")) {
+
+        if (file && (file.type.startsWith("audio/") || file.type.startsWith("video/"))) {
+            console.log("Valid audio file detected, setting audio blob");
             setAudioBlob(file);
 
             // Clean up old URL if exists
@@ -1059,6 +1065,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Save to cell
             saveAudioToCell(file);
+            // After saving, return to playback view
+            setShowRecorder(false);
         } else {
             setRecordingStatus("Please select a valid audio file");
         }
@@ -1910,7 +1918,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                            {!audioUrl ||
+                            {showRecorder ||
+                            !audioUrl ||
                             !(
                                 audioUrl.startsWith("blob:") ||
                                 audioUrl.startsWith("data:") ||
@@ -1918,56 +1927,63 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             ) ? (
                                 <div className="space-y-4">
                                     <p className="text-center text-muted-foreground">
-                                        No audio attached to this cell yet.
+                                        {audioUrl
+                                            ? "Record or upload a new file to replace the current audio."
+                                            : "No audio attached to this cell yet."}
                                     </p>
                                     <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                                        <Button
-                                            onClick={isRecording ? stopRecording : startRecording}
-                                            variant={isRecording ? "secondary" : "default"}
-                                            className={isRecording ? "animate-pulse" : ""}
-                                        >
-                                            {isRecording ? (
-                                                <>
-                                                    <Square className="mr-2 h-4 w-4" />
-                                                    Stop Recording
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <CircleDotDashed className="mr-2 h-4 w-4" />
-                                                    Start Recording
-                                                </>
-                                            )}
-                                        </Button>
-
-                                        <div className="flex items-center gap-2">
-                                            <Separator orientation="vertical" className="h-8" />
-                                            <span className="text-sm text-muted-foreground">
-                                                or
-                                            </span>
-                                            <Separator orientation="vertical" className="h-8" />
-                                        </div>
-
-                                        <label className="cursor-pointer">
-                                            <input
-                                                type="file"
-                                                accept="audio/*"
-                                                onChange={handleFileUpload}
-                                                className="sr-only"
-                                            />
-                                            <Button variant="outline" asChild>
-                                                <span>
-                                                    <FolderOpen className="mr-2 h-4 w-4" />
-                                                    Upload Audio File
-                                                </span>
+                                        <div className="flex items-center gap-2 mt-4">
+                                            <Button
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
+                                                variant={isRecording ? "secondary" : "default"}
+                                                className={isRecording ? "animate-pulse" : ""}
+                                                style={{ flex: 2 }}
+                                            >
+                                                {isRecording ? (
+                                                    <>
+                                                        <Square className="mr-2 h-4 w-4" />
+                                                        Stop Recording
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CircleDotDashed className="mr-2 h-4 w-4" />
+                                                        Start Recording
+                                                    </>
+                                                )}
                                             </Button>
-                                        </label>
+
+                                            <label className="cursor-pointer">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/*,video/*"
+                                                    onChange={handleFileUpload}
+                                                    className="sr-only"
+                                                />
+                                                <Button variant="outline" asChild>
+                                                    <span>
+                                                        <FolderOpen className="mr-2 h-4 w-4" />
+                                                        <Upload className="mr-2 h-4 w-4" />
+                                                    </span>
+                                                </Button>
+                                            </label>
+                                        </div>
+                                        {audioUrl && !isRecording && (
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => setShowRecorder(false)}
+                                            >
+                                                <ArrowLeft className="mr-2 h-4 w-4" />
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
                                     {/* New Waveform Component with integrated transcription */}
                                     <AudioWaveformWithTranscription
-                                        audioUrl={audioUrl}
+                                        audioUrl={audioUrl || ""}
                                         audioBlob={audioBlob}
                                         transcription={savedTranscription}
                                         isTranscribing={isTranscribing}
@@ -2002,7 +2018,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             </>
                                         ) : (
-                                            <div className="grid grid-cols-3 gap-2 w-full">
+                                            <div className="flex flex-wrap gap-2 w-full">
                                                 <Button
                                                     onClick={() => setConfirmingDiscard(true)}
                                                     variant="outline"
@@ -2024,31 +2040,17 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     <span className="inline ml-2">History</span>
                                                 </Button>
                                                 <Button
-                                                    onClick={
-                                                        isRecording ? stopRecording : startRecording
-                                                    }
+                                                    onClick={() => setShowRecorder(true)}
                                                     variant="outline"
                                                     size="sm"
-                                                    className={cn(
-                                                        "w-full",
-                                                        isRecording && "animate-pulse"
-                                                    )}
+                                                    className={cn("w-full")}
                                                 >
-                                                    {isRecording ? (
-                                                        <>
-                                                            <Square className="h-4 w-4" />
-                                                            <span className="inline ml-2">
-                                                                Stop
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Mic className="h-4 w-4" />
-                                                            <span className="inline ml-2">
-                                                                Re-record / Load New
-                                                            </span>
-                                                        </>
-                                                    )}
+                                                    <>
+                                                        <Mic className="h-4 w-4" />
+                                                        <span className="inline ml-2">
+                                                            Re-record / Upload New
+                                                        </span>
+                                                    </>
                                                 </Button>
                                             </div>
                                         )}
