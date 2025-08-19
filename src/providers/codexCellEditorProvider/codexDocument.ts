@@ -1184,6 +1184,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // Auto-select new audio recordings (overrides any existing selection)
         if (attachmentData.type === "audio" && cell.metadata) {
             cell.metadata.selectedAudioId = attachmentId;
+            cell.metadata.selectionTimestamp = Date.now();
         }
 
         // Record the edit
@@ -1231,6 +1232,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         // If we're deleting the selected audio, clear the selection (fall back to automatic)
         if (attachment.type === "audio" && cell.metadata?.selectedAudioId === attachmentId) {
             delete cell.metadata.selectedAudioId;
+            delete cell.metadata.selectionTimestamp;
         }
 
         // Record the edit
@@ -1401,8 +1403,9 @@ export class CodexCellDocument implements vscode.CustomDocument {
             throw new Error(`Cannot select deleted audio attachment ${audioId}`);
         }
 
-        // Set the explicit selection
+        // Set the explicit selection with timestamp
         cell.metadata.selectedAudioId = audioId;
+        cell.metadata.selectionTimestamp = Date.now();
 
         // Record the edit
         this._edits.push({
@@ -1438,6 +1441,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
         }
 
         delete cell.metadata.selectedAudioId;
+        delete cell.metadata.selectionTimestamp;
 
         // Record the edit
         this._edits.push({
@@ -1486,6 +1490,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                     selectedAttachment.isDeleted) {
 
                     delete cell.metadata.selectedAudioId;
+                    delete cell.metadata.selectionTimestamp;
                     hasChanges = true;
                 }
             }

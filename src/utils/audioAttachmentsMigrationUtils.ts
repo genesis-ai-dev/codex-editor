@@ -444,6 +444,12 @@ export class AudioAttachmentsMigrator {
                     attachment.isDeleted = false;
 
                     hasChanges = true;
+
+                    // If this attachment is currently selected, set selectionTimestamp
+                    if (cell.metadata?.selectedAudioId === attachmentId &&
+                        !cell.metadata.selectionTimestamp) {
+                        cell.metadata.selectionTimestamp = timestamp;
+                    }
                 }
             }
 

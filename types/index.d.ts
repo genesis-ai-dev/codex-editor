@@ -1141,6 +1141,7 @@ type CustomCellMetaData = {
     };
     cellLabel?: string;
     selectedAudioId?: string; // Points to attachment key for explicit audio selection
+    selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
 };
 
 type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {
