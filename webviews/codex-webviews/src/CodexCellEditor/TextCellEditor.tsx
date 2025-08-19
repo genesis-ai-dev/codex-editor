@@ -1066,9 +1066,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
         const handleAudioResponse = async (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments list (no longer set audioUrl from file path)
+            // Handle audio attachments list - request fresh audio data when attachments change
             if (message.type === "providerSendsAudioAttachments") {
-                // No-op: we only care about actual audio data
+                // When attachments change (e.g., selection from history), request updated audio data
+                const messageContent: EditorPostMessages = {
+                    command: "requestAudioForCell",
+                    content: { cellId: cellMarkers[0] },
+                };
+                window.vscodeApi.postMessage(messageContent);
             }
 
             // Handle specific audio data
