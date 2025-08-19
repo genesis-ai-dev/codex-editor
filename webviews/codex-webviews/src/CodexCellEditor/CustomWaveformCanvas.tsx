@@ -319,16 +319,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
         const barCount = Math.min(peaks.length, numberOfBars);
         const progress = duration > 0 ? currentTime / duration : 0;
-        
-        // Debug progress calculation occasionally
-        if (Math.random() < 0.01) { // 1% chance to log
-            console.log("📊 Progress calculation:", {
-                currentTime: currentTime.toFixed(2),
-                duration: duration.toFixed(2),
-                progress: progress.toFixed(3),
-                progressPercent: (progress * 100).toFixed(1) + "%"
-            });
-        }
 
         // Draw bars
         for (let i = 0; i < barCount; i++) {
@@ -507,14 +497,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             }
         };
         const handleEnded = () => setIsPlaying(false);
-        const handlePlay = () => {
-            console.log("🎵 Audio play event");
-            setIsPlaying(true);
-        };
-        const handlePause = () => {
-            console.log("⏸️ Audio pause event");
-            setIsPlaying(false);
-        };
+        const handlePlay = () => setIsPlaying(true);
+        const handlePause = () => setIsPlaying(false);
         const handleError = () => {
             setError("Error loading audio. Please try a different file.");
             setIsLoading(false);
@@ -561,10 +545,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             const newTime = audio.currentTime;
             if (isFinite(newTime) && newTime >= 0) {
                 setCurrentTime(newTime);
-                // Reduced logging frequency to avoid spam
-                if (Math.random() < 0.1) { // 10% chance to log
-                    console.log("Time update:", newTime.toFixed(2), "duration:", audio.duration?.toFixed(2));
-                }
             }
         };
 
@@ -619,7 +599,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     useEffect(() => {
         const audio = audioRef.current;
         if (!audio || !audioUrl) {
-            console.log("🔄 Audio URL change skipped:", { hasAudio: !!audio, audioUrl: !!audioUrl });
             return;
         }
 
@@ -638,7 +617,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         
         // Immediately check for metadata if already available
         if (audio.readyState >= 1) {
-            console.log("📊 Metadata immediately available");
             if (audio.duration && isFinite(audio.duration) && audio.duration > 0) {
                 setDuration(audio.duration);
                 setIsLoading(false);
@@ -646,13 +624,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 console.log("✅ Duration set immediately:", audio.duration);
             }
         }
-        
-        console.log("📊 State after URL change:", {
-            isLoading: true,
-            duration: 0,
-            currentTime: 0,
-            readyState: audio.readyState
-        });
     }, [audioUrl]);
 
     const togglePlayPause = useCallback(() => {
@@ -660,17 +631,11 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         
         // More lenient conditions - only block for critical issues
         if (!audio || error) {
-            console.log("Play/pause blocked:", { hasAudio: !!audio, error });
             return;
         }
         
         // Allow play even if duration isn't loaded yet (some audio formats load duration later)
         if (isLoading && audio.readyState < 2) {
-            console.log("Play/pause blocked: Audio not ready yet", { 
-                isLoading, 
-                readyState: audio.readyState, 
-                duration 
-            });
             return;
         }
 
@@ -690,29 +655,17 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         (value: number) => {
             const audio = audioRef.current;
             if (!audio || error || !isFinite(value) || value < 0) {
-                console.log("Seek change ignored:", { hasAudio: !!audio, error, value });
                 return;
             }
             
             // Clamp the value to valid range
             const clampedValue = Math.max(0, Math.min(duration || 0, value));
-            console.log("Seeking to:", clampedValue, "duration:", duration);
             
             try {
                 audio.currentTime = clampedValue;
                 setCurrentTime(clampedValue);
-                console.log("✅ Seek successful:", {
-                    requested: value,
-                    clamped: clampedValue,
-                    actualCurrentTime: audio.currentTime,
-                    duration: duration
-                });
             } catch (e) {
-                console.error("❌ Error seeking audio:", e, {
-                    requested: value,
-                    clamped: clampedValue,
-                    duration: duration
-                });
+                console.error("Error seeking audio:", e);
             }
         },
         [error, duration]
@@ -736,7 +689,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     const handleCanvasClick = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
             if (!interact || !audioRef.current || !isFinite(duration) || duration <= 0 || error) {
-                console.log("Canvas click ignored:", { interact, hasAudio: !!audioRef.current, duration, error });
                 return;
             }
 
@@ -747,7 +699,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             const clickProgress = Math.max(0, Math.min(1, x / rect.width)); // Clamp between 0 and 1
             const newTime = clickProgress * duration;
 
-            console.log("Canvas click seeking:", { clickProgress, newTime, duration });
             handleSeekChange(newTime);
         },
         [interact, duration, error, handleSeekChange]

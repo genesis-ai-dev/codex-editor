@@ -1052,7 +1052,6 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     // Preload audio when audio tab is accessed
     const preloadAudioForTab = useCallback(() => {
-        console.log("🎵 Preloading audio for tab access");
         const messageContent: EditorPostMessages = {
             command: "requestAudioForCell",
             content: { cellId: cellMarkers[0] },
