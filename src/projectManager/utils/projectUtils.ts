@@ -1083,6 +1083,19 @@ export { stageAndCommitAllAndSync };
  * Rewrites the .gitignore file if it doesn't match the standard content exactly
  */
 export async function ensureGitignoreIsUpToDate(): Promise<void> {
+    // Verify Frontier Authentication extension version before proceeding
+    const requiredFrontierVersion = "0.4.13";
+    const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+    const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
+    if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
+        const msg = installedVersion
+            ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`
+            : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`;
+        console.warn(msg);
+        vscode.window.showWarningMessage(msg);
+        return;
+    }
+
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         console.error("No workspace folder found.");
