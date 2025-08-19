@@ -602,6 +602,18 @@ export type EditorPostMessages =
     | { command: "updateCachedChapter"; content: number; }
     | { command: "webviewReady"; }
     | { command: "getContent"; }
+    | { command: "getPreferredEditorTab"; }
+    | {
+        command: "setPreferredEditorTab";
+        content: {
+            tab:
+            | "source"
+            | "backtranslation"
+            | "footnotes"
+            | "timestamps"
+            | "audio";
+        };
+    }
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
@@ -813,6 +825,15 @@ type EditorReceiveMessages =
         content: QuillCellContent[];
         isSourceText: boolean;
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+    }
+    | {
+        type: "preferredEditorTab";
+        tab:
+        | "source"
+        | "backtranslation"
+        | "footnotes"
+        | "timestamps"
+        | "audio";
     }
     | {
         type: "providerAutocompletionState";

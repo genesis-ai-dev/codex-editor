@@ -215,6 +215,20 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [activeTab, setActiveTab] = useState<
         "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
     >("source");
+
+    // Load preferred tab from provider on mount
+    useEffect(() => {
+        const handlePreferredTab = (event: MessageEvent) => {
+            if (event.data && event.data.type === "preferredEditorTab") {
+                const preferred = event.data.tab as typeof activeTab;
+                setActiveTab(preferred);
+            }
+        };
+        window.addEventListener("message", handlePreferredTab);
+        window.vscodeApi.postMessage({ command: "getPreferredEditorTab" });
+        return () => window.removeEventListener("message", handlePreferredTab);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
@@ -1329,17 +1343,22 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 variant="default"
                                 size="icon"
                                 title={
-                                    isSaving 
-                                        ? "Saving..." 
-                                        : saveError 
-                                            ? saveRetryCount >= 3
-                                                ? `Save failed after ${saveRetryCount} attempts - Click to retry (check connection)`
-                                                : `Save failed - Click to retry ${saveRetryCount > 0 ? `(${saveRetryCount} attempts)` : ""}`
-                                            : "Save changes"
+                                    isSaving
+                                        ? "Saving..."
+                                        : saveError
+                                        ? saveRetryCount >= 3
+                                            ? `Save failed after ${saveRetryCount} attempts - Click to retry (check connection)`
+                                            : `Save failed - Click to retry ${
+                                                  saveRetryCount > 0
+                                                      ? `(${saveRetryCount} attempts)`
+                                                      : ""
+                                              }`
+                                        : "Save changes"
                                 }
                                 disabled={(isSaving && !saveError) || isEditingFootnoteInline}
                                 className={cn(
-                                    saveError && "ring-2 ring-red-500 ring-offset-1 hover:ring-red-600"
+                                    saveError &&
+                                        "ring-2 ring-red-500 ring-offset-1 hover:ring-red-600"
                                 )}
                             >
                                 {isSaving && !saveError ? (
@@ -1443,9 +1462,14 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             | "footnotes"
                             | "timestamps"
                             | "audio";
-                        
+
                         setActiveTab(tabValue);
-                        
+                        // Persist preferred tab in VS Code workspace cache
+                        window.vscodeApi.postMessage({
+                            command: "setPreferredEditorTab",
+                            content: { tab: tabValue },
+                        });
+
                         // Preload audio when audio tab is selected
                         if (tabValue === "audio") {
                             preloadAudioForTab();
@@ -1997,9 +2021,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     className="w-full"
                                                 >
                                                     <History className="h-4 w-4" />
-                                                    <span className="inline ml-2">
-                                                        History
-                                                    </span>
+                                                    <span className="inline ml-2">History</span>
                                                 </Button>
                                                 <Button
                                                     onClick={
@@ -2081,7 +2103,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </TabsContent>
                 </Tabs>
             </CardContent>
-            
+
             {/* Audio History Viewer Modal */}
             {showAudioHistory && (
                 <AudioHistoryViewer

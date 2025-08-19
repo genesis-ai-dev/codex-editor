@@ -711,6 +711,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         await this.context.workspaceState.update(key, chapter);
     }
 
+    // Preferred editor tab helpers (workspace-scoped)
+    public getPreferredEditorTab(): "source" | "backtranslation" | "footnotes" | "timestamps" | "audio" {
+        const key = `codex-editor-preferred-tab`;
+        return this.context.workspaceState.get(
+            key,
+            "source"
+        ) as "source" | "backtranslation" | "footnotes" | "timestamps" | "audio";
+    }
+
+    public async updatePreferredEditorTab(
+        tab: "source" | "backtranslation" | "footnotes" | "timestamps" | "audio"
+    ) {
+        const key = `codex-editor-preferred-tab`;
+        await this.context.workspaceState.update(key, tab);
+    }
+
     private getHtmlForWebview(
         webview: vscode.Webview,
         document: CodexCellDocument,

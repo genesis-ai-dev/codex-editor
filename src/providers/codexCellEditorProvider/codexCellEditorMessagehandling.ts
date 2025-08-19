@@ -88,6 +88,29 @@ interface MessageHandlerContext {
 const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<void> | void> = {
     webviewReady: () => { },
 
+    // Return the user's preferred editor tab (workspace-scoped), default to "source"
+    getPreferredEditorTab: async ({ webviewPanel, provider }) => {
+        try {
+            const tab = provider.getPreferredEditorTab();
+            provider.postMessageToWebview(webviewPanel, {
+                type: "preferredEditorTab",
+                tab,
+            });
+        } catch (error) {
+            console.error("Error getting preferred editor tab:", error);
+        }
+    },
+
+    // Update the user's preferred editor tab
+    setPreferredEditorTab: async ({ event, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "setPreferredEditorTab"; }>;
+        try {
+            provider.updatePreferredEditorTab(typedEvent.content.tab);
+        } catch (error) {
+            console.error("Error setting preferred editor tab:", error);
+        }
+    },
+
     addWord: async ({ event, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "addWord"; }>;
         await vscode.commands.executeCommand("spellcheck.addWord", typedEvent.words);

@@ -66,21 +66,6 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                             <line x1="12" y1="17" x2="12.01" y2="17" />
                         </svg>
                     </div>
-                    <div className="text-sm text-[var(--vscode-editorWarning-foreground)]">
-                        <p className="font-medium">
-                            Audio files are currently local only (cloud sync coming soon!). If you
-                            get an error trying to record, ensure you download the new app from{" "}
-                            <a
-                                href="https://codexeditor.app"
-                                className="text-[var(--vscode-textLink-foreground)] hover:underline"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                            >
-                                codexeditor.app
-                            </a>{" "}
-                            (at least v 1.99.23780).
-                        </p>
-                    </div>
                 </div>
             </div>
 
