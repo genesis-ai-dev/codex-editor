@@ -70,40 +70,6 @@ function isValidConflict(conflict: any): conflict is ConflictFile {
 }
 
 /**
- * Merges attachments dictionaries from two cells by choosing, for each key,
- * the entry with the latest updatedAt timestamp.
- */
-function mergeAttachments(
-    ourAttachments?: Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }>,
-    theirAttachments?: Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }>
-): Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }> | undefined {
-    if (!ourAttachments && !theirAttachments) return undefined;
-
-    const result: Record<string, { url: string; type: string; createdAt: number; updatedAt: number; isDeleted: boolean; }> = {};
-
-    const ourKeys = Object.keys(ourAttachments || {});
-    const theirKeys = Object.keys(theirAttachments || {});
-    const allKeys = new Set<string>([...ourKeys, ...theirKeys]);
-
-    allKeys.forEach((key) => {
-        const ours = ourAttachments?.[key];
-        const theirs = theirAttachments?.[key];
-
-        if (ours && theirs) {
-            const ourUpdatedAt = typeof ours.updatedAt === 'number' ? ours.updatedAt : -Infinity;
-            const theirUpdatedAt = typeof theirs.updatedAt === 'number' ? theirs.updatedAt : -Infinity;
-            result[key] = theirUpdatedAt > ourUpdatedAt ? theirs : ours;
-        } else if (ours) {
-            result[key] = ours;
-        } else if (theirs) {
-            result[key] = theirs;
-        }
-    });
-
-    return result;
-}
-
-/**
  * Generates a unique ID for comments
  */
 function generateCommentId(): string {
@@ -589,6 +555,19 @@ export async function resolveCodexCustomMerge(
             }
             // If only our cell has a cellLabel or neither has one, we'll use ours (which might be undefined)
 
+            // Merge attachments intelligently
+            const mergedAttachments = mergeAttachments(
+                ourCell.metadata?.attachments,
+                theirCell.metadata?.attachments
+            );
+
+            // Resolve selection conflicts
+            const { selectedAudioId, selectionTimestamp } = resolveAudioSelection(
+                ourCell.metadata,
+                theirCell.metadata,
+                mergedAttachments
+            );
+
             // Create merged cell with combined history
             const mergedCell: CodexCell = {
                 ...ourCell,
@@ -600,8 +579,9 @@ export async function resolveCodexCustomMerge(
                     id: cellId,
                     edits: finalEdits,
                     type: ourCell.metadata?.type || CodexCellTypes.TEXT,
-                    // Merge attachments choosing latest by updatedAt per key
-                    attachments: mergeAttachments(ourCell.metadata?.attachments, theirCell.metadata?.attachments),
+                    attachments: mergedAttachments,
+                    selectedAudioId,
+                    selectionTimestamp,
                 },
             };
 
@@ -976,6 +956,139 @@ export async function resolveCommentThreadsConflict(
 }
 
 
+
+/**
+ * Merges audio attachments from two cell versions, preserving all recordings
+ * @param ourAttachments Our version of attachments
+ * @param theirAttachments Their version of attachments  
+ * @returns Merged attachments object
+ */
+function mergeAttachments(
+    ourAttachments?: { [key: string]: any; },
+    theirAttachments?: { [key: string]: any; }
+): { [key: string]: any; } | undefined {
+    if (!ourAttachments && !theirAttachments) {
+        return undefined;
+    }
+
+    const merged: { [key: string]: any; } = {};
+
+    // Add all our attachments
+    if (ourAttachments) {
+        Object.entries(ourAttachments).forEach(([id, attachment]) => {
+            merged[id] = { ...attachment };
+        });
+    }
+
+    // Add their attachments, resolving conflicts by updatedAt timestamp
+    if (theirAttachments) {
+        Object.entries(theirAttachments).forEach(([id, theirAttachment]) => {
+            if (!merged[id]) {
+                // New attachment from their side
+                merged[id] = { ...theirAttachment };
+            } else {
+                // Conflict: same attachment ID exists in both versions
+                const ourAttachment = merged[id];
+
+                // Use the version with the later updatedAt timestamp
+                if (theirAttachment.updatedAt > ourAttachment.updatedAt) {
+                    merged[id] = { ...theirAttachment };
+                    debugLog(`Using their version of attachment ${id} (newer timestamp)`);
+                } else {
+                    debugLog(`Keeping our version of attachment ${id} (newer timestamp)`);
+                }
+            }
+        });
+    }
+
+    return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * Resolves audio selection conflicts using selection timestamps
+ * @param ourMetadata Our cell metadata
+ * @param theirMetadata Their cell metadata
+ * @param mergedAttachments The merged attachments object
+ * @returns Resolved selection state
+ */
+function resolveAudioSelection(
+    ourMetadata?: any,
+    theirMetadata?: any,
+    mergedAttachments?: { [key: string]: any; }
+): { selectedAudioId?: string; selectionTimestamp?: number; } {
+    const ourSelection = ourMetadata?.selectedAudioId;
+    const ourTimestamp = ourMetadata?.selectionTimestamp;
+    const theirSelection = theirMetadata?.selectedAudioId;
+    const theirTimestamp = theirMetadata?.selectionTimestamp;
+
+    // If neither has a selection, return undefined
+    if (!ourSelection && !theirSelection) {
+        return {};
+    }
+
+    // If only one has a selection, use that one (if valid)
+    if (ourSelection && !theirSelection) {
+        if (isValidSelection(ourSelection, mergedAttachments)) {
+            return { selectedAudioId: ourSelection, selectionTimestamp: ourTimestamp };
+        }
+        return {};
+    }
+
+    if (theirSelection && !ourSelection) {
+        if (isValidSelection(theirSelection, mergedAttachments)) {
+            return { selectedAudioId: theirSelection, selectionTimestamp: theirTimestamp };
+        }
+        return {};
+    }
+
+    // Both have selections - use the more recent one
+    if (ourSelection && theirSelection) {
+        const ourTime = ourTimestamp || 0;
+        const theirTime = theirTimestamp || 0;
+
+        if (theirTime > ourTime) {
+            // Their selection is more recent
+            if (isValidSelection(theirSelection, mergedAttachments)) {
+                debugLog(`Using their audio selection ${theirSelection} (newer timestamp)`);
+                return { selectedAudioId: theirSelection, selectionTimestamp: theirTimestamp };
+            }
+        } else {
+            // Our selection is more recent or same time (prefer ours)
+            if (isValidSelection(ourSelection, mergedAttachments)) {
+                debugLog(`Keeping our audio selection ${ourSelection} (newer or equal timestamp)`);
+                return { selectedAudioId: ourSelection, selectionTimestamp: ourTimestamp };
+            }
+        }
+
+        // If the preferred selection is invalid, try the other one
+        const fallbackSelection = theirTime > ourTime ? ourSelection : theirSelection;
+        const fallbackTimestamp = theirTime > ourTime ? ourTimestamp : theirTimestamp;
+
+        if (isValidSelection(fallbackSelection, mergedAttachments)) {
+            return { selectedAudioId: fallbackSelection, selectionTimestamp: fallbackTimestamp };
+        }
+    }
+
+    // No valid selection found
+    return {};
+}
+
+/**
+ * Checks if a selection is valid (attachment exists and isn't deleted)
+ * @param selectedId The selected attachment ID
+ * @param attachments The attachments object
+ * @returns True if selection is valid
+ */
+function isValidSelection(selectedId: string, attachments?: { [key: string]: any; }): boolean {
+    if (!attachments || !selectedId) {
+        return false;
+    }
+
+    const attachment = attachments[selectedId];
+    return attachment &&
+        attachment.type === "audio" &&
+        !attachment.isDeleted;
+}
 
 /**
  * Resolves conflicts in smart_edits.json files

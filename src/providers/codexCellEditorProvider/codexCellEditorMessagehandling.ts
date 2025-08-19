@@ -855,57 +855,84 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     requestAudioForCell: async ({ event, document, webviewPanel }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "requestAudioForCell"; }>;
         const cellId = typedEvent.content.cellId;
+        const audioId = (typedEvent.content as any).audioId; // Optional specific audio ID
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
         if (!workspaceFolder) {
             debug("No workspace folder found");
             return;
         }
 
-        // Get the document data to check cell metadata
-        const documentText = document.getText();
-        const notebookData: CodexNotebookAsJSONData = JSON.parse(documentText);
+        try {
+            let targetAttachment;
+            let targetAttachmentId;
 
-        // Find the specific cell
-        if (notebookData && Array.isArray(notebookData.cells)) {
-            const cell = notebookData.cells.find((c) => c.metadata?.id === cellId);
+            if (audioId) {
+                // Specific audio ID requested - get that exact attachment
+                const documentText = document.getText();
+                const notebookData = JSON.parse(documentText);
+                const cell = notebookData.cells.find((c: any) => c.metadata?.id === cellId);
 
-            if (cell?.metadata?.attachments) {
-                // Check for audio attachments in metadata
-                for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
-                    if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
-                        const attachmentPath = (attachment as any).url;
-                        const fullPath = path.isAbsolute(attachmentPath)
-                            ? attachmentPath
-                            : path.join(workspaceFolder.uri.fsPath, attachmentPath);
-
-                        if (await pathExists(fullPath)) {
-                            const ext = path.extname(fullPath).toLowerCase();
-                            const mimeType = ext === ".webm" ? "audio/webm" :
-                                ext === ".mp3" ? "audio/mp3" :
-                                    ext === ".m4a" ? "audio/mp4" :
-                                        ext === ".ogg" ? "audio/ogg" : "audio/wav";
-
-                            const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
-                            const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
-
-                            safePostMessageToPanel(webviewPanel, {
-                                type: "providerSendsAudioData",
-                                content: {
-                                    cellId: cellId,
-                                    audioId: attachmentId,
-                                    audioData: base64Data,
-                                    createdAt: attachment.createdAt,
-                                    updatedAt: attachment.updatedAt,
-                                    isDeleted: attachment.isDeleted
-                                }
-                            });
-
-                            debug("Sent audio data for cell:", cellId);
-                            return;
-                        }
-                    }
+                if (cell?.metadata?.attachments?.[audioId]) {
+                    targetAttachment = cell.metadata.attachments[audioId];
+                    targetAttachmentId = audioId;
+                }
+            } else {
+                // No specific ID - use the currently selected audio (respects selectedAudioId)
+                const currentAttachment = document.getCurrentAttachment(cellId, "audio");
+                if (currentAttachment) {
+                    targetAttachment = currentAttachment.attachment;
+                    targetAttachmentId = currentAttachment.attachmentId;
                 }
             }
+
+            if (targetAttachment && targetAttachmentId) {
+                const attachmentPath = targetAttachment.url;
+                const fullPath = path.isAbsolute(attachmentPath)
+                    ? attachmentPath
+                    : path.join(workspaceFolder.uri.fsPath, attachmentPath);
+
+                if (await pathExists(fullPath)) {
+                    const ext = path.extname(fullPath).toLowerCase();
+                    const mimeType = ext === ".webm" ? "audio/webm" :
+                        ext === ".mp3" ? "audio/mp3" :
+                            ext === ".m4a" ? "audio/mp4" :
+                                ext === ".ogg" ? "audio/ogg" : "audio/wav";
+
+                    const fileData = await vscode.workspace.fs.readFile(vscode.Uri.file(fullPath));
+                    const base64Data = `data:${mimeType};base64,${Buffer.from(fileData).toString('base64')}`;
+
+                    safePostMessageToPanel(webviewPanel, {
+                        type: "providerSendsAudioData",
+                        content: {
+                            cellId: cellId,
+                            audioId: targetAttachmentId,
+                            audioData: base64Data,
+                            transcription: targetAttachment.transcription || null // Include transcription if available
+                        }
+                    });
+
+                    debug("Sent audio data for cell:", cellId, "audioId:", targetAttachmentId);
+                    return;
+                } else {
+                    debug("Audio file not found:", fullPath);
+                }
+            }
+
+            // If no audio found and no specific audioId requested, send empty response
+            if (!audioId) {
+                safePostMessageToPanel(webviewPanel, {
+                    type: "providerSendsAudioData",
+                    content: {
+                        cellId: cellId,
+                        audioId: null,
+                        audioData: null
+                    }
+                });
+                debug("No current audio attachment found for cell:", cellId);
+                return;
+            }
+        } catch (error) {
+            console.error("Error in requestAudioForCell:", error);
         }
 
         // If no attachment in metadata, check filesystem for legacy files
@@ -1048,33 +1075,8 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             audioId: typedEvent.content.audioId
         });
 
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-        if (!workspaceFolder) {
-            throw new Error("No workspace folder found");
-        }
-
-        // Soft delete: Mark the attachment as deleted instead of removing files
-        const documentText = document.getText();
-        const notebookData = JSON.parse(documentText);
-        const cell = notebookData.cells?.find((c: any) => c.metadata?.id === typedEvent.content.cellId);
-        const attachments = cell?.metadata?.attachments;
-
-        if (attachments && attachments[typedEvent.content.audioId]) {
-            // Update the attachment metadata to mark as deleted
-            const currentAttachment = attachments[typedEvent.content.audioId];
-            const updatedAttachment = {
-                ...currentAttachment,
-                isDeleted: true,
-                updatedAt: Date.now()
-            };
-
-            await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, updatedAttachment);
-            debug("Marked audio attachment as deleted:", {
-                cellId: typedEvent.content.cellId,
-                audioId: typedEvent.content.audioId,
-                updatedAt: updatedAttachment.updatedAt
-            });
-        }
+        // Soft delete the attachment (set isDeleted: true) instead of hard deleting files
+        await document.softDeleteCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
 
         provider.postMessageToWebview(webviewPanel, {
             type: "audioAttachmentDeleted",
@@ -1096,7 +1098,117 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             attachments: audioCells as any,
         });
 
-        debug("Audio attachment deleted successfully");
+        debug("Audio attachment soft deleted successfully");
+    },
+
+    getAudioHistory: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "getAudioHistory"; }>;
+        console.log("getAudioHistory message received", {
+            cellId: typedEvent.content.cellId
+        });
+
+        // Clean up any invalid audio selections (safe to do now that document is loaded)
+        document.cleanupInvalidAudioSelections();
+
+        const audioHistory = document.getAttachmentHistory(typedEvent.content.cellId, "audio") || [];
+
+        // Get the current attachment to know which one is actually selected
+        const currentAttachment = document.getCurrentAttachment(typedEvent.content.cellId, "audio");
+
+        // Check if there's an explicit selection or if we're using automatic behavior
+        const explicitSelection = document.getExplicitAudioSelection(typedEvent.content.cellId);
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "audioHistoryReceived",
+            content: {
+                cellId: typedEvent.content.cellId,
+                audioHistory: audioHistory,
+                currentAttachmentId: currentAttachment?.attachmentId ?? null,
+                hasExplicitSelection: explicitSelection !== null
+            }
+        });
+
+        debug("Audio history sent successfully:", { cellId: typedEvent.content.cellId, count: audioHistory.length, currentId: currentAttachment?.attachmentId });
+    },
+
+    restoreAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "restoreAudioAttachment"; }>;
+        console.log("restoreAudioAttachment message received", {
+            cellId: typedEvent.content.cellId,
+            audioId: typedEvent.content.audioId
+        });
+
+        // Restore the attachment (set isDeleted: false)
+        await document.restoreCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "audioAttachmentRestored",
+            content: {
+                cellId: typedEvent.content.cellId,
+                audioId: typedEvent.content.audioId,
+                success: true
+            }
+        });
+
+        const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+        const audioCells: { [cellId: string]: boolean; } = {};
+        for (const cellId of Object.keys(updatedAudioAttachments)) {
+            audioCells[cellId] = true;
+        }
+
+        provider.postMessageToWebview(webviewPanel, {
+            type: "providerSendsAudioAttachments",
+            attachments: audioCells as any,
+        });
+
+        debug("Audio attachment restored successfully");
+    },
+
+    selectAudioAttachment: async ({ event, document, webviewPanel, provider }) => {
+        const typedEvent = event as Extract<EditorPostMessages, { command: "selectAudioAttachment"; }>;
+        console.log("selectAudioAttachment message received", {
+            cellId: typedEvent.content.cellId,
+            audioId: typedEvent.content.audioId
+        });
+
+        try {
+            // Select the audio attachment
+            await document.selectAudioAttachment(typedEvent.content.cellId, typedEvent.content.audioId);
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSelected",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: true
+                }
+            });
+
+            // Refresh audio attachments to reflect the new selection
+            const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
+            const audioCells: { [cellId: string]: boolean; } = {};
+            for (const cellId of Object.keys(updatedAudioAttachments)) {
+                audioCells[cellId] = true;
+            }
+
+            provider.postMessageToWebview(webviewPanel, {
+                type: "providerSendsAudioAttachments",
+                attachments: audioCells as any,
+            });
+
+            debug("Audio attachment selected successfully");
+        } catch (error) {
+            console.error("Error selecting audio attachment:", error);
+            provider.postMessageToWebview(webviewPanel, {
+                type: "audioAttachmentSelected",
+                content: {
+                    cellId: typedEvent.content.cellId,
+                    audioId: typedEvent.content.audioId,
+                    success: false,
+                    error: error instanceof Error ? error.message : String(error)
+                }
+            });
+        }
     },
 
     confirmCellMerge: async ({ event, document, webviewPanel, provider }) => {

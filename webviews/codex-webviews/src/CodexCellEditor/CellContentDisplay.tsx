@@ -77,6 +77,17 @@ const AudioPlayButton: React.FC<{
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
+            
+            // Handle audio attachments updates - request fresh audio data when attachments change
+            if (message.type === "providerSendsAudioAttachments") {
+                // When attachments change (e.g., selection from history), request updated audio data
+                vscode.postMessage({
+                    command: "requestAudioForCell",
+                    content: { cellId },
+                } as EditorPostMessages);
+                setIsLoading(true);
+            }
+            
             if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
                 if (message.content.audioData) {
                     // Clean up previous URL if exists
@@ -96,13 +107,17 @@ const AudioPlayButton: React.FC<{
                             console.error("Error converting audio data:", error);
                             setIsLoading(false);
                         });
+                } else {
+                    // No audio data - clear the audio URL and stop loading
+                    setAudioUrl(null);
+                    setIsLoading(false);
                 }
             }
         };
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [cellId]); // Remove audioUrl from dependencies to prevent re-registration
+    }, [cellId, vscode]); // Add vscode to dependencies
 
     // Clean up blob URL on unmount
     useEffect(() => {
