@@ -433,9 +433,16 @@ export class AudioAttachmentsMigrator {
                     // Extract timestamp from attachment ID
                     const timestamp = this.extractTimestampFromAttachmentId(attachmentId);
 
-                    // Update URL path from pointers to files
+                    // Update URL path to new structure
                     if (attachment.url && typeof attachment.url === 'string') {
-                        attachment.url = attachment.url.replace('/attachments/pointers/', '/attachments/files/');
+                        // Handle old direct book folder structure: .project/attachments/{BOOK}/ -> .project/attachments/files/{BOOK}/
+                        if (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) {
+                            attachment.url = attachment.url.replace('.project/attachments/', '.project/attachments/files/');
+                        }
+                        // Handle intermediate pointers structure: /attachments/pointers/ -> /attachments/files/
+                        else if (attachment.url.includes('/attachments/pointers/')) {
+                            attachment.url = attachment.url.replace('/attachments/pointers/', '/attachments/files/');
+                        }
                     }
 
                     // Add missing fields
@@ -469,15 +476,29 @@ export class AudioAttachmentsMigrator {
     }
 
     /**
-     * Checks if an attachment needs migration (missing new format fields)
+     * Checks if an attachment needs migration (missing new format fields or old URL structure)
      */
     private attachmentNeedsMigration(attachment: any): boolean {
-        return (
-            attachment.type === 'audio' &&
-            (typeof attachment.createdAt !== 'number' ||
-                typeof attachment.updatedAt !== 'number' ||
-                typeof attachment.isDeleted !== 'boolean')
+        if (attachment.type !== 'audio') {
+            return false;
+        }
+
+        // Check for missing new format fields
+        const missingFields = (
+            typeof attachment.createdAt !== 'number' ||
+            typeof attachment.updatedAt !== 'number' ||
+            typeof attachment.isDeleted !== 'boolean'
         );
+
+        // Check for old URL structure that needs updating
+        const hasOldUrlStructure = attachment.url && typeof attachment.url === 'string' && (
+            // Old direct book folder structure
+            (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) ||
+            // Intermediate pointers structure
+            attachment.url.includes('/attachments/pointers/')
+        );
+
+        return missingFields || hasOldUrlStructure;
     }
 
     /**
