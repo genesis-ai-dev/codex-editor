@@ -541,6 +541,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
         return style.className || "";
     };
 
+    // Decide when the label should occupy the full top row
+    const labelText: string = cellLabelOrGeneratedLabel || "";
+    const forceLabelTopRow: boolean = labelText.length > 6;
+
     // Function to check if we should show cell header elements
     const shouldShowHeaderElements = () => {
         return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
@@ -623,12 +627,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
                 backgroundColor: getBackgroundColor(),
                 direction: textDirection,
                 ...getBorderStyle(),
-                display: "grid",
-                gridTemplateColumns: "auto 1fr",
-                gridTemplateRows: "auto auto",
-                gridTemplateAreas: "'buttons label' 'buttons content'",
-                columnGap: "0.5rem",
-                rowGap: "0.25rem",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: "0.5rem",
                 padding: "0.25rem",
                 cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                 border: "1px solid transparent",
@@ -645,10 +646,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
             <div
                 className="cell-header"
                 style={{
-                    gridArea: "buttons",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "flex-start",
+                    flexShrink: 0,
                 }}
             >
                 {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
@@ -783,33 +784,43 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
                         {getAlertDot()}
                     </div>
                 )}
-                <div style={{ gridArea: "label", minWidth: 0 }}>
-                    {cellLabelOrGeneratedLabel && (
-                        <div
-                            className="cell-label-text"
-                            style={{
-                                fontWeight:
-                                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                        ? 500
-                                        : "normal",
-                                lineHeight: 1.2,
-                                display: "block",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                            }}
-                            title={cellLabelOrGeneratedLabel}
-                        >
-                            {cellLabelOrGeneratedLabel}
-                        </div>
-                    )}
-                </div>
             </div>
 
-            {/* Render content with footnotes */}
-            <div style={{ gridArea: "content", minWidth: 0 }}>{renderContent()}</div>
+            {/* Right side: wrappable label + content */}
+            <div
+                style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "baseline",
+                    gap: "0.25rem",
+                    flex: 1,
+                    minWidth: 0,
+                }}
+            >
+                {cellLabelOrGeneratedLabel && (
+                    <div
+                        className="cell-label-text text-primary"
+                        style={{
+                            fontWeight:
+                                cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                                    ? 500
+                                    : "normal",
+                            lineHeight: 1.2,
+                            whiteSpace: "normal",
+                            overflowWrap: "anywhere",
+                            minWidth: 0,
+                            marginRight: "0.25rem",
+                            flexBasis: forceLabelTopRow ? "100%" : "auto",
+                        }}
+                        title={cellLabelOrGeneratedLabel}
+                    >
+                        {cellLabelOrGeneratedLabel}
+                    </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>{renderContent()}</div>
+            </div>
 
-            {/* Comments Badge positioned on the right */}
+            {/* Comments Badge positioned at far right of row */}
             <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
                 <CommentsBadge
                     cellId={cellIds[0]}

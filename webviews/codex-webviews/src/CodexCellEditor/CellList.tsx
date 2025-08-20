@@ -713,8 +713,10 @@ const CellList: React.FC<CellListProps> = ({
                             <div
                                 style={{
                                     display: "flex",
-                                    alignItems: "center",
-                                    gap: "0.5rem",
+                                    flexDirection: "column",
+                                    alignItems: "flex-start",
+                                    justifyContent: "flex-start",
+                                    gap: "0.25rem",
                                     padding: "4px 4px 4px 12px",
                                     width: "calc(100% - 20px)",
                                     height:
@@ -734,107 +736,120 @@ const CellList: React.FC<CellListProps> = ({
                                     ),
                                 }}
                             >
-                                <div style={{ display: "flex", width: "16px" }} />
-                                <AnimatedReveal
-                                    mode="swap"
-                                    button={
-                                        !isSourceText && (
-                                            <div style={{ flexShrink: 0 }}>
-                                                <Button
-                                                    variant="ghost"
-                                                    style={{
-                                                        height: "16px",
-                                                        width: "16px",
-                                                        padding: 0,
-                                                        display: "flex",
-                                                        alignItems: "center",
-                                                        justifyContent: "center",
-                                                    }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        e.preventDefault();
-                                                        // Do nothing - button is just a visual indicator
-                                                    }}
-                                                >
-                                                    <i
-                                                        className="codicon codicon-dash"
-                                                        style={{
-                                                            fontSize: "12px",
-                                                            color: "var(--vscode-descriptionForeground)",
-                                                            fontWeight: "bold",
-                                                        }}
-                                                    ></i>
-                                                </Button>
-                                            </div>
-                                        )
-                                    }
-                                    content={
-                                        <Button
-                                            variant="ghost"
-                                            aria-label="Translate"
-                                            onClick={() => handleCellTranslation(cellMarkers[0])}
-                                            style={{
-                                                height: "16px",
-                                                width: "16px",
-                                                padding: 0,
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                position: "relative",
-                                            }}
-                                            disabled={isInProcess}
-                                            title={
-                                                isInProcess
-                                                    ? "Translation in progress"
-                                                    : "Translate this cell using AI"
-                                            }
-                                        >
-                                            <i
-                                                className={`codicon ${
-                                                    isInProcess
-                                                        ? "codicon-loading codicon-modifier-spin"
-                                                        : "codicon-sparkle"
-                                                }`}
-                                                style={{ fontSize: "12px" }}
-                                            ></i>
-                                        </Button>
-                                    }
-                                />
-                                {(cellLabel || generatedCellLabel) && (
-                                    <span
-                                        className="cell-label-text"
-                                        style={{ marginLeft: "10px" }}
-                                    >
-                                        {" "}
-                                        {/* This is to account for the span that's for the {getAlertDot()} in the translated cells */}
-                                        {cellLabel || generatedCellLabel}
-                                    </span>
-                                )}
                                 <div
                                     style={{
-                                        flex: "1",
-                                        width: "calc(100% - 80px)",
+                                        gridArea: "buttons",
                                         display: "flex",
-                                        flexDirection: "column",
+                                        alignItems: "flex-start",
                                     }}
                                 >
-                                    <EmptyCellDisplay
-                                        key={`${cellMarkers.join(" ")}:empty`}
-                                        cellMarkers={cellMarkers}
-                                        cellLabel={""} // Pass empty label since we're already showing it
-                                        setContentBeingUpdated={setContentBeingUpdated}
-                                        textDirection={textDirection}
-                                        vscode={vscode}
-                                        openCellById={openCellById}
-                                        fontSize={fontSize}
+                                    <AnimatedReveal
+                                        mode="swap"
+                                        button={
+                                            !isSourceText && (
+                                                <div style={{ flexShrink: 0 }}>
+                                                    <Button
+                                                        variant="ghost"
+                                                        style={{
+                                                            height: "16px",
+                                                            width: "16px",
+                                                            padding: 0,
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                        }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            e.preventDefault();
+                                                        }}
+                                                    >
+                                                        <i
+                                                            className="codicon codicon-dash"
+                                                            style={{
+                                                                fontSize: "12px",
+                                                                color: "var(--vscode-descriptionForeground)",
+                                                                fontWeight: "bold",
+                                                            }}
+                                                        ></i>
+                                                    </Button>
+                                                </div>
+                                            )
+                                        }
+                                        content={
+                                            <Button
+                                                variant="ghost"
+                                                aria-label="Translate"
+                                                onClick={() =>
+                                                    handleCellTranslation(cellMarkers[0])
+                                                }
+                                                style={{
+                                                    height: "16px",
+                                                    width: "16px",
+                                                    padding: 0,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    position: "relative",
+                                                }}
+                                                disabled={isInProcess}
+                                                title={
+                                                    isInProcess
+                                                        ? "Translation in progress"
+                                                        : "Translate this cell using AI"
+                                                }
+                                            >
+                                                <i
+                                                    className={`codicon ${
+                                                        isInProcess
+                                                            ? "codicon-loading codicon-modifier-spin"
+                                                            : "codicon-sparkle"
+                                                    }`}
+                                                    style={{ fontSize: "12px" }}
+                                                ></i>
+                                            </Button>
+                                        }
                                     />
                                 </div>
-                                {/* Comments Badge positioned on the right */}
-                                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                                    <CommentsBadge
-                                        cellId={cellMarkers[0]}
-                                        unresolvedCount={cellCommentsCount.get(cellMarkers[0]) || 0}
-                                    />
+                                {/* start the wrappable flexbox */}
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                                    <div style={{ minWidth: 0 }}>
+                                        {(cellLabel || generatedCellLabel) && (
+                                            <span className="cell-label-text text-primary">
+                                                {/* ? Does this cell label even get used? */}
+                                                {cellLabel || generatedCellLabel}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ minWidth: 0 }}>
+                                        <div
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "space-between",
+                                            }}
+                                        >
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <EmptyCellDisplay
+                                                    key={`${cellMarkers.join(" ")}:empty`}
+                                                    cellMarkers={cellMarkers}
+                                                    cellLabel={""}
+                                                    setContentBeingUpdated={setContentBeingUpdated}
+                                                    textDirection={textDirection}
+                                                    vscode={vscode}
+                                                    openCellById={openCellById}
+                                                    fontSize={fontSize}
+                                                />
+                                            </div>
+                                            <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
+                                                <CommentsBadge
+                                                    cellId={cellMarkers[0]}
+                                                    unresolvedCount={
+                                                        cellCommentsCount.get(cellMarkers[0]) || 0
+                                                    }
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         ) : (
