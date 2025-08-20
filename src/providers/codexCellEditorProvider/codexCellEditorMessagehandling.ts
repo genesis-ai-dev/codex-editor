@@ -430,8 +430,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
 
     deleteCell: ({ event, document }) => {
         const typedEvent = event as Extract<EditorPostMessages, { command: "deleteCell"; }>;
-        console.log("deleteCell message received", { event });
-        document.deleteCell(typedEvent.content.cellId);
+        console.log("deleteCell (soft) message received", { event });
+        // Soft-delete: mark the cell as deleted in metadata instead of removing it
+        document.softDeleteCell(typedEvent.content.cellId);
     },
 
     updateCellTimestamps: ({ event, document }) => {

@@ -579,6 +579,49 @@ export class CodexCellDocument implements vscode.CustomDocument {
             edits: [{ cellId }],
         });
     }
+
+    /**
+     * Soft-deletes a cell by setting metadata.data.deleted = true
+     * The cell remains in the document but will be hidden in the UI and preserved for merges
+     */
+    public softDeleteCell(cellId: string) {
+        const indexOfCellToSoftDelete = this._documentData.cells.findIndex(
+            (cell) => cell.metadata?.id === cellId
+        );
+
+        if (indexOfCellToSoftDelete === -1) {
+            throw new Error("Could not find cell to soft delete");
+        }
+
+        const cellToSoftDelete = this._documentData.cells[indexOfCellToSoftDelete];
+
+        if (!cellToSoftDelete.metadata) {
+            cellToSoftDelete.metadata = {
+                id: cellId,
+                type: CodexCellTypes.TEXT,
+                edits: [],
+                data: {},
+            } as any;
+        }
+
+        if (!cellToSoftDelete.metadata.data) {
+            cellToSoftDelete.metadata.data = {} as any;
+        }
+
+        // Set deleted flag
+        (cellToSoftDelete.metadata.data as any).deleted = true;
+
+        // Record the edit
+        this._edits.push({
+            type: "softDeleteCell",
+            cellId,
+        });
+
+        this._isDirty = true;
+        this._onDidChangeForVsCodeAndWebview.fire({
+            edits: [{ cellId, deleted: true }],
+        });
+    }
     // Method to add a new cell
     public addCell(
         newCellId: string,
