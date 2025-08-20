@@ -397,8 +397,8 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     defaultBranch: "main",
                 });
 
-                // Create .gitignore file using the centralized function
-                await ensureGitignoreIsUpToDate();
+                // Ensure git configuration files are present and up-to-date
+                await ensureGitConfigsAreUpToDate();
 
                 // Add files to git
                 await git.add({
@@ -407,11 +407,25 @@ export async function initializeProjectMetadataAndGit(details: ProjectDetails) {
                     filepath: "metadata.json",
                 });
 
-                await git.add({
-                    fs,
-                    dir: workspaceFolder,
-                    filepath: ".gitignore",
-                });
+                try {
+                    await git.add({
+                        fs,
+                        dir: workspaceFolder,
+                        filepath: ".gitignore",
+                    });
+                } catch (error) {
+                    debug("Unable to add .gitignore to git index:", error);
+                }
+
+                try {
+                    await git.add({
+                        fs,
+                        dir: workspaceFolder,
+                        filepath: ".gitattributes",
+                    });
+                } catch (error) {
+                    debug("Unable to add .gitattributes to git index:", error);
+                }
                 const authApi = getAuthApi();
                 const userInfo = await authApi?.getUserInfo();
                 const author = {
@@ -761,9 +775,9 @@ export async function checkIfMetadataAndGitIsInitialized(): Promise<boolean> {
         });
         gitExists = true;
 
-        // If both metadata and git exist, ensure gitignore is up-to-date
+        // If both metadata and git exist, ensure git configuration files are up-to-date
         if (metadataExists) {
-            await ensureGitignoreIsUpToDate();
+            await ensureGitConfigsAreUpToDate();
         }
     } catch {
         debug("Git repository not initialized yet"); // Changed to log since this is expected for new projects
@@ -1082,18 +1096,20 @@ export { stageAndCommitAllAndSync };
  * Ensures that the project has an up-to-date .gitignore file
  * Rewrites the .gitignore file if it doesn't match the standard content exactly
  */
-export async function ensureGitignoreIsUpToDate(): Promise<void> {
-    // Verify Frontier Authentication extension version before proceeding
-    const requiredFrontierVersion = "0.4.13";
-    const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
-    const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
-    if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
-        const msg = installedVersion
-            ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`
-            : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`;
-        console.warn(msg);
-        vscode.window.showWarningMessage(msg);
-        return;
+export async function ensureGitignoreIsUpToDate(skipVersionCheck: boolean = false): Promise<void> {
+    // Verify Frontier Authentication extension version before proceeding (unless skipped by caller)
+    if (!skipVersionCheck) {
+        const requiredFrontierVersion = "0.4.13";
+        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
+        if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
+            const msg = installedVersion
+                ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`
+                : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitignore.`;
+            console.warn(msg);
+            vscode.window.showWarningMessage(msg);
+            return;
+        }
     }
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -1190,4 +1206,107 @@ export async function ensureGitignoreIsUpToDate(): Promise<void> {
     } else {
         debug(".gitignore file is up-to-date and matches standard format");
     }
+}
+
+/**
+ * Ensures that the project has an up-to-date .gitattributes file
+ * Rewrites the .gitattributes file if it doesn't match the standard content exactly
+ */
+export async function ensureGitattributesIsUpToDate(skipVersionCheck: boolean = false): Promise<void> {
+    // Verify Frontier Authentication extension version before proceeding (unless skipped by caller)
+    if (!skipVersionCheck) {
+        const requiredFrontierVersion = "0.4.13";
+        const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+        const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
+        if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
+            const msg = installedVersion
+                ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating .gitattributes.`
+                : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating .gitattributes.`;
+            console.warn(msg);
+            vscode.window.showWarningMessage(msg);
+            return;
+        }
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        console.error("No workspace folder found.");
+        return;
+    }
+
+    const gitattributesPath = vscode.Uri.joinPath(workspaceFolder.uri, ".gitattributes");
+
+    // Define the standard .gitattributes content for Codex projects
+    const standardGitattributesContent = [
+        "# Audio files",
+        "*.wav filter=lfs diff=lfs merge=lfs -text",
+        "*.mp3 filter=lfs diff=lfs merge=lfs -text",
+        "*.m4a filter=lfs diff=lfs merge=lfs -text",
+        "*.ogg filter=lfs diff=lfs merge=lfs -text",
+        "*.webm filter=lfs diff=lfs merge=lfs -text",
+        "",
+        "# Video files",
+        "*.mp4 filter=lfs diff=lfs merge=lfs -text",
+        "*.avi filter=lfs diff=lfs merge=lfs -text",
+        "*.mov filter=lfs diff=lfs merge=lfs -text",
+        "*.mkv filter=lfs diff=lfs merge=lfs -text",
+        "",
+        "# Image files over 1MB should use LFS",
+        "*.jpg filter=lfs diff=lfs merge=lfs -text",
+        "*.jpeg filter=lfs diff=lfs merge=lfs -text",
+        "*.png filter=lfs diff=lfs merge=lfs -text",
+    ].join("\n");
+
+    let existingContent = "";
+    let gitattributesExists = false;
+
+    try {
+        const existingFile = await vscode.workspace.fs.readFile(gitattributesPath);
+        existingContent = Buffer.from(existingFile).toString("utf8").trim();
+        gitattributesExists = true;
+        debug("Found existing .gitattributes file");
+    } catch (error) {
+        debug("No existing .gitattributes file found, will create one");
+    }
+
+    const needsUpdate = !gitattributesExists || existingContent !== standardGitattributesContent;
+
+    if (needsUpdate) {
+        try {
+            await vscode.workspace.fs.writeFile(gitattributesPath, Buffer.from(standardGitattributesContent, "utf8"));
+
+            if (gitattributesExists) {
+                debug("Rewrote .gitattributes file to match standard format");
+                console.log("Updated .gitattributes to standard format");
+            } else {
+                debug("Created new .gitattributes file");
+                console.log("Created .gitattributes file with standard LFS attributes");
+            }
+        } catch (error) {
+            console.error("Failed to write .gitattributes file:", error);
+        }
+    } else {
+        debug(".gitattributes file is up-to-date and matches standard format");
+    }
+}
+
+/**
+ * Ensures both .gitignore and .gitattributes are present and up-to-date
+ * Performs a single version check and then updates both files
+ */
+export async function ensureGitConfigsAreUpToDate(): Promise<void> {
+    const requiredFrontierVersion = "0.4.13";
+    const frontierExt = vscode.extensions.getExtension("frontier-rnd.frontier-authentication");
+    const installedVersion: string | undefined = (frontierExt as any)?.packageJSON?.version;
+    if (!installedVersion || !semver.gte(installedVersion, requiredFrontierVersion)) {
+        const msg = installedVersion
+            ? `Frontier Authentication extension ${installedVersion} detected. Version ${requiredFrontierVersion} or newer is required before updating git configuration files.`
+            : `Frontier Authentication extension not found. Version ${requiredFrontierVersion} or newer is required before updating git configuration files.`;
+        console.warn(msg);
+        vscode.window.showWarningMessage(msg);
+        return;
+    }
+
+    await ensureGitignoreIsUpToDate(true);
+    await ensureGitattributesIsUpToDate(true);
 }
