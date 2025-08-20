@@ -799,11 +799,13 @@
                         "default": "fts5-bm25",
                         "enum": [
                             "fts5-bm25",
-                            "custom"
+                            "custom",
+                            "sbs"
                         ],
                         "enumDescriptions": [
                             "SQLite FTS5 full-text search with BM25 scoring (current default)",
-                            "Custom search algorithm (when available)"
+                            "Custom search algorithm (when available)",
+                            "Smart Branched Search (coverage-boosted branching over FTS candidates)"
                         ],
                         "description": "Choose which search algorithm to use for finding similar translation pairs for AI few-shot examples."
                     }

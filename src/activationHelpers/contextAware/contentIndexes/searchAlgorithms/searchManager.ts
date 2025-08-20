@@ -7,8 +7,9 @@ import { TranslationPair } from "../../../../../types";
 import { SQLiteIndexManager } from "../indexes/sqliteIndex";
 import { BaseSearchAlgorithm, SearchOptions } from "./base";
 import { FTS5SearchAlgorithm } from "./fts5Search";
+import { ContextBranchingSearchAlgorithm } from "./contextBranchingSearch";
 
-export type SearchAlgorithmType = "fts5-bm25" | "custom";
+export type SearchAlgorithmType = "fts5-bm25" | "custom" | "sbs";
 
 export class SearchManager {
     private algorithms: Map<SearchAlgorithmType, BaseSearchAlgorithm> = new Map();
@@ -23,6 +24,9 @@ export class SearchManager {
      */
     private registerDefaultAlgorithms(): void {
         this.algorithms.set("fts5-bm25", new FTS5SearchAlgorithm(this.indexManager));
+        // Register additional algorithms
+        this.algorithms.set("custom", new ContextBranchingSearchAlgorithm(this.indexManager));
+        this.algorithms.set("sbs", new ContextBranchingSearchAlgorithm(this.indexManager));
     }
 
     /**
