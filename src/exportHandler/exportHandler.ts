@@ -33,6 +33,27 @@ function debug(...args: any[]) {
 }
 
 /**
+ * Reads a .codex notebook from disk and parses its JSON content
+ */
+async function readCodexNotebookFromUri(uri: vscode.Uri): Promise<CodexNotebookAsJSONData> {
+    const fileData = await vscode.workspace.fs.readFile(uri);
+    return JSON.parse(Buffer.from(fileData).toString()) as CodexNotebookAsJSONData;
+}
+
+/**
+ * Returns only active cells, excluding merged and deleted ones (based on metadata.data)
+ * Keeps the original cell order intact
+ */
+function getActiveCells(cells: CodexNotebookAsJSONData["cells"]) {
+    return cells.filter((cell) => {
+        const data = (cell.metadata as any)?.data;
+        const isMerged = !!(data && data.merged);
+        const isDeleted = !!(data && data.deleted);
+        return !isMerged && !isDeleted;
+    });
+}
+
+/**
  * Maps book codes to their full names for USFM export
  */
 const bookCodeToName: Record<string, string> = {
@@ -364,15 +385,12 @@ export const exportCodexContentAsSubtitlesSrt = async (
 
                     debug(`Processing file: ${file.fsPath}`);
 
-                    // Read file directly as JSON instead of opening as notebook
-                    const fileData = await vscode.workspace.fs.readFile(file);
-                    const codexData = JSON.parse(
-                        Buffer.from(fileData).toString()
-                    ) as CodexNotebookAsJSONData;
-                    const cells = codexData.cells;
+                    // Read and filter active cells (exclude merged/deleted)
+                    const codexData = await readCodexNotebookFromUri(file);
+                    const cells = getActiveCells(codexData.cells);
 
                     totalCells += cells.length;
-                    debug(`File has ${cells.length} cells`);
+                    debug(`File has ${cells.length} active cells`);
 
                     // Generate SRT content
                     const srtContent = generateSrtData(cells, false); // Don't include styles for SRT
@@ -442,15 +460,12 @@ export const exportCodexContentAsSubtitlesVtt = async (
 
                     debug(`Processing file: ${file.fsPath}`);
 
-                    // Read file directly as JSON instead of opening as notebook
-                    const fileData = await vscode.workspace.fs.readFile(file);
-                    const codexData = JSON.parse(
-                        Buffer.from(fileData).toString()
-                    ) as CodexNotebookAsJSONData;
-                    const cells = codexData.cells;
+                    // Read and filter active cells (exclude merged/deleted)
+                    const codexData = await readCodexNotebookFromUri(file);
+                    const cells = getActiveCells(codexData.cells);
 
                     totalCells += cells.length;
-                    debug(`File has ${cells.length} cells`);
+                    debug(`File has ${cells.length} active cells`);
 
                     // Generate VTT content
                     const vttContent = generateVttData(cells, includeStyles, file.fsPath); // Include styles for VTT
@@ -523,24 +538,18 @@ async function exportCodexContentAsPlaintext(
 
                     debug(`Processing file: ${file.fsPath}`);
 
-                    // Read file directly as JSON instead of opening as notebook
-                    const fileData = await vscode.workspace.fs.readFile(file);
-                    const codexData = JSON.parse(
-                        Buffer.from(fileData).toString()
-                    ) as CodexNotebookAsJSONData;
-                    const cells = codexData.cells;
+                    // Read and filter active cells (exclude merged/deleted)
+                    const codexData = await readCodexNotebookFromUri(file);
+                    const cells = getActiveCells(codexData.cells);
 
-                    debug(`File has ${cells.length} cells`);
+                    debug(`File has ${cells.length} active cells`);
 
                     let exportContent = "";
                     let currentChapter = "";
                     let chapterContent = "";
 
-                    // Filter out merged cells before processing
-                    const activeCells = cells.filter((cell) => {
-                        const metadata = cell.metadata;
-                        return !metadata?.data?.merged;
-                    });
+                    // Already filtered for merged and deleted
+                    const activeCells = cells;
 
                     for (const cell of activeCells) {
                         totalCells++;
@@ -759,14 +768,10 @@ async function exportCodexContentAsUsfm(
                             continue;
                         }
 
-                        const codexData = await vscode.workspace.fs.readFile(file);
-
                         const sourceNotebook = JSON.parse(
                             Buffer.from(sourceData).toString()
                         ) as CodexNotebookAsJSONData;
-                        const codexNotebook = JSON.parse(
-                            Buffer.from(codexData).toString()
-                        ) as CodexNotebookAsJSONData;
+                        const codexNotebook = await readCodexNotebookFromUri(file);
 
                         // Quick check - only look for text cells with content
                         const textCells = codexNotebook.cells.filter(
@@ -1197,24 +1202,18 @@ async function exportCodexContentAsHtml(
 
                     debug(`Processing file: ${file.fsPath}`);
 
-                    // Read file directly as JSON instead of opening as notebook
-                    const fileData = await vscode.workspace.fs.readFile(file);
-                    const codexData = JSON.parse(
-                        Buffer.from(fileData).toString()
-                    ) as CodexNotebookAsJSONData;
-                    const cells = codexData.cells;
+                    // Read and filter active cells (exclude merged/deleted)
+                    const codexData = await readCodexNotebookFromUri(file);
+                    const cells = getActiveCells(codexData.cells);
 
-                    debug(`File has ${cells.length} cells`);
+                    debug(`File has ${cells.length} active cells`);
 
                     // Extract book code from filename (e.g., "MAT.codex" -> "MAT")
                     const bookCode = basename(file.fsPath).split(".")[0] || "";
                     const chapters: { [key: string]: string; } = {};
 
-                    // Filter out merged cells before processing
-                    const activeCells = cells.filter((cell) => {
-                        const metadata = cell.metadata;
-                        return !metadata?.data?.merged;
-                    });
+                    // Already filtered for merged and deleted
+                    const activeCells = cells;
 
                     // First pass: Organize content by chapters
                     for (const cell of activeCells) {
@@ -1442,14 +1441,10 @@ async function exportCodexContentAsXliff(
                         continue;
                     }
 
-                    const codexData = await vscode.workspace.fs.readFile(file);
-
                     const sourceNotebook = JSON.parse(
                         Buffer.from(sourceData).toString()
                     ) as CodexNotebookAsJSONData;
-                    const codexNotebook = JSON.parse(
-                        Buffer.from(codexData).toString()
-                    ) as CodexNotebookAsJSONData;
+                    const codexNotebook = await readCodexNotebookFromUri(file);
 
                     debug(`File has ${codexNotebook.cells.length} cells`);
 
