@@ -602,6 +602,18 @@ export type EditorPostMessages =
     | { command: "updateCachedChapter"; content: number; }
     | { command: "webviewReady"; }
     | { command: "getContent"; }
+    | { command: "getPreferredEditorTab"; }
+    | {
+        command: "setPreferredEditorTab";
+        content: {
+            tab:
+            | "source"
+            | "backtranslation"
+            | "footnotes"
+            | "timestamps"
+            | "audio";
+        };
+    }
     | { command: "setCurrentIdToGlobalState"; content: { currentLineId: string; }; }
     | { command: "webviewFocused"; content: { uri: string; }; }
     | { command: "updateCellLabel"; content: { cellId: string; cellLabel: string; }; }
@@ -717,7 +729,7 @@ export type EditorPostMessages =
     | { command: "closeCurrentDocument"; content?: { isSource: boolean; uri?: string; }; }
     | { command: "triggerSync"; }
     | { command: "requestAudioAttachments"; }
-    | { command: "requestAudioForCell"; content: { cellId: string; }; }
+    | { command: "requestAudioForCell"; content: { cellId: string; audioId?: string; }; }
     | { command: "getCommentsForCell"; content: { cellId: string; }; }
     | { command: "openCommentsForCell"; content: { cellId: string; }; }
     | {
@@ -731,6 +743,26 @@ export type EditorPostMessages =
     }
     | {
         command: "deleteAudioAttachment";
+        content: {
+            cellId: string;
+            audioId: string;
+        };
+    }
+    | {
+        command: "getAudioHistory";
+        content: {
+            cellId: string;
+        };
+    }
+    | {
+        command: "restoreAudioAttachment";
+        content: {
+            cellId: string;
+            audioId: string;
+        };
+    }
+    | {
+        command: "selectAudioAttachment";
         content: {
             cellId: string;
             audioId: string;
@@ -793,6 +825,15 @@ type EditorReceiveMessages =
         content: QuillCellContent[];
         isSourceText: boolean;
         sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
+    }
+    | {
+        type: "preferredEditorTab";
+        tab:
+        | "source"
+        | "backtranslation"
+        | "footnotes"
+        | "timestamps"
+        | "audio";
     }
     | {
         type: "providerAutocompletionState";
@@ -1029,6 +1070,42 @@ type EditorReceiveMessages =
         };
     }
     | {
+        type: "audioHistoryReceived";
+        content: {
+            cellId: string;
+            audioHistory: Array<{
+                attachmentId: string;
+                attachment: {
+                    url: string;
+                    type: string;
+                    createdAt: number;
+                    updatedAt: number;
+                    isDeleted: boolean;
+                };
+            }>;
+            currentAttachmentId: string | null; // The ID of the currently selected/active attachment
+            hasExplicitSelection: boolean; // Whether user made explicit selection vs automatic behavior
+        };
+    }
+    | {
+        type: "audioAttachmentRestored";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
+        type: "audioAttachmentSelected";
+        content: {
+            cellId: string;
+            audioId: string;
+            success: boolean;
+            error?: string;
+        };
+    }
+    | {
         type: "refreshCommentCounts";
         timestamp: string;
     };
@@ -1078,9 +1155,14 @@ type CustomCellMetaData = {
         [key: string]: {
             url: string;
             type: string;
+            createdAt: number;
+            updatedAt: number;
+            isDeleted: boolean;
         };
     };
     cellLabel?: string;
+    selectedAudioId?: string; // Points to attachment key for explicit audio selection
+    selectionTimestamp?: number; // Timestamp when selectedAudioId was last set
 };
 
 type CustomNotebookCellData = Omit<vscode.NotebookCellData, 'metadata'> & {

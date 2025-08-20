@@ -15,6 +15,10 @@ const debug = (message: string) => {
  * Old structure: .project/attachments/{BOOK}/
  * New structure: .project/attachments/files/{BOOK}/ and .project/attachments/pointers/{BOOK}/
  * 
+ * Also migrates attachment metadata from old format to new format:
+ * Old: { url: "...", type: "audio" }
+ * New: { url: "...", type: "audio", createdAt: timestamp, updatedAt: timestamp, isDeleted: false }
+ * 
  * Runs whenever there are folders in .project/attachments/ other than "files" and "pointers"
  * This handles both initial migration and ongoing sync scenarios where new book folders appear
  */
@@ -44,6 +48,9 @@ export class AudioAttachmentsMigrator {
             } else {
                 debug('Migration not needed - no folders to migrate');
             }
+
+            // Always check for attachment metadata migration (may be needed even if files don't need migration)
+            await this.migrateAttachmentMetadata();
         } catch (error) {
             console.error('[AudioAttachmentsMigration] Error during migration:', error);
             // Don't throw - we don't want to block startup for migration failures
@@ -331,6 +338,192 @@ export class AudioAttachmentsMigrator {
             console.error(`[AudioAttachmentsMigration] Error calculating hash for ${fileUri.fsPath}:`, error);
             throw error;
         }
+    }
+
+    /**
+     * Migrates attachment metadata in all codex documents from old format to new format
+     */
+    private async migrateAttachmentMetadata(): Promise<void> {
+        try {
+            debug('Starting attachment metadata migration...');
+
+            // Find all codex documents
+            const codexPattern = new vscode.RelativePattern(
+                this.workspaceFolder.uri.fsPath,
+                "files/target/**/*.codex"
+            );
+            const codexUris = await vscode.workspace.findFiles(codexPattern);
+
+            if (codexUris.length === 0) {
+                debug('No codex documents found - skipping metadata migration');
+                return;
+            }
+
+            debug(`Found ${codexUris.length} codex documents to check for metadata migration`);
+
+            let migratedCount = 0;
+            for (const codexUri of codexUris) {
+                try {
+                    const migrated = await this.migrateDocumentAttachmentMetadata(codexUri);
+                    if (migrated) {
+                        migratedCount++;
+                    }
+                } catch (error) {
+                    console.error(`[AudioAttachmentsMigration] Error migrating metadata for ${codexUri.fsPath}:`, error);
+                    // Continue with other documents
+                }
+            }
+
+            if (migratedCount > 0) {
+                debug(`Successfully migrated attachment metadata in ${migratedCount} documents`);
+            } else {
+                debug('No documents required attachment metadata migration');
+            }
+        } catch (error) {
+            console.error('[AudioAttachmentsMigration] Error during attachment metadata migration:', error);
+        }
+    }
+
+    /**
+     * Migrates attachment metadata for a single document
+     * @param documentUri The URI of the codex document to migrate
+     * @returns true if the document was modified and saved, false if no changes were needed
+     */
+    private async migrateDocumentAttachmentMetadata(documentUri: vscode.Uri): Promise<boolean> {
+        try {
+            // Read the document
+            const documentContent = await vscode.workspace.fs.readFile(documentUri);
+            const documentText = Buffer.from(documentContent).toString('utf8');
+
+            let documentData;
+            try {
+                documentData = JSON.parse(documentText);
+            } catch (error) {
+                console.error(`[AudioAttachmentsMigration] Error parsing JSON for ${documentUri.fsPath}:`, error);
+                return false;
+            }
+
+            if (!documentData.cells || !Array.isArray(documentData.cells)) {
+                debug(`Document ${documentUri.fsPath} has no cells - skipping`);
+                return false;
+            }
+
+            let hasChanges = false;
+
+            // Process each cell
+            for (const cell of documentData.cells) {
+                if (!cell.metadata || !cell.metadata.attachments) {
+                    continue; // Skip cells without attachments
+                }
+
+                // Process each attachment in the cell
+                for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments) as [string, any][]) {
+                    if (!attachment || typeof attachment !== 'object') {
+                        continue;
+                    }
+
+                    // Check if this attachment needs migration (missing new fields)
+                    const needsMigration = this.attachmentNeedsMigration(attachment);
+                    if (!needsMigration) {
+                        continue;
+                    }
+
+                    debug(`Migrating attachment ${attachmentId} in document ${documentUri.fsPath}`);
+
+                    // Extract timestamp from attachment ID
+                    const timestamp = this.extractTimestampFromAttachmentId(attachmentId);
+
+                    // Update URL path to new structure
+                    if (attachment.url && typeof attachment.url === 'string') {
+                        // Handle old direct book folder structure: .project/attachments/{BOOK}/ -> .project/attachments/files/{BOOK}/
+                        if (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) {
+                            attachment.url = attachment.url.replace('.project/attachments/', '.project/attachments/files/');
+                        }
+                        // Handle intermediate pointers structure: /attachments/pointers/ -> /attachments/files/
+                        else if (attachment.url.includes('/attachments/pointers/')) {
+                            attachment.url = attachment.url.replace('/attachments/pointers/', '/attachments/files/');
+                        }
+                    }
+
+                    // Add missing fields
+                    attachment.createdAt = timestamp;
+                    attachment.updatedAt = timestamp;
+                    attachment.isDeleted = false;
+
+                    hasChanges = true;
+
+                    // If this attachment is currently selected, set selectionTimestamp
+                    if (cell.metadata?.selectedAudioId === attachmentId &&
+                        !cell.metadata.selectionTimestamp) {
+                        cell.metadata.selectionTimestamp = timestamp;
+                    }
+                }
+            }
+
+            // Save the document if changes were made
+            if (hasChanges) {
+                const updatedContent = JSON.stringify(documentData, null, 2);
+                await vscode.workspace.fs.writeFile(documentUri, Buffer.from(updatedContent, 'utf8'));
+                debug(`Saved migrated metadata for document ${documentUri.fsPath}`);
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            console.error(`[AudioAttachmentsMigration] Error processing document ${documentUri.fsPath}:`, error);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if an attachment needs migration (missing new format fields or old URL structure)
+     */
+    private attachmentNeedsMigration(attachment: any): boolean {
+        if (attachment.type !== 'audio') {
+            return false;
+        }
+
+        // Check for missing new format fields
+        const missingFields = (
+            typeof attachment.createdAt !== 'number' ||
+            typeof attachment.updatedAt !== 'number' ||
+            typeof attachment.isDeleted !== 'boolean'
+        );
+
+        // Check for old URL structure that needs updating
+        const hasOldUrlStructure = attachment.url && typeof attachment.url === 'string' && (
+            // Old direct book folder structure
+            (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) ||
+            // Intermediate pointers structure
+            attachment.url.includes('/attachments/pointers/')
+        );
+
+        return missingFields || hasOldUrlStructure;
+    }
+
+    /**
+     * Extracts timestamp from attachment ID
+     * Expected format: "audio-{timestamp}-{random}"
+     * Example: "audio-1755542353492-v0m39plvm" -> 1755542353492
+     */
+    private extractTimestampFromAttachmentId(attachmentId: string): number {
+        try {
+            // Match pattern: audio-{timestamp}-{random}
+            const match = attachmentId.match(/^audio-(\d+)-/);
+            if (match && match[1]) {
+                const timestamp = parseInt(match[1], 10);
+                if (!isNaN(timestamp) && timestamp > 0) {
+                    return timestamp;
+                }
+            }
+        } catch (error) {
+            debug(`Error extracting timestamp from attachment ID ${attachmentId}: ${error}`);
+        }
+
+        // Fallback to current timestamp if extraction fails
+        const currentTime = Date.now();
+        debug(`Could not extract timestamp from attachment ID ${attachmentId}, using current time: ${currentTime}`);
+        return currentTime;
     }
 
     /**

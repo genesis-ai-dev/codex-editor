@@ -366,24 +366,33 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             });
         }
 
-        // Set up file system watcher
-        const watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(
-                vscode.workspace.getWorkspaceFolder(document.uri)!,
-                vscode.workspace.asRelativePath(document.uri)
-            )
-        );
+        // Set up file system watcher (only if document is in a workspace)
+        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
+        let watcher: vscode.FileSystemWatcher | undefined;
 
-        // Watch for file changes
-        watcher.onDidChange((uri) => {
-            debug("File change detected:", uri.toString());
-            if (uri.toString() === document.uri.toString()) {
-                if (!document.isDirty) {
-                    debug("Document not dirty, reverting");
-                    document.revert(); // Reload the document if it isn't dirty
+        if (workspaceFolder) {
+            watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(
+                    workspaceFolder,
+                    vscode.workspace.asRelativePath(document.uri)
+                )
+            );
+        } else {
+            debug("Document is not in a workspace folder, skipping file system watcher setup");
+        }
+
+        // Watch for file changes (only if watcher was created)
+        if (watcher) {
+            watcher.onDidChange((uri) => {
+                debug("File change detected:", uri.toString());
+                if (uri.toString() === document.uri.toString()) {
+                    if (!document.isDirty) {
+                        debug("Document not dirty, reverting");
+                        document.revert(); // Reload the document if it isn't dirty
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // Create update function
         const updateWebview = () => {
@@ -497,7 +506,9 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.webviewPanels.delete(document.uri.toString());
             jumpToCellListenerDispose();
             listeners.forEach((l) => l.dispose());
-            watcher.dispose();
+            if (watcher) {
+                watcher.dispose();
+            }
         });
 
         // Handle messages from webview
@@ -698,6 +709,22 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     public async updateCachedChapter(uri: string, chapter: number) {
         const key = `chapter-cache-${uri}`;
         await this.context.workspaceState.update(key, chapter);
+    }
+
+    // Preferred editor tab helpers (workspace-scoped)
+    public getPreferredEditorTab(): "source" | "backtranslation" | "footnotes" | "timestamps" | "audio" {
+        const key = `codex-editor-preferred-tab`;
+        return this.context.workspaceState.get(
+            key,
+            "source"
+        ) as "source" | "backtranslation" | "footnotes" | "timestamps" | "audio";
+    }
+
+    public async updatePreferredEditorTab(
+        tab: "source" | "backtranslation" | "footnotes" | "timestamps" | "audio"
+    ) {
+        const key = `codex-editor-preferred-tab`;
+        await this.context.workspaceState.update(key, tab);
     }
 
     private getHtmlForWebview(
@@ -1446,6 +1473,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             timestamps: cell.metadata?.data, // FIXME: add strong types because this is where the timestamps are and it's not clear
             cellLabel: cell.metadata?.cellLabel,
             merged: cell.metadata?.data?.merged,
+            deleted: cell.metadata?.data?.deleted,
         }));
         debug("Translation units:", translationUnits);
 

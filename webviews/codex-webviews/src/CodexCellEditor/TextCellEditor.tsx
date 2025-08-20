@@ -25,6 +25,7 @@ import Quill from "quill";
 import { WhisperTranscriptionClient } from "./WhisperTranscriptionClient";
 import AudioWaveformWithTranscription from "./AudioWaveformWithTranscription";
 import SourceTextDisplay from "./SourceTextDisplay";
+import { AudioHistoryViewer } from "./AudioHistoryViewer";
 
 // ShadCN UI components
 import { Button } from "../components/ui/button";
@@ -70,6 +71,8 @@ import {
     Save,
     RotateCcw,
     Clock,
+    ArrowLeft,
+    Upload,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import CommentsBadge from "./CommentsBadge";
@@ -110,6 +113,8 @@ interface CellEditorProps {
     editHistory: EditHistory[];
     cell: QuillCellContent;
     isSaving?: boolean;
+    saveError?: boolean;
+    saveRetryCount?: number;
     footnoteOffset?: number;
     prevEndTime?: number;
     nextStartTime?: number;
@@ -185,6 +190,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
     openCellById,
     cell,
     isSaving = false,
+    saveError = false,
+    saveRetryCount = 0,
     footnoteOffset = 1,
     prevEndTime,
     nextStartTime,
@@ -210,10 +217,25 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [activeTab, setActiveTab] = useState<
         "source" | "backtranslation" | "footnotes" | "audio" | "timestamps"
     >("source");
+
+    // Load preferred tab from provider on mount
+    useEffect(() => {
+        const handlePreferredTab = (event: MessageEvent) => {
+            if (event.data && event.data.type === "preferredEditorTab") {
+                const preferred = event.data.tab as typeof activeTab;
+                setActiveTab(preferred);
+            }
+        };
+        window.addEventListener("message", handlePreferredTab);
+        window.vscodeApi.postMessage({ command: "getPreferredEditorTab" });
+        return () => window.removeEventListener("message", handlePreferredTab);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
     const [footnotes, setFootnotes] = useState<
         Array<{ id: string; content: string; element?: HTMLElement }>
     >([]);
     const [isEditingFootnoteInline, setIsEditingFootnoteInline] = useState(false);
+    const [showAudioHistory, setShowAudioHistory] = useState(false);
     const editorHandlesRef = useRef<EditorHandles | null>(null);
 
     // Add ref to track debounce timeout for footnote parsing
@@ -227,6 +249,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
     const [recordingStatus, setRecordingStatus] = useState<string>("");
     const audioChunksRef = useRef<Blob[]>([]);
     const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+    const [showRecorder, setShowRecorder] = useState(false);
 
     // Transcription state
     const [isTranscribing, setIsTranscribing] = useState(false);
@@ -829,6 +852,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
                 // Save audio to cell data
                 saveAudioToCell(blob);
+                setShowRecorder(false);
             };
 
             recorder.start();
@@ -1026,7 +1050,9 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (file && file.type.startsWith("audio/")) {
+
+        if (file && (file.type.startsWith("audio/") || file.type.startsWith("video/"))) {
+            console.log("Valid audio file detected, setting audio blob");
             setAudioBlob(file);
 
             // Clean up old URL if exists
@@ -1039,15 +1065,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
 
             // Save to cell
             saveAudioToCell(file);
+            // After saving, return to playback view
+            setShowRecorder(false);
         } else {
             setRecordingStatus("Please select a valid audio file");
         }
     };
 
-    // Load existing audio when component mounts
-    useEffect(() => {
-        // Don't try to load from session storage or cell data directly
-        // Just request audio attachments from the provider which will send proper base64 data
+    // Preload audio when audio tab is accessed
+    const preloadAudioForTab = useCallback(() => {
         const messageContent: EditorPostMessages = {
             command: "requestAudioForCell",
             content: { cellId: cellMarkers[0] },
@@ -1055,14 +1081,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
         window.vscodeApi.postMessage(messageContent);
     }, [cellMarkers]);
 
+    // Load existing audio when component mounts
+    useEffect(() => {
+        // Don't try to load from session storage or cell data directly
+        // Just request audio attachments from the provider which will send proper base64 data
+        preloadAudioForTab();
+    }, [preloadAudioForTab]);
+
     // Handle audio data response
     useEffect(() => {
         const handleAudioResponse = async (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments list (no longer set audioUrl from file path)
+            // Handle audio attachments list - request fresh audio data when attachments change
             if (message.type === "providerSendsAudioAttachments") {
-                // No-op: we only care about actual audio data
+                // When attachments change (e.g., selection from history), request updated audio data
+                const messageContent: EditorPostMessages = {
+                    command: "requestAudioForCell",
+                    content: { cellId: cellMarkers[0] },
+                };
+                window.vscodeApi.postMessage(messageContent);
             }
 
             // Handle specific audio data
@@ -1312,13 +1350,29 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                 }}
                                 variant="default"
                                 size="icon"
-                                title={isSaving ? "Saving..." : "Save changes"}
-                                disabled={isSaving || isEditingFootnoteInline}
+                                title={
+                                    isSaving
+                                        ? "Saving..."
+                                        : saveError
+                                        ? saveRetryCount >= 3
+                                            ? `Save failed after ${saveRetryCount} attempts - Click to retry (check connection)`
+                                            : `Save failed - Click to retry ${
+                                                  saveRetryCount > 0
+                                                      ? `(${saveRetryCount} attempts)`
+                                                      : ""
+                                              }`
+                                        : "Save changes"
+                                }
+                                disabled={(isSaving && !saveError) || isEditingFootnoteInline}
+                                className={cn(
+                                    saveError &&
+                                        "ring-2 ring-red-500 ring-offset-1 hover:ring-red-600"
+                                )}
                             >
-                                {isSaving ? (
+                                {isSaving && !saveError ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
-                                    <Check className="h-4 w-4" />
+                                    <Check className={cn("h-4 w-4", saveError && "text-red-500")} />
                                 )}
                             </Button>
                             <ConfirmationButton
@@ -1409,16 +1463,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
                 <Tabs
                     defaultValue={activeTab}
                     value={activeTab}
-                    onValueChange={(value) =>
-                        setActiveTab(
-                            value as
-                                | "source"
-                                | "backtranslation"
-                                | "footnotes"
-                                | "timestamps"
-                                | "audio"
-                        )
-                    }
+                    onValueChange={(value) => {
+                        const tabValue = value as
+                            | "source"
+                            | "backtranslation"
+                            | "footnotes"
+                            | "timestamps"
+                            | "audio";
+
+                        setActiveTab(tabValue);
+                        // Persist preferred tab in VS Code workspace cache
+                        window.vscodeApi.postMessage({
+                            command: "setPreferredEditorTab",
+                            content: { tab: tabValue },
+                        });
+
+                        // Preload audio when audio tab is selected
+                        if (tabValue === "audio") {
+                            preloadAudioForTab();
+                        }
+                    }}
                     className="w-full"
                 >
                     <TabsList
@@ -1854,7 +1918,8 @@ const CellEditor: React.FC<CellEditorProps> = ({
                         <div className="content-section space-y-6">
                             <h3 className="text-lg font-medium">Audio Recording</h3>
 
-                            {!audioUrl ||
+                            {showRecorder ||
+                            !audioUrl ||
                             !(
                                 audioUrl.startsWith("blob:") ||
                                 audioUrl.startsWith("data:") ||
@@ -1862,56 +1927,63 @@ const CellEditor: React.FC<CellEditorProps> = ({
                             ) ? (
                                 <div className="space-y-4">
                                     <p className="text-center text-muted-foreground">
-                                        No audio attached to this cell yet.
+                                        {audioUrl
+                                            ? "Record or upload a new file to replace the current audio."
+                                            : "No audio attached to this cell yet."}
                                     </p>
                                     <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                                        <Button
-                                            onClick={isRecording ? stopRecording : startRecording}
-                                            variant={isRecording ? "secondary" : "default"}
-                                            className={isRecording ? "animate-pulse" : ""}
-                                        >
-                                            {isRecording ? (
-                                                <>
-                                                    <Square className="mr-2 h-4 w-4" />
-                                                    Stop Recording
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <CircleDotDashed className="mr-2 h-4 w-4" />
-                                                    Start Recording
-                                                </>
-                                            )}
-                                        </Button>
-
-                                        <div className="flex items-center gap-2">
-                                            <Separator orientation="vertical" className="h-8" />
-                                            <span className="text-sm text-muted-foreground">
-                                                or
-                                            </span>
-                                            <Separator orientation="vertical" className="h-8" />
-                                        </div>
-
-                                        <label className="cursor-pointer">
-                                            <input
-                                                type="file"
-                                                accept="audio/*"
-                                                onChange={handleFileUpload}
-                                                className="sr-only"
-                                            />
-                                            <Button variant="outline" asChild>
-                                                <span>
-                                                    <FolderOpen className="mr-2 h-4 w-4" />
-                                                    Upload Audio File
-                                                </span>
+                                        <div className="flex items-center gap-2 mt-4">
+                                            <Button
+                                                onClick={
+                                                    isRecording ? stopRecording : startRecording
+                                                }
+                                                variant={isRecording ? "secondary" : "default"}
+                                                className={isRecording ? "animate-pulse" : ""}
+                                                style={{ flex: 2 }}
+                                            >
+                                                {isRecording ? (
+                                                    <>
+                                                        <Square className="mr-2 h-4 w-4" />
+                                                        Stop Recording
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <CircleDotDashed className="mr-2 h-4 w-4" />
+                                                        Start Recording
+                                                    </>
+                                                )}
                                             </Button>
-                                        </label>
+
+                                            <label className="cursor-pointer">
+                                                <input
+                                                    type="file"
+                                                    accept="audio/*,video/*"
+                                                    onChange={handleFileUpload}
+                                                    className="sr-only"
+                                                />
+                                                <Button variant="outline" asChild>
+                                                    <span>
+                                                        <FolderOpen className="mr-2 h-4 w-4" />
+                                                        <Upload className="mr-2 h-4 w-4" />
+                                                    </span>
+                                                </Button>
+                                            </label>
+                                        </div>
+                                        {audioUrl && !isRecording && (
+                                            <Button
+                                                variant="outline"
+                                                onClick={() => setShowRecorder(false)}
+                                            >
+                                                <ArrowLeft className="mr-2 h-4 w-4" />
+                                            </Button>
+                                        )}
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-4">
                                     {/* New Waveform Component with integrated transcription */}
                                     <AudioWaveformWithTranscription
-                                        audioUrl={audioUrl}
+                                        audioUrl={audioUrl || ""}
                                         audioBlob={audioBlob}
                                         transcription={savedTranscription}
                                         isTranscribing={isTranscribing}
@@ -1946,7 +2018,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                 </Button>
                                             </>
                                         ) : (
-                                            <div className="grid grid-cols-2 gap-2 w-full">
+                                            <div className="flex flex-wrap gap-2 w-full">
                                                 <Button
                                                     onClick={() => setConfirmingDiscard(true)}
                                                     variant="outline"
@@ -1959,31 +2031,26 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                                     </span>
                                                 </Button>
                                                 <Button
-                                                    onClick={
-                                                        isRecording ? stopRecording : startRecording
-                                                    }
+                                                    onClick={() => setShowAudioHistory(true)}
                                                     variant="outline"
                                                     size="sm"
-                                                    className={cn(
-                                                        "w-full",
-                                                        isRecording && "animate-pulse"
-                                                    )}
+                                                    className="w-full"
                                                 >
-                                                    {isRecording ? (
-                                                        <>
-                                                            <Square className="h-4 w-4" />
-                                                            <span className="inline ml-2">
-                                                                Stop
-                                                            </span>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            <Mic className="h-4 w-4" />
-                                                            <span className="inline ml-2">
-                                                                Re-record / Load New
-                                                            </span>
-                                                        </>
-                                                    )}
+                                                    <History className="h-4 w-4" />
+                                                    <span className="inline ml-2">History</span>
+                                                </Button>
+                                                <Button
+                                                    onClick={() => setShowRecorder(true)}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className={cn("w-full")}
+                                                >
+                                                    <>
+                                                        <Mic className="h-4 w-4" />
+                                                        <span className="inline ml-2">
+                                                            Re-record / Upload New
+                                                        </span>
+                                                    </>
                                                 </Button>
                                             </div>
                                         )}
@@ -2038,6 +2105,15 @@ const CellEditor: React.FC<CellEditorProps> = ({
                     </TabsContent>
                 </Tabs>
             </CardContent>
+
+            {/* Audio History Viewer Modal */}
+            {showAudioHistory && (
+                <AudioHistoryViewer
+                    cellId={cellMarkers[0]}
+                    vscode={window.vscodeApi}
+                    onClose={() => setShowAudioHistory(false)}
+                />
+            )}
         </Card>
     );
 };

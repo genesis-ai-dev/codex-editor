@@ -40,6 +40,8 @@ export interface CellListProps {
     successfulCompletions?: Set<string>; // Cells that completed successfully
     audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
     isSaving?: boolean;
+    saveError?: boolean; // Whether there was a save error/timeout
+    saveRetryCount?: number; // Number of save retry attempts
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     fontSize?: number; // Font size for responsive styling
     // Derived, shared state to avoid per-cell auth/validation lookups
@@ -77,6 +79,8 @@ const CellList: React.FC<CellListProps> = ({
     successfulCompletions = new Set(),
     audioAttachments,
     isSaving = false,
+    saveError = false,
+    saveRetryCount = 0,
     isCorrectionEditorMode = false,
     fontSize = 14,
     currentUsername,
@@ -676,6 +680,8 @@ const CellList: React.FC<CellListProps> = ({
                             textDirection={textDirection}
                             openCellById={openCellById}
                             isSaving={isSaving}
+                            saveError={saveError}
+                            saveRetryCount={saveRetryCount}
                             footnoteOffset={calculateFootnoteOffset(i) + 1}
                         />
                     </span>

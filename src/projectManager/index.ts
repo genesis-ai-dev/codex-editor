@@ -9,7 +9,7 @@ import {
     accessMetadataFile,
     reopenWalkthrough,
     disableSyncTemporarily,
-    ensureGitignoreIsUpToDate,
+    ensureGitConfigsAreUpToDate,
 } from "./utils/projectUtils";
 import { setTargetFont } from "./projectInitializers";
 import { migration_changeDraftFolderToFilesFolder } from "./utils/migrationUtils";
@@ -579,7 +579,7 @@ export async function registerProjectManager(context: vscode.ExtensionContext) {
     const updateGitignoreCommand = vscode.commands.registerCommand(
         "codex-project-manager.updateGitignore",
         executeWithRedirecting(async () => {
-            await ensureGitignoreIsUpToDate();
+            await ensureGitConfigsAreUpToDate();
         })
     );
 

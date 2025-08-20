@@ -38,7 +38,7 @@ export enum CELL_DISPLAY_MODES {
     ONE_LINE_PER_CELL = "one-line-per-cell",
 }
 
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false; // todo: turn this on and clean up the functions that are getting called thousands of times, probably once per cell
 
 // Enhanced debug function with categories
 function debug(category: string, message: string | object, ...args: any[]): void {
@@ -199,6 +199,11 @@ const CodexCellEditor: React.FC = () => {
     const [primarySidebarVisible, setPrimarySidebarVisible] = useState(true);
     const [fileStatus, setFileStatus] = useState<"dirty" | "syncing" | "synced" | "none">("none");
     const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState(false);
+    const [saveRetryCount, setSaveRetryCount] = useState(0);
+    const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const SAVE_TIMEOUT_MS = 10000; // 10 seconds
+    const MAX_SAVE_RETRIES = 3; // Maximum number of retry attempts
     const [editorPosition, setEditorPosition] = useState<
         "leftmost" | "rightmost" | "center" | "single" | "unknown"
     >("unknown");
@@ -224,10 +229,9 @@ const CodexCellEditor: React.FC = () => {
     }>({
         isActive: false,
         variants: [],
-        cellId: '',
-        testId: ''
+        cellId: "",
+        testId: "",
     });
-
 
     // Acquire VS Code API once at component initialization
     const vscode = useMemo(() => getVSCodeAPI(), []);
@@ -238,14 +242,24 @@ const CodexCellEditor: React.FC = () => {
 
         const selectedVariant = abTestState.variants[selectedIndex];
         debug("ab-test", `User selected variant ${selectedIndex}:`, selectedVariant);
-        
+
         // Apply the selected variant
-        applyVariantToCell(abTestState.cellId, selectedVariant, abTestState.testId, selectedIndex, abTestState.variants.length, selectionTimeMs);
-        
+        applyVariantToCell(
+            abTestState.cellId,
+            selectedVariant,
+            abTestState.testId,
+            selectedIndex,
+            abTestState.variants.length,
+            selectionTimeMs
+        );
+
         // Casual confirmation with variant name if available
         const variantName = (abTestState as any).names?.[selectedIndex];
         if (variantName) {
-            vscode.postMessage({ command: "showInfo", text: `Applied translation from ${variantName}.` } as any);
+            vscode.postMessage({
+                command: "showInfo",
+                text: `Applied translation from ${variantName}.`,
+            } as any);
         }
 
         // Keep A/B modal open to show names and stats; user can close manually
@@ -257,15 +271,22 @@ const CodexCellEditor: React.FC = () => {
         setAbTestState({
             isActive: false,
             variants: [],
-            cellId: '',
-            testId: ''
+            cellId: "",
+            testId: "",
         });
     };
 
     // Helper function to apply a variant to a cell
-    const applyVariantToCell = (cellId: string, variant: string, testId: string | undefined, selectedIndex: number, totalVariants: number, selectionTimeMs: number = 0) => {
+    const applyVariantToCell = (
+        cellId: string,
+        variant: string,
+        testId: string | undefined,
+        selectedIndex: number,
+        totalVariants: number,
+        selectionTimeMs: number = 0
+    ) => {
         debug("ab-test", `Applying variant ${selectedIndex} to cell ${cellId}:`, variant);
-        
+
         // Update the translation units with the selected variant
         setTranslationUnits((prevUnits) =>
             prevUnits.map((unit) =>
@@ -285,7 +306,7 @@ const CodexCellEditor: React.FC = () => {
             setContentBeingUpdated((prev) => ({
                 ...prev,
                 cellContent: variant,
-                cellChanged: true
+                cellChanged: true,
             }));
         }
 
@@ -313,7 +334,7 @@ const CodexCellEditor: React.FC = () => {
                     testId,
                     selectionTimeMs: selectionTimeMs || 0,
                     names: (abTestState as any).names,
-                }
+                },
             } as unknown as EditorPostMessages);
         }
     };
@@ -571,7 +592,17 @@ const CodexCellEditor: React.FC = () => {
             // If we're currently saving, this content update likely means the save completed
             if (isSaving) {
                 debug("editor", "Content updated during save - save completed");
+
+                // Clear the timeout timer
+                if (saveTimeoutRef.current) {
+                    clearTimeout(saveTimeoutRef.current);
+                    saveTimeoutRef.current = null;
+                }
+
+                // Reset save state
                 setIsSaving(false);
+                setSaveError(false);
+                setSaveRetryCount(0);
                 handleCloseEditor();
             }
         },
@@ -732,11 +763,21 @@ const CodexCellEditor: React.FC = () => {
         },
         setAudioAttachments: setAudioAttachments,
         showABTestVariants: (data) => {
-            debug("ab-test", "Received A/B test variants (temporarily auto-applying first and not showing UI):", { cellId: data?.cellId, count: data?.variants?.length });
+            debug(
+                "ab-test",
+                "Received A/B test variants (temporarily auto-applying first and not showing UI):",
+                { cellId: data?.cellId, count: data?.variants?.length }
+            );
 
             // Temporarily do not show the A/B selector UI; just apply the first variant if any
             if (data.variants && data.variants.length > 0 && data.cellId) {
-                applyVariantToCell(data.cellId, data.variants[0], data.testId, 0, data.variants.length);
+                applyVariantToCell(
+                    data.cellId,
+                    data.variants[0],
+                    data.testId,
+                    0,
+                    data.variants.length
+                );
 
                 // Send feedback as if variant 0 was selected
                 vscode.postMessage({
@@ -1066,10 +1107,47 @@ const CodexCellEditor: React.FC = () => {
 
     const handleSaveHtml = () => {
         const content = contentBeingUpdated;
-        debug("editor", "Saving HTML content:", { cellId: content.cellMarkers?.[0], content });
+        const cellId = content.cellMarkers?.[0];
+        const isRetry = saveError;
+        const currentRetryCount = isRetry ? saveRetryCount : 0;
 
-        // Show saving spinner
+        debug("editor", "Saving HTML content:", {
+            cellId,
+            isRetry,
+            retryCount: currentRetryCount,
+            content,
+        });
+
+        // Check if we've exceeded max retries
+        if (isRetry && currentRetryCount >= MAX_SAVE_RETRIES) {
+            debug("editor", "Maximum save retries exceeded", {
+                cellId,
+                retryCount: currentRetryCount,
+            });
+            // Show a more permanent error state but still allow manual retry
+            vscode.postMessage({
+                command: "showErrorMessage",
+                text: `Save failed after ${MAX_SAVE_RETRIES} attempts. Please check your connection and try again.`,
+            } as EditorPostMessages);
+            return;
+        }
+
+        // Clear any existing timeout
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
+
+        // Reset error state and show saving spinner
+        setSaveError(false);
         setIsSaving(true);
+
+        // Start timeout timer
+        saveTimeoutRef.current = setTimeout(() => {
+            debug("editor", "Save operation timed out", { cellId, attempt: currentRetryCount + 1 });
+            setIsSaving(false);
+            setSaveError(true);
+            setSaveRetryCount((prev) => prev + 1);
+        }, SAVE_TIMEOUT_MS);
 
         vscode.postMessage({
             command: "saveHtml",
@@ -1125,6 +1203,15 @@ const CodexCellEditor: React.FC = () => {
 
         return () => window.removeEventListener("message", handleMessage);
     }, [vscode]); // Only run this once with vscode reference as the dependency
+
+    // Cleanup save timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+        };
+    }, []);
 
     // Debug effect to show when username changes
     useEffect(() => {
@@ -1600,6 +1687,17 @@ const CodexCellEditor: React.FC = () => {
         untranslatedOrNotValidatedByCurrentUserUnitsForSection,
     ]);
 
+    // Request audio attachments for all cells when translation units are loaded
+    useEffect(() => {
+        if (translationUnitsForSection.length > 0) {
+            debug("audio", "Requesting audio attachments for all cells on initial load");
+            vscode.postMessage({
+                command: "requestAudioAttachments",
+                content: {},
+            } as EditorPostMessages);
+        }
+    }, [translationUnitsForSection.length, vscode]);
+
     // Simplify sparkle button handler to work with provider state
     const handleSparkleButtonClick = (cellId: string) => {
         // Check that the cell ID is valid
@@ -1913,7 +2011,11 @@ const CodexCellEditor: React.FC = () => {
                             onSetTextDirection={(direction) => {
                                 setTextDirection(direction);
                                 // Save the text direction with local source marking (similar to font size)
-                                const updatedMetadata = { ...metadata, textDirection: direction, textDirectionSource: "local" };
+                                const updatedMetadata = {
+                                    ...metadata,
+                                    textDirection: direction,
+                                    textDirectionSource: "local",
+                                };
                                 vscode.postMessage({
                                     command: "updateNotebookMetadata",
                                     content: updatedMetadata,
@@ -2004,6 +2106,8 @@ const CodexCellEditor: React.FC = () => {
                             successfulCompletions={successfulCompletions}
                             audioAttachments={audioAttachments}
                             isSaving={isSaving}
+                            saveError={saveError}
+                            saveRetryCount={saveRetryCount}
                             isCorrectionEditorMode={isCorrectionEditorMode}
                             fontSize={
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
