@@ -158,6 +158,25 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [peaks, setPeaks] = useState<number[]>([]);
     const [hoveredTime, setHoveredTime] = useState<number | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
+    // Smooth preview updates using a RAF throttle so dragging feels responsive without excessive rerenders
+    const previewRafRef = useRef<number | null>(null);
+    const pendingPreviewTimeRef = useRef<number | null>(null);
+    const requestPreviewUpdate = useCallback((time: number) => {
+        pendingPreviewTimeRef.current = time;
+        if (previewRafRef.current == null) {
+            previewRafRef.current = requestAnimationFrame(() => {
+                if (pendingPreviewTimeRef.current != null) {
+                    setHoveredTime(pendingPreviewTimeRef.current);
+                    pendingPreviewTimeRef.current = null;
+                }
+                if (previewRafRef.current != null) {
+                    cancelAnimationFrame(previewRafRef.current);
+                }
+                previewRafRef.current = null;
+            });
+        }
+    }, []);
     const [volume, setVolume] = useState(1);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [canvasWidth, setCanvasWidth] = useState(800);
@@ -324,7 +343,9 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         ctx.fillRect(0, 0, canvasWidth, height);
 
         const barCount = Math.min(peaks.length, numberOfBars);
-        const progress = duration > 0 ? currentTime / duration : 0;
+        // During drag, reflect the previewed time in the visualization so blue/gray update in real time
+        const displayTime = isDragging && hoveredTime != null ? hoveredTime : currentTime;
+        const progress = duration > 0 ? displayTime / duration : 0;
 
         // Draw bars
         for (let i = 0; i < barCount; i++) {
@@ -358,8 +379,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ctx.globalAlpha = 1;
         }
 
-        // Draw prominent progress line
-        if (duration > 0 && progress > 0) {
+        // Draw prominent progress line (also when progress is 0)
+        if (duration > 0) {
             const progressX = progress * canvasWidth;
             
             // Draw a thick progress line
@@ -387,8 +408,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ctx.globalAlpha = 1;
         }
 
-        // Draw hover cursor
-        if (showHover && hoveredTime !== null && duration > 0) {
+        // Draw hover/drag preview cursor and time tooltip
+        if ((showHover || isDragging) && hoveredTime !== null && duration > 0) {
             const hoverX = (hoveredTime / duration) * canvasWidth;
             ctx.strokeStyle = normalizeColor(colors.cursor);
             ctx.lineWidth = 1;
@@ -710,22 +731,42 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         [interact, duration, error, handleSeekChange]
     );
 
+    // End dragging on mouse up anywhere in the window
+    useEffect(() => {
+        const handleMouseUp = (e: MouseEvent) => {
+            if (isDragging && interact && !error && isFinite(duration) && duration > 0) {
+                // Commit the previewed time once dragging ends
+                const commitTime = Math.max(0, Math.min(duration, hoveredTime ?? currentTime));
+                handleSeekChange(commitTime);
+            }
+            setIsDragging(false);
+        };
+        window.addEventListener("mouseup", handleMouseUp);
+        return () => window.removeEventListener("mouseup", handleMouseUp);
+    }, [isDragging, hoveredTime, duration, interact, error, handleSeekChange, currentTime]);
+
     const handleCanvasMouseMove = useCallback(
         (e: React.MouseEvent<HTMLCanvasElement>) => {
-            if (!showHover || duration === 0 || error) return;
-
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
 
             const x = e.clientX - rect.left;
-            const hoverProgress = x / rect.width;
-            setHoveredTime(hoverProgress * duration);
+            const progress = Math.max(0, Math.min(1, x / rect.width));
+            const timeAtCursor = progress * duration;
+
+            if (isDragging && interact && !error && isFinite(duration) && duration > 0) {
+                // During drag, update only a local preview (throttled)
+                requestPreviewUpdate(timeAtCursor);
+            } else if (showHover && duration !== 0 && !error) {
+                requestPreviewUpdate(timeAtCursor);
+            }
         },
-        [showHover, duration, error]
+        [showHover, duration, error, isDragging, interact, handleSeekChange, requestPreviewUpdate]
     );
 
     const handleCanvasMouseLeave = useCallback(() => {
         setHoveredTime(null);
+        setIsDragging(false);
     }, []);
 
     // Keyboard shortcuts
@@ -760,12 +801,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         return () => window.removeEventListener("keydown", handleKeyPress);
     }, [currentTime, duration, togglePlayPause, handleSeekChange]);
 
-    // Log important state changes
-    useEffect(() => {
-        if (duration > 0 && !isLoading) {
-            console.log("🎵 Audio ready:", { duration, currentTime });
-        }
-    }, [duration, isLoading, currentTime]);
+    // Remove verbose logs that could impact performance
 
     const VolumeIcon = volume === 0 ? VolumeX : volume < 0.5 ? Volume1 : Volume2;
     return (
@@ -774,7 +810,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             ref={containerRef}
         >
             {/* Canvas */}
-            <div className="relative mb-4">
+            <div className="relative mb-4 pl-12">
                 {isLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-[var(--vscode-editor-background)]/80 rounded z-10">
                         <Loader2 className="h-8 w-8 text-[var(--vscode-button-background)] animate-spin" />
@@ -788,65 +824,97 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         </p>
                     </div>
                 )}
+                {/* Overlay play/pause button on left-center of waveform */}
+                {!error && (
+                    <div className="absolute inset-y-0 left-2 flex items-center z-20 pointer-events-none">
+                        <Button
+                            size="icon"
+                            variant="ghost"
+                            className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-9 h-9 pointer-events-auto"
+                            onClick={togglePlayPause}
+                            disabled={!!error}
+                            title={
+                                isLoading
+                                    ? "Loading audio..."
+                                    : isPlaying
+                                        ? "Pause (Space)"
+                                        : "Play (Space)"
+                            }
+                        >
+                            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        </Button>
+                    </div>
+                )}
+                {/* Overlay time text at bottom-right of waveform */}
+                {!error && (
+                    <div className="absolute bottom-1 right-2 z-20 pointer-events-none text-xs sm:text-sm text-[var(--vscode-foreground)] font-mono whitespace-nowrap tabular-nums">
+                        {formatTime(currentTime)} / {formatTime(duration)}
+                    </div>
+                )}
                 <canvas
                     ref={canvasRef}
                     style={{
                         width: "100%",
                         height: height,
-                        cursor: interact && !error ? "pointer" : "default",
+                        cursor: interact && !error ? (isDragging ? "grabbing" : "grab") : "default",
                         borderRadius: "0.25rem",
                         opacity: error ? 0.5 : 1,
                     }}
-                    onClick={handleCanvasClick}
+                    onClick={(e) => {
+                        // On click, always place the marker (seek), even if not playing
+                        if (interact && !error && isFinite(duration) && duration > 0) {
+                            handleCanvasClick(e);
+                        }
+                    }}
                     onMouseMove={handleCanvasMouseMove}
                     onMouseLeave={handleCanvasMouseLeave}
+                    onMouseDown={(e) => {
+                        if (!interact || error || !isFinite(duration) || duration <= 0) return;
+                        setIsDragging(true);
+                        const rect = canvasRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        const x = e.clientX - rect.left;
+                        const progress = Math.max(0, Math.min(1, x / rect.width));
+                        const newTime = progress * duration;
+                        // Start with a preview; commit on mouseup
+                        requestPreviewUpdate(newTime);
+                    }}
+                    onTouchStart={(e) => {
+                        if (!interact || error || !isFinite(duration) || duration <= 0) return;
+                        setIsDragging(true);
+                        const rect = canvasRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        const touch = e.touches[0];
+                        const x = touch.clientX - rect.left;
+                        const progress = Math.max(0, Math.min(1, x / rect.width));
+                        const newTime = progress * duration;
+                        requestPreviewUpdate(newTime);
+                    }}
+                    onTouchMove={(e) => {
+                        const rect = canvasRef.current?.getBoundingClientRect();
+                        if (!rect) return;
+                        const touch = e.touches[0];
+                        const x = touch.clientX - rect.left;
+                        const progress = Math.max(0, Math.min(1, x / rect.width));
+                        const newTime = progress * duration;
+                        if (isDragging && interact && !error && isFinite(duration) && duration > 0) {
+                            requestPreviewUpdate(newTime);
+                        }
+                    }}
+                    onTouchEnd={() => {
+                        if (isDragging && interact && !error && isFinite(duration) && duration > 0 && hoveredTime != null) {
+                            const commitTime = Math.max(0, Math.min(duration, hoveredTime));
+                            handleSeekChange(commitTime);
+                        }
+                        setIsDragging(false);
+                    }}
                 />
             </div>
 
             {/* Controls */}
             {showControls && (
                 <div className="space-y-3">
-                    <div className="flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
-                        <Button
-                            size="icon"
-                            variant="ghost"
-                            className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-10 h-10 flex-shrink-0"
-                            onClick={togglePlayPause}
-                            disabled={!!error}
-                            title={
-                                error 
-                                    ? "Error loading audio"
-                                    : isLoading 
-                                        ? "Loading audio..."
-                                        : isPlaying 
-                                            ? "Pause (Space)" 
-                                            : "Play (Space)"
-                            }
-                        >
-                            {isPlaying ? (
-                                <Pause className="w-5 h-5" />
-                            ) : (
-                                <Play className="w-5 h-5" />
-                            )}
-                        </Button>
-
-                        <Slider
-                            value={[currentTime]}
-                            max={duration || 1}
-                            step={0.1}
-                            onValueChange={(values: number[]) => handleSeekChange(values[0])}
-                            disabled={isLoading || !!error}
-                            className={cn(
-                                "flex-grow",
-                                "[&>span:nth-child(1)]:bg-[var(--vscode-button-background)]/20",
-                                "[&>span>span]:bg-[var(--vscode-button-background)]",
-                                "[&_[role=slider]]:bg-[var(--vscode-button-background)] [&_[role=slider]]:w-3.5 [&_[role=slider]]:h-3.5 [&_[role=slider]]:border-2 [&_[role=slider]]:border-[var(--vscode-editor-background)]"
-                            )}
-                        />
-                        <div className="text-xs sm:text-sm text-[var(--vscode-foreground)] font-mono whitespace-nowrap tabular-nums flex-shrink-0">
-                            {formatTime(currentTime)} / {formatTime(duration)}
-                        </div>
-                    </div>
+                    {/* Play button and time are overlaid on the canvas above */}
 
                     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                         <div className="flex items-center gap-2">
@@ -861,9 +929,12 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                                 onValueChange={(values: number[]) => handleVolumeChange(values[0])}
                                 className={cn(
                                     "w-20 sm:w-24",
+                                    "py-3 select-none",
                                     "[&>span:nth-child(1)]:bg-[var(--vscode-button-background)]/20",
                                     "[&>span>span]:bg-[var(--vscode-button-background)]",
-                                    "[&_[role=slider]]:bg-[var(--vscode-button-background)] [&_[role=slider]]:w-3 [&_[role=slider]]:h-3"
+                                    "[&>span:nth-child(1)]:cursor-pointer",
+                                    "[&_[role=slider]]:bg-[var(--vscode-button-background)] [&_[role=slider]]:w-3 [&_[role=slider]]:h-3 [&_[role=slider]]:cursor-grab [&_[role=slider]]:active:cursor-grabbing",
+                                    "cursor-pointer"
                                 )}
                                 disabled={isLoading || !!error}
                             />

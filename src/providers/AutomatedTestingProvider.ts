@@ -36,9 +36,9 @@ export class AutomatedTestingProvider extends BaseWebviewProvider {
                 } catch (e) {
                     console.error("Test failed:", e);
                     if (this._view) {
-                        this._view.webview.postMessage({ 
-                            command: "testResults", 
-                            data: { averageCHRF: 0, results: [], error: String(e) } 
+                        this._view.webview.postMessage({
+                            command: "testResults",
+                            data: { averageCHRF: 0, results: [], error: String(e) }
                         });
                     }
                 }
@@ -64,7 +64,7 @@ export class AutomatedTestingProvider extends BaseWebviewProvider {
                 const { path } = message.data || {};
                 if (!path) return;
                 try {
-                    const data = await vscode.commands.executeCommand(
+                    const data: any = await vscode.commands.executeCommand(
                         "codex-testing.loadTest",
                         path
                     );
@@ -80,12 +80,12 @@ export class AutomatedTestingProvider extends BaseWebviewProvider {
                 const { path } = message.data || {};
                 if (!path) return;
                 try {
-                    const data = await vscode.commands.executeCommand(
+                    const data: any = await vscode.commands.executeCommand(
                         "codex-testing.loadTest",
                         path
                     );
-                    if (this._view && data?.results) {
-                        const cellIds = data.results.map((r: any) => r.cellId).join(", ");
+                    if (this._view && Array.isArray(data?.results)) {
+                        const cellIds = (data.results as any[]).map((r: any) => r.cellId).join(", ");
                         this._view.webview.postMessage({ command: "cellIdsPopulated", data: { cellIds } });
                     }
                 } catch (e) {
