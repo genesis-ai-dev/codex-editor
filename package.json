@@ -38,6 +38,15 @@
                     "contextualTitle": "Codex Project Settings"
                 }
             ],
+            "automated-testing-view": [
+                {
+                    "type": "webview",
+                    "id": "codex-editor.automatedTesting",
+                    "name": "Automated Testing",
+                    "icon": "$(beaker)",
+                    "contextualTitle": "Automated Testing"
+                }
+            ],
             "search-passages-view": [
                 {
                     "type": "webview",
@@ -84,6 +93,11 @@
                     "id": "codex-main-menu",
                     "title": "Codex Main Menu",
                     "icon": "$(list-tree)"
+                },
+                {
+                    "id": "automated-testing-view",
+                    "title": "Automated Testing",
+                    "icon": "$(beaker)"
                 },
                 {
                     "id": "codex-files-view",

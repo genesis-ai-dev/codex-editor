@@ -17,7 +17,8 @@
         "build:CellLabelImporterView": "cross-env APP_NAME=CellLabelImporterView vite build",
         "build:NewSourceUploader": "cross-env APP_NAME=NewSourceUploader vite build",
         "build:CopilotSettings": "cross-env APP_NAME=CopilotSettings vite build",
-        "build:all": "pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:CodexCellEditor && pnpm run build:CommentsView && pnpm run build:NavigationView && pnpm run build:EditableReactTable && pnpm run build:SourceUpload && pnpm run build:MainMenu && pnpm run build:SplashScreen && pnpm run build:CellLabelImporterView && pnpm run build:NewSourceUploader && pnpm run build:CopilotSettings",
+        "build:AutomatedTesting": "cross-env APP_NAME=AutomatedTesting vite build",
+        "build:all": "pnpm run build:StartupFlow && pnpm run build:ParallelView && pnpm run build:CodexCellEditor && pnpm run build:CommentsView && pnpm run build:NavigationView && pnpm run build:EditableReactTable && pnpm run build:SourceUpload && pnpm run build:MainMenu && pnpm run build:SplashScreen && pnpm run build:CellLabelImporterView && pnpm run build:NewSourceUploader && pnpm run build:CopilotSettings && pnpm run build:AutomatedTesting",
         "type-check": "tsc --noEmit",
         "watch:all": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:all",
         "watch:CodexCellEditor": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CodexCellEditor",
@@ -32,6 +33,7 @@
         "watch:CellLabelImporterView": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CellLabelImporterView",
         "watch:NewSourceUploader": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:NewSourceUploader",
         "watch:CopilotSettings": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:CopilotSettings",
+        "watch:AutomatedTesting": "nodemon --watch src --ext ts,tsx,css --exec pnpm run build:AutomatedTesting",
         "smart-watch": "node smart-watch.cjs",
         "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "preview": "vite preview"

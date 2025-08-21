@@ -50,6 +50,7 @@ import { registerVersionCheckCommands, resetVersionModalCooldown } from "./utils
 import { checkIfMetadataAndGitIsInitialized } from "./projectManager/utils/projectUtils";
 import { CommentsMigrator } from "./utils/commentsMigrationUtils";
 import { migrateAudioAttachments } from "./utils/audioAttachmentsMigrationUtils";
+import { registerTestingCommands } from "./evaluation/testingCommands";
 
 const DEBUG_MODE = false;
 function debug(...args: any[]): void {
@@ -398,6 +399,7 @@ export async function activate(context: vscode.ExtensionContext) {
             registerProviders(context),
             registerCommands(context),
             initializeWebviews(context),
+            (async () => registerTestingCommands(context))(),
         ]);
 
         // Initialize A/B testing registry (always-on, simple)
