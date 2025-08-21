@@ -58,7 +58,7 @@ interface UseVSCodeMessageHandlerProps {
     singleCellTranslationFailed?: () => void;
     setChapterNumber?: (chapterNumber: number) => void;
     setAudioAttachments: (attachments: { [cellId: string]: boolean; }) => void;
-    
+
     // A/B testing handlers
     showABTestVariants?: (data: { variants: string[]; cellId: string; testId: string; }) => void;
 }

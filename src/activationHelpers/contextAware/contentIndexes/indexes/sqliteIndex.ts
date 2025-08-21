@@ -1381,6 +1381,72 @@ export class SQLiteIndexManager {
         return null;
     }
 
+    /**
+     * Build a map of source cells keyed by cell_id with minimal payload for webviews
+     * Optionally filtered by a specific source file path to reduce payload size
+     */
+    public async getSourceCellsMapForFile(
+        sourceFilePath?: string
+    ): Promise<{ [k: string]: { content: string; versions: string[]; }; }> {
+        if (!this.db) return {};
+
+        const build = (pathA?: string, pathB?: string) => {
+            const result: { [k: string]: { content: string; versions: string[]; }; } = {};
+            let sql = `
+                SELECT c.cell_id AS cell_id,
+                       COALESCE(c.s_raw_content, c.s_content) AS content
+                FROM cells c
+                LEFT JOIN files s_file ON c.s_file_id = s_file.id
+                WHERE c.s_content IS NOT NULL AND c.s_content != ''
+            `;
+            const params: any[] = [];
+
+            if (pathA || pathB) {
+                if (pathA && pathB && pathA !== pathB) {
+                    sql += ` AND (s_file.file_path = ? OR s_file.file_path = ?)`;
+                    params.push(pathA, pathB);
+                } else {
+                    const only = pathA || pathB;
+                    sql += ` AND s_file.file_path = ?`;
+                    params.push(only);
+                }
+            }
+
+            const stmt = this.db!.prepare(sql);
+            try {
+                stmt.bind(params);
+                while (stmt.step()) {
+                    const row = stmt.getAsObject();
+                    const cellId = String(row.cell_id);
+                    const content = String(row.content || "");
+                    result[cellId] = { content, versions: [] };
+                }
+            } finally {
+                stmt.free();
+            }
+            return result;
+        };
+
+        let result: { [k: string]: { content: string; versions: string[]; }; } = {};
+        if (sourceFilePath) {
+            const isUri = sourceFilePath.startsWith("file:");
+            const fsPathVariant = isUri ? vscode.Uri.parse(sourceFilePath).fsPath : undefined;
+            result = build(sourceFilePath, fsPathVariant);
+            if (Object.keys(result).length === 0) {
+                // Retry with swapped order just in case
+                result = build(fsPathVariant, sourceFilePath);
+            }
+            if (Object.keys(result).length === 0) {
+                // Fallback to unfiltered
+                result = build();
+            }
+        } else {
+            result = build();
+        }
+
+        return result;
+    }
+
     // Get cell by exact ID match (for translation pairs)
     async getCellById(cellId: string, cellType?: "source" | "target"): Promise<any | null> {
         if (!this.db) return null;

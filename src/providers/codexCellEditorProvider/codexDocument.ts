@@ -119,15 +119,36 @@ export class CodexCellDocument implements vscode.CustomDocument {
             });
         }
 
-        initializeStateStore().then(async ({ getStoreState }) => {
-            const sourceCellMap = await getStoreState("sourceCellMap");
-            console.log("sourceCellMap", sourceCellMap);
-            if (sourceCellMap) {
-                this._sourceCellMap = sourceCellMap;
+        // Populate sourceCellMap directly from SQLite index for reliability
+        const documentDataRef = this._documentData;
+        (async () => {
+            try {
+                await this.populateSourceCellMapFromIndex(documentDataRef?.metadata?.sourceFsPath);
+            } catch (err) {
+                console.warn("Failed to initialize sourceCellMap from SQLite index:", err);
             }
-        });
+        })();
 
         // No forced type conversion - rely on proper initialization
+    }
+
+    /**
+     * Populate the in-memory source cell map from the SQLite index, optionally scoped by source file path
+     */
+    public async populateSourceCellMapFromIndex(sourceFilePath?: string): Promise<void> {
+        try {
+            if (!this._indexManager) {
+                this._indexManager = getSQLiteIndexManager();
+            }
+
+            if (this._indexManager) {
+                this._sourceCellMap = await this._indexManager.getSourceCellsMapForFile(
+                    sourceFilePath || this._documentData?.metadata?.sourceFsPath
+                );
+            }
+        } catch (error) {
+            console.warn("populateSourceCellMapFromIndex failed:", error);
+        }
     }
 
     dispose(): void {

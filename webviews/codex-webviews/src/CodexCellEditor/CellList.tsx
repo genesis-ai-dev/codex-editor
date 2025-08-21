@@ -713,22 +713,13 @@ const CellList: React.FC<CellListProps> = ({
                             <div
                                 style={{
                                     display: "flex",
-                                    flexDirection: "column",
-                                    alignItems: "flex-start",
+                                    flexDirection: "row",
+                                    alignItems: "center",
                                     justifyContent: "flex-start",
                                     gap: "0.25rem",
                                     padding: "4px 4px 4px 12px",
                                     width: "calc(100% - 20px)",
-                                    height:
-                                        fontSize > 14
-                                            ? fontSize <= 18
-                                                ? "25px"
-                                                : fontSize <= 22
-                                                ? "29px"
-                                                : fontSize <= 26
-                                                ? "33px"
-                                                : "37px"
-                                            : "21px",
+
                                     boxSizing: "border-box",
                                     ...getEmptyCellTranslationStyle(
                                         translationState as CellTranslationState,

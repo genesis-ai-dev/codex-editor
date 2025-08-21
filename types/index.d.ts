@@ -236,10 +236,6 @@ type ChatPostMessages =
         data: CellIdGlobalState & { sourceCellContent: { cellId: string; content: string; }; };
     }
     | { command: "getCurrentCellId"; }
-    | {
-        command: "updateSourceCellMap";
-        sourceCellMap: { [k: string]: { content: string; versions: string[]; }; };
-    }
     | { command: "navigateToMainMenu"; };
 
 export type SourceUploadPostMessages =
