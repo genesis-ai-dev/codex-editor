@@ -275,6 +275,12 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                 if (cancelled) return;
 
+                // Set duration early using decoded buffer to ensure progress updates during playback
+                if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                    setDuration(audioBuffer.duration);
+                    setCurrentTime(0);
+                }
+
                 const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
                 if (cancelled) return;
 
