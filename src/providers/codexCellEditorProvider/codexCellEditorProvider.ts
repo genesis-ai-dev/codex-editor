@@ -56,6 +56,8 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     private stateStoreListener: (() => void) | undefined;
     private commitTimer: NodeJS.Timeout | number | undefined;
     private autocompleteCancellation: vscode.CancellationTokenSource | undefined;
+    private mediaFileWatcher: vscode.FileSystemWatcher | undefined;
+    private mediaRefreshTimer: NodeJS.Timeout | undefined;
 
     // Cancellation token for single cell queue operations
     private singleCellQueueCancellation: vscode.CancellationTokenSource | undefined;
@@ -170,6 +172,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
     constructor(protected readonly context: vscode.ExtensionContext) {
         debug("Constructing CodexCellEditorProvider");
         this.initializeStateStore();
+        this.setupMediaFileWatcher();
 
         // Listen for configuration changes
         const configurationChangeDisposable = vscode.workspace.onDidChangeConfiguration((e) => {
@@ -572,6 +575,12 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             }
         });
         listeners.push(configListenerDisposable);
+
+        // Clean up webview panel from our tracking when it's disposed
+        const disposeListener = webviewPanel.onDidDispose(() => {
+            this.webviewPanels.delete(document.uri.toString());
+        });
+        listeners.push(disposeListener);
     }
 
     public async receiveMessage(message: any, updateWebview?: () => void) {
@@ -2995,6 +3004,116 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             console.error("Error checking for child cells in target:", error);
             // Return empty array on error - safer to proceed than block
             return [];
+        }
+    }
+
+    /**
+     * Sets up a file watcher for media attachments to automatically refresh webviews
+     * when LFS media files (audio, video, images) are synced/downloaded.
+     */
+    private setupMediaFileWatcher(): void {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders?.length) {
+            return;
+        }
+
+        const rootUri = workspaceFolders[0].uri;
+
+        // Watch the files directory for all file types
+        // This excludes the pointers directory which only contains LFS pointer files
+        const mediaAttachmentsPattern = new vscode.RelativePattern(
+            rootUri.fsPath,
+            ".project/attachments/files/**/*"
+        );
+
+        this.mediaFileWatcher = vscode.workspace.createFileSystemWatcher(mediaAttachmentsPattern);
+
+        // Debounced refresh function to avoid excessive updates
+        const debouncedRefresh = () => {
+            if (this.mediaRefreshTimer) {
+                clearTimeout(this.mediaRefreshTimer);
+            }
+            this.mediaRefreshTimer = setTimeout(() => {
+                this.refreshAudioAttachmentsForAllWebviews();
+            }, 500); // 500ms debounce
+        };
+
+        this.mediaFileWatcher.onDidCreate(debouncedRefresh);
+        this.mediaFileWatcher.onDidChange(debouncedRefresh);
+        this.mediaFileWatcher.onDidDelete(debouncedRefresh);
+
+        this.context.subscriptions.push(this.mediaFileWatcher);
+
+        debug("Media file watcher set up for pattern:", mediaAttachmentsPattern.pattern);
+    }
+
+    /**
+     * Refreshes media attachments for all open webview panels.
+     * This is called when media files are detected to have changed.
+     */
+    private async refreshAudioAttachmentsForAllWebviews(): Promise<void> {
+        debug("Refreshing media attachments for all open webviews");
+
+        if (this.webviewPanels.size === 0) {
+            debug("No open webview panels to refresh");
+            return;
+        }
+
+        const refreshPromises: Promise<void>[] = [];
+
+        for (const [documentUri, webviewPanel] of this.webviewPanels.entries()) {
+            if (webviewPanel.visible) {
+                refreshPromises.push(this.refreshAudioAttachmentsForWebview(documentUri, webviewPanel));
+            }
+        }
+
+        try {
+            await Promise.all(refreshPromises);
+            debug(`Successfully refreshed media attachments for ${refreshPromises.length} webviews`);
+        } catch (error) {
+            console.error("Error refreshing media attachments for webviews:", error);
+        }
+    }
+
+    /**
+     * Refreshes media attachments for a specific webview panel.
+     */
+    private async refreshAudioAttachmentsForWebview(
+        documentUri: string,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        try {
+            // Create a document instance for scanning
+            const document = await this.openCustomDocument(
+                vscode.Uri.parse(documentUri),
+                {},
+                new vscode.CancellationTokenSource().token
+            );
+
+            // Scan for audio attachments
+            const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
+
+            if (Object.keys(audioAttachments).length > 0) {
+                debug("Found updated media attachments, sending to webview:", Object.keys(audioAttachments));
+                // Send only the cell IDs that have audio, not the file paths
+                const audioCells: { [cellId: string]: boolean; } = {};
+                for (const cellId of Object.keys(audioAttachments)) {
+                    audioCells[cellId] = true;
+                }
+
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: audioCells as any,
+                });
+            } else {
+                // Send empty attachments to clear any outdated media indicators
+                this.postMessageToWebview(webviewPanel, {
+                    type: "providerSendsAudioAttachments",
+                    attachments: {},
+                });
+            }
+        } catch (error) {
+            console.error(`Error refreshing media attachments for webview ${documentUri}:`, error);
         }
     }
 }
