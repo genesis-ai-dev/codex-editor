@@ -1008,8 +1008,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 </div>
             )}
 
-            {/* Debug Information */}
-            {showDebugInfo && (
+            {/* Debug Information (hidden by default) */}
+            {false && showDebugInfo && (
                 <Accordion type="single" collapsible className="w-full mt-4">
                     <AccordionItem value="debug-info">
                         <AccordionTrigger className="text-sm text-[var(--vscode-foreground)]">
@@ -1019,11 +1019,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             <div className="space-y-2">
                                 {error ? (
                                     <Badge variant="destructive">Error loading</Badge>
-                                ) : isLoading ? (
-                                    <Badge variant="outline">Loading...</Badge>
-                                ) : (
-                                    <Badge variant="secondary">Audio loaded</Badge>
-                                )}
+                                ) : isLoading ? null : null}
                                 <div className="text-xs text-[var(--vscode-descriptionForeground)] space-y-1">
                                     <p>
                                         URL:{" "}
