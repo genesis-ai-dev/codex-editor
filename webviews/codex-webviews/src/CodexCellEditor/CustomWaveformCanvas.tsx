@@ -146,6 +146,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     showControls = true,
     showDebugInfo = false,
 }) => {
+    const DEBUG_LOGS = false;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -511,33 +512,44 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
         const handleLoadedMetadata = () => {
             const audioDuration = audio.duration;
-            console.log("Audio metadata loaded, duration:", audioDuration);
+            if (DEBUG_LOGS) console.log("Audio metadata loaded, duration:", audioDuration);
+            // If we already have a valid duration from decoded buffer, just ensure not loading
+            if (isFinite(duration) && duration > 0 && duration !== Infinity) {
+                setIsLoading(false);
+                return;
+            }
             
             // Validate duration
-            if (isFinite(audioDuration) && audioDuration > 0) {
+            if (isFinite(audioDuration) && audioDuration > 0 && audioDuration !== Infinity) {
                 setDuration(audioDuration);
                 setIsLoading(false);
                 setError(null);
                 setCurrentTime(0); // Reset current time to prevent fast traversal
-                console.log("✅ Duration set successfully:", audioDuration);
+                if (DEBUG_LOGS) console.log("✅ Duration set successfully:", audioDuration);
             } else {
-                console.warn("⚠️ Invalid audio duration:", audioDuration, "readyState:", audio.readyState);
+                if (DEBUG_LOGS) console.warn("⚠️ Invalid audio duration:", audioDuration, "readyState:", audio.readyState);
                 // For base64 data URLs, duration might not be available until later
                 let retryCount = 0;
                 const retryDuration = () => {
                     retryCount++;
                     if (retryCount > 20) { // Stop after 2 seconds
-                        console.error("❌ Failed to get audio duration after retries");
-                        setIsLoading(false);
-                        return;
+                        // As a fallback, if we decoded buffers already, use that duration instead of erroring
+                        if (duration > 0 && isFinite(duration) && duration !== Infinity) {
+                            setIsLoading(false);
+                            return;
+                        } else {
+                            if (DEBUG_LOGS) console.error("❌ Failed to get audio duration after retries");
+                            setIsLoading(false);
+                            return;
+                        }
                     }
                     
-                    if (isFinite(audio.duration) && audio.duration > 0) {
+                    if (isFinite(audio.duration) && audio.duration > 0 && audio.duration !== Infinity) {
                         setDuration(audio.duration);
                         setIsLoading(false);
                         setError(null);
                         setCurrentTime(0); // Reset current time
-                        console.log("✅ Duration set after retry:", audio.duration);
+                        if (DEBUG_LOGS) console.log("✅ Duration set after retry:", audio.duration);
                     } else {
                         setTimeout(retryDuration, 100);
                     }
@@ -562,12 +574,12 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         };
         const handleDurationChange = () => {
             const audioDuration = audio.duration;
-            if (isFinite(audioDuration) && audioDuration > 0) {
+            if (isFinite(audioDuration) && audioDuration > 0 && audioDuration !== Infinity) {
                 setDuration(audioDuration);
                 setIsLoading(false);
                 setError(null);
                 setCurrentTime(0); // Reset current time
-                console.log("✅ Duration updated:", audioDuration);
+                if (DEBUG_LOGS) console.log("✅ Duration updated:", audioDuration);
             }
         };
         
@@ -645,7 +657,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             audio.removeEventListener("waiting", handleWaiting);
             audio.removeEventListener("playing", handlePlaying);
         };
-    }, [volume, playbackRate]);
+    }, [volume, playbackRate, duration]);
 
     // Handle audio URL changes
     useEffect(() => {
