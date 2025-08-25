@@ -400,10 +400,10 @@ const CellList: React.FC<CellListProps> = ({
             if (cell.merged) {
                 return "❌";
             }
-
-            if (cell.cellLabel) {
-                return cell.cellLabel;
+            if (cell.deleted) {
+                return "❌";
             }
+
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
                 return "";
@@ -560,7 +560,8 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={cell}
-                                cellLabelOrGeneratedLabel={cell.cellLabel || generatedCellLabel} // Fixme: We should have a separate label for line numbers line numbers should be different the the label for the cell content
+                                lineNumber={generatedCellLabel}
+                                label={cell.cellLabel}
                                 key={`cell-${cellMarkers[0]}`}
                                 vscode={vscode}
                                 textDirection={textDirection}

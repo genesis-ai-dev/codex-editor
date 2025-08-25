@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { EditorPostMessages, QuillCellContent } from "../../../../types";
 import CellContentDisplay from "./CellContentDisplay";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 
 const DuplicateCellResolver: React.FC<{
     translationUnits: QuillCellContent[];
@@ -108,15 +109,23 @@ const DuplicateCellResolver: React.FC<{
                                                     }}
                                                 >
                                                     <CellContentDisplay
+                                                        cell={cell}
+                                                        lineNumber={
+                                                            cell.cellMarkers[0].split(":").pop() ||
+                                                            ""
+                                                        }
+                                                        label={cell.cellLabel}
                                                         alertColorCode={-1}
-                                                        timestamps={cell.timestamps}
                                                         hasDuplicateId={false}
-                                                        cellIds={cell.cellMarkers}
-                                                        cellContent={cell.cellContent}
-                                                        cellIndex={index}
-                                                        cellType={cell.cellType}
-                                                        cellLabel={cell.cellLabel}
-                                                        setContentBeingUpdated={() => {}}
+                                                        highlightedCellId={null}
+                                                        scrollSyncEnabled={false}
+                                                        isInTranslationProcess={false}
+                                                        translationState={null}
+                                                        allTranslationsComplete={false}
+                                                        handleCellTranslation={() => {}}
+                                                        handleCellClick={() => {}}
+                                                        cellDisplayMode={CELL_DISPLAY_MODES.INLINE}
+                                                        audioAttachments={{}}
                                                         vscode={vscode}
                                                         textDirection={textDirection}
                                                         isSourceText={true}
