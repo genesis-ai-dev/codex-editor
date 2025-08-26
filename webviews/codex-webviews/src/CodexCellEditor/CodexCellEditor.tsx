@@ -1904,6 +1904,7 @@ const CodexCellEditor: React.FC = () => {
                 translationUnits={translationUnits}
                 textDirection={textDirection}
                 vscode={vscode}
+                lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
             />
         );
     }
@@ -2112,6 +2113,7 @@ const CodexCellEditor: React.FC = () => {
                             fontSize={
                                 tempFontSize !== null ? tempFontSize : metadata?.fontSize || 14
                             }
+                            lineNumbersEnabled={metadata?.lineNumbersEnabled ?? true}
                         />
                     </div>
                 </div>

@@ -231,6 +231,11 @@
                 "category": "Codex Project"
             },
             {
+                "command": "codex-editor.setGlobalLineNumbers",
+                "title": "Set Global Line Numbers",
+                "category": "Codex Project"
+            },
+            {
                 "command": "dictionaryTable.showDictionaryTable",
                 "title": "Dictionary Table: Show"
             },

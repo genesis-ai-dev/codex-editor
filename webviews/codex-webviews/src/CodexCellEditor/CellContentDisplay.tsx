@@ -31,6 +31,7 @@ interface CellContentDisplayProps {
     scrollSyncEnabled: boolean;
     lineNumber: string;
     label?: string;
+    lineNumbersEnabled?: boolean;
     isInTranslationProcess?: boolean;
     translationState?: "waiting" | "processing" | "completed" | null;
     allTranslationsComplete?: boolean;
@@ -231,6 +232,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         scrollSyncEnabled,
         lineNumber,
         label,
+        lineNumbersEnabled = true,
         isInTranslationProcess = false,
         translationState = null,
         allTranslationsComplete = false,
@@ -555,7 +557,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         };
 
         // Decide when the label should occupy the full top row
-        const forceLabelTopRow: boolean = !!lineNumber;
+        const forceLabelTopRow: boolean = lineNumbersEnabled;
+        console.log("value ", { cell });
+        console.log("lineNumber", lineNumber);
+        console.log("lineNumbersEnabled", lineNumbersEnabled);
 
         // Function to check if we should show cell header elements
         const shouldShowHeaderElements = () => {
@@ -727,7 +732,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         )
                                     }
                                 />
-                                {lineNumber && (
+                                {lineNumber && lineNumbersEnabled && (
                                     <div
                                         className="cell-line-number"
                                         style={{

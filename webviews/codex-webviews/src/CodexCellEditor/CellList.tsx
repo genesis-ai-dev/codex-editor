@@ -44,6 +44,7 @@ export interface CellListProps {
     saveRetryCount?: number; // Number of save retry attempts
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     fontSize?: number; // Font size for responsive styling
+    lineNumbersEnabled?: boolean; // Whether line numbers should be shown
     // Derived, shared state to avoid per-cell auth/validation lookups
     currentUsername?: string | null;
     requiredValidations?: number;
@@ -83,6 +84,7 @@ const CellList: React.FC<CellListProps> = ({
     saveRetryCount = 0,
     isCorrectionEditorMode = false,
     fontSize = 14,
+    lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
 }) => {
@@ -562,6 +564,7 @@ const CellList: React.FC<CellListProps> = ({
                                 cell={cell}
                                 lineNumber={generatedCellLabel}
                                 label={cell.cellLabel}
+                                lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}`}
                                 vscode={vscode}
                                 textDirection={textDirection}

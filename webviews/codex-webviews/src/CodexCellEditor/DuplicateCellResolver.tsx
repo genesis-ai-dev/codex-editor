@@ -8,7 +8,8 @@ const DuplicateCellResolver: React.FC<{
     translationUnits: QuillCellContent[];
     textDirection: "ltr" | "rtl";
     vscode: any;
-}> = ({ translationUnits, textDirection, vscode }) => {
+    lineNumbersEnabled?: boolean;
+}> = ({ translationUnits, textDirection, vscode, lineNumbersEnabled = true }) => {
     const [selectedCell, setSelectedCell] = useState<(QuillCellContent & { index: number }) | null>(
         null
     );
@@ -115,6 +116,7 @@ const DuplicateCellResolver: React.FC<{
                                                             ""
                                                         }
                                                         label={cell.cellLabel}
+                                                        lineNumbersEnabled={lineNumbersEnabled}
                                                         alertColorCode={-1}
                                                         hasDuplicateId={false}
                                                         highlightedCellId={null}

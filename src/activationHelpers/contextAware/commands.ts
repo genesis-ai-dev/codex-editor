@@ -387,6 +387,33 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         }
     );
 
+    const setGlobalLineNumbersCommand = vscode.commands.registerCommand(
+        "codex-editor.setGlobalLineNumbers",
+        async () => {
+            try {
+                // Get the main menu provider instance from the global provider
+                const { GlobalProvider } = await import("../../globalProvider");
+                const globalProvider = GlobalProvider.getInstance();
+
+                // Get the registered main menu provider
+                const providers = (globalProvider as any).providers;
+                const mainMenuProvider = providers?.get("codex-editor.mainMenu");
+
+                if (mainMenuProvider && typeof mainMenuProvider.handleSetGlobalLineNumbers === 'function') {
+                    // Directly call the method on the main menu provider
+                    await mainMenuProvider.handleSetGlobalLineNumbers();
+                } else {
+                    // Fallback: navigate to main menu and show instructions
+                    await vscode.commands.executeCommand("codex-editor.navigateToMainMenu");
+                    vscode.window.showInformationMessage("Please use the 'Set Global Line Numbers' button in the Main Menu panel.");
+                }
+            } catch (error) {
+                console.error("Error executing global line numbers command:", error);
+                vscode.window.showErrorMessage(`Failed to set global line numbers: ${error}`);
+            }
+        }
+    );
+
     context.subscriptions.push(
         notebookSerializer,
         codexKernel,
@@ -406,6 +433,7 @@ export async function registerCommands(context: vscode.ExtensionContext) {
         refreshAllWebviewsCommand,
         setGlobalFontSizeCommand,
         setGlobalTextDirectionCommand,
+        setGlobalLineNumbersCommand,
 
         deduplicateSourceCellsCommand,
         testProjectLoadingPerformanceCommand,

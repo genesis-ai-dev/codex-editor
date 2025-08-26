@@ -556,6 +556,9 @@ export class MainMenuProvider extends BaseWebviewProvider {
             case "setGlobalTextDirection":
                 await this.handleSetGlobalTextDirection();
                 break;
+            case "setGlobalLineNumbers":
+                await this.handleSetGlobalLineNumbers();
+                break;
             case "publishProject":
                 await this.publishProject();
                 break;
@@ -1118,6 +1121,81 @@ export class MainMenuProvider extends BaseWebviewProvider {
         }
     }
 
+    public async handleSetGlobalLineNumbers() {
+        try {
+            // Step 1: Choose file scope
+            const fileScope = await vscode.window.showQuickPick(
+                [
+                    { label: "Source files only", value: "source" },
+                    { label: "Target files only", value: "target" },
+                    { label: "Both source and target files", value: "both" }
+                ],
+                {
+                    placeHolder: "Choose which files to update",
+                    title: "Global Line Numbers - File Scope"
+                }
+            );
+
+            if (!fileScope) {
+                return; // User cancelled
+            }
+
+            // Step 2: Choose update behavior
+            const updateBehavior = await vscode.window.showQuickPick(
+                [
+                    { label: "Update all files (including those with existing line numbers settings)", value: "all" },
+                    { label: "Skip files that already have line numbers settings set", value: "skip" }
+                ],
+                {
+                    placeHolder: "Choose update behavior",
+                    title: "Global Line Numbers - Update Behavior"
+                }
+            );
+
+            if (!updateBehavior) {
+                return; // User cancelled
+            }
+
+            // Step 3: Choose line numbers setting
+            const lineNumbersOption = await vscode.window.showQuickPick(
+                [
+                    { label: "Enable line numbers", value: true },
+                    { label: "Disable line numbers", value: false }
+                ],
+                {
+                    placeHolder: "Choose line numbers setting",
+                    title: "Choose Line Numbers Setting"
+                }
+            );
+
+            if (!lineNumbersOption) {
+                return; // User cancelled
+            }
+
+            const enableLineNumbers = lineNumbersOption.value;
+
+            // Step 4: Confirm the action
+            const actionText = enableLineNumbers ? "enable" : "disable";
+            const confirmMessage = `This will ${actionText} line numbers for ${fileScope.label.toLowerCase()} ${updateBehavior.label.toLowerCase()}. Continue?`;
+            const confirmed = await vscode.window.showWarningMessage(
+                confirmMessage,
+                { modal: true },
+                "Yes, Continue"
+            );
+
+            if (!confirmed) {
+                return; // User cancelled
+            }
+
+            // Step 5: Execute the update
+            await this.updateGlobalLineNumbers(enableLineNumbers, fileScope.value, updateBehavior.value);
+
+        } catch (error) {
+            console.error("Error setting global line numbers:", error);
+            vscode.window.showErrorMessage("Failed to set global line numbers");
+        }
+    }
+
     private async updateGlobalFontSize(fontSize: number, fileScope: string, updateBehavior: string) {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -1242,6 +1320,134 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         } catch (error) {
             console.error("Error refreshing webviews after font size update:", error);
+        }
+    }
+
+    private async updateGlobalLineNumbers(enableLineNumbers: boolean, fileScope: string, updateBehavior: string) {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        // Show progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Updating Global Line Numbers",
+                cancellable: false
+            },
+            async (progress) => {
+                try {
+                    // Find files based on scope
+                    const filesToUpdate: vscode.Uri[] = [];
+
+                    if (fileScope === "source" || fileScope === "both") {
+                        const sourceFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source")
+                        );
+                        filesToUpdate.push(...sourceFiles);
+                    }
+
+                    if (fileScope === "target" || fileScope === "both") {
+                        const targetFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, "files/target/*.codex")
+                        );
+                        filesToUpdate.push(...targetFiles);
+                    }
+
+                    progress.report({ message: `Found ${filesToUpdate.length} files to process` });
+
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+
+                    for (let i = 0; i < filesToUpdate.length; i++) {
+                        const file = filesToUpdate[i];
+                        progress.report({
+                            message: `Processing ${path.basename(file.fsPath)} (${i + 1}/${filesToUpdate.length})`,
+                            increment: (100 / filesToUpdate.length)
+                        });
+
+                        try {
+                            const updated = await this.updateFileLineNumbers(file, enableLineNumbers, updateBehavior);
+                            if (updated) {
+                                updatedCount++;
+                            } else {
+                                skippedCount++;
+                            }
+                        } catch (error) {
+                            console.error(`Error updating line numbers for ${file.fsPath}:`, error);
+                        }
+                    }
+
+                    // Show completion message
+                    const actionText = enableLineNumbers ? "enabled" : "disabled";
+                    const message = `Line numbers ${actionText}: ${updatedCount} files updated, ${skippedCount} files skipped`;
+                    vscode.window.showInformationMessage(message);
+
+                    // Refresh webviews to show the updated line numbers immediately
+                    await this.refreshWebviewsAfterLineNumbersUpdate();
+
+                } catch (error) {
+                    console.error("Error during line numbers update:", error);
+                    throw error;
+                }
+            }
+        );
+    }
+
+    private async updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean, updateBehavior: string): Promise<boolean> {
+        try {
+            // Read the file content
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileData = JSON.parse(fileContent.toString());
+
+            // Check if file already has line numbers setting
+            const currentLineNumbersEnabled = fileData.metadata?.lineNumbersEnabled;
+            const currentLineNumbersEnabledSource = fileData.metadata?.lineNumbersEnabledSource;
+
+            // For "skip" behavior, skip files that have local line numbers changes
+            // This preserves user's manual line numbers adjustments
+            if (updateBehavior === "skip" && currentLineNumbersEnabled !== undefined && currentLineNumbersEnabledSource === "local") {
+                return false; // Skip this file
+            }
+
+            // Update the line numbers setting and mark it as globally set
+            if (!fileData.metadata) {
+                fileData.metadata = {};
+            }
+            fileData.metadata.lineNumbersEnabled = enableLineNumbers;
+            fileData.metadata.lineNumbersEnabledSource = "global"; // Mark as globally set
+
+            // Write the updated content back to the file
+            const updatedContent = JSON.stringify(fileData, null, 2);
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(updatedContent, 'utf8'));
+
+            return true; // File was updated
+
+        } catch (error) {
+            console.error(`Error updating line numbers for ${fileUri.fsPath}:`, error);
+            return false;
+        }
+    }
+
+    private async refreshWebviewsAfterLineNumbersUpdate() {
+        try {
+            // Refresh the main menu webview
+            if (this._view) {
+                await this.store.refreshState();
+                this.sendProjectStateToWebview();
+            }
+
+            // Notify other webviews that line numbers settings have changed
+            // Send a message to all active webviews to refresh their content
+            vscode.commands.executeCommand("codex-editor.refreshAllWebviews");
+
+            // Also refresh the metadata manager to ensure all webviews get updated data
+            const metadataManager = getNotebookMetadataManager();
+            await metadataManager.loadMetadata();
+
+        } catch (error) {
+            console.error("Error refreshing webviews after line numbers update:", error);
         }
     }
 
