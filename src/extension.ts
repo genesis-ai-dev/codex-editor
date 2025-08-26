@@ -13,6 +13,7 @@ import {
     temporaryMigrationScript_checkMatthewNotebook,
     migration_changeDraftFolderToFilesFolder,
     migration_chatSystemMessageSetting,
+    migration_lineNumbersSettings,
 } from "./projectManager/utils/migrationUtils";
 import { createIndexWithContext } from "./activationHelpers/contextAware/contentIndexes/indexes";
 import { registerSourceUploadCommands } from "./providers/SourceUpload/registerCommands";
@@ -442,6 +443,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
+        await migration_lineNumbersSettings();
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)

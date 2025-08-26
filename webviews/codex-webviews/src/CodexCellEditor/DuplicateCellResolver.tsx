@@ -2,12 +2,14 @@ import React, { useState } from "react";
 import { EditorPostMessages, QuillCellContent } from "../../../../types";
 import CellContentDisplay from "./CellContentDisplay";
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react";
+import { CELL_DISPLAY_MODES } from "./CodexCellEditor";
 
 const DuplicateCellResolver: React.FC<{
     translationUnits: QuillCellContent[];
     textDirection: "ltr" | "rtl";
     vscode: any;
-}> = ({ translationUnits, textDirection, vscode }) => {
+    lineNumbersEnabled?: boolean;
+}> = ({ translationUnits, textDirection, vscode, lineNumbersEnabled = true }) => {
     const [selectedCell, setSelectedCell] = useState<(QuillCellContent & { index: number }) | null>(
         null
     );
@@ -109,16 +111,26 @@ const DuplicateCellResolver: React.FC<{
                                                 >
                                                     <CellContentDisplay
                                                         cell={cell}
+                                                        lineNumber={
+                                                            cell.cellMarkers[0].split(":").pop() ||
+                                                            ""
+                                                        }
+                                                        label={cell.cellLabel}
+                                                        lineNumbersEnabled={lineNumbersEnabled}
+                                                        alertColorCode={-1}
+                                                        hasDuplicateId={false}
+                                                        highlightedCellId={null}
+                                                        scrollSyncEnabled={false}
+                                                        isInTranslationProcess={false}
+                                                        translationState={null}
+                                                        allTranslationsComplete={false}
+                                                        handleCellTranslation={() => {}}
+                                                        handleCellClick={() => {}}
+                                                        cellDisplayMode={CELL_DISPLAY_MODES.INLINE}
+                                                        audioAttachments={{}}
                                                         vscode={vscode}
                                                         textDirection={textDirection}
                                                         isSourceText={true}
-                                                        hasDuplicateId={false}
-                                                        alertColorCode={-1}
-                                                        highlightedCellId={null}
-                                                        scrollSyncEnabled={false}
-                                                        cellLabelOrGeneratedLabel={""}
-                                                        isInTranslationProcess={false}
-                                                        translationState={null}
                                                     />
                                                 </span>
                                                 {selectedCell?.index === cellIndex &&

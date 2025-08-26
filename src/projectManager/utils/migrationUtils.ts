@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import * as path from "path";
+import { CodexContentSerializer } from "@/serializer";
 
 // FIXME: move notebook format migration here
 
@@ -136,5 +138,216 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
     } catch (error) {
         // If MAT.codex doesn't exist, we silently ignore
         console.log("MAT.codex not found. Skipping migration.");
+    }
+}
+
+export const migration_lineNumbersSettings = async () => {
+    try {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return;
+        }
+
+        // Check if migration has already been run
+        const migrationKey = "lineNumbersMigrationCompleted";
+        const config = vscode.workspace.getConfiguration("codex-project-manager");
+        const hasMigrationRun = config.get(migrationKey, false);
+
+        if (hasMigrationRun) {
+            console.log("Line numbers migration already completed, skipping");
+            return;
+        }
+
+        console.log("Running line numbers migration...");
+
+        const workspaceFolder = workspaceFolders[0];
+
+        // Find all codex files
+        const codexFiles = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(workspaceFolder, "**/*.codex")
+        );
+
+        if (codexFiles.length === 0) {
+            console.log("No codex files found, skipping migration");
+            return;
+        }
+
+        let processedFiles = 0;
+
+        // Process files with progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Setting up line numbers",
+                cancellable: false
+            },
+            async (progress) => {
+                for (let i = 0; i < codexFiles.length; i++) {
+                    const file = codexFiles[i];
+                    progress.report({
+                        message: `Analyzing ${path.basename(file.fsPath)}`,
+                        increment: (100 / codexFiles.length)
+                    });
+
+                    try {
+                        const shouldShowLineNumbers = await analyzeFileForLineNumbers(file);
+                        await updateFileLineNumbers(file, shouldShowLineNumbers);
+                        processedFiles++;
+                    } catch (error) {
+                        console.error(`Error processing ${file.fsPath}:`, error);
+                    }
+                }
+            }
+        );
+
+        // Mark migration as completed
+        await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+
+        console.log(`Line numbers migration completed: ${processedFiles} files processed`);
+        vscode.window.showInformationMessage(
+            `Line numbers setup complete: ${processedFiles} files configured`
+        );
+
+    } catch (error) {
+        console.error("Error running line numbers migration:", error);
+    }
+};
+
+async function analyzeFileForLineNumbers(fileUri: vscode.Uri): Promise<boolean> {
+    try {
+        // Read the file content using serializer for proper deserialization
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        const cells = notebookData.cells || [];
+        if (cells.length === 0) {
+            // Empty file, show line numbers
+            return true;
+        }
+
+        // Sample up to 10 random cells to analyze
+        const sampleSize = Math.min(10, cells.length);
+        const sampledCells = getRandomSample(cells, sampleSize);
+
+        // Check if any cell has meaningful labels
+        for (const cell of sampledCells) {
+            const cellLabel = cell.metadata.cellLabel;
+
+            // If there's no label, show line numbers
+            if (!cellLabel) {
+                return true;
+            }
+
+            // If label is just a number, we might not need line numbers
+            // If label contains words (not just numbers), show line numbers
+            if (isMeaningfulLabel(cellLabel)) {
+                return true;
+            }
+        }
+
+        // If we get here, all sampled cells have numeric labels or no labels
+        // In this case, we can hide line numbers since the labels serve as identifiers
+        return false;
+
+    } catch (error) {
+        console.error(`Error analyzing file ${fileUri.fsPath}:`, error);
+        // On error, default to showing line numbers
+        return true;
+    }
+}
+
+function isMeaningfulLabel(label: string): boolean {
+    if (!label || typeof label !== 'string') {
+        return false;
+    }
+
+    // Trim whitespace
+    const trimmedLabel = label.trim();
+
+    // If it's empty, not meaningful
+    if (trimmedLabel.length === 0) {
+        return false;
+    }
+
+    // If it's just numbers (like "1", "2", "3"), not meaningful for our purposes
+    if (/^\d+$/.test(trimmedLabel)) {
+        return false;
+    }
+
+    // If it contains letters or other characters, it's meaningful
+    if (/[a-zA-Z]/.test(trimmedLabel)) {
+        return true;
+    }
+
+    // If it contains special characters or is a complex identifier
+    if (/[^0-9\s]/.test(trimmedLabel)) {
+        return true;
+    }
+
+    // If it's a simple number, not meaningful
+    return false;
+}
+
+function getRandomSample<T>(array: T[], sampleSize: number): T[] {
+    if (sampleSize >= array.length) {
+        return array;
+    }
+
+    const sample: T[] = [];
+    const usedIndices = new Set<number>();
+
+    while (sample.length < sampleSize) {
+        const randomIndex = Math.floor(Math.random() * array.length);
+        if (!usedIndices.has(randomIndex)) {
+            usedIndices.add(randomIndex);
+            sample.push(array[randomIndex]);
+        }
+    }
+
+    return sample;
+}
+
+async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boolean): Promise<boolean> {
+    try {
+        // Read the file content
+        const fileContent = await vscode.workspace.fs.readFile(fileUri);
+        const serializer = new CodexContentSerializer();
+        const notebookData = await serializer.deserializeNotebook(
+            fileContent,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Check if file already has line numbers setting
+        const currentLineNumbersEnabled = notebookData.metadata?.lineNumbersEnabled;
+
+        // Skip files that already have line numbers setting configured
+        // This preserves any existing configuration (whether set locally or globally)
+        if (currentLineNumbersEnabled !== undefined) {
+            return false; // Skip this file - already has line numbers configured
+        }
+
+        // Update the line numbers setting and mark it as globally set
+    
+        notebookData.metadata.lineNumbersEnabled = enableLineNumbers;
+        notebookData.metadata.lineNumbersEnabledSource = "global"; // Mark as globally set
+
+        // Serialize the updated notebook back to the file
+        const updatedContent = await serializer.serializeNotebook(
+            notebookData,
+            new vscode.CancellationTokenSource().token
+        );
+
+        // Write the updated content back to the file
+        await vscode.workspace.fs.writeFile(fileUri, updatedContent);
+
+        return true; // File was updated
+
+    } catch (error) {
+        console.error(`Error updating line numbers for ${fileUri.fsPath}:`, error);
+        return false;
     }
 }

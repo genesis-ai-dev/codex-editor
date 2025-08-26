@@ -44,6 +44,7 @@ export interface CellListProps {
     saveRetryCount?: number; // Number of save retry attempts
     isCorrectionEditorMode?: boolean; // Whether correction editor mode is active
     fontSize?: number; // Font size for responsive styling
+    lineNumbersEnabled?: boolean; // Whether line numbers should be shown
     // Derived, shared state to avoid per-cell auth/validation lookups
     currentUsername?: string | null;
     requiredValidations?: number;
@@ -83,6 +84,7 @@ const CellList: React.FC<CellListProps> = ({
     saveRetryCount = 0,
     isCorrectionEditorMode = false,
     fontSize = 14,
+    lineNumbersEnabled = true,
     currentUsername,
     requiredValidations,
 }) => {
@@ -400,10 +402,10 @@ const CellList: React.FC<CellListProps> = ({
             if (cell.merged) {
                 return "❌";
             }
-
-            if (cell.cellLabel) {
-                return cell.cellLabel;
+            if (cell.deleted) {
+                return "❌";
             }
+
             // Don't use index as fallback for paratext cells
             if (cell.cellType === CodexCellTypes.PARATEXT) {
                 return "";
@@ -560,7 +562,9 @@ const CellList: React.FC<CellListProps> = ({
                         >
                             <CellContentDisplay
                                 cell={cell}
-                                cellLabelOrGeneratedLabel={cell.cellLabel || generatedCellLabel} // Fixme: We should have a separate label for line numbers line numbers should be different the the label for the cell content
+                                lineNumber={generatedCellLabel}
+                                label={cell.cellLabel}
+                                lineNumbersEnabled={lineNumbersEnabled}
                                 key={`cell-${cellMarkers[0]}`}
                                 vscode={vscode}
                                 textDirection={textDirection}

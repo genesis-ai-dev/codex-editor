@@ -2056,31 +2056,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         )}
                                     </div>
 
-                                    {/* Native audio player for verification (temporary) */}
-                                    <details className="mt-4">
-                                        <summary className="text-sm text-muted-foreground cursor-pointer">
-                                            Debug: Native Audio Player
-                                        </summary>
-                                        <div className="mt-2 p-3 bg-muted rounded-lg">
-                                            <audio
-                                                controls
-                                                src={audioUrl || undefined}
-                                                className="w-full"
-                                                style={{ height: "40px" }}
-                                            />
-                                            <p className="text-xs text-muted-foreground mt-2 break-all">
-                                                Source:{" "}
-                                                {audioUrl
-                                                    ? `URL: ${audioUrl}`
-                                                    : audioBlob
-                                                    ? `Blob: ${audioBlob.type} (${audioBlob.size} bytes)`
-                                                    : "No audio"}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                Debug URL: {audioUrl || "None"}
-                                            </p>
-                                        </div>
-                                    </details>
+                                    {/* Debug native audio player removed */}
 
                                     {/* Status messages */}
                                     {transcriptionStatus && (
@@ -2089,7 +2065,7 @@ const CellEditor: React.FC<CellEditorProps> = ({
                                         </p>
                                     )}
 
-                                    {recordingStatus && !isTranscribing && (
+                                    {recordingStatus && recordingStatus !== "Audio loaded" && !isTranscribing && (
                                         <Badge
                                             variant={isRecording ? "destructive" : "secondary"}
                                             className={`self-center ${

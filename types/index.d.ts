@@ -1188,6 +1188,8 @@ export interface CustomNotebookMetadata {
     validationMigrationComplete?: boolean;
     fontSize?: number;
     fontSizeSource?: "global" | "local"; // Track whether font size was set globally or locally
+    lineNumbersEnabled?: boolean;
+    lineNumbersEnabledSource?: "global" | "local"; // Track whether line numbers visibility was set globally or locally
 }
 
 type CustomNotebookDocument = vscode.NotebookDocument & {
@@ -1505,7 +1507,8 @@ type ProjectManagerMessageFromWebview =
     | { command: "installUpdate"; }
     | { command: "openExternal"; url: string; }
     | { command: "setGlobalFontSize"; }
-    | { command: "setGlobalTextDirection"; };
+    | { command: "setGlobalTextDirection"; }
+    | { command: "setGlobalLineNumbers"; };
 
 interface ProjectManagerState {
     projectOverview: ProjectOverview | null;

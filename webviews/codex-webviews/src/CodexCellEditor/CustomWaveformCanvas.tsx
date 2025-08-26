@@ -146,6 +146,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     showControls = true,
     showDebugInfo = false,
 }) => {
+    const DEBUG_LOGS = false;
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -154,7 +155,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     const [duration, setDuration] = useState(0);
     const [currentTime, setCurrentTime] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [peaks, setPeaks] = useState<number[]>([]);
     const [hoveredTime, setHoveredTime] = useState<number | null>(null);
@@ -273,50 +274,72 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         [normalize]
     );
 
-    // Load and decode audio
+    // Eagerly decode peaks/duration in the background when the cell opens
     useEffect(() => {
-        if (!audioUrl) return;
-
         let cancelled = false;
-        setIsLoading(true);
-        setError(null);
-
-        const loadAudio = async () => {
+        const decode = async () => {
             try {
                 const response = await fetch(audioUrl);
-                if (!response.ok) throw new Error("Failed to fetch audio");
-
+                if (!response.ok) return;
                 const arrayBuffer = await response.arrayBuffer();
                 if (cancelled) return;
-
-                const audioContext = new (window.AudioContext ||
-                    (window as any).webkitAudioContext)();
+                const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
                 if (cancelled) return;
-
-                // Set duration early using decoded buffer to ensure progress updates during playback
                 if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
                     setDuration(audioBuffer.duration);
                     setCurrentTime(0);
                 }
-
                 const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
                 if (cancelled) return;
-
                 setPeaks(generatedPeaks);
-                setIsLoading(false);
-            } catch (err) {
-                if (!cancelled) {
-                    setError(err instanceof Error ? err.message : "Failed to load audio");
-                    setIsLoading(false);
-                }
+                hasLoadedRef.current = true;
+            } catch {
+                // Ignore; will retry on interaction
             }
         };
-
-        loadAudio();
+        if (audioUrl) decode();
         return () => {
             cancelled = true;
         };
+    }, [audioUrl, numberOfBars, generatePeaks]);
+
+    // On-demand loader for audio element and peaks
+    const hasLoadedRef = useRef(false); // peaks/duration decoded
+    const hasSetSrcRef = useRef(false); // <audio> src assigned
+
+    const ensureAudioSrcSet = useCallback(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        if (!hasSetSrcRef.current && audioUrl) {
+            audio.src = audioUrl;
+            hasSetSrcRef.current = true;
+        }
+    }, [audioUrl]);
+
+    const ensurePeaksLoaded = useCallback(async () => {
+        if (hasLoadedRef.current) return;
+        setError(null);
+        try {
+            const response = await fetch(audioUrl);
+            if (!response.ok) throw new Error("Failed to fetch audio");
+            const arrayBuffer = await response.arrayBuffer();
+
+            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            if (isFinite(audioBuffer.duration) && audioBuffer.duration > 0) {
+                setDuration(audioBuffer.duration);
+                setCurrentTime(0);
+            }
+
+            const generatedPeaks = await generatePeaks(audioBuffer, numberOfBars);
+            setPeaks(generatedPeaks);
+
+            hasLoadedRef.current = true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load audio");
+        }
     }, [audioUrl, numberOfBars, generatePeaks]);
 
     // Draw waveform
@@ -489,33 +512,44 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
 
         const handleLoadedMetadata = () => {
             const audioDuration = audio.duration;
-            console.log("Audio metadata loaded, duration:", audioDuration);
+            if (DEBUG_LOGS) console.log("Audio metadata loaded, duration:", audioDuration);
+            // If we already have a valid duration from decoded buffer, just ensure not loading
+            if (isFinite(duration) && duration > 0 && duration !== Infinity) {
+                setIsLoading(false);
+                return;
+            }
             
             // Validate duration
-            if (isFinite(audioDuration) && audioDuration > 0) {
+            if (isFinite(audioDuration) && audioDuration > 0 && audioDuration !== Infinity) {
                 setDuration(audioDuration);
                 setIsLoading(false);
                 setError(null);
                 setCurrentTime(0); // Reset current time to prevent fast traversal
-                console.log("✅ Duration set successfully:", audioDuration);
+                if (DEBUG_LOGS) console.log("✅ Duration set successfully:", audioDuration);
             } else {
-                console.warn("⚠️ Invalid audio duration:", audioDuration, "readyState:", audio.readyState);
+                if (DEBUG_LOGS) console.warn("⚠️ Invalid audio duration:", audioDuration, "readyState:", audio.readyState);
                 // For base64 data URLs, duration might not be available until later
                 let retryCount = 0;
                 const retryDuration = () => {
                     retryCount++;
                     if (retryCount > 20) { // Stop after 2 seconds
-                        console.error("❌ Failed to get audio duration after retries");
-                        setIsLoading(false);
-                        return;
+                        // As a fallback, if we decoded buffers already, use that duration instead of erroring
+                        if (duration > 0 && isFinite(duration) && duration !== Infinity) {
+                            setIsLoading(false);
+                            return;
+                        } else {
+                            if (DEBUG_LOGS) console.error("❌ Failed to get audio duration after retries");
+                            setIsLoading(false);
+                            return;
+                        }
                     }
                     
-                    if (isFinite(audio.duration) && audio.duration > 0) {
+                    if (isFinite(audio.duration) && audio.duration > 0 && audio.duration !== Infinity) {
                         setDuration(audio.duration);
                         setIsLoading(false);
                         setError(null);
                         setCurrentTime(0); // Reset current time
-                        console.log("✅ Duration set after retry:", audio.duration);
+                        if (DEBUG_LOGS) console.log("✅ Duration set after retry:", audio.duration);
                     } else {
                         setTimeout(retryDuration, 100);
                     }
@@ -524,20 +558,28 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             }
         };
         const handleEnded = () => setIsPlaying(false);
-        const handlePlay = () => setIsPlaying(true);
+        const handlePlay = () => {
+            setIsPlaying(true);
+            setIsLoading(false);
+            setError(null);
+        };
         const handlePause = () => setIsPlaying(false);
         const handleError = () => {
+            // Ignore spurious errors before we intentionally set a src
+            if (!hasSetSrcRef.current) {
+                return;
+            }
             setError("Error loading audio. Please try a different file.");
             setIsLoading(false);
         };
         const handleDurationChange = () => {
             const audioDuration = audio.duration;
-            if (isFinite(audioDuration) && audioDuration > 0) {
+            if (isFinite(audioDuration) && audioDuration > 0 && audioDuration !== Infinity) {
                 setDuration(audioDuration);
                 setIsLoading(false);
                 setError(null);
                 setCurrentTime(0); // Reset current time
-                console.log("✅ Duration updated:", audioDuration);
+                if (DEBUG_LOGS) console.log("✅ Duration updated:", audioDuration);
             }
         };
         
@@ -551,7 +593,12 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             }
         };
         
-        const handleWaiting = () => setIsLoading(true);
+        const handleWaiting = () => {
+            // Only show loading while actively playing/buffering
+            if (isPlaying && audio.readyState < 3) {
+                setIsLoading(true);
+            }
+        };
         
         const handlePlaying = () => {
             setIsLoading(false);
@@ -589,9 +636,6 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         // Set initial values
         audio.volume = volume;
         audio.playbackRate = playbackRate;
-        
-        // Aggressive metadata preloading for duration
-        audio.preload = "metadata";
         audio.autoplay = false;
 
         // If audio is already loaded (e.g. from cache)
@@ -599,14 +643,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             handleLoadedMetadata();
         }
         
-        // Force metadata reload when audio URL changes
-        if (audioUrl && audio.src !== audioUrl) {
-            setIsLoading(true);
-            setDuration(0);
-            setCurrentTime(0);
-            setIsPlaying(false);
-            audio.load();
-        }
+        // Do not auto-load on URL changes; we lazy-load on first interaction
 
         return () => {
             audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
@@ -620,7 +657,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             audio.removeEventListener("waiting", handleWaiting);
             audio.removeEventListener("playing", handlePlaying);
         };
-    }, [volume, playbackRate]);
+    }, [volume, playbackRate, duration]);
 
     // Handle audio URL changes
     useEffect(() => {
@@ -628,32 +665,10 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         if (!audio || !audioUrl) {
             return;
         }
-
-        console.log("🔄 Audio URL changed");
-        
-        // Reset state
-        setDuration(0);
-        setCurrentTime(0);
-        setIsPlaying(false);
-        setIsLoading(true);
-        setError(null);
-        
-        // Update audio source and force immediate metadata loading
-        audio.src = audioUrl;
-        audio.load();
-        
-        // Immediately check for metadata if already available
-        if (audio.readyState >= 1) {
-            if (audio.duration && isFinite(audio.duration) && audio.duration > 0) {
-                setDuration(audio.duration);
-                setIsLoading(false);
-                setCurrentTime(0);
-                console.log("✅ Duration set immediately:", audio.duration);
-            }
-        }
+        // Do nothing on URL change; we now lazy-load on demand
     }, [audioUrl]);
 
-    const togglePlayPause = useCallback(() => {
+    const togglePlayPause = useCallback(async () => {
         const audio = audioRef.current;
         
         // More lenient conditions - only block for critical issues
@@ -661,22 +676,36 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
             return;
         }
         
-        // Allow play even if duration isn't loaded yet (some audio formats load duration later)
-        if (isLoading && audio.readyState < 2) {
-            return;
+        // Ensure audio and peaks are loaded on first play
+        if (!hasLoadedRef.current) {
+            await ensurePeaksLoaded();
         }
+        ensureAudioSrcSet();
 
         if (isPlaying) {
             audio.pause();
         } else {
             // Ensure playback rate is correct before playing
             audio.playbackRate = playbackRate;
-            audio.play().catch((e) => {
-                console.error("Error playing audio:", e);
-                setError("Could not play audio.");
-            });
+            try {
+                await audio.play();
+            } catch (e) {
+                // Auto-play may be blocked; try resuming AudioContext then retry once
+                try {
+                    const ctx = (window as any).AudioContext ? new (window as any).AudioContext() : null;
+                    if (ctx && ctx.state === "suspended") {
+                        await ctx.resume();
+                    }
+                } catch {}
+                try {
+                    await audio.play();
+                } catch (err) {
+                    console.error("Error playing audio:", err);
+                    setError("Could not play audio.");
+                }
+            }
         }
-    }, [isPlaying, error, isLoading, duration, playbackRate]);
+    }, [isPlaying, error, isLoading, duration, playbackRate, ensurePeaksLoaded, ensureAudioSrcSet]);
 
     const handleSeekChange = useCallback(
         (value: number) => {
@@ -811,11 +840,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         >
             {/* Canvas */}
             <div className="relative mb-4 pl-12">
-                {isLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-[var(--vscode-editor-background)]/80 rounded z-10">
-                        <Loader2 className="h-8 w-8 text-[var(--vscode-button-background)] animate-spin" />
-                    </div>
-                )}
+                {/* No spinner overlay to avoid flicker; keep UI calm */}
                 {error && !isLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--vscode-errorForeground)]/10 rounded z-10 p-4">
                         <AlertTriangle className="h-8 w-8 text-[var(--vscode-errorForeground)] mb-2" />
@@ -832,7 +857,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             variant="ghost"
                             className="bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)] rounded-full w-9 h-9 pointer-events-auto"
                             onClick={togglePlayPause}
-                            disabled={!!error}
+                            disabled={!!error || isLoading}
                             title={
                                 isLoading
                                     ? "Loading audio..."
@@ -860,16 +885,25 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         borderRadius: "0.25rem",
                         opacity: error ? 0.5 : 1,
                     }}
-                    onClick={(e) => {
+                    onClick={async (e) => {
                         // On click, always place the marker (seek), even if not playing
-                        if (interact && !error && isFinite(duration) && duration > 0) {
+                        if (interact && !error) {
+                            if (!hasLoadedRef.current) {
+                                await ensurePeaksLoaded();
+                            }
+                            ensureAudioSrcSet();
                             handleCanvasClick(e);
                         }
                     }}
                     onMouseMove={handleCanvasMouseMove}
                     onMouseLeave={handleCanvasMouseLeave}
-                    onMouseDown={(e) => {
-                        if (!interact || error || !isFinite(duration) || duration <= 0) return;
+                    onMouseDown={async (e) => {
+                        if (!interact || error) return;
+                        if (!hasLoadedRef.current) {
+                            await ensurePeaksLoaded();
+                        }
+                        ensureAudioSrcSet();
+                        if (!isFinite(duration) || duration <= 0) return;
                         setIsDragging(true);
                         const rect = canvasRef.current?.getBoundingClientRect();
                         if (!rect) return;
@@ -879,8 +913,13 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                         // Start with a preview; commit on mouseup
                         requestPreviewUpdate(newTime);
                     }}
-                    onTouchStart={(e) => {
-                        if (!interact || error || !isFinite(duration) || duration <= 0) return;
+                    onTouchStart={async (e) => {
+                        if (!interact || error) return;
+                        if (!hasLoadedRef.current) {
+                            await ensurePeaksLoaded();
+                        }
+                        ensureAudioSrcSet();
+                        if (!isFinite(duration) || duration <= 0) return;
                         setIsDragging(true);
                         const rect = canvasRef.current?.getBoundingClientRect();
                         if (!rect) return;
@@ -969,8 +1008,8 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 </div>
             )}
 
-            {/* Debug Information */}
-            {showDebugInfo && (
+            {/* Debug Information (hidden by default) */}
+            {false && showDebugInfo && (
                 <Accordion type="single" collapsible className="w-full mt-4">
                     <AccordionItem value="debug-info">
                         <AccordionTrigger className="text-sm text-[var(--vscode-foreground)]">
@@ -980,11 +1019,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             <div className="space-y-2">
                                 {error ? (
                                     <Badge variant="destructive">Error loading</Badge>
-                                ) : isLoading ? (
-                                    <Badge variant="outline">Loading...</Badge>
-                                ) : (
-                                    <Badge variant="secondary">Audio loaded</Badge>
-                                )}
+                                ) : isLoading ? null : null}
                                 <div className="text-xs text-[var(--vscode-descriptionForeground)] space-y-1">
                                     <p>
                                         URL:{" "}
@@ -1006,7 +1041,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 </Accordion>
             )}
 
-            <audio ref={audioRef} src={audioUrl} preload="metadata" className="hidden" />
+            <audio ref={audioRef} src="" preload="none" className="hidden" />
         </div>
     );
 };

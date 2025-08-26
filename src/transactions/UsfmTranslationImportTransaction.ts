@@ -475,6 +475,11 @@ export class UsfmTranslationImportTransaction extends ImportTransaction {
         const updatedNotebook = {
             ...existingNotebook,
             cells: newCells,
+            metadata: {
+                ...existingNotebook.metadata,
+                lineNumbersEnabled: existingNotebook.metadata?.lineNumbersEnabled ?? true,
+                lineNumbersEnabledSource: existingNotebook.metadata?.lineNumbersEnabledSource || "global",
+            },
         };
 
         vscode.window.showInformationMessage(

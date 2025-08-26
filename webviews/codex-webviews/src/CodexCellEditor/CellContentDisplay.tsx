@@ -29,7 +29,9 @@ interface CellContentDisplayProps {
     alertColorCode: number | undefined;
     highlightedCellId?: string | null;
     scrollSyncEnabled: boolean;
-    cellLabelOrGeneratedLabel: string;
+    lineNumber: string;
+    label?: string;
+    lineNumbersEnabled?: boolean;
     isInTranslationProcess?: boolean;
     translationState?: "waiting" | "processing" | "completed" | null;
     allTranslationsComplete?: boolean;
@@ -61,31 +63,23 @@ const AudioPlayButton: React.FC<{
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const pendingPlayRef = useRef(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    // Pre-load audio data when component mounts
-    useEffect(() => {
-        // Request audio data for this specific cell when component mounts
-        vscode.postMessage({
-            command: "requestAudioForCell",
-            content: { cellId },
-        } as EditorPostMessages);
-        setIsLoading(true);
-    }, [cellId, vscode]);
+    // Do not pre-load on mount; we will request on first click to avoid spinner churn
 
     // Listen for audio data messages
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
 
-            // Handle audio attachments updates - request fresh audio data when attachments change
+            // Handle audio attachments updates - clear current url; fetch on next click
             if (message.type === "providerSendsAudioAttachments") {
-                // When attachments change (e.g., selection from history), request updated audio data
-                vscode.postMessage({
-                    command: "requestAudioForCell",
-                    content: { cellId },
-                } as EditorPostMessages);
-                setIsLoading(true);
+                if (audioUrl && audioUrl.startsWith("blob:")) {
+                    URL.revokeObjectURL(audioUrl);
+                }
+                setAudioUrl(null);
+                setIsLoading(false);
             }
 
             if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
@@ -102,6 +96,29 @@ const AudioPlayButton: React.FC<{
                             const blobUrl = URL.createObjectURL(blob);
                             setAudioUrl(blobUrl);
                             setIsLoading(false);
+                            if (pendingPlayRef.current) {
+                                // Auto-play once the data arrives
+                                try {
+                                    if (!audioRef.current) {
+                                        audioRef.current = new Audio();
+                                        audioRef.current.onended = () => setIsPlaying(false);
+                                        audioRef.current.onerror = () => {
+                                            console.error("Error playing audio for cell:", cellId);
+                                            setIsPlaying(false);
+                                        };
+                                    }
+                                    audioRef.current.src = blobUrl;
+                                    audioRef.current
+                                        .play()
+                                        .then(() => setIsPlaying(true))
+                                        .catch((e) => {
+                                            console.error("Error auto-playing audio for cell:", e);
+                                            setIsPlaying(false);
+                                        });
+                                } finally {
+                                    pendingPlayRef.current = false;
+                                }
+                            }
                         })
                         .catch((error) => {
                             console.error("Error converting audio data:", error);
@@ -142,8 +159,14 @@ const AudioPlayButton: React.FC<{
                 }
                 setIsPlaying(false);
             } else {
-                // If we're still loading or don't have audio URL, just return
-                if (!audioUrl || isLoading) {
+                // If we don't have audio yet, request it and keep the UI calm (no spinner icon)
+                if (!audioUrl) {
+                    pendingPlayRef.current = true;
+                    setIsLoading(true);
+                    vscode.postMessage({
+                        command: "requestAudioForCell",
+                        content: { cellId },
+                    } as EditorPostMessages);
                     return;
                 }
 
@@ -171,33 +194,26 @@ const AudioPlayButton: React.FC<{
         <button
             onClick={handlePlayAudio}
             className="audio-play-button"
-            title={isPlaying ? "Stop audio" : isLoading ? "Loading audio..." : "Play audio"}
-            disabled={isLoading || !audioUrl}
+            title={isPlaying ? "Stop audio" : isLoading ? "Preparing audio..." : "Play audio"}
+            disabled={false}
             style={{
                 background: "none",
                 border: "none",
-                cursor: isLoading || !audioUrl ? "wait" : "pointer",
+                cursor: "pointer",
                 padding: "4px",
                 borderRadius: "4px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                marginLeft: "8px",
                 color: "var(--vscode-foreground)",
-                opacity: isLoading || !audioUrl ? 0.5 : 0.7,
+                opacity: isPlaying ? 1 : 0.8,
                 transition: "opacity 0.2s",
             }}
-            onMouseEnter={(e) => !isLoading && audioUrl && (e.currentTarget.style.opacity = "1")}
-            onMouseLeave={(e) => !isLoading && audioUrl && (e.currentTarget.style.opacity = "0.7")}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
         >
             <i
-                className={`codicon ${
-                    isLoading
-                        ? "codicon-loading codicon-modifier-spin"
-                        : isPlaying
-                        ? "codicon-debug-stop"
-                        : "codicon-play"
-                }`}
+                className={`codicon ${isPlaying ? "codicon-debug-stop" : "codicon-play"}`}
                 style={{ fontSize: "16px" }}
             />
         </button>
@@ -214,7 +230,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         alertColorCode,
         highlightedCellId,
         scrollSyncEnabled,
-        cellLabelOrGeneratedLabel,
+        lineNumber,
+        label,
+        lineNumbersEnabled = true,
         isInTranslationProcess = false,
         translationState = null,
         allTranslationsComplete = false,
@@ -229,7 +247,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         currentUsername,
         requiredValidations,
     }) => {
-        // const { cellContent, timestamps, editHistory } = cell; // DEBUG HERE!!
+        // const { cellContent, timestamps, editHistory } = cell; // I don't think we use this
         const cellIds = cell.cellMarkers;
         const [fadingOut, setFadingOut] = useState(false);
         const { showTooltip, hideTooltip } = useTooltip();
@@ -451,16 +469,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
             } as any);
         };
 
-        const displayLabel =
-            cellLabelOrGeneratedLabel ||
-            (() => {
-                const numbers = cellIds.map((id) => id.split(":").pop());
-                const reference =
-                    numbers.length === 1
-                        ? numbers[0]
-                        : `${numbers[0]}-${numbers[numbers.length - 1]}`;
-                return reference?.slice(-3) ?? "";
-            })();
+        // Line numbers are always generated and shown at the beginning of each line
+        // Labels are optional and shown after line numbers when present
 
         const AlertDot = ({ color }: { color: string }) => (
             <span
@@ -547,8 +557,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         };
 
         // Decide when the label should occupy the full top row
-        const labelText: string = cellLabelOrGeneratedLabel || "";
-        const forceLabelTopRow: boolean = labelText.length > 6;
+        const forceLabelTopRow: boolean = lineNumbersEnabled;
 
         // Function to check if we should show cell header elements
         const shouldShowHeaderElements = () => {
@@ -663,12 +672,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                             style={{
                                 display: "flex",
                                 justifyContent: "space-between",
+                                alignItems: "center",
                             }}
                         >
                             <div
                                 className="action-button-container"
                                 style={{
                                     display: "flex",
+                                    alignItems: "center",
                                     gap: "8px",
                                 }}
                             >
@@ -678,16 +689,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         !isSourceText &&
                                         SHOW_VALIDATION_BUTTON &&
                                         !isInTranslationProcess && (
-                                            <div style={{ flexShrink: 0 }}>
-                                                <ValidationButton
-                                                    cellId={cellIds[0]}
-                                                    cell={cell}
-                                                    vscode={vscode}
-                                                    isSourceText={isSourceText}
-                                                    currentUsername={currentUsername}
-                                                    requiredValidations={requiredValidations}
-                                                />
-                                            </div>
+                                            <ValidationButton
+                                                cellId={cellIds[0]}
+                                                cell={cell}
+                                                vscode={vscode}
+                                                isSourceText={isSourceText}
+                                                currentUsername={currentUsername}
+                                                requiredValidations={requiredValidations}
+                                            />
                                         )
                                     }
                                     content={
@@ -720,12 +729,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                         )
                                     }
                                 />
+                                {lineNumber && lineNumbersEnabled && (
+                                    <div
+                                        className="cell-line-number"
+                                        style={{
+                                            fontWeight: 500,
+                                            lineHeight: 1.2,
+                                            whiteSpace: "nowrap",
+                                            minWidth: 0,
+                                            marginRight: "0.25rem",
+                                            color: "var(--vscode-descriptionForeground)",
+                                            fontSize: "0.9em",
+                                        }}
+                                        title={`Line ${lineNumber}`}
+                                    >
+                                        {lineNumber}
+                                    </div>
+                                )}
 
                                 {/* Audio Play Button */}
                                 {audioAttachments && audioAttachments[cellIds[0]] && (
-                                    <div style={{ flexShrink: 0 }}>
-                                        <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
-                                    </div>
+                                    <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
                                 )}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
@@ -802,7 +826,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                         minWidth: 0,
                     }}
                 >
-                    {cellLabelOrGeneratedLabel && (
+                    {/* Cell label - shown after line number when present */}
+                    {label && (
                         <div
                             className="cell-label-text text-primary"
                             style={{
@@ -817,9 +842,9 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 marginRight: "0.25rem",
                                 flexBasis: forceLabelTopRow ? "100%" : "auto",
                             }}
-                            title={cellLabelOrGeneratedLabel}
+                            title={label}
                         >
-                            {cellLabelOrGeneratedLabel}
+                            {label}
                         </div>
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>{renderContent()}</div>

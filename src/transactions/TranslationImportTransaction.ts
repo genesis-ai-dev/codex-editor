@@ -462,7 +462,7 @@ export class TranslationImportTransaction extends ImportTransaction {
     }
 
     private async mergeTranslations(
-        existingNotebook: any,
+        existingNotebook: CodexNotebookAsJSONData,
         importedContent: ImportedContent[],
         token?: vscode.CancellationToken,
         rawExistingNotebook?: CodexNotebookAsJSONData,
@@ -616,6 +616,11 @@ export class TranslationImportTransaction extends ImportTransaction {
         const updatedNotebook: CodexNotebookAsJSONData = {
             ...existingNotebook,
             cells: newCells,
+            metadata: {
+                ...existingNotebook.metadata,
+                lineNumbersEnabled: existingNotebook.metadata?.lineNumbersEnabled ?? true,
+                lineNumbersEnabledSource: existingNotebook.metadata?.lineNumbersEnabledSource || "global",
+            },
         };
 
         // Report statistics
