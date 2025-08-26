@@ -141,7 +141,7 @@ export async function temporaryMigrationScript_checkMatthewNotebook() {
     }
 }
 
-export const migration_lineNumbersSettings = async () => {
+export const migration_lineNumbersSettings = async (context?: vscode.ExtensionContext) => {
     try {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -151,7 +151,14 @@ export const migration_lineNumbersSettings = async () => {
         // Check if migration has already been run
         const migrationKey = "lineNumbersMigrationCompleted";
         const config = vscode.workspace.getConfiguration("codex-project-manager");
-        const hasMigrationRun = config.get(migrationKey, false);
+        let hasMigrationRun = false;
+
+        try {
+            hasMigrationRun = config.get(migrationKey, false);
+        } catch (e) {
+            // Setting might not be registered yet; fall back to workspaceState
+            hasMigrationRun = !!context?.workspaceState.get<boolean>(migrationKey);
+        }
 
         if (hasMigrationRun) {
             console.log("Line numbers migration already completed, skipping");
@@ -201,7 +208,12 @@ export const migration_lineNumbersSettings = async () => {
         );
 
         // Mark migration as completed
-        await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        try {
+            await config.update(migrationKey, true, vscode.ConfigurationTarget.Workspace);
+        } catch (e) {
+            // If configuration key is not registered, fall back to workspaceState
+            await context?.workspaceState.update(migrationKey, true);
+        }
 
         console.log(`Line numbers migration completed: ${processedFiles} files processed`);
         vscode.window.showInformationMessage(
@@ -331,7 +343,7 @@ async function updateFileLineNumbers(fileUri: vscode.Uri, enableLineNumbers: boo
         }
 
         // Update the line numbers setting and mark it as globally set
-    
+
         notebookData.metadata.lineNumbersEnabled = enableLineNumbers;
         notebookData.metadata.lineNumbersEnabledSource = "global"; // Mark as globally set
 
