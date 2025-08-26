@@ -185,27 +185,53 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 setShowPreview(true);
             } else {
                 // Source import - create notebook pair
-                const sourceCells = parsedData.rows
-                    .filter((row) => row[parseInt(sourceColumnIndex!)]?.trim())
-                    .map((row, index) => {
-                        const id = idColumnIndex
-                            ? row[parseInt(idColumnIndex)]?.trim() ||
-                              createCellId(parsedData.filename, index)
-                            : createCellId(parsedData.filename, index);
+                // Get all rows that have content in at least one of the selected columns
+                const relevantRows = parsedData.rows.filter((row, index) => {
+                    const hasSourceContent = sourceColumnIndex && row[parseInt(sourceColumnIndex)]?.trim();
+                    const hasTargetContent = targetColumnIndex && row[parseInt(targetColumnIndex)]?.trim();
+                    return hasSourceContent || hasTargetContent;
+                });
 
-                        return {
+                const sourceCells = relevantRows.map((row, index) => {
+                    const id = idColumnIndex
+                        ? row[parseInt(idColumnIndex)]?.trim() ||
+                          createCellId(parsedData.filename, index)
+                        : createCellId(parsedData.filename, index);
+
+                    return {
+                        id,
+                        content: sourceColumnIndex ? (row[parseInt(sourceColumnIndex)] || "") : "",
+                        images: [],
+                        metadata: {
                             id,
-                            content: row[parseInt(sourceColumnIndex!)],
-                            images: [],
-                            metadata: {
-                                id,
-                                data: {
-                                    rowIndex: index,
-                                    originalRow: row,
-                                },
+                            data: {
+                                rowIndex: index,
+                                originalRow: row,
                             },
-                        };
-                    });
+                        },
+                    };
+                });
+
+                // Create target cells - use target column content if available, otherwise empty
+                const targetCells = relevantRows.map((row, index) => {
+                    const id = idColumnIndex
+                        ? row[parseInt(idColumnIndex)]?.trim() ||
+                          createCellId(parsedData.filename, index)
+                        : createCellId(parsedData.filename, index);
+
+                    return {
+                        id,
+                        content: targetColumnIndex ? (row[parseInt(targetColumnIndex)] || "") : "",
+                        images: [],
+                        metadata: {
+                            id,
+                            data: {
+                                rowIndex: index,
+                                originalRow: row,
+                            },
+                        },
+                    };
+                });
 
                 const notebookPair: NotebookPair = {
                     source: {
@@ -223,10 +249,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                     },
                     codex: {
                         name: parsedData.filename,
-                        cells: sourceCells.map((cell) => ({
-                            ...cell,
-                            content: "", // Empty target cells
-                        })),
+                        cells: targetCells,
                         metadata: {
                             id: parsedData.filename,
                             originalFileName: selectedFile!.name,
@@ -275,7 +298,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                     <CardDescription>
                         {isTranslationImport
                             ? `Tell us which column contains the translations for "${selectedSource?.name}"`
-                            : "Tell us which columns contain your content"}
+                            : "Tell us which columns contain your content. You can select both source and target columns to import both at once."}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -331,6 +354,20 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                                                 </div>
                                             </SelectItem>
                                         )}
+                                        {!isTranslationImport && (
+                                            <SelectItem
+                                                value="target"
+                                                disabled={
+                                                    getColumnTypeCount("target") > 0 &&
+                                                    columnMapping[column.index] !== "target"
+                                                }
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <Languages className="h-4 w-4" />
+                                                    Target Content
+                                                </div>
+                                            </SelectItem>
+                                        )}
                                         {isTranslationImport && (
                                             <SelectItem
                                                 value="target"
@@ -368,7 +405,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                         {getColumnTypeCount("target") > 0 && (
                             <Badge variant="secondary">
                                 <Languages className="h-3 w-3 mr-1" />
-                                Translation
+                                {isTranslationImport ? "Translation" : "Target Content"}
                             </Badge>
                         )}
                     </div>
@@ -419,7 +456,7 @@ export const SpreadsheetImporterForm: React.FC<ImporterComponentProps> = (props)
                 <CardDescription>
                     {isTranslationImport
                         ? "Choose a CSV or TSV file containing translations that match your source content"
-                        : "Choose a CSV or TSV file to import as source content and create a translation workspace"}
+                        : "Choose a CSV or TSV file to import as source content and create a translation workspace. You can optionally include target content if your spreadsheet has both columns."}
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
