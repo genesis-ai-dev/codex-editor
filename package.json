@@ -440,6 +440,11 @@
             {
                 "title": "Codex Project Manager",
                 "properties": {
+                    "codex-project-manager.lineNumbersMigrationCompleted": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Internal flag indicating the line numbers migration has completed."
+                    },
                     "codex-project-manager.projectName": {
                         "type": "string",
                         "default": "",

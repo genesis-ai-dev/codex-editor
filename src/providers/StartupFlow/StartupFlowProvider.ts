@@ -1169,7 +1169,7 @@ export class StartupFlowProvider implements vscode.CustomTextEditorProvider {
         return getWebviewHtml(webview, this.context, {
             title: "Startup Flow",
             scriptPath: ["StartupFlow", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource}; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;`
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}' 'strict-dynamic' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://languagetool.org/api/; img-src ${webview.cspSource} https: data:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob:;`
         });
     }
 

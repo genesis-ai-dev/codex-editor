@@ -340,9 +340,14 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             this.userInfo = undefined; // Ensure userInfo is undefined if any auth-related error occurs
         }
 
-        // Enable scripts in the webview
+        // Enable scripts and set local resources in the webview
         webviewPanel.webview.options = {
             enableScripts: true,
+            localResourceRoots: [
+                vscode.Uri.joinPath(this.context.extensionUri, "src", "assets"),
+                vscode.Uri.joinPath(this.context.extensionUri, "node_modules", "@vscode", "codicons", "dist"),
+                vscode.Uri.joinPath(this.context.extensionUri, "webviews", "codex-webviews", "dist")
+            ]
         };
 
         // Get text direction and check if it's a source file
@@ -350,16 +355,16 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
         const isSourceText = this.isSourceText(document.uri);
         debug("Text direction:", textDirection, "Is source text:", isSourceText);
 
-        // Load bible book map
-        await this.loadBibleBookMap(document);
-
-        // Set up the HTML content for the webview
+        // Set up the HTML content for the webview ASAP to avoid blank delays
         webviewPanel.webview.html = this.getHtmlForWebview(
             webviewPanel.webview,
             document,
             textDirection,
             isSourceText
         );
+
+        // Load bible book map after HTML is set, then send to webview
+        await this.loadBibleBookMap(document);
 
         // Send initial bible book map to webview
         if (this.bibleBookMap) {
@@ -802,11 +807,7 @@ export class CodexCellEditorProvider implements vscode.CustomEditorProvider<Code
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource
-            } 'unsafe-inline'; script-src 'nonce-${nonce}' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource
-            }; connect-src https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource
-            } https:; font-src ${webview.cspSource}; media-src ${webview.cspSource
-            } https: blob: data:;">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com; frame-src https://www.youtube.com; worker-src ${webview.cspSource} blob:; connect-src https://languagetool.org/api/ data: wss://ryderwishart--whisper-websocket-transcription-websocket-transcribe.modal.run wss://*.modal.run; img-src 'self' data: ${webview.cspSource} https:; font-src ${webview.cspSource}; media-src ${webview.cspSource} https: blob: data:;">
                 <link href="${styleResetUri}" rel="stylesheet" nonce="${nonce}">
                 <link href="${codiconsUri}" rel="stylesheet" nonce="${nonce}" />
                 <title>Codex Cell Editor</title>

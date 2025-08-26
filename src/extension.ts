@@ -443,7 +443,7 @@ export async function activate(context: vscode.ExtensionContext) {
         await temporaryMigrationScript_checkMatthewNotebook();
         await migration_changeDraftFolderToFilesFolder();
         await migrateSourceFiles();
-        await migration_lineNumbersSettings();
+        await migration_lineNumbersSettings(context);
         trackTiming("Running Post-activation Tasks", postActivationStart);
 
         // Register update commands and check for updates (non-blocking)

@@ -188,11 +188,9 @@ export function safePostMessageToPanel(
     }
 
     try {
-        if (webviewPanel.visible) {
-            webviewPanel.webview.postMessage(message);
-            return true;
-        }
-        return false;
+        // Always attempt to post; the webview will queue if not yet ready/visible
+        webviewPanel.webview.postMessage(message);
+        return true;
     } catch (error) {
         if (context) {
             console.debug(`[${context}] Webview panel disposed while sending message, skipping`);
