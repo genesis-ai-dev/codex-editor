@@ -27,7 +27,14 @@ export function getWebviewHtml(
     );
 
     const nonce = getNonce();
-    const csp = (options.csp || `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};`).replace(/\$\{nonce\}/g, nonce);
+    const defaultCsp = `default-src 'none'; ` +
+        `style-src ${webview.cspSource} 'unsafe-inline'; ` +
+        `script-src 'nonce-\${nonce}' 'strict-dynamic'; ` +
+        `img-src ${webview.cspSource} https: data:; ` +
+        `font-src ${webview.cspSource}; ` +
+        `worker-src ${webview.cspSource} blob:; ` +
+        `media-src ${webview.cspSource} https: blob:;`;
+    const csp = (options.csp || defaultCsp).replace(/\$\{nonce\}/g, nonce);
 
     return `<!DOCTYPE html>
 <html lang="en">
