@@ -413,7 +413,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                 const result = await this._indexManager.upsertCellWithFTSSync(
                     cellId,
                     fileId,
-                    "target",
+                    this.getContentType(),
                     sanitizedContent,  // Sanitized content for search
                     logicalLinePosition ?? undefined, // Convert null to undefined for method signature compatibility
                     { editType, lastUpdated: Date.now() },
@@ -1614,7 +1614,13 @@ export class CodexCellDocument implements vscode.CustomDocument {
         });
     }
 
-
+    /**
+     * Determines if this document is a source or target file based on the URI
+     */
+    private getContentType(): "source" | "target" {
+        const uriString = this.uri.toString();
+        return uriString.includes(".source") ? "source" : "target";
+    }
 
     // Add method to sync all cells to database without modifying content
     private async syncAllCellsToDatabase(): Promise<void> {
@@ -1704,7 +1710,7 @@ export class CodexCellDocument implements vscode.CustomDocument {
                         await this._indexManager.upsertCellWithFTSSync(
                             cellId || '',
                             fileId,
-                            "target",
+                            this.getContentType(),
                             sanitizedContent,
                             logicalLinePosition ?? undefined,
                             cellMetadata,

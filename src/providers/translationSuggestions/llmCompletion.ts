@@ -145,12 +145,12 @@ export async function llmCompletion(
             const variants = allowHtml
                 ? (returnHTML ? [processed] : [processed])
                 : (returnHTML ? [`<span>${processed}</span>`] : [processed]);
-            
-                if (debugMode) {
-                    logDebugMessages(messages, completion, variants);
-                }
-            
-                return {
+
+            if (debugMode) {
+                logDebugMessages(messages, completion, variants);
+            }
+
+            return {
                 variants,
                 isABTest: false,
             };
