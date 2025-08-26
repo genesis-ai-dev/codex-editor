@@ -222,7 +222,7 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
 
     private async processNotebooks(
         token?: vscode.CancellationToken
-    ): Promise<Array<{ sourceUri: vscode.Uri; codexUri: vscode.Uri; notebook: NotebookPreview }>> {
+    ): Promise<Array<{ sourceUri: vscode.Uri; codexUri: vscode.Uri; notebook: NotebookPreview; }>> {
         const { sourceNotebooks, codexNotebooks } = this.preview!.transformedContent;
         const notebookResults: Array<{
             sourceUri: vscode.Uri;
@@ -306,6 +306,8 @@ export class UsfmSourceImportTransaction extends ImportTransaction {
                     textDirection: notebook.metadata.textDirection || "ltr",
                     navigation: notebook.metadata.navigation || [],
                     videoUrl: notebook.metadata.videoUrl || "",
+                    lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? true,
+                    lineNumbersEnabledSource: notebook.metadata.lineNumbersEnabledSource || "global",
                 },
             },
             null,

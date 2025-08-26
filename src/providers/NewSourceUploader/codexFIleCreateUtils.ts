@@ -32,6 +32,8 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
                 textDirection: notebook.metadata.textDirection || "ltr",
                 navigation: notebook.metadata.navigation || [],
                 videoUrl: notebook.metadata.videoUrl || "",
+                lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? true,
+                lineNumbersEnabledSource: notebook.metadata.lineNumbersEnabledSource || "global",
             },
         },
         null,
