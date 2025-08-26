@@ -13,11 +13,19 @@ function getVSCodeAPI() {
     return api;
 }
 
+interface ProjectLanguage {
+    tag: string;
+    refName: string;
+    projectStatus: string;
+}
+
 function CopilotSettingsApp() {
     const vscode = getVSCodeAPI();
     const [useOnlyValidatedExamples, setUseOnlyValidatedExamples] = useState(false);
     const [allowHtmlPredictions, setAllowHtmlPredictions] = useState(false);
     const [systemMessage, setSystemMessage] = useState("");
+    const [sourceLanguage, setSourceLanguage] = useState<ProjectLanguage | null>(null);
+    const [targetLanguage, setTargetLanguage] = useState<ProjectLanguage | null>(null);
 
     useEffect(() => {
         const handler = (event: MessageEvent) => {
@@ -26,12 +34,16 @@ function CopilotSettingsApp() {
                 setUseOnlyValidatedExamples(Boolean(message.data?.useOnlyValidatedExamples));
                 setAllowHtmlPredictions(Boolean(message.data?.allowHtmlPredictions));
                 setSystemMessage(message.data?.systemMessage || "");
+                setSourceLanguage(message.data?.sourceLanguage || null);
+                setTargetLanguage(message.data?.targetLanguage || null);
+            } else if (message.command === "updateInput") {
+                setSystemMessage(message.text || "");
             }
         };
         window.addEventListener("message", handler);
         vscode.postMessage({ command: "webviewReady" });
         return () => window.removeEventListener("message", handler);
-    }, []);
+    }, [vscode]);
 
     const saveAll = () => {
         vscode.postMessage({
@@ -71,13 +83,41 @@ function CopilotSettingsApp() {
                     />
                 </div>
                 <div>
-                    <div className="font-medium mb-2">System Message</div>
-                    <textarea
-                        value={systemMessage}
-                        onChange={(e) => setSystemMessage(e.target.value)}
-                        className="w-full border rounded p-2"
-                        rows={12}
-                    />
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="font-medium">System Message</div>
+                        {systemMessage && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => vscode.postMessage({ command: "generate" })}
+                            >
+                                ✨ Regenerate
+                            </Button>
+                        )}
+                    </div>
+                    {systemMessage ? (
+                        <textarea
+                            value={systemMessage}
+                            onChange={(e) => setSystemMessage(e.target.value)}
+                            className="w-full border rounded p-2"
+                            rows={12}
+                        />
+                    ) : (
+                        <div className="text-center py-8">
+                            <Button
+                                onClick={() => vscode.postMessage({ command: "generate" })}
+                                className="mb-4"
+                                disabled={!sourceLanguage?.refName || !targetLanguage?.refName}
+                            >
+                                ✨ Generate AI Instructions
+                            </Button>
+                            <div className="text-sm opacity-70">
+                                {sourceLanguage?.refName && targetLanguage?.refName
+                                    ? `Generate personalized AI instructions for translating from ${sourceLanguage.refName} to ${targetLanguage.refName}`
+                                    : "Please set source and target languages first to generate personalized instructions"}
+                            </div>
+                        </div>
+                    )}
                 </div>
                 <div className="flex justify-end gap-2">
                     <Button
