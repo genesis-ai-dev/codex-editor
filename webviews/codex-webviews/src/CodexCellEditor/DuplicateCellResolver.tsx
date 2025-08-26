@@ -108,18 +108,17 @@ const DuplicateCellResolver: React.FC<{
                                                     }}
                                                 >
                                                     <CellContentDisplay
-                                                        alertColorCode={-1}
-                                                        timestamps={cell.timestamps}
-                                                        hasDuplicateId={false}
-                                                        cellIds={cell.cellMarkers}
-                                                        cellContent={cell.cellContent}
-                                                        cellIndex={index}
-                                                        cellType={cell.cellType}
-                                                        cellLabel={cell.cellLabel}
-                                                        setContentBeingUpdated={() => {}}
+                                                        cell={cell}
                                                         vscode={vscode}
                                                         textDirection={textDirection}
                                                         isSourceText={true}
+                                                        hasDuplicateId={false}
+                                                        alertColorCode={-1}
+                                                        highlightedCellId={null}
+                                                        scrollSyncEnabled={false}
+                                                        cellLabelOrGeneratedLabel={""}
+                                                        isInTranslationProcess={false}
+                                                        translationState={null}
                                                     />
                                                 </span>
                                                 {selectedCell?.index === cellIndex &&

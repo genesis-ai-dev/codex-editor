@@ -77,7 +77,7 @@ const AudioPlayButton: React.FC<{
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
             const message = event.data;
-            
+
             // Handle audio attachments updates - request fresh audio data when attachments change
             if (message.type === "providerSendsAudioAttachments") {
                 // When attachments change (e.g., selection from history), request updated audio data
@@ -87,7 +87,7 @@ const AudioPlayButton: React.FC<{
                 } as EditorPostMessages);
                 setIsLoading(true);
             }
-            
+
             if (message.type === "providerSendsAudioData" && message.content.cellId === cellId) {
                 if (message.content.audioData) {
                     // Clean up previous URL if exists
@@ -204,539 +204,566 @@ const AudioPlayButton: React.FC<{
     );
 });
 
-const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
-    cell,
-    vscode,
-    textDirection,
-    isSourceText,
-    hasDuplicateId,
-    alertColorCode,
-    highlightedCellId,
-    scrollSyncEnabled,
-    cellLabelOrGeneratedLabel,
-    isInTranslationProcess = false,
-    translationState = null,
-    allTranslationsComplete = false,
-    handleCellTranslation,
-    handleCellClick,
-    cellDisplayMode,
-    audioAttachments,
-    footnoteOffset = 0,
-    isCorrectionEditorMode = false,
-    translationUnits = [],
-    unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
-    currentUsername,
-    requiredValidations,
-}) => {
-    const { cellContent, timestamps, editHistory } = cell;
-    const cellIds = cell.cellMarkers;
-    const [fadingOut, setFadingOut] = useState(false);
-    const { showTooltip, hideTooltip } = useTooltip();
+const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
+    ({
+        cell,
+        vscode,
+        textDirection,
+        isSourceText,
+        hasDuplicateId,
+        alertColorCode,
+        highlightedCellId,
+        scrollSyncEnabled,
+        cellLabelOrGeneratedLabel,
+        isInTranslationProcess = false,
+        translationState = null,
+        allTranslationsComplete = false,
+        handleCellTranslation,
+        handleCellClick,
+        cellDisplayMode,
+        audioAttachments,
+        footnoteOffset = 0,
+        isCorrectionEditorMode = false,
+        translationUnits = [],
+        unresolvedCommentsCount: initialUnresolvedCommentsCount = 0,
+        currentUsername,
+        requiredValidations,
+    }) => {
+        // const { cellContent, timestamps, editHistory } = cell; // DEBUG HERE!!
+        const cellIds = cell.cellMarkers;
+        const [fadingOut, setFadingOut] = useState(false);
+        const { showTooltip, hideTooltip } = useTooltip();
 
-    const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
+        const { unsavedChanges, toggleFlashingBorder } = useContext(UnsavedChangesContext);
 
-    const cellRef = useRef<HTMLDivElement>(null);
-    const contentRef = useRef<HTMLDivElement>(null);
+        const cellRef = useRef<HTMLDivElement>(null);
+        const contentRef = useRef<HTMLDivElement>(null);
 
-    // Effect to attach event listeners to footnote markers
-    useEffect(() => {
-        if (!contentRef.current) return;
+        // Effect to attach event listeners to footnote markers
+        useEffect(() => {
+            if (!contentRef.current) return;
 
-        // Find all footnote markers in the rendered content
-        const markers = contentRef.current.querySelectorAll("sup.footnote-marker");
+            // Find all footnote markers in the rendered content
+            const markers = contentRef.current.querySelectorAll("sup.footnote-marker");
 
-        // Function to show tooltip on hover
-        const handleMarkerMouseEnter = (e: Event) => {
-            const marker = e.currentTarget as HTMLElement;
-            const content = marker.getAttribute("data-footnote") || "";
-            const rect = marker.getBoundingClientRect();
+            // Function to show tooltip on hover
+            const handleMarkerMouseEnter = (e: Event) => {
+                const marker = e.currentTarget as HTMLElement;
+                const content = marker.getAttribute("data-footnote") || "";
+                const rect = marker.getBoundingClientRect();
 
-            // Position at the top center of the marker
-            const x = rect.left + rect.width / 2;
-            const y = rect.top;
+                // Position at the top center of the marker
+                const x = rect.left + rect.width / 2;
+                const y = rect.top;
 
-            showTooltip(<div dangerouslySetInnerHTML={{ __html: content }} />, x, y);
-        };
+                showTooltip(<div dangerouslySetInnerHTML={{ __html: content }} />, x, y);
+            };
 
-        // Function to hide tooltip when mouse leaves
-        const handleMarkerMouseLeave = () => {
-            hideTooltip();
-        };
+            // Function to hide tooltip when mouse leaves
+            const handleMarkerMouseLeave = () => {
+                hideTooltip();
+            };
 
-        // Attach listeners to all markers
-        markers.forEach((marker) => {
-            marker.addEventListener("mouseenter", handleMarkerMouseEnter);
-            marker.addEventListener("mouseleave", handleMarkerMouseLeave);
-        });
-
-        // Use the proper footnote numbering utility
-        if (contentRef.current) {
-            updateFootnoteNumbering(contentRef.current, footnoteOffset + 1, false);
-        }
-
-        // Clean up listeners when component unmounts
-        return () => {
+            // Attach listeners to all markers
             markers.forEach((marker) => {
-                marker.removeEventListener("mouseenter", handleMarkerMouseEnter);
-                marker.removeEventListener("mouseleave", handleMarkerMouseLeave);
+                marker.addEventListener("mouseenter", handleMarkerMouseEnter);
+                marker.addEventListener("mouseleave", handleMarkerMouseLeave);
             });
-        };
-    }, [cell.cellContent, showTooltip, hideTooltip, footnoteOffset]);
 
-    // Handle fade-out effect when all translations complete - DISABLED to prevent glitches
-    useEffect(() => {
-        // Completely disable fading to prevent any glitches during translation
-        setFadingOut(false);
-    }, [allTranslationsComplete, translationState, isInTranslationProcess]);
-
-    // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
-
-    // Helper function to check if this cell should be highlighted
-    // Handles parent/child cell matching: child cells in target should highlight parent cells in source
-    const checkShouldHighlight = (): boolean => {
-        return cellIds.some((cellId) => {
-            if (!highlightedCellId || !cellId) return false;
-
-            // Exact match
-            if (highlightedCellId === cellId) return true;
-
-            // If highlighted cell is a child (3+ parts), check if this is the parent
-            const highlightedParts = highlightedCellId.split(":");
-            const cellParts = cellId.split(":");
-
-            if (highlightedParts.length >= 3 && cellParts.length === 2) {
-                // Compare parent portion: "BOOK CHAPTER:VERSE"
-                const highlightedParent = highlightedParts.slice(0, 2).join(":");
-                return highlightedParent === cellId;
+            // Use the proper footnote numbering utility
+            if (contentRef.current) {
+                updateFootnoteNumbering(contentRef.current, footnoteOffset + 1, false);
             }
 
-            return false;
-        });
-    };
+            // Clean up listeners when component unmounts
+            return () => {
+                markers.forEach((marker) => {
+                    marker.removeEventListener("mouseenter", handleMarkerMouseEnter);
+                    marker.removeEventListener("mouseleave", handleMarkerMouseLeave);
+                });
+            };
+        }, [cell.cellContent, showTooltip, hideTooltip, footnoteOffset]);
 
-    useEffect(() => {
-        debug("Before Scrolling to content highlightedCellId", {
-            highlightedCellId,
-            cellIds,
-            isSourceText,
-            scrollSyncEnabled,
-        });
+        // Handle fade-out effect when all translations complete - DISABLED to prevent glitches
+        useEffect(() => {
+            // Completely disable fading to prevent any glitches during translation
+            setFadingOut(false);
+        }, [allTranslationsComplete, translationState, isInTranslationProcess]);
 
-        const shouldHighlight = checkShouldHighlight();
+        // Note: comments counts are provided by parent (`CellList`) to avoid per-cell fetches
 
-        if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
-            debug("Scrolling to content highlightedCellId", {
+        // Helper function to check if this cell should be highlighted
+        // Handles parent/child cell matching: child cells in target should highlight parent cells in source
+        const checkShouldHighlight = (): boolean => {
+            return cellIds.some((cellId) => {
+                if (!highlightedCellId || !cellId) return false;
+
+                // Exact match
+                if (highlightedCellId === cellId) return true;
+
+                // If highlighted cell is a child (3+ parts), check if this is the parent
+                const highlightedParts = highlightedCellId.split(":");
+                const cellParts = cellId.split(":");
+
+                if (highlightedParts.length >= 3 && cellParts.length === 2) {
+                    // Compare parent portion: "BOOK CHAPTER:VERSE"
+                    const highlightedParent = highlightedParts.slice(0, 2).join(":");
+                    return highlightedParent === cellId;
+                }
+
+                return false;
+            });
+        };
+
+        useEffect(() => {
+            debug("Before Scrolling to content highlightedCellId", {
                 highlightedCellId,
                 cellIds,
                 isSourceText,
+                scrollSyncEnabled,
             });
-            cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
-    }, [highlightedCellId]);
 
-    // Handler for stopping translation when clicked on the spinner
-    const handleStopTranslation = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent the cell click handler from firing
+            const shouldHighlight = checkShouldHighlight();
 
-        // If we're in a translation process, stop it
-        if (isInTranslationProcess) {
-            // Stop autocomplete chapter
-            vscode.postMessage({
-                command: "stopAutocompleteChapter",
-            } as EditorPostMessages);
-
-            // Also stop single cell translations
-            vscode.postMessage({
-                command: "stopSingleCellTranslation",
-            } as any); // Use any type to bypass type checking
-        }
-    };
-
-    // Handler for sparkle button click
-    const handleSparkleButtonClick = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent the cell click handler from firing
-
-        // Skip if already in translation process
-        if (isInTranslationProcess) return;
-
-        // Call the handleCellTranslation function if available
-        if (handleCellTranslation && cellIds.length > 0) {
-            handleCellTranslation(cellIds[0]);
-        } else {
-            // Fallback if handleCellTranslation is not provided
-            if (typeof (window as any).handleSparkleButtonClick === "function") {
-                (window as any).handleSparkleButtonClick(cellIds[0]);
-            } else {
-                vscode.postMessage({
-                    command: "llmCompletion",
-                    content: {
-                        currentLineId: cellIds[0],
-                        addContentToValue: true,
-                    },
+            if (shouldHighlight && cellRef.current && isSourceText && scrollSyncEnabled) {
+                debug("Scrolling to content highlightedCellId", {
+                    highlightedCellId,
+                    cellIds,
+                    isSourceText,
                 });
+                cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-        }
-    };
+        }, [highlightedCellId]);
 
-    const handleCancelMerge = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent the cell click handler from firing
-        vscode.postMessage({
-            command: "cancelMerge",
-            content: { cellId: cellIds[0] },
-        } as any);
-    };
+        // Handler for stopping translation when clicked on the spinner
+        const handleStopTranslation = (e: React.MouseEvent) => {
+            e.stopPropagation(); // Prevent the cell click handler from firing
 
-    // Handler for merging cell with previous cell
-    const handleMergeWithPrevious = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent the cell click handler from firing
+            // If we're in a translation process, stop it
+            if (isInTranslationProcess) {
+                // Stop autocomplete chapter
+                vscode.postMessage({
+                    command: "stopAutocompleteChapter",
+                } as EditorPostMessages);
 
-        // Find the current cell index in the unpaginated list
-        const currentCellId = cellIds[0];
-        const currentIndex = translationUnits.findIndex(
-            (unit) => unit.cellMarkers[0] === currentCellId
-        );
+                // Also stop single cell translations
+                vscode.postMessage({
+                    command: "stopSingleCellTranslation",
+                } as any); // Use any type to bypass type checking
+            }
+        };
 
-        if (currentIndex === -1) {
-            console.error("Current cell not found in translation units");
-            return;
-        }
+        // Handler for sparkle button click
+        const handleSparkleButtonClick = (e: React.MouseEvent) => {
+            e.stopPropagation(); // Prevent the cell click handler from firing
 
-        if (currentIndex === 0) {
-            // Send error message to VS Code instead of using alert
+            // Skip if already in translation process
+            if (isInTranslationProcess) return;
+
+            // Call the handleCellTranslation function if available
+            if (handleCellTranslation && cellIds.length > 0) {
+                handleCellTranslation(cellIds[0]);
+            } else {
+                // Fallback if handleCellTranslation is not provided
+                if (typeof (window as any).handleSparkleButtonClick === "function") {
+                    (window as any).handleSparkleButtonClick(cellIds[0]);
+                } else {
+                    vscode.postMessage({
+                        command: "llmCompletion",
+                        content: {
+                            currentLineId: cellIds[0],
+                            addContentToValue: true,
+                        },
+                    });
+                }
+            }
+        };
+
+        const handleCancelMerge = (e: React.MouseEvent) => {
+            e.stopPropagation(); // Prevent the cell click handler from firing
             vscode.postMessage({
-                command: "showErrorMessage",
-                text: "Cannot merge: This is the first cell.",
+                command: "cancelMerge",
+                content: { cellId: cellIds[0] },
             } as any);
-            return;
-        }
+        };
 
-        // Find the most recent non-merged cell to merge into
-        let targetCellIndex = currentIndex - 1;
-        let targetCell = translationUnits[targetCellIndex];
+        // Handler for merging cell with previous cell
+        const handleMergeWithPrevious = (e: React.MouseEvent) => {
+            e.stopPropagation(); // Prevent the cell click handler from firing
 
-        // Skip any cells that are already merged
-        while (targetCellIndex >= 0 && targetCell?.merged) {
-            targetCellIndex--;
-            targetCell = translationUnits[targetCellIndex];
-        }
+            // Find the current cell index in the unpaginated list
+            const currentCellId = cellIds[0];
+            const currentIndex = translationUnits.findIndex(
+                (unit) => unit.cellMarkers[0] === currentCellId
+            );
 
-        // Check if we found a valid target cell
-        if (targetCellIndex < 0 || !targetCell) {
+            if (currentIndex === -1) {
+                console.error("Current cell not found in translation units");
+                return;
+            }
+
+            if (currentIndex === 0) {
+                // Send error message to VS Code instead of using alert
+                vscode.postMessage({
+                    command: "showErrorMessage",
+                    text: "Cannot merge: This is the first cell.",
+                } as any);
+                return;
+            }
+
+            // Find the most recent non-merged cell to merge into
+            let targetCellIndex = currentIndex - 1;
+            let targetCell = translationUnits[targetCellIndex];
+
+            // Skip any cells that are already merged
+            while (targetCellIndex >= 0 && targetCell?.merged) {
+                targetCellIndex--;
+                targetCell = translationUnits[targetCellIndex];
+            }
+
+            // Check if we found a valid target cell
+            if (targetCellIndex < 0 || !targetCell) {
+                vscode.postMessage({
+                    command: "showErrorMessage",
+                    text: "Cannot merge: No non-merged cell found to merge into.",
+                } as any);
+                return;
+            }
+
+            const currentCell = translationUnits[currentIndex];
+
+            if (!targetCell || !currentCell) {
+                console.error("Could not find target or current cell");
+                return;
+            }
+
+            // Send confirmation request to VS Code instead of using window.confirm
             vscode.postMessage({
-                command: "showErrorMessage",
-                text: "Cannot merge: No non-merged cell found to merge into.",
+                command: "confirmCellMerge",
+                content: {
+                    currentCellId: currentCell.cellMarkers[0],
+                    previousCellId: targetCell.cellMarkers[0],
+                    currentContent: currentCell.cellContent,
+                    previousContent: targetCell.cellContent,
+                    message:
+                        "Are you sure you want to merge this cell with the previous non-merged cell? This action cannot be undone.",
+                },
             } as any);
-            return;
-        }
+        };
 
-        const currentCell = translationUnits[currentIndex];
+        const displayLabel =
+            cellLabelOrGeneratedLabel ||
+            (() => {
+                const numbers = cellIds.map((id) => id.split(":").pop());
+                const reference =
+                    numbers.length === 1
+                        ? numbers[0]
+                        : `${numbers[0]}-${numbers[numbers.length - 1]}`;
+                return reference?.slice(-3) ?? "";
+            })();
 
-        if (!targetCell || !currentCell) {
-            console.error("Could not find target or current cell");
-            return;
-        }
-
-        // Send confirmation request to VS Code instead of using window.confirm
-        vscode.postMessage({
-            command: "confirmCellMerge",
-            content: {
-                currentCellId: currentCell.cellMarkers[0],
-                previousCellId: targetCell.cellMarkers[0],
-                currentContent: currentCell.cellContent,
-                previousContent: targetCell.cellContent,
-                message:
-                    "Are you sure you want to merge this cell with the previous non-merged cell? This action cannot be undone.",
-            },
-        } as any);
-    };
-
-    const displayLabel =
-        cellLabelOrGeneratedLabel ||
-        (() => {
-            const numbers = cellIds.map((id) => id.split(":").pop());
-            const reference =
-                numbers.length === 1 ? numbers[0] : `${numbers[0]}-${numbers[numbers.length - 1]}`;
-            return reference?.slice(-3) ?? "";
-        })();
-
-    const AlertDot = ({ color }: { color: string }) => (
-        <span
-            style={{
-                display: "inline-block",
-                width: "5px",
-                height: "5px",
-                borderRadius: "50%",
-                backgroundColor: color,
-                marginLeft: "4px",
-            }}
-        />
-    );
-
-    const getAlertDot = () => {
-        if (alertColorCode === -1) return null;
-
-        const colors = {
-            "0": "transparent",
-            "1": "#FF6B6B",
-            "2": "purple",
-            "3": "white",
-        } as const;
-        return (
-            <AlertDot
-                color={colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"}
+        const AlertDot = ({ color }: { color: string }) => (
+            <span
+                style={{
+                    display: "inline-block",
+                    width: "5px",
+                    height: "5px",
+                    borderRadius: "50%",
+                    backgroundColor: color,
+                    marginLeft: "4px",
+                }}
             />
         );
-    };
 
-    const getBackgroundColor = () => {
-        if (checkShouldHighlight() && scrollSyncEnabled) {
-            return "var(--vscode-editor-selectionBackground)";
-        }
-        return "transparent";
-    };
+        const getAlertDot = () => {
+            if (alertColorCode === -1) return null;
 
-    const getBorderColor = () => {
-        if (checkShouldHighlight() && scrollSyncEnabled) {
-            return "var(--vscode-editor-selectionHighlightBorder)";
-        }
-        return "transparent";
-    };
-
-    // Get the border style based on translation state
-    const getBorderStyle = () => {
-        if (hasDuplicateId) {
-            return { borderColor: "red" };
-        }
-
-        // Explicitly reset border properties when no translation state
-        if (!translationState) {
-            return {
-                border: "1px solid transparent",
-                borderColor: "transparent",
-            };
-        }
-
-        // Determine if we're in inline mode based on the cellDisplayMode prop
-        const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
-
-        // Get the translation style from our new utility
-        return getTranslationStyle(
-            fadingOut ? ("fading" as CellTranslationState) : translationState,
-            isInlineMode
-        );
-    };
-
-    // We don't need the CSS class anymore since we're using inline styles
-    // But we do need to handle any className returned from getTranslationStyle for animations
-    const getAnimationClassName = () => {
-        // Determine if we're in inline mode based on the cellDisplayMode prop
-        const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
-
-        // Get the translation style which may include a className
-        const style = getTranslationStyle(
-            fadingOut ? ("fading" as CellTranslationState) : translationState,
-            isInlineMode
-        );
-
-        return style.className || "";
-    };
-
-    // Decide when the label should occupy the full top row
-    const labelText: string = cellLabelOrGeneratedLabel || "";
-    const forceLabelTopRow: boolean = labelText.length > 6;
-
-    // Function to check if we should show cell header elements
-    const shouldShowHeaderElements = () => {
-        return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
-    };
-
-    // Function to render the content with footnote markers and proper spacing
-    const renderContent = () => {
-        // Use the proper HTML processing utility instead of hacky approach
-        const processedHtml = processHtmlContent(cell.cellContent || "");
-
-        if (!cell.timestamps?.startTime) {
+            const colors = {
+                "0": "transparent",
+                "1": "#FF6B6B",
+                "2": "purple",
+                "3": "white",
+            } as const;
             return (
-                <div
-                    ref={contentRef}
-                    className="cell-content"
-                    dangerouslySetInnerHTML={{
-                        __html: processedHtml,
-                    }}
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
+                <AlertDot
+                    color={
+                        colors[alertColorCode?.toString() as keyof typeof colors] || "transparent"
+                    }
                 />
             );
-        } else {
-            return (
-                <div
-                    onClick={() => {
-                        hideTooltip();
-                        handleCellClick(cellIds[0]);
-                    }}
-                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
-                >
+        };
+
+        const getBackgroundColor = () => {
+            if (checkShouldHighlight() && scrollSyncEnabled) {
+                return "var(--vscode-editor-selectionBackground)";
+            }
+            return "transparent";
+        };
+
+        const getBorderColor = () => {
+            if (checkShouldHighlight() && scrollSyncEnabled) {
+                return "var(--vscode-editor-selectionHighlightBorder)";
+            }
+            return "transparent";
+        };
+
+        // Get the border style based on translation state
+        const getBorderStyle = () => {
+            if (hasDuplicateId) {
+                return { borderColor: "red" };
+            }
+
+            // Explicitly reset border properties when no translation state
+            if (!translationState) {
+                return {
+                    border: "1px solid transparent",
+                    borderColor: "transparent",
+                };
+            }
+
+            // Determine if we're in inline mode based on the cellDisplayMode prop
+            const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
+
+            // Get the translation style from our new utility
+            return getTranslationStyle(
+                fadingOut ? ("fading" as CellTranslationState) : translationState,
+                isInlineMode
+            );
+        };
+
+        // We don't need the CSS class anymore since we're using inline styles
+        // But we do need to handle any className returned from getTranslationStyle for animations
+        const getAnimationClassName = () => {
+            // Determine if we're in inline mode based on the cellDisplayMode prop
+            const isInlineMode = cellDisplayMode === CELL_DISPLAY_MODES.INLINE;
+
+            // Get the translation style which may include a className
+            const style = getTranslationStyle(
+                fadingOut ? ("fading" as CellTranslationState) : translationState,
+                isInlineMode
+            );
+
+            return style.className || "";
+        };
+
+        // Decide when the label should occupy the full top row
+        const labelText: string = cellLabelOrGeneratedLabel || "";
+        const forceLabelTopRow: boolean = labelText.length > 6;
+
+        // Function to check if we should show cell header elements
+        const shouldShowHeaderElements = () => {
+            return cellDisplayMode !== CELL_DISPLAY_MODES.INLINE;
+        };
+
+        // Function to render the content with footnote markers and proper spacing
+        const renderContent = () => {
+            // Use the proper HTML processing utility instead of hacky approach
+            const processedHtml = processHtmlContent(cell.cellContent || "");
+
+            if (!cell.timestamps?.startTime) {
+                return (
                     <div
                         ref={contentRef}
                         className="cell-content"
                         dangerouslySetInnerHTML={{
                             __html: processedHtml,
                         }}
-                    />
-                    {/* Timestamp Display */}
-                    {cell.timestamps &&
-                        (cell.timestamps.startTime !== undefined ||
-                            cell.timestamps.endTime !== undefined) && (
-                            <div
-                                className="timestamp-display"
-                                style={{
-                                    fontSize: "0.75rem",
-                                    color: "var(--vscode-descriptionForeground)",
-                                    marginTop: "0.25rem",
-                                    fontFamily: "monospace",
-                                    opacity: 0.8,
-                                    textAlign: "start",
-                                    width: "100%",
-                                }}
-                            >
-                                {cell.timestamps.startTime !== undefined &&
-                                cell.timestamps.endTime !== undefined ? (
-                                    <span>
-                                        {formatTime(cell.timestamps.startTime)} →{" "}
-                                        {formatTime(cell.timestamps.endTime)}
-                                    </span>
-                                ) : cell.timestamps.startTime !== undefined ? (
-                                    <span>Start: {formatTime(cell.timestamps.startTime)}</span>
-                                ) : cell.timestamps.endTime !== undefined ? (
-                                    <span>End: {formatTime(cell.timestamps.endTime)}</span>
-                                ) : null}
-                            </div>
-                        )}
-                </div>
-            );
-        }
-    };
-
-    return (
-        <div
-            ref={cellRef}
-            className={`cell-content-display ${getAnimationClassName()}`}
-            style={{
-                backgroundColor: getBackgroundColor(),
-                direction: textDirection,
-                ...getBorderStyle(),
-                display: "flex",
-                alignItems: "flex-start",
-                gap: "0.5rem",
-                padding: "0.25rem",
-                cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
-                border: "1px solid transparent",
-                borderRadius: "4px",
-                overflow: "visible",
-                maxWidth: "100%",
-                boxSizing: "border-box",
-                transition: "border 0.3s ease",
-                overflowWrap: "break-word",
-                wordWrap: "break-word",
-                wordBreak: "break-word",
-            }}
-        >
-            <div
-                className="cell-header"
-                style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    flexShrink: 0,
-                }}
-            >
-                {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
-                    <div
-                        className="cell-actions"
-                        style={{
-                            display: "flex",
-                            justifyContent: "space-between",
+                        onClick={() => {
+                            hideTooltip();
+                            handleCellClick(cellIds[0]);
                         }}
+                    />
+                );
+            } else {
+                return (
+                    <div
+                        onClick={() => {
+                            hideTooltip();
+                            handleCellClick(cellIds[0]);
+                        }}
+                        style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
                     >
                         <div
-                            className="action-button-container"
-                            style={{
-                                display: "flex",
-                                gap: "8px",
+                            ref={contentRef}
+                            className="cell-content"
+                            dangerouslySetInnerHTML={{
+                                __html: processedHtml,
                             }}
-                        >
-                            <AnimatedReveal
-                                mode="reveal"
-                                button={
-                                    !isSourceText &&
-                                    SHOW_VALIDATION_BUTTON &&
-                                    !isInTranslationProcess && (
-                                        <div style={{ flexShrink: 0 }}>
-                                            <ValidationButton
-                                                cellId={cellIds[0]}
-                                                cell={cell}
-                                                vscode={vscode}
-                                                isSourceText={isSourceText}
-                                                currentUsername={currentUsername}
-                                                requiredValidations={requiredValidations}
-                                            />
-                                        </div>
-                                    )
-                                }
-                                content={
-                                    !isSourceText && (
-                                        <Button
-                                            style={{
-                                                height: "16px",
-                                                width: "16px",
-                                                padding: 0,
-                                                display: "flex",
-                                                alignItems: "center",
-                                                justifyContent: "center",
-                                                position: "relative",
-                                            }}
-                                            onClick={
-                                                isInTranslationProcess
-                                                    ? handleStopTranslation
-                                                    : handleSparkleButtonClick
-                                            }
-                                        >
-                                            <i
-                                                className={`codicon ${
-                                                    isInTranslationProcess
-                                                        ? "codicon-loading codicon-modifier-spin"
-                                                        : "codicon-sparkle"
-                                                }`}
-                                                style={{ fontSize: "12px" }}
-                                            ></i>
-                                        </Button>
-                                    )
-                                }
-                            />
-
-                            {/* Audio Play Button */}
-                            {audioAttachments && audioAttachments[cellIds[0]] && (
-                                <div style={{ flexShrink: 0 }}>
-                                    <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
+                        />
+                        {/* Timestamp Display */}
+                        {cell.timestamps &&
+                            (cell.timestamps.startTime !== undefined ||
+                                cell.timestamps.endTime !== undefined) && (
+                                <div
+                                    className="timestamp-display"
+                                    style={{
+                                        fontSize: "0.75rem",
+                                        color: "var(--vscode-descriptionForeground)",
+                                        marginTop: "0.25rem",
+                                        fontFamily: "monospace",
+                                        opacity: 0.8,
+                                        textAlign: "start",
+                                        width: "100%",
+                                    }}
+                                >
+                                    {cell.timestamps.startTime !== undefined &&
+                                    cell.timestamps.endTime !== undefined ? (
+                                        <span>
+                                            {formatTime(cell.timestamps.startTime)} →{" "}
+                                            {formatTime(cell.timestamps.endTime)}
+                                        </span>
+                                    ) : cell.timestamps.startTime !== undefined ? (
+                                        <span>Start: {formatTime(cell.timestamps.startTime)}</span>
+                                    ) : cell.timestamps.endTime !== undefined ? (
+                                        <span>End: {formatTime(cell.timestamps.endTime)}</span>
+                                    ) : null}
                                 </div>
                             )}
+                    </div>
+                );
+            }
+        };
 
-                            {/* Merge Button - only show in correction editor mode for source text */}
-                            {isSourceText &&
-                                isCorrectionEditorMode &&
-                                !cell.merged &&
-                                (() => {
-                                    // Check if this is the first cell - if so, don't show merge button
-                                    const currentCellId = cellIds[0];
-                                    const currentIndex = translationUnits?.findIndex(
-                                        (unit) => unit.cellMarkers[0] === currentCellId
-                                    );
-                                    const isFirstCell = currentIndex === 0;
+        return (
+            <div
+                ref={cellRef}
+                className={`cell-content-display ${getAnimationClassName()}`}
+                style={{
+                    backgroundColor: getBackgroundColor(),
+                    direction: textDirection,
+                    ...getBorderStyle(),
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: "0.5rem",
+                    padding: "0.25rem",
+                    cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
+                    border: "1px solid transparent",
+                    borderRadius: "4px",
+                    overflow: "visible",
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    transition: "border 0.3s ease",
+                    overflowWrap: "break-word",
+                    wordWrap: "break-word",
+                    wordBreak: "break-word",
+                }}
+            >
+                <div
+                    className="cell-header"
+                    style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        flexShrink: 0,
+                    }}
+                >
+                    {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
+                        <div
+                            className="cell-actions"
+                            style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                            }}
+                        >
+                            <div
+                                className="action-button-container"
+                                style={{
+                                    display: "flex",
+                                    gap: "8px",
+                                }}
+                            >
+                                <AnimatedReveal
+                                    mode="reveal"
+                                    button={
+                                        !isSourceText &&
+                                        SHOW_VALIDATION_BUTTON &&
+                                        !isInTranslationProcess && (
+                                            <div style={{ flexShrink: 0 }}>
+                                                <ValidationButton
+                                                    cellId={cellIds[0]}
+                                                    cell={cell}
+                                                    vscode={vscode}
+                                                    isSourceText={isSourceText}
+                                                    currentUsername={currentUsername}
+                                                    requiredValidations={requiredValidations}
+                                                />
+                                            </div>
+                                        )
+                                    }
+                                    content={
+                                        !isSourceText && (
+                                            <Button
+                                                style={{
+                                                    height: "16px",
+                                                    width: "16px",
+                                                    padding: 0,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    position: "relative",
+                                                }}
+                                                onClick={
+                                                    isInTranslationProcess
+                                                        ? handleStopTranslation
+                                                        : handleSparkleButtonClick
+                                                }
+                                            >
+                                                <i
+                                                    className={`codicon ${
+                                                        isInTranslationProcess
+                                                            ? "codicon-loading codicon-modifier-spin"
+                                                            : "codicon-sparkle"
+                                                    }`}
+                                                    style={{ fontSize: "12px" }}
+                                                ></i>
+                                            </Button>
+                                        )
+                                    }
+                                />
 
-                                    return !isFirstCell;
-                                })() && (
+                                {/* Audio Play Button */}
+                                {audioAttachments && audioAttachments[cellIds[0]] && (
+                                    <div style={{ flexShrink: 0 }}>
+                                        <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
+                                    </div>
+                                )}
+
+                                {/* Merge Button - only show in correction editor mode for source text */}
+                                {isSourceText &&
+                                    isCorrectionEditorMode &&
+                                    !cell.merged &&
+                                    (() => {
+                                        // Check if this is the first cell - if so, don't show merge button
+                                        const currentCellId = cellIds[0];
+                                        const currentIndex = translationUnits?.findIndex(
+                                            (unit) => unit.cellMarkers[0] === currentCellId
+                                        );
+                                        const isFirstCell = currentIndex === 0;
+
+                                        return !isFirstCell;
+                                    })() && (
+                                        <div style={{ flexShrink: 0 }}>
+                                            <Button
+                                                variant="ghost"
+                                                style={{
+                                                    height: "16px",
+                                                    width: "16px",
+                                                    padding: 0,
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                }}
+                                                onClick={handleMergeWithPrevious}
+                                                title="Merge with previous cell"
+                                            >
+                                                <i
+                                                    className="codicon codicon-merge"
+                                                    style={{ fontSize: "12px" }}
+                                                />
+                                            </Button>
+                                        </div>
+                                    )}
+                                {isSourceText && isCorrectionEditorMode && cell.merged && (
                                     <div style={{ flexShrink: 0 }}>
                                         <Button
                                             variant="ghost"
@@ -748,88 +775,67 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(({
                                                 alignItems: "center",
                                                 justifyContent: "center",
                                             }}
-                                            onClick={handleMergeWithPrevious}
-                                            title="Merge with previous cell"
+                                            onClick={handleCancelMerge}
+                                            title="Cancel merge"
                                         >
                                             <i
-                                                className="codicon codicon-merge"
+                                                className="codicon codicon-debug-step-back"
                                                 style={{ fontSize: "12px" }}
                                             />
                                         </Button>
                                     </div>
                                 )}
-                            {isSourceText && isCorrectionEditorMode && cell.merged && (
-                                <div style={{ flexShrink: 0 }}>
-                                    <Button
-                                        variant="ghost"
-                                        style={{
-                                            height: "16px",
-                                            width: "16px",
-                                            padding: 0,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                        }}
-                                        onClick={handleCancelMerge}
-                                        title="Cancel merge"
-                                    >
-                                        <i
-                                            className="codicon codicon-debug-step-back"
-                                            style={{ fontSize: "12px" }}
-                                        />
-                                    </Button>
-                                </div>
-                            )}
+                            </div>
+                            {getAlertDot()}
                         </div>
-                        {getAlertDot()}
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
 
-            {/* Right side: wrappable label + content */}
-            <div
-                style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "baseline",
-                    gap: "0.25rem",
-                    flex: 1,
-                    minWidth: 0,
-                }}
-            >
-                {cellLabelOrGeneratedLabel && (
-                    <div
-                        className="cell-label-text text-primary"
-                        style={{
-                            fontWeight:
-                                cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
-                                    ? 500
-                                    : "normal",
-                            lineHeight: 1.2,
-                            whiteSpace: "normal",
-                            overflowWrap: "anywhere",
-                            minWidth: 0,
-                            marginRight: "0.25rem",
-                            flexBasis: forceLabelTopRow ? "100%" : "auto",
-                        }}
-                        title={cellLabelOrGeneratedLabel}
-                    >
-                        {cellLabelOrGeneratedLabel}
-                    </div>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>{renderContent()}</div>
-            </div>
+                {/* Right side: wrappable label + content */}
+                <div
+                    style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "baseline",
+                        gap: "0.25rem",
+                        flex: 1,
+                        minWidth: 0,
+                    }}
+                >
+                    {cellLabelOrGeneratedLabel && (
+                        <div
+                            className="cell-label-text text-primary"
+                            style={{
+                                fontWeight:
+                                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
+                                        ? 500
+                                        : "normal",
+                                lineHeight: 1.2,
+                                whiteSpace: "normal",
+                                overflowWrap: "anywhere",
+                                minWidth: 0,
+                                marginRight: "0.25rem",
+                                flexBasis: forceLabelTopRow ? "100%" : "auto",
+                            }}
+                            title={cellLabelOrGeneratedLabel}
+                        >
+                            {cellLabelOrGeneratedLabel}
+                        </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>{renderContent()}</div>
+                </div>
 
-            {/* Comments Badge positioned at far right of row */}
-            <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
-                <CommentsBadge
-                    cellId={cellIds[0]}
-                    unresolvedCount={initialUnresolvedCommentsCount}
-                />
+                {/* Comments Badge positioned at far right of row */}
+                <div style={{ flexShrink: 0, marginLeft: "0.5rem" }}>
+                    <CommentsBadge
+                        cellId={cellIds[0]}
+                        unresolvedCount={initialUnresolvedCommentsCount}
+                    />
+                </div>
             </div>
-        </div>
-    );
-});
+        );
+    }
+);
 
 // Helper function to format time in MM:SS.mmm format
 const formatTime = (timeInSeconds: number): string => {

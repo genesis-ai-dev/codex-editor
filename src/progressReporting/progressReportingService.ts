@@ -408,8 +408,6 @@ export class ProgressReportingService {
                 cellStatsStmt.free();
             }
 
-            console.log("Progress Reporting Service: cellStats", cellStats);
-
             // Calculate basic metrics
             report.translationProgress.totalVerseCount = cellStats.total_cells;
             report.translationProgress.translatedVerseCount = cellStats.complete_pairs;
@@ -429,11 +427,9 @@ export class ProgressReportingService {
                 LIMIT 10
             `);
 
-            console.log("Progress Reporting Service: Debug - Files table contents:");
             try {
                 while (debugFilesStmt.step()) {
                     const row = debugFilesStmt.getAsObject();
-                    console.log("  File:", row);
                 }
             } finally {
                 debugFilesStmt.free();
@@ -449,11 +445,9 @@ export class ProgressReportingService {
                 LIMIT 10
             `);
 
-            console.log("Progress Reporting Service: Debug - t_file_id values in cells:");
             try {
                 while (debugCellFilesStmt.step()) {
                     const row = debugCellFilesStmt.getAsObject();
-                    console.log("  t_file_id:", row);
                 }
             } finally {
                 debugCellFilesStmt.free();
@@ -475,11 +469,9 @@ export class ProgressReportingService {
                 HAVING total_cells > 0
             `);
 
-            console.log("Progress Reporting Service: Debug - Original query results:");
             try {
                 while (originalBookCompletionStmt.step()) {
                     const row = originalBookCompletionStmt.getAsObject();
-                    console.log("  Original query result:", row);
                 }
             } finally {
                 originalBookCompletionStmt.free();
@@ -529,8 +521,6 @@ export class ProgressReportingService {
             } finally {
                 bookCompletionStmt.free();
             }
-
-            console.log("Progress Reporting Service: bookCompletionMap", bookCompletionMap);
 
             report.translationProgress.bookCompletionMap = bookCompletionMap;
 
