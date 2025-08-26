@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import { toPosixPath } from './pathUtils';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {
@@ -433,8 +434,9 @@ export class AudioAttachmentsMigrator {
                     // Extract timestamp from attachment ID
                     const timestamp = this.extractTimestampFromAttachmentId(attachmentId);
 
-                    // Update URL path to new structure
+                    // Update URL path to new structure and normalize slashes
                     if (attachment.url && typeof attachment.url === 'string') {
+                        attachment.url = toPosixPath(attachment.url);
                         // Handle old direct book folder structure: .project/attachments/{BOOK}/ -> .project/attachments/files/{BOOK}/
                         if (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) {
                             attachment.url = attachment.url.replace('.project/attachments/', '.project/attachments/files/');
@@ -493,9 +495,9 @@ export class AudioAttachmentsMigrator {
         // Check for old URL structure that needs updating
         const hasOldUrlStructure = attachment.url && typeof attachment.url === 'string' && (
             // Old direct book folder structure
-            (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) ||
+            (toPosixPath(attachment.url).includes('.project/attachments/') && !toPosixPath(attachment.url).includes('/files/') && !toPosixPath(attachment.url).includes('/pointers/')) ||
             // Intermediate pointers structure
-            attachment.url.includes('/attachments/pointers/')
+            toPosixPath(attachment.url).includes('/attachments/pointers/')
         );
 
         return missingFields || hasOldUrlStructure;

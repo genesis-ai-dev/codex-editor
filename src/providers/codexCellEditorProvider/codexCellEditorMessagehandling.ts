@@ -26,6 +26,7 @@ import bibleData from "../../../webviews/codex-webviews/src/assets/bible-books-l
 // Use VS Code FS API for all file operations (supports remote and virtual workspaces)
 import { getCommentsFromFile } from "../../utils/fileUtils";
 import { getUnresolvedCommentsCountForCell } from "../../utils/commentsUtils";
+import { toPosixPath } from "../../utils/pathUtils";
 // Comment out problematic imports
 // import { getAddWordToSpellcheckApi } from "../../extension";
 // import { getSimilarCellIds } from "@/utils/semanticSearch";
@@ -910,7 +911,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
             }
 
             if (targetAttachment && targetAttachmentId) {
-                const attachmentPath = targetAttachment.url;
+                const attachmentPath = toPosixPath(targetAttachment.url);
                 const fullPath = path.isAbsolute(attachmentPath)
                     ? attachmentPath
                     : path.join(workspaceFolder.uri.fsPath, attachmentPath);
@@ -1060,7 +1061,7 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         await vscode.workspace.fs.writeFile(vscode.Uri.file(filesPath), buffer);
 
         // Store the files path in metadata (not the pointer path) so we can directly read the actual file
-        const relativePath = path.relative(workspaceFolder.uri.fsPath, filesPath);
+        const relativePath = toPosixPath(path.relative(workspaceFolder.uri.fsPath, filesPath));
         await document.updateCellAttachment(typedEvent.content.cellId, typedEvent.content.audioId, {
             url: relativePath,
             type: "audio",
@@ -1645,7 +1646,7 @@ export async function scanForAudioAttachments(
                     if (cell.metadata.attachments) {
                         for (const [attachmentId, attachment] of Object.entries(cell.metadata.attachments)) {
                             if (attachment && (attachment as any).type === "audio" && !(attachment as any).isDeleted) {
-                                const attachmentPath = (attachment as any).url;
+                                const attachmentPath = toPosixPath((attachment as any).url);
 
                                 // Build full path
                                 const fullPath = path.isAbsolute(attachmentPath)
