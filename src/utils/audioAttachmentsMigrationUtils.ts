@@ -423,41 +423,58 @@ export class AudioAttachmentsMigrator {
                         continue;
                     }
 
-                    // Check if this attachment needs migration (missing new fields)
-                    const needsMigration = this.attachmentNeedsMigration(attachment);
-                    if (!needsMigration) {
+                    // We only migrate audio attachments
+                    if (attachment.type !== 'audio') {
                         continue;
                     }
 
-                    debug(`Migrating attachment ${attachmentId} in document ${documentUri.fsPath}`);
+                    let localChange = false;
 
-                    // Extract timestamp from attachment ID
-                    const timestamp = this.extractTimestampFromAttachmentId(attachmentId);
-
-                    // Update URL path to new structure and normalize slashes
+                    // Normalize URL to POSIX and fix legacy folder segments regardless of other fields
                     if (attachment.url && typeof attachment.url === 'string') {
-                        attachment.url = toPosixPath(attachment.url);
+                        const originalUrl = attachment.url;
+                        let normalizedUrl = toPosixPath(originalUrl);
+
                         // Handle old direct book folder structure: .project/attachments/{BOOK}/ -> .project/attachments/files/{BOOK}/
-                        if (attachment.url.includes('.project/attachments/') && !attachment.url.includes('/files/') && !attachment.url.includes('/pointers/')) {
-                            attachment.url = attachment.url.replace('.project/attachments/', '.project/attachments/files/');
+                        if (normalizedUrl.includes('.project/attachments/') &&
+                            !normalizedUrl.includes('/files/') &&
+                            !normalizedUrl.includes('/pointers/')) {
+                            normalizedUrl = normalizedUrl.replace('.project/attachments/', '.project/attachments/files/');
                         }
+
                         // Handle intermediate pointers structure: /attachments/pointers/ -> /attachments/files/
-                        else if (attachment.url.includes('/attachments/pointers/')) {
-                            attachment.url = attachment.url.replace('/attachments/pointers/', '/attachments/files/');
+                        if (normalizedUrl.includes('/attachments/pointers/')) {
+                            normalizedUrl = normalizedUrl.replace('/attachments/pointers/', '/attachments/files/');
+                        }
+
+                        if (normalizedUrl !== originalUrl) {
+                            attachment.url = normalizedUrl;
+                            localChange = true;
                         }
                     }
 
-                    // Add missing fields
-                    attachment.createdAt = timestamp;
-                    attachment.updatedAt = timestamp;
-                    attachment.isDeleted = false;
+                    // Ensure required metadata fields exist; if missing, populate with timestamp from ID
+                    const missingCreatedAt = typeof attachment.createdAt !== 'number';
+                    const missingUpdatedAt = typeof attachment.updatedAt !== 'number';
+                    const missingIsDeleted = typeof attachment.isDeleted !== 'boolean';
 
-                    hasChanges = true;
+                    if (missingCreatedAt || missingUpdatedAt || missingIsDeleted) {
+                        const timestamp = this.extractTimestampFromAttachmentId(attachmentId);
+                        if (missingCreatedAt) attachment.createdAt = timestamp;
+                        if (missingUpdatedAt) attachment.updatedAt = timestamp;
+                        if (missingIsDeleted) attachment.isDeleted = false;
 
-                    // If this attachment is currently selected, set selectionTimestamp
-                    if (cell.metadata?.selectedAudioId === attachmentId &&
-                        !cell.metadata.selectionTimestamp) {
-                        cell.metadata.selectionTimestamp = timestamp;
+                        // If this attachment is currently selected, set selectionTimestamp when missing
+                        if (cell.metadata?.selectedAudioId === attachmentId && !cell.metadata.selectionTimestamp) {
+                            cell.metadata.selectionTimestamp = timestamp;
+                        }
+
+                        localChange = true;
+                    }
+
+                    if (localChange) {
+                        hasChanges = true;
+                        debug(`Migrated/normalized attachment ${attachmentId} in document ${documentUri.fsPath}`);
                     }
                 }
             }
