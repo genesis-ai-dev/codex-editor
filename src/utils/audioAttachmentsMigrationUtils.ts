@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { toPosixPath } from './pathUtils';
+import { toPosixPath, normalizeAttachmentUrl } from './pathUtils';
 
 const DEBUG_MODE = false;
 const debug = (message: string) => {
@@ -433,19 +433,7 @@ export class AudioAttachmentsMigrator {
                     // Normalize URL to POSIX and fix legacy folder segments regardless of other fields
                     if (attachment.url && typeof attachment.url === 'string') {
                         const originalUrl = attachment.url;
-                        let normalizedUrl = toPosixPath(originalUrl);
-
-                        // Handle old direct book folder structure: .project/attachments/{BOOK}/ -> .project/attachments/files/{BOOK}/
-                        if (normalizedUrl.includes('.project/attachments/') &&
-                            !normalizedUrl.includes('/files/') &&
-                            !normalizedUrl.includes('/pointers/')) {
-                            normalizedUrl = normalizedUrl.replace('.project/attachments/', '.project/attachments/files/');
-                        }
-
-                        // Handle intermediate pointers structure: /attachments/pointers/ -> /attachments/files/
-                        if (normalizedUrl.includes('/attachments/pointers/')) {
-                            normalizedUrl = normalizedUrl.replace('/attachments/pointers/', '/attachments/files/');
-                        }
+                        const normalizedUrl = normalizeAttachmentUrl(originalUrl) || originalUrl;
 
                         if (normalizedUrl !== originalUrl) {
                             attachment.url = normalizedUrl;
