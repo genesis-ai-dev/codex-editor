@@ -10,7 +10,8 @@ export async function fetchFewShotExamples(
   numberOfFewShotExamples: number,
   useOnlyValidatedExamples: boolean
 ): Promise<TranslationPair[]> {
-  const initialCandidateCount = Math.max(numberOfFewShotExamples * 6, 30);
+  // Get more candidates for better diversity and filtering
+  const initialCandidateCount = Math.max(numberOfFewShotExamples * 10, 50);
   const similarSourceCells: TranslationPair[] = await vscode.commands.executeCommand(
     "codex-editor-extension.getTranslationPairsFromSourceCellQuery",
     sourceContent || "empty",
@@ -22,11 +23,23 @@ export async function fetchFewShotExamples(
     if (!pair || pair.cellId === currentCellId) return false;
 
     const pairSourceContent = pair.sourceCell?.content || "";
-    if (!pairSourceContent) return false;
+    const pairTargetContent = pair.targetCell?.content || "";
+    if (!pairSourceContent || !pairTargetContent) return false;
 
+    // Enhanced filtering: check both source and target content for relevance
     const currentTokens = tokenizeText({ method: "whitespace_and_punctuation", text: sourceContent });
-    const pairTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContent });
-    return currentTokens.some((token) => pairTokens.includes(token));
+    const sourceTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairSourceContent });
+    const targetTokens = tokenizeText({ method: "whitespace_and_punctuation", text: pairTargetContent });
+    
+    // Check for word overlap in source content (primary relevance)
+    const sourceOverlap = currentTokens.some((token) => sourceTokens.includes(token));
+    
+    // Also check for semantic similarity in target content (secondary relevance)
+    // This helps find examples that might be semantically similar even if source words don't match exactly
+    const targetOverlap = currentTokens.some((token) => targetTokens.includes(token));
+    
+    // Return true if there's overlap in either source or target content
+    return sourceOverlap || targetOverlap;
   });
 
   return filteredSimilarSourceCells.slice(0, numberOfFewShotExamples);

@@ -3154,7 +3154,7 @@ export class SQLiteIndexManager {
 
 
 
-        // FTS5 query with validation filtering
+        // FTS5 query with validation filtering - search both source and target content
         const sql = `
             SELECT 
                 c.cell_id,
@@ -3168,7 +3168,6 @@ export class SQLiteIndexManager {
             LEFT JOIN files s_file ON c.s_file_id = s_file.id
             LEFT JOIN files t_file ON c.t_file_id = t_file.id
             WHERE cells_fts MATCH ?
-                AND cells_fts.content_type = 'source'
                 AND c.s_content IS NOT NULL 
                 AND c.s_content != ''
                 AND c.t_content IS NOT NULL 
@@ -3181,7 +3180,7 @@ export class SQLiteIndexManager {
         const results = [];
 
         try {
-            stmt.bind([cleanQuery, limit * 3]); // Get more results to account for validation filtering
+            stmt.bind([cleanQuery, limit * 5]); // Get more results for better diversity and validation filtering
 
             while (stmt.step()) {
                 const row = stmt.getAsObject();

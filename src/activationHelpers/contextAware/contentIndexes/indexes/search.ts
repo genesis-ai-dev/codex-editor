@@ -180,8 +180,8 @@ export async function getTranslationPairsFromSourceCellQuery(
         console.warn("[getTranslationPairsFromSourceCellQuery] SearchManager failed, falling back to legacy path:", error);
     }
 
-    // Legacy fallback
-    const initialLimit = Math.max(k * 6, 30);
+    // Legacy fallback - request more for better diversity
+    const initialLimit = Math.max(k * 10, 50);
     let results: any[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
@@ -192,7 +192,8 @@ export async function getTranslationPairsFromSourceCellQuery(
     }
 
     if (results.length === 0 && translationPairsIndex instanceof SQLiteIndexManager) {
-        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
+        // Get more diverse results when no query-specific results found
+        results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 5, 20), false, onlyValidated);
     }
 
     const translationPairs: TranslationPair[] = [];
