@@ -203,7 +203,7 @@ export async function openSystemMessageEditor() {
                                 sourceBookWhitelist: "",
                                 mainChatLanguage: "en",
                                 chatSystemMessage: "",
-                                numberOfFewShotExamples: 0,
+                                numberOfFewShotExamples: 30,
                                 debugMode: false,
                                 useOnlyValidatedExamples: false,
                                 abTestingEnabled: false,

@@ -31,10 +31,10 @@ export class FTS5SearchAlgorithm extends BaseSearchAlgorithm {
      */
     private async searchWithFTS5(query: string, options: SearchOptions): Promise<SearchResult[]> {
         try {
-            // Use the existing SQLite method
+            // Use the existing SQLite method - request more candidates for better diversity
             const sqliteResults = await this.indexManager.searchCompleteTranslationPairsWithValidation(
                 query,
-                Math.max(options.limit * 6, 30), // Request more for filtering
+                Math.max(options.limit * 10, 50), // Request more for filtering and diversity
                 options.returnRawContent,
                 options.onlyValidated
             );
@@ -96,9 +96,16 @@ export class FTS5SearchAlgorithm extends BaseSearchAlgorithm {
             }
 
             const sourceTokens = this.tokenizeText(pair.sourceCell.content || "");
+            const targetTokens = this.tokenizeText(pair.targetCell.content || "");
             
-            // Check for word overlap
-            return queryTokens.some(token => sourceTokens.includes(token));
+            // Check for word overlap in source content (primary relevance)
+            const sourceOverlap = queryTokens.some(token => sourceTokens.includes(token));
+            
+            // Also check for semantic similarity in target content (secondary relevance)
+            const targetOverlap = queryTokens.some(token => targetTokens.includes(token));
+            
+            // Return true if there's overlap in either source or target content
+            return sourceOverlap || targetOverlap;
         });
     }
 

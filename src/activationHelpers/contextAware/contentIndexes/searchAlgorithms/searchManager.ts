@@ -120,8 +120,8 @@ export class SearchManager {
         k: number = 5,
         onlyValidated: boolean = false
     ): Promise<TranslationPair[]> {
-        // Request more results for filtering (current behavior)
-        const initialLimit = Math.max(k * 6, 30);
+        // Request more results for filtering and better diversity
+        const initialLimit = Math.max(k * 10, 50);
         
         const options: Partial<SearchOptions> = {
             limit: k, // Final limit
