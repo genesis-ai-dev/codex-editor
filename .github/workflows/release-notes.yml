@@ -1,12 +1,7 @@
 name: Generate and Send Release Notes
 
 on:
-    # Fire when a tag is pushed
-    push:
-        tags:
-            - "*"
-
-    # Also handle GitHub's create event (branch/tag); we'll guard in steps
+    # Only handle GitHub's create event (branch/tag) and manual dispatch
     create:
 
     # Allow manual run for testing
@@ -23,6 +18,8 @@ permissions:
 
 jobs:
     release-notes:
+        # Run only when a tag is created (or manual dispatch)
+        if: ${{ github.event_name == 'create' && github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
         runs-on: ubuntu-latest
         steps:
             - name: Prepare repository (without external actions)
@@ -45,6 +42,7 @@ jobs:
             - name: Determine version and previous tag
               id: version
               shell: bash
+              working-directory: repo
               run: |
                   set -euo pipefail
                   if [ -n "${{ github.event.inputs.version || '' }}" ]; then
@@ -84,6 +82,7 @@ jobs:
               id: commits
               if: steps.version.outputs.skip != 'true'
               shell: bash
+              working-directory: repo
               run: |
                   set -euo pipefail
                   PREV="${{ steps.version.outputs.previous }}"
@@ -115,6 +114,7 @@ jobs:
               id: notes
               if: steps.version.outputs.skip != 'true'
               shell: bash
+              working-directory: repo
               run: |
                   set -euo pipefail
                   VERSION="${{ steps.version.outputs.version }}"
@@ -143,6 +143,7 @@ jobs:
               env:
                   N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
               shell: bash
+              working-directory: repo
               run: |
                   set -euo pipefail
                   if [ -z "${N8N_WEBHOOK_URL:-}" ]; then
@@ -158,23 +159,52 @@ jobs:
                   curl -sS -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" "$N8N_WEBHOOK_URL"
                   echo "Sent release notes for v$VERSION to n8n."
 
-            - name: Create draft GitHub release (via API)
+            - name: Create or update draft GitHub release (via API)
               if: steps.version.outputs.skip != 'true'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               shell: bash
+              working-directory: repo
               run: |
                   set -euo pipefail
                   VERSION="${{ steps.version.outputs.version }}"
                   NOTES_CONTENT=$(cat NOTES.md)
-                  BODY=$(jq -n --arg tag "$VERSION" \
-                              --arg name "Release $VERSION" \
-                              --arg body "$NOTES_CONTENT" \
-                              --argjson draft true \
-                              '{tag_name:$tag, name:$name, body:$body, draft:$draft}')
-                  curl -sS -X POST \
-                    -H "Authorization: Bearer ${GH_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
-                    -d "$BODY" \
-                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases"
+                  # Check if a release for this tag already exists
+                  GET_RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                                   -H "Accept: application/vnd.github+json" \
+                                   "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" || true)
+                  RELEASE_ID=$(echo "$GET_RESP" | jq -r '.id // empty')
+                  IS_DRAFT=$(echo "$GET_RESP" | jq -r '.draft // empty')
+
+                  if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
+                    # If published (draft == false), do not modify
+                    if [ "$IS_DRAFT" = "false" ]; then
+                      echo "Release for tag ${VERSION} is already published; skipping any updates."
+                      exit 0
+                    fi
+                    # Update existing draft release
+                    PATCH_BODY=$(jq -n --arg name "Release $VERSION" \
+                                       --arg body "$NOTES_CONTENT" \
+                                       --argjson draft true \
+                                       '{name:$name, body:$body, draft:$draft}')
+                    curl -sS -X PATCH \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      -d "$PATCH_BODY" \
+                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" >/dev/null
+                    echo "Updated existing draft release for tag ${VERSION}."
+                  else
+                    # Create new draft release
+                    POST_BODY=$(jq -n --arg tag "$VERSION" \
+                                      --arg name "Release $VERSION" \
+                                      --arg body "$NOTES_CONTENT" \
+                                      --argjson draft true \
+                                      '{tag_name:$tag, name:$name, body:$body, draft:$draft}')
+                    curl -sS -X POST \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      -d "$POST_BODY" \
+                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases" >/dev/null
+                    echo "Created new draft release for tag ${VERSION}."
+                  fi
 
