@@ -6,6 +6,7 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import { Label } from "../../../components/ui/label";
 import { Slider } from "../../../components/ui/slider";
+import { Switch } from "../../../components/ui/switch";
 import {
     Upload,
     ListChecks,
@@ -75,6 +76,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     const [isProcessing, setIsProcessing] = useState(false);
     const [silenceThreshold, setSilenceThreshold] = useState(0.5); // seconds
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [mergeFiles, setMergeFiles] = useState(false); // Default to individual files
 
     const handleSelectFiles = useCallback(
         (ev: React.ChangeEvent<HTMLInputElement>) => {
@@ -139,142 +141,239 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     }, []);
 
     const buildNotebookPairAndAttachments = async () => {
-        // Build one notebook pair: section per audio file, cell per segment
-        const docId = documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "");
-        const sourceCells: any[] = [];
-        const codexCells: any[] = [];
-        const attachments: WriteNotebooksWithAttachmentsMessage["attachments"] = [];
-
-        // Create a map to track unique files and their data
+        const nowIso = new Date().toISOString();
         const fileDataMap = new Map<string, string>();
+        const allAttachments: WriteNotebooksWithAttachmentsMessage["attachments"] = [];
+        const notebookPairs: any[] = [];
 
-        let sectionIndex = 0;
-        for (const row of rows) {
-            sectionIndex++;
+        if (mergeFiles) {
+            // MERGE MODE: Create one notebook with all files as sections
+            const docId = documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "");
+            const sourceCells: any[] = [];
+            const codexCells: any[] = [];
 
-            // Get or create the base64 data for this file
-            let fileDataUrl = fileDataMap.get(row.file.name);
-            if (!fileDataUrl) {
-                fileDataUrl = await toTimestampDataUrl(row.file);
-                fileDataMap.set(row.file.name, fileDataUrl);
+            let sectionIndex = 0;
+            for (const row of rows) {
+                sectionIndex++;
+
+                // Get or create the base64 data for this file
+                let fileDataUrl = fileDataMap.get(row.file.name);
+                if (!fileDataUrl) {
+                    fileDataUrl = await toTimestampDataUrl(row.file);
+                    fileDataMap.set(row.file.name, fileDataUrl);
+                }
+
+                const baseAttachmentId = generateAttachmentId();
+                const segs = row.segments.map((s) => ({
+                    startSec: s.startSec ?? 0,
+                    endSec: s.endSec ?? Number.NaN,
+                }));
+
+                let cellIndex = 0;
+                for (const seg of segs) {
+                    cellIndex++;
+                    const cellId = `${docId} ${sectionIndex}:${cellIndex}`;
+                    const segmentAttachmentId = `${baseAttachmentId}-seg${cellIndex}`;
+                    const ext = row.file.name.split(".").pop() || "webm";
+                    const fileName = `${segmentAttachmentId}.${ext}`;
+
+                    allAttachments.push({
+                        cellId,
+                        attachmentId: segmentAttachmentId,
+                        fileName,
+                        mime: row.file.type || "audio/webm",
+                        ...(cellIndex === 1
+                            ? {
+                                  dataBase64: fileDataUrl,
+                                  startTime: seg.startSec,
+                                  endTime: seg.endSec,
+                              }
+                            : {
+                                  sourceFileId: baseAttachmentId,
+                                  startTime: seg.startSec,
+                                  endTime: seg.endSec,
+                              }),
+                    });
+
+                    const url = `.project/attachments/files/${docId}/${fileName}`;
+                    sourceCells.push({
+                        kind: 2,
+                        value: "",
+                        languageId: "html",
+                        metadata: {
+                            type: "text",
+                            id: cellId,
+                            data: { startTime: seg.startSec, endTime: seg.endSec },
+                            edits: [],
+                            attachments: {
+                                [segmentAttachmentId]: {
+                                    url,
+                                    type: "audio",
+                                    createdAt: Date.now(),
+                                    updatedAt: Date.now(),
+                                    isDeleted: false,
+                                    startTime: seg.startSec,
+                                    endTime: seg.endSec,
+                                },
+                            },
+                            selectedAudioId: segmentAttachmentId,
+                            selectionTimestamp: Date.now(),
+                        },
+                    });
+
+                    codexCells.push({
+                        kind: 2,
+                        value: "",
+                        languageId: "html",
+                        metadata: {
+                            type: "text",
+                            id: cellId,
+                            data: { startTime: seg.startSec, endTime: seg.endSec },
+                            edits: [],
+                        },
+                    });
+                }
             }
 
-            // Generate a base attachment ID for this file
-            const baseAttachmentId = generateAttachmentId();
+            const processedNotebook = (name: string, cells: any[]) => ({
+                name,
+                cells: cells.map((c) => ({
+                    id: c.metadata.id,
+                    content: c.value,
+                    images: [],
+                    metadata: c.metadata || {},
+                })),
+                metadata: {
+                    id: name,
+                    originalFileName: name,
+                    importerType: "audio",
+                    createdAt: nowIso,
+                },
+            });
 
-            // Ensure endSec for single whole-file segment if missing duration
-            const segs = row.segments.map((s) => ({
-                startSec: s.startSec ?? 0,
-                endSec: s.endSec ?? Number.NaN,
-            }));
+            notebookPairs.push({
+                source: processedNotebook(docId, sourceCells),
+                codex: processedNotebook(docId, codexCells),
+            });
+        } else {
+            // INDIVIDUAL MODE: Create separate notebook for each file
+            for (const row of rows) {
+                const fileDocId = row.name.replace(/\s+/g, "");
+                const sourceCells: any[] = [];
+                const codexCells: any[] = [];
 
-            let cellIndex = 0;
-            for (const seg of segs) {
-                cellIndex++;
-                const cellId = `${docId} ${sectionIndex}:${cellIndex}`;
-                const segmentAttachmentId = `${baseAttachmentId}-seg${cellIndex}`;
-                const ext = row.file.name.split(".").pop() || "webm";
-                const fileName = `${segmentAttachmentId}.${ext}`;
+                // Get or create the base64 data for this file
+                let fileDataUrl = fileDataMap.get(row.file.name);
+                if (!fileDataUrl) {
+                    fileDataUrl = await toTimestampDataUrl(row.file);
+                    fileDataMap.set(row.file.name, fileDataUrl);
+                }
 
-                // Add attachment descriptor for provider
-                // First segment includes the data, others reference it
-                attachments.push({
-                    cellId,
-                    attachmentId: segmentAttachmentId,
-                    fileName,
-                    mime: row.file.type || "audio/webm",
-                    // First segment of this file includes the data
-                    ...(cellIndex === 1
-                        ? { dataBase64: fileDataUrl, startTime: seg.startSec, endTime: seg.endSec }
-                        : {
-                              sourceFileId: baseAttachmentId, // Reference the base ID, not -seg1
-                              startTime: seg.startSec,
-                              endTime: seg.endSec,
-                          }),
-                });
+                const baseAttachmentId = generateAttachmentId();
+                const segs = row.segments.map((s) => ({
+                    startSec: s.startSec ?? 0,
+                    endSec: s.endSec ?? Number.NaN,
+                }));
 
-                // Build source cell with attachment metadata and timestamps
-                const url = `.project/attachments/files/${docId}/${fileName}`;
-                sourceCells.push({
-                    kind: 2,
-                    value: "",
-                    languageId: "html",
-                    metadata: {
-                        type: "text",
-                        id: cellId,
-                        data: {
-                            startTime: seg.startSec,
-                            endTime: seg.endSec,
-                        },
-                        edits: [],
-                        attachments: {
-                            [segmentAttachmentId]: {
-                                url,
-                                type: "audio",
-                                createdAt: Date.now(),
-                                updatedAt: Date.now(),
-                                isDeleted: false,
-                                startTime: seg.startSec,
-                                endTime: seg.endSec,
+                let cellIndex = 0;
+                for (const seg of segs) {
+                    cellIndex++;
+                    const cellId = `${fileDocId} 1:${cellIndex}`; // Single section per file
+                    const segmentAttachmentId = `${baseAttachmentId}-seg${cellIndex}`;
+                    const ext = row.file.name.split(".").pop() || "webm";
+                    const fileName = `${segmentAttachmentId}.${ext}`;
+
+                    allAttachments.push({
+                        cellId,
+                        attachmentId: segmentAttachmentId,
+                        fileName,
+                        mime: row.file.type || "audio/webm",
+                        ...(cellIndex === 1
+                            ? {
+                                  dataBase64: fileDataUrl,
+                                  startTime: seg.startSec,
+                                  endTime: seg.endSec,
+                              }
+                            : {
+                                  sourceFileId: baseAttachmentId,
+                                  startTime: seg.startSec,
+                                  endTime: seg.endSec,
+                              }),
+                    });
+
+                    const url = `.project/attachments/files/${fileDocId}/${fileName}`;
+                    sourceCells.push({
+                        kind: 2,
+                        value: "",
+                        languageId: "html",
+                        metadata: {
+                            type: "text",
+                            id: cellId,
+                            data: { startTime: seg.startSec, endTime: seg.endSec },
+                            edits: [],
+                            attachments: {
+                                [segmentAttachmentId]: {
+                                    url,
+                                    type: "audio",
+                                    createdAt: Date.now(),
+                                    updatedAt: Date.now(),
+                                    isDeleted: false,
+                                    startTime: seg.startSec,
+                                    endTime: seg.endSec,
+                                },
                             },
+                            selectedAudioId: segmentAttachmentId,
+                            selectionTimestamp: Date.now(),
                         },
-                        selectedAudioId: segmentAttachmentId,
-                        selectionTimestamp: Date.now(),
+                    });
+
+                    codexCells.push({
+                        kind: 2,
+                        value: "",
+                        languageId: "html",
+                        metadata: {
+                            type: "text",
+                            id: cellId,
+                            data: { startTime: seg.startSec, endTime: seg.endSec },
+                            edits: [],
+                        },
+                    });
+                }
+
+                const processedNotebook = (name: string, cells: any[]) => ({
+                    name,
+                    cells: cells.map((c) => ({
+                        id: c.metadata.id,
+                        content: c.value,
+                        images: [],
+                        metadata: c.metadata || {},
+                    })),
+                    metadata: {
+                        id: name,
+                        originalFileName: name,
+                        importerType: "audio",
+                        createdAt: nowIso,
                     },
                 });
 
-                // Mirror empty cell to codex
-                codexCells.push({
-                    kind: 2,
-                    value: "",
-                    languageId: "html",
-                    metadata: {
-                        type: "text",
-                        id: cellId,
-                        data: {
-                            startTime: seg.startSec,
-                            endTime: seg.endSec,
-                        },
-                        edits: [],
-                    },
+                notebookPairs.push({
+                    source: processedNotebook(fileDocId, sourceCells),
+                    codex: processedNotebook(fileDocId, codexCells),
                 });
             }
         }
 
-        const nowIso = new Date().toISOString();
-        const processedNotebook = (name: string, cells: any[]) => ({
-            name,
-            cells: cells.map((c) => ({
-                id: c.metadata.id,
-                content: c.value,
-                images: [],
-                metadata: c.metadata || {},
-            })),
-            metadata: {
-                id: name,
-                originalFileName: name,
-                importerType: "audio",
-                createdAt: nowIso,
-            },
-        });
-
-        // Build pair as ProcessedNotebook; provider converts to NotebookPreview internally
-        const pair = {
-            source: processedNotebook(docId, sourceCells),
-            codex: processedNotebook(docId, codexCells),
-        };
-
         // Send notebooks plus attachments via custom message
         const message: WriteNotebooksWithAttachmentsMessage = {
             command: "writeNotebooksWithAttachments",
-            notebookPairs: [pair],
-            attachments,
+            notebookPairs,
+            attachments: allAttachments,
             metadata: { importerType: "audio", timestamp: nowIso },
         } as any;
         (window as any).vscodeApi.postMessage(message);
 
-        // Show success feedback - pass the notebook pair to onComplete
-        onComplete?.([pair] as any);
+        // Show success feedback - pass the notebook pairs to onComplete
+        onComplete?.(notebookPairs as any);
     };
 
     const canConfirm = rows.length > 0 && documentName.trim().length > 0;
@@ -292,16 +391,39 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 </CardHeader>
                 <CardContent className="space-y-4">
                     {/* Document name and file selection */}
-                    <div className="space-y-2">
-                        <Label htmlFor="doc-name">Document Name</Label>
-                        <div className="flex gap-2">
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="doc-name">Document Name</Label>
                             <Input
                                 id="doc-name"
                                 value={documentName}
                                 onChange={(e) => setDocumentName(e.target.value)}
                                 placeholder="Enter document name"
-                                className="flex-1"
+                                className="w-full"
                             />
+                        </div>
+
+                        {/* Import mode toggle */}
+                        {rows.length > 1 && (
+                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                <div className="space-y-1">
+                                    <div className="font-medium text-sm">Import Mode</div>
+                                    <div className="text-xs text-muted-foreground">
+                                        {mergeFiles
+                                            ? "All files will be combined into one notebook with sequential segments"
+                                            : "Each file will create its own separate notebook"}
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <Label htmlFor="merge-toggle" className="text-sm">
+                                        {mergeFiles ? "Merge All Files" : "Individual Files"}
+                                    </Label>
+                                    <Switch checked={mergeFiles} onCheckedChange={setMergeFiles} />
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex justify-center">
                             <input
                                 id="audio-file-input"
                                 type="file"
@@ -311,7 +433,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                 onChange={handleSelectFiles}
                             />
                             <label htmlFor="audio-file-input" className="cursor-pointer">
-                                <Button asChild variant="outline">
+                                <Button asChild variant="outline" size="lg">
                                     <span>
                                         <Upload className="mr-2 h-4 w-4" />
                                         Select Audio Files
@@ -361,19 +483,30 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                                     : ""}{" "}
                                                 segmented
                                             </span>
+                                            {rows.length > 1 && (
+                                                <>
+                                                    <span>•</span>
+                                                    <span>
+                                                        Will create{" "}
+                                                        {mergeFiles
+                                                            ? "1 merged notebook"
+                                                            : `${rows.length} separate notebooks`}
+                                                    </span>
+                                                </>
+                                            )}
                                         </div>
                                         <Button
-                                            variant="outline"
+                                            variant="default"
                                             size="sm"
                                             onClick={() => {
-                                                // Expand all files to trigger auto-detection
+                                                // Expand all files to trigger auto-segmentation
                                                 setRows((prev) =>
                                                     prev.map((r) => ({ ...r, expanded: true }))
                                                 );
                                             }}
                                         >
-                                            <Activity className="mr-2 h-3 w-3" />
-                                            Show All Waveforms
+                                            <Scissors className="mr-2 h-3 w-3" />
+                                            Auto Segment
                                         </Button>
                                     </div>
                                 </AlertDescription>
@@ -560,12 +693,22 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                 <>
                                     <AlertTriangle className="mr-2 h-4 w-4" />
                                     Import {totalSegments} Segment{totalSegments !== 1 ? "s" : ""}{" "}
+                                    {mergeFiles
+                                        ? "as 1 Notebook"
+                                        : `as ${rows.length} Notebook${
+                                              rows.length !== 1 ? "s" : ""
+                                          }`}{" "}
                                     (Review Segmentation)
                                 </>
                             ) : (
                                 <>
                                     <Scissors className="mr-2 h-4 w-4" />
-                                    Import {totalSegments} Segment{totalSegments !== 1 ? "s" : ""}
+                                    Import {totalSegments} Segment{totalSegments !== 1 ? "s" : ""}{" "}
+                                    {mergeFiles
+                                        ? "as 1 Notebook"
+                                        : `as ${rows.length} Notebook${
+                                              rows.length !== 1 ? "s" : ""
+                                          }`}
                                 </>
                             )}
                         </Button>
