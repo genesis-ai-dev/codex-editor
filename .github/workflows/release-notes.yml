@@ -106,9 +106,10 @@ jobs:
                   fi
 
                   printf '%s' "$COMMITS" > commits.txt
-                  echo "commits<<EOF" >> "$GITHUB_OUTPUT"
+                  UNIQUE_DELIM="COMMITS_$(uuidgen)"
+                  echo "commits<<$UNIQUE_DELIM" >> "$GITHUB_OUTPUT"
                   cat commits.txt >> "$GITHUB_OUTPUT"
-                  echo "EOF" >> "$GITHUB_OUTPUT"
+                  echo "$UNIQUE_DELIM" >> "$GITHUB_OUTPUT"
 
             - name: Generate release notes (basic, Copilot-ready)
               id: notes
@@ -134,9 +135,10 @@ jobs:
                     echo "### Feedback"; echo "Please report issues on GitHub."
                   } > NOTES.md
 
-                  echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+                  UNIQUE_DELIM="NOTES_$(uuidgen)"
+                  echo "notes<<$UNIQUE_DELIM" >> "$GITHUB_OUTPUT"
                   cat NOTES.md >> "$GITHUB_OUTPUT"
-                  echo "EOF" >> "$GITHUB_OUTPUT"
+                  echo "$UNIQUE_DELIM" >> "$GITHUB_OUTPUT"
 
             - name: Send to n8n webhook (Discord)
               if: steps.version.outputs.skip != 'true'
