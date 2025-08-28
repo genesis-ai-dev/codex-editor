@@ -23,6 +23,7 @@ import { obsImporterPlugin } from "./obs/index.tsx";
 import { smartSegmenterPlugin } from "./recursiveTextSplitter/index.tsx";
 import { paratextImporterPlugin } from "./paratext/index.tsx";
 import { spreadsheetImporterPlugin } from "./spreadsheet/index.tsx";
+import { audioImporterPlugin } from "./audio/index.tsx";
 
 // Import placeholder components - these will be created for each importer
 // For now, we'll create a temporary placeholder component
@@ -47,6 +48,12 @@ export const importerPlugins: ImporterPlugin[] = [
         name: "Smart Segmenter",
         description: "Works with any text file",
         tags: [...(smartSegmenterPlugin.tags || []), "Essential", "Universal", "Text"],
+    },
+    {
+        ...audioImporterPlugin,
+        name: "Audio",
+        description: "Import audio files and segment by timestamps",
+        tags: [...(audioImporterPlugin.tags || []), "Essential", "Media", "Audio"],
     },
     {
         ...docxImporterPlugin,

@@ -324,6 +324,26 @@ export interface WriteTranslationMessage {
     metadata?: Record<string, any>;
 }
 
+/**
+ * Extended write message that includes binary attachments to persist alongside notebooks.
+ * Used by plugins that need to deliver media assets (e.g., audio) at import time.
+ */
+export interface WriteNotebooksWithAttachmentsMessage {
+    command: 'writeNotebooksWithAttachments';
+    notebookPairs: NotebookPair[];
+    attachments: Array<{
+        cellId: string;             // e.g., "JUD 1:1"
+        attachmentId: string;       // e.g., "audio-1718042200000-abc123"
+        fileName: string;           // e.g., "audio-1718042200000-abc123.webm"
+        mime: string;               // e.g., "audio/webm"
+        dataBase64?: string;        // may include data: prefix or raw base64 (only for source files)
+        sourceFileId?: string;      // reference to source file (for segments)
+        startTime?: number;         // segment start time in seconds
+        endTime?: number;           // segment end time in seconds
+    }>;
+    metadata?: Record<string, any>;
+}
+
 export interface NotificationMessage {
     command: 'notification';
     type: 'info' | 'warning' | 'error' | 'success';

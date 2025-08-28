@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteConfirmationMessage, OverwriteResponseMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteConfirmationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
@@ -55,6 +55,9 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     });
                 } else if (message.command === "writeNotebooks") {
                     await this.handleWriteNotebooks(message as WriteNotebooksMessage, token, webviewPanel);
+                } else if (message.command === "writeNotebooksWithAttachments") {
+                    await this.handleWriteNotebooksWithAttachments(message as WriteNotebooksWithAttachmentsMessage, token, webviewPanel);
+                    // Success and inventory update handled inside
 
                     // Success notification and inventory update are now handled in handleWriteNotebooks
                 } else if (message.command === "overwriteResponse") {
@@ -171,7 +174,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     try {
                         // Focus the navigation view (same as Welcome View's handleOpenTranslationFile)
                         await vscode.commands.executeCommand("codex-editor.navigation.focus");
-                        
+
                         // Close the current webview panel
                         webviewPanel.dispose();
                     } catch (error) {
@@ -336,6 +339,107 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             // Index only these specific files
             await vscode.commands.executeCommand("codex-editor-extension.indexSpecificFiles", filePaths);
         }
+    }
+
+    /**
+     * Writes notebooks and persists provided attachments to .project/attachments/{files,pointers}/{DOC}/
+     * Assumes the incoming notebookPairs already have per-cell attachments populated in metadata
+     */
+    private async handleWriteNotebooksWithAttachments(
+        message: WriteNotebooksWithAttachmentsMessage,
+        token: vscode.CancellationToken,
+        webviewPanel: vscode.WebviewPanel
+    ): Promise<void> {
+        // Reuse conflict checks from handleWriteNotebooks
+        const conflicts = await this.checkForFileConflicts(message.notebookPairs.map(pair => pair.source));
+        if (conflicts.length > 0) {
+            const filesList = conflicts.map(conflict => {
+                const parts = [] as string[];
+                if (conflict.sourceExists) parts.push("source file");
+                if (conflict.targetExists) parts.push("target file");
+                if (conflict.hasTranslations) parts.push("with translations");
+                return `• ${conflict.name} (${parts.join(", ")})`;
+            }).join("\n");
+
+            const action = await vscode.window.showWarningMessage(
+                `The following files already exist and will be overwritten:\n\n${filesList}\n\nThis will permanently delete any existing translations for this file. Do you want to continue?`,
+                { modal: true },
+                "Overwrite Files",
+                "Abort Import"
+            );
+            if (action !== "Overwrite Files") {
+                webviewPanel.webview.postMessage({
+                    command: "notification",
+                    type: "info",
+                    message: "Import cancelled by user"
+                });
+                return;
+            }
+        }
+
+        // 1) Convert to NotebookPreview and write notebooks
+        const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
+        const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
+
+        const createdFiles = await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
+
+        // 2) Persist attachments
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        // Track source files that have been written
+        const sourceFiles = new Map<string, Buffer>();
+
+        for (const attachment of message.attachments) {
+            const { cellId, attachmentId, fileName, dataBase64, sourceFileId, startTime, endTime } = attachment;
+            const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
+            const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
+            const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
+            await vscode.workspace.fs.createDirectory(filesDir);
+            await vscode.workspace.fs.createDirectory(pointersDir);
+
+            let buffer: Buffer;
+
+            if (dataBase64) {
+                // This is the first segment with the full file data
+                const base64 = dataBase64.includes(",") ? dataBase64.split(",")[1] : dataBase64;
+                buffer = Buffer.from(base64, "base64");
+                // Store for potential reuse by other segments
+                // Use the full attachmentId as the key since sourceFileId will reference it
+                sourceFiles.set(attachmentId.replace(/-seg\d+$/, ''), buffer);
+            } else if (sourceFileId && sourceFiles.has(sourceFileId)) {
+                // This is a subsequent segment - reuse the source file data
+                buffer = sourceFiles.get(sourceFileId)!;
+            } else {
+                console.error(`No data available for attachment ${attachmentId}, sourceFileId: ${sourceFileId}`);
+                continue;
+            }
+
+            // Write each segment as its own file (even if it's the full audio)
+            // The player will use startTime/endTime metadata to play the correct portion
+            const filesPath = vscode.Uri.joinPath(filesDir, fileName);
+            const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+            await vscode.workspace.fs.writeFile(filesPath, buffer);
+            await vscode.workspace.fs.writeFile(pointersPath, buffer);
+
+            // Log segment info for debugging
+            console.log(`Wrote audio segment: ${fileName} (${startTime ?? 0}s - ${endTime ?? 'end'}s)`);
+        }
+
+        // 3) Write success + inventory
+        const count = message.notebookPairs.length;
+        const notebooksText = count === 1 ? "notebook" : "notebooks";
+        const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
+        vscode.window.showInformationMessage(
+            count === 1
+                ? `Successfully imported "${firstNotebookName}"!`
+                : `Successfully imported ${count} ${notebooksText}!`
+        );
+        webviewPanel.webview.postMessage({ command: "notification", type: "success", message: "Notebooks and attachments created successfully!" });
+        const inventory = await this.fetchProjectInventory();
+        webviewPanel.webview.postMessage({ command: "projectInventory", inventory });
     }
 
     private async handleWriteTranslation(

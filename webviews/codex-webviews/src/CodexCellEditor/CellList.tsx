@@ -830,7 +830,7 @@ const CellList: React.FC<CellListProps> = ({
                                                     cellLabel={""}
                                                     setContentBeingUpdated={setContentBeingUpdated}
                                                     textDirection={textDirection}
-                                                    vscode={vscode}
+                                                    isSourceCell={isSourceText}
                                                     openCellById={openCellById}
                                                     fontSize={fontSize}
                                                 />

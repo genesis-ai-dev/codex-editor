@@ -7,17 +7,17 @@ interface EmptyCellDisplayProps {
     cellLabel: string;
     setContentBeingUpdated: (content: any) => void;
     textDirection: "ltr" | "rtl";
-    vscode: WebviewApi<unknown>;
     openCellById: (cellId: string, text: string) => void;
     fontSize?: number; // Font size for responsive styling
+    isSourceCell?: boolean;
 }
 
 const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
     cellMarkers,
     cellLabel,
     openCellById,
-    vscode,
     fontSize = 14,
+    isSourceCell = false,
 }) => {
     const contentRef = useRef<HTMLDivElement>(null);
     const { showTooltip, hideTooltip } = useTooltip();
@@ -111,7 +111,7 @@ const EmptyCellDisplay: React.FC<EmptyCellDisplayProps> = ({
         >
             {cellLabel && <span className="empty-cell-marker">{cellLabel}</span>}
             <span className="empty-cell-prompt" style={{ paddingLeft: "0px" }}>
-                Click to translate
+                {isSourceCell ? "No text" : "Click to translate"}
             </span>
         </div>
     );
