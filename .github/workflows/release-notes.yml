@@ -1,0 +1,207 @@
+name: Generate and Send Release Notes
+
+on:
+    # Only handle GitHub's create event (branch/tag) and manual dispatch
+    create:
+
+    # Allow manual run for testing
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to generate notes for (defaults to created tag)"
+                required: false
+                type: string
+
+permissions:
+    contents: write
+    pull-requests: read
+
+jobs:
+    release-notes:
+        # Run only when a tag is created (or manual dispatch)
+        if: ${{ github.event_name == 'create' && github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Prepare repository (without external actions)
+              id: prep
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  REPO="${GITHUB_REPOSITORY}"
+                  mkdir -p repo
+                  cd repo
+                  git init -q
+                  git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+                  git fetch -q --tags --prune origin
+                  # Ensure the commit for this workflow run is available
+                  git fetch -q origin "${GITHUB_SHA}"
+                  git checkout -q "${GITHUB_SHA}"
+
+            - name: Determine version and previous tag
+              id: version
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  if [ -n "${{ github.event.inputs.version || '' }}" ]; then
+                    VERSION="${{ github.event.inputs.version }}"
+                  else
+                    VERSION="${GITHUB_REF#refs/tags/}"
+                  fi
+
+                  # Ensure numeric-only tags (no 'v' prefix)
+                  if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "Tag '$VERSION' is not numeric SemVer; skipping." >&2
+                    echo "skip=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  # Find previous numeric tag for comparison
+                  PREV_TAG=$(git tag --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p' || true)
+                  if [ -z "$PREV_TAG" ]; then
+                    PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+                  fi
+
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                  echo "previous=$PREV_TAG" >> "$GITHUB_OUTPUT"
+                  # Resolve the commit pointed to by the version tag
+                  if git rev-parse "$VERSION" >/dev/null 2>&1; then
+                    CURR_COMMIT=$(git rev-list -n 1 "$VERSION")
+                  else
+                    CURR_COMMIT="$GITHUB_SHA"
+                  fi
+                  echo "current_commit=$CURR_COMMIT" >> "$GITHUB_OUTPUT"
+
+            - name: Stop if non-numeric tag
+              if: steps.version.outputs.skip == 'true'
+              run: echo "Non-numeric tag detected; workflow skipped."
+
+            - name: Collect commit messages since previous tag
+              id: commits
+              if: steps.version.outputs.skip != 'true'
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  PREV="${{ steps.version.outputs.previous }}"
+                  CURR="${{ steps.version.outputs.current_commit }}"
+                  RANGE="$PREV..$CURR"
+                  if ! git rev-parse "$PREV" >/dev/null 2>&1; then
+                    RANGE="$PREV"
+                  fi
+
+                  # Exclude obvious version bump commits
+                  COMMITS=$(git log "$RANGE" --no-merges --pretty=format:'• %s' \
+                    --grep='bump|version|release' --invert-grep | head -100)
+
+                  if [ -z "$COMMITS" ]; then
+                    COMMITS=$(git log "$RANGE" --no-merges --pretty=format:'• %s' | head -100)
+                  fi
+
+                  # Provide a fallback if still empty
+                  if [ -z "$COMMITS" ]; then
+                    COMMITS="• Internal maintenance and dependency updates"
+                  fi
+
+                  printf '%s' "$COMMITS" > commits.txt
+                  echo "Generated commits list with $(wc -l < commits.txt) items"
+
+            - name: Generate release notes (basic, Copilot-ready)
+              id: notes
+              if: steps.version.outputs.skip != 'true'
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.version }}"
+                  echo "Creating notes for v$VERSION"
+
+                  {
+                    echo "## What's New in v$VERSION"; echo;
+                    # Basic grouping prompt for Copilot to refine later if desired
+                    echo "$GITHUB_REPOSITORY release notes for v$VERSION" > prompt.txt
+                    echo "Group the following commits into Features, Fixes, Improvements:" >> prompt.txt
+                    echo >> prompt.txt
+                    cat commits.txt >> prompt.txt
+
+                    # Basic list as a fallback body
+                    cat commits.txt | sed 's/^• /* /g'
+                    echo; echo "### Installation"; echo "Update via VS Code Marketplace or GitHub releases."; echo;
+                    echo "### Feedback"; echo "Please report issues on GitHub."
+                  } > NOTES.md
+
+                  echo "Generated release notes file ($(wc -l < NOTES.md) lines)"
+
+            - name: Send to n8n webhook (Discord)
+              if: steps.version.outputs.skip != 'true'
+              env:
+                  N8N_WEBHOOK_URL: ${{ secrets.N8N_WEBHOOK_URL }}
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  if [ -z "${N8N_WEBHOOK_URL:-}" ]; then
+                    echo "N8N_WEBHOOK_URL is not set; cannot send release notes." >&2
+                    exit 1
+                  fi
+
+                  VERSION="${{ steps.version.outputs.version }}"
+                  NOTES_CONTENT=$(cat NOTES.md)
+
+                  PAYLOAD=$(jq -n --arg version "$VERSION" --arg notes "$NOTES_CONTENT" '{version:$version, notes:$notes}')
+
+                  # The n8n Discord node reads $json.version and $json.notes
+                  curl -sS -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" "$N8N_WEBHOOK_URL"
+                  echo "Sent release notes for v$VERSION to n8n."
+
+            - name: Create or update draft GitHub release (via API)
+              if: steps.version.outputs.skip != 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  VERSION="${{ steps.version.outputs.version }}"
+                  NOTES_CONTENT=$(cat NOTES.md)
+                  # Check if a release for this tag already exists
+                  GET_RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                                   -H "Accept: application/vnd.github+json" \
+                                   "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" || true)
+                  RELEASE_ID=$(echo "$GET_RESP" | jq -r '.id // empty')
+                  IS_DRAFT=$(echo "$GET_RESP" | jq -r '.draft // empty')
+
+                  if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
+                    # If published (draft == false), do not modify
+                    if [ "$IS_DRAFT" = "false" ]; then
+                      echo "Release for tag ${VERSION} is already published; skipping any updates."
+                      exit 0
+                    fi
+                    # Update existing draft release
+                    PATCH_BODY=$(jq -n --arg name "Release $VERSION" \
+                                       --arg body "$NOTES_CONTENT" \
+                                       --argjson draft true \
+                                       '{name:$name, body:$body, draft:$draft}')
+                    curl -sS -X PATCH \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      -d "$PATCH_BODY" \
+                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" >/dev/null
+                    echo "Updated existing draft release for tag ${VERSION}."
+                  else
+                    # Create new draft release
+                    POST_BODY=$(jq -n --arg tag "$VERSION" \
+                                      --arg name "Release $VERSION" \
+                                      --arg body "$NOTES_CONTENT" \
+                                      --argjson draft true \
+                                      '{tag_name:$tag, name:$name, body:$body, draft:$draft}')
+                    curl -sS -X POST \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      -d "$POST_BODY" \
+                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases" >/dev/null
+                    echo "Created new draft release for tag ${VERSION}."
+                  fi
+
