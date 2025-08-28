@@ -8,6 +8,7 @@ import bibleData from "../assets/bible-books-lookup.json";
 import { Progress } from "../components/ui/progress";
 import "../tailwind.css";
 import { CodexItem } from "types";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 
 // Declare the acquireVsCodeApi function
 declare function acquireVsCodeApi(): any;
@@ -31,7 +32,6 @@ interface State {
     previousExpandedGroups: Set<string> | null;
     searchQuery: string;
     bibleBookMap: Map<string, BibleBookInfo> | undefined;
-    openMenu: string | null;
     hasReceivedInitialData: boolean;
     renameModal: {
         isOpen: boolean;
@@ -42,63 +42,10 @@ interface State {
 
 // Redesigned styles following Jobs/DHH principles: clean, purposeful, delightful
 const styles = {
-    container: {
-        padding: "12px",
-        height: "100vh",
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column" as const,
-        backgroundColor: "var(--vscode-sideBar-background)",
-    },
-    scrollableContent: {
-        flex: 1,
-        overflow: "auto",
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "2px",
-    },
-    bottomSection: {
-        marginTop: "auto",
-        paddingTop: "16px",
-        borderTop: "2px solid var(--vscode-sideBarSectionHeader-border)",
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "12px",
-        backgroundColor: "var(--vscode-sideBar-background)",
-        position: "relative" as const,
-    },
-    searchContainer: {
-        marginBottom: "16px",
-        display: "flex",
-        gap: "8px",
-        alignItems: "center",
-    },
-    searchWrapper: {
-        position: "relative" as const,
-        flex: 1,
-    },
-    searchIcon: {
-        position: "absolute" as const,
-        left: "12px",
-        top: "50%",
-        transform: "translateY(-50%)",
-        color: "var(--vscode-input-placeholderForeground)",
-        fontSize: "16px",
-        zIndex: 1,
-    },
-    refreshButton: {
-        padding: "8px",
-        height: "36px",
-        width: "36px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        borderRadius: "6px",
-    },
-    itemsContainer: {
-        display: "flex",
-        flexDirection: "column" as const,
-    },
+    scrollableContent: {},
+    bottomSection: {},
+    refreshButton: {},
+    itemsContainer: {},
     // Main clickable item container - the entire thing is now clickable
     itemContainer: {
         cursor: "pointer",
@@ -117,226 +64,18 @@ const styles = {
             transform: "scale(0.98)",
         },
     },
-    groupItemContainer: {
-        cursor: "pointer",
-        userSelect: "none" as const,
-        padding: "0",
-        borderRadius: "6px",
-        transition: "all 0.15s ease",
-        position: "relative" as const,
-        backgroundColor: "var(--vscode-sideBar-background)",
-        border: "1px solid var(--vscode-sideBar-border)",
-        "&:hover": {
-            backgroundColor: "var(--vscode-list-hoverBackground)",
-            borderColor: "var(--vscode-focusBorder)",
-        },
-    },
-    // Content inside the clickable container
-    itemContent: {
-        padding: "12px 16px",
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "8px",
-    },
-    itemHeader: {
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        width: "100%",
-        minHeight: "24px",
-    },
-    label: {
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        flex: 1,
-        fontSize: "14px",
-        fontWeight: "500",
-        color: "var(--vscode-foreground)",
-        lineHeight: "1.4",
-    },
-    icon: {
-        fontSize: "16px",
-        color: "var(--vscode-symbolIcon-fileForeground)",
-        width: "16px",
-        height: "16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-    },
-    chevronIcon: {
-        fontSize: "16px",
-        color: "var(--vscode-foreground)",
-        width: "16px",
-        height: "16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        opacity: 0.7,
-        transition: "transform 0.2s ease, opacity 0.2s ease",
-    },
-    completedIcon: {
-        fontSize: "16px",
-        color: "var(--vscode-terminal-ansiGreen)",
-        width: "16px",
-        height: "16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-    },
-    progressSection: {
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "6px",
-        paddingLeft: "28px",
-    },
-    progressLabel: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        fontSize: "12px",
-        color: "var(--vscode-descriptionForeground)",
-        fontWeight: "500",
-    },
-    progressBar: {
-        width: "100%",
-        height: "4px",
-        backgroundColor: "var(--vscode-progressBar-background)",
-        borderRadius: "2px",
-        overflow: "hidden",
-    },
+    
+    
+    
     childrenContainer: {
-        marginLeft: "20px",
-        marginTop: "4px",
+        marginLeft: "16px",
+        marginTop: "6px",
         display: "flex",
         flexDirection: "column" as const,
-        gap: "2px",
+        gap: "4px",
     },
-    noResults: {
-        padding: "32px 16px",
-        textAlign: "center" as const,
-        color: "var(--vscode-descriptionForeground)",
-        fontSize: "14px",
-    },
-    // Menu button positioned absolutely in top-right
-    menuButton: {
-        position: "absolute" as const,
-        top: "8px",
-        right: "8px",
-        padding: "4px",
-        background: "var(--vscode-button-secondaryBackground)",
-        border: "1px solid var(--vscode-button-border)",
-        borderRadius: "4px",
-        cursor: "pointer",
-        transition: "all 0.15s ease",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: "12px",
-        color: "var(--vscode-button-secondaryForeground)",
-        width: "24px",
-        height: "24px",
-        opacity: 0,
-        transform: "scale(0.9)",
-        "&:hover": {
-            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
-            transform: "scale(1)",
-        },
-    },
-    popover: {
-        position: "absolute" as const,
-        top: "32px",
-        right: "8px",
-        backgroundColor: "var(--vscode-menu-background)",
-        border: "1px solid var(--vscode-menu-border)",
-        borderRadius: "6px",
-        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
-        zIndex: 1000,
-        minWidth: "140px",
-        padding: "4px",
-        overflow: "hidden",
-    },
-    popoverItem: {
-        padding: "8px 12px",
-        cursor: "pointer",
-        fontSize: "13px",
-        color: "var(--vscode-menu-foreground)",
-        display: "flex",
-        alignItems: "center",
-        gap: "8px",
-        borderRadius: "4px",
-        transition: "background-color 0.1s ease",
-        "&:hover": {
-            backgroundColor: "var(--vscode-menu-selectionBackground)",
-            color: "var(--vscode-menu-selectionForeground)",
-        },
-    },
-    dictionaryContainer: {
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "8px",
-        padding: "16px",
-        backgroundColor: "var(--vscode-sideBarSectionHeader-background)",
-        borderRadius: "8px",
-        border: "1px solid var(--vscode-sideBarSectionHeader-border)",
-        transition: "all 0.2s ease",
-        boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
-        "&:hover": {
-            backgroundColor: "var(--vscode-list-hoverBackground)",
-            boxShadow: "0 2px 6px rgba(0, 0, 0, 0.12)",
-        },
-    },
-    dictionaryHeader: {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
-    },
-    dictionaryIconSection: {
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-    },
-    dictionaryIcon: {
-        fontSize: "18px",
-        color: "var(--vscode-symbolIcon-keywordForeground)",
-        width: "18px",
-        height: "18px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-    },
-    dictionaryInfo: {
-        display: "flex",
-        flexDirection: "column" as const,
-        gap: "2px",
-    },
-    dictionaryTitle: {
-        fontSize: "14px",
-        fontWeight: "600",
-        color: "var(--vscode-foreground)",
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-    },
-    dictionaryStats: {
-        fontSize: "12px",
-        color: "var(--vscode-descriptionForeground)",
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-    },
-    dictionaryToggle: {
-        display: "flex",
-        alignItems: "center",
-        gap: "8px",
-        fontSize: "12px",
-        color: "var(--vscode-descriptionForeground)",
-    },
+    noResults: {},
+
     toggleButton: {
         padding: "6px 10px",
         borderRadius: "6px",
@@ -360,36 +99,7 @@ const styles = {
             transform: "scale(0.98)",
         },
     },
-    addFilesButton: {
-        padding: "16px 20px",
-        borderRadius: "8px",
-        border: "2px solid var(--vscode-button-background)",
-        backgroundColor: "var(--vscode-button-background)",
-        color: "var(--vscode-button-foreground)",
-        cursor: "pointer",
-        fontSize: "14px",
-        fontWeight: "600",
-        transition: "all 0.2s ease",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "10px",
-        boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
-        position: "relative" as const,
-        "&:hover": {
-            backgroundColor: "var(--vscode-button-hoverBackground)",
-            transform: "translateY(-1px)",
-            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)",
-        },
-        "&:active": {
-            transform: "translateY(0px)",
-            boxShadow: "0 1px 2px rgba(0, 0, 0, 0.1)",
-        },
-    },
-    addFilesIcon: {
-        fontSize: "16px",
-        fontWeight: "bold",
-    },
+
     // Modal styles
     modalOverlay: {
         position: "fixed" as const,
@@ -424,44 +134,8 @@ const styles = {
         marginBottom: "20px",
         lineHeight: "1.5",
     },
-    modalInput: {
-        width: "100%",
-        padding: "8px 12px",
-        fontSize: "14px",
-        backgroundColor: "var(--vscode-input-background)",
-        color: "var(--vscode-input-foreground)",
-        border: "1px solid var(--vscode-input-border)",
-        borderRadius: "4px",
-        marginBottom: "20px",
-        outline: "none",
-    },
-    modalButtons: {
-        display: "flex",
-        gap: "12px",
-        justifyContent: "flex-end",
-    },
-    modalButton: {
-        padding: "8px 16px",
-        fontSize: "14px",
-        borderRadius: "4px",
-        border: "none",
-        cursor: "pointer",
-        fontWeight: "500",
-    },
-    modalButtonPrimary: {
-        backgroundColor: "var(--vscode-button-background)",
-        color: "var(--vscode-button-foreground)",
-        "&:hover": {
-            backgroundColor: "var(--vscode-button-hoverBackground)",
-        },
-    },
-    modalButtonSecondary: {
-        backgroundColor: "var(--vscode-button-secondaryBackground)",
-        color: "var(--vscode-button-secondaryForeground)",
-        "&:hover": {
-            backgroundColor: "var(--vscode-button-secondaryHoverBackground)",
-        },
-    },
+    modalInput: {},
+    modalButtons: {},
 };
 
 // Helper function to sort items based on Bible book order or alphanumerically
@@ -532,7 +206,7 @@ function NavigationView() {
         previousExpandedGroups: null,
         searchQuery: "",
         bibleBookMap: undefined,
-        openMenu: null,
+
         hasReceivedInitialData: false,
         renameModal: {
             isOpen: false,
@@ -747,20 +421,7 @@ function NavigationView() {
         vscode.postMessage({ command: "refresh" });
     };
 
-    const toggleMenu = (itemId: string, event: React.MouseEvent) => {
-        event.stopPropagation();
-        setState((prev) => ({
-            ...prev,
-            openMenu: prev.openMenu === itemId ? null : itemId,
-        }));
-    };
-
-    const closeMenu = () => {
-        setState((prev) => ({ ...prev, openMenu: null }));
-    };
-
     const handleDelete = (item: CodexItem) => {
-        closeMenu();
         vscode.postMessage({
             command: "deleteFile",
             uri: item.uri,
@@ -782,7 +443,6 @@ function NavigationView() {
     };
 
     const handleEditBookName = (item: CodexItem) => {
-        closeMenu();
         vscode.postMessage({
             command: "editBookName",
             content: { bookAbbr: item.label },
@@ -790,7 +450,6 @@ function NavigationView() {
     };
 
     const handleEditCorpusMarker = (item: CodexItem) => {
-        closeMenu();
         setState((prev) => ({
             ...prev,
             renameModal: {
@@ -843,18 +502,6 @@ function NavigationView() {
             handleRenameModalClose();
         }
     };
-
-    // Close menu when clicking outside
-    useEffect(() => {
-        const handleClickOutside = () => {
-            if (state.openMenu) {
-                closeMenu();
-            }
-        };
-
-        document.addEventListener("click", handleClickOutside);
-        return () => document.removeEventListener("click", handleClickOutside);
-    }, [state.openMenu]);
 
     const openFile = (item: CodexItem) => {
         // Get the file system path from the URI
@@ -909,7 +556,7 @@ function NavigationView() {
         if (typeof progress !== "object") return null;
         console.log({ progress });
         return (
-            <div style={styles.progressSection}>
+            <div className="flex flex-col gap-1 pl-7">
                 <Progress
                     value={progress.percentTranslationsCompleted}
                     secondaryValue={progress.percentFullyValidatedTranslations}
@@ -925,7 +572,7 @@ function NavigationView() {
         const icon = isGroup ? "library" : item.type === "dictionary" ? "book" : "file";
         const displayLabel = formatLabel(item.label || "", state.bibleBookMap || new Map());
         const itemId = `${item.label || "unknown"}-${item.uri || ""}`;
-        const isMenuOpen = state.openMenu === itemId;
+
         const isProjectDict = item.isProjectDictionary;
 
         // Debug logging (can be removed later)
@@ -951,18 +598,18 @@ function NavigationView() {
         if (isProjectDict) {
             return (
                 <div key={item.label + item.uri}>
-                    <div style={styles.dictionaryContainer} onClick={handleItemClick}>
-                        <div style={styles.dictionaryHeader}>
-                            <div style={styles.dictionaryIconSection}>
-                                <div style={styles.dictionaryInfo}>
-                                    <div style={styles.dictionaryTitle}>
-                                        <i
-                                            className="codicon codicon-book"
-                                            style={styles.dictionaryIcon}
-                                        />
+                    <div
+                        className="flex flex-col gap-2 p-4 bg-vscode-sideBarSectionHeader-background rounded-lg border border-vscode-sideBarSectionHeader-border transition-all duration-200 hover:bg-accent shadow-sm hover:shadow-md cursor-pointer"
+                        onClick={handleItemClick}
+                    >
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-1.5 text-sm font-semibold text-vscode-foreground">
+                                        <i className="codicon codicon-book text-lg text-vscode-symbolIcon-keywordForeground" />
                                         Dictionary
                                     </div>
-                                    <div style={styles.dictionaryStats}>
+                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                         <i className="codicon codicon-list-ordered" />
                                         <span>{item.wordCount || 0}</span>
                                         <span>•</span>
@@ -975,31 +622,24 @@ function NavigationView() {
                                     </div>
                                 </div>
                             </div>
-                            <div style={styles.dictionaryToggle}>
-                                <button
-                                    style={{
-                                        ...styles.toggleButton,
-                                        backgroundColor: item.isEnabled
-                                            ? "var(--vscode-button-background)"
-                                            : "var(--vscode-button-secondaryBackground)",
-                                        color: item.isEnabled
-                                            ? "var(--vscode-button-foreground)"
-                                            : "var(--vscode-button-secondaryForeground)",
-                                    }}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleToggleDictionary();
-                                    }}
-                                    title={`${item.isEnabled ? "Disable" : "Enable"} spellcheck`}
-                                >
-                                    <i
-                                        className={`codicon codicon-${
-                                            item.isEnabled ? "check" : "circle-slash"
-                                        }`}
-                                    />
-                                    {item.isEnabled ? "ON" : "OFF"}
-                                </button>
-                            </div>
+
+                            <Button
+                                variant={item.isEnabled ? "default" : "secondary"}
+                                size="sm"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleDictionary();
+                                }}
+                                title={`${item.isEnabled ? "Disable" : "Enable"} spellcheck`}
+                                className="flex items-center gap-1.5 min-w-[60px]"
+                            >
+                                <i
+                                    className={`codicon codicon-${
+                                        item.isEnabled ? "check" : "circle-slash"
+                                    }`}
+                                />
+                                {item.isEnabled ? "ON" : "OFF"}
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -1009,49 +649,30 @@ function NavigationView() {
         return (
             <div key={item.label + item.uri}>
                 <div
-                    style={{
-                        ...(isGroup ? styles.groupItemContainer : styles.itemContainer),
-                        position: "relative",
-                    }}
+                    className={`group relative cursor-pointer select-none p-0 rounded-md transition-colors hover:bg-accent ${
+                        isGroup
+                            ? "bg-card border border-border"
+                            : "bg-transparent border border-transparent"
+                    }`}
                     onClick={handleItemClick}
-                    onMouseEnter={(e) => {
-                        if ((!isGroup || item.type === "corpus") && !isProjectDict) {
-                            const menuButton = e.currentTarget.querySelector(
-                                ".menu-button"
-                            ) as HTMLElement;
-                            if (menuButton) {
-                                menuButton.style.opacity = "1";
-                                menuButton.style.transform = "scale(1)";
-                            }
-                        }
-                    }}
-                    onMouseLeave={(e) => {
-                        if ((!isGroup || item.type === "corpus") && !isProjectDict && !isMenuOpen) {
-                            const menuButton = e.currentTarget.querySelector(
-                                ".menu-button"
-                            ) as HTMLElement;
-                            if (menuButton) {
-                                menuButton.style.opacity = "0";
-                                menuButton.style.transform = "scale(0.9)";
-                            }
-                        }
-                    }}
                 >
-                    <div style={styles.itemContent}>
-                        <div style={styles.itemHeader}>
+                    <div className="p-3 flex flex-col gap-1.5">
+                        <div className="flex items-center gap-3 w-full min-h-6">
                             {isGroup && (
                                 <i
-                                    className={`codicon codicon-${
-                                        isExpanded ? "chevron-down" : "chevron-right"
-                                    }`}
-                                    style={{
-                                        ...styles.chevronIcon,
-                                        transform: isExpanded ? "rotate(0deg)" : "rotate(0deg)",
-                                    }}
+                                    className={`codicon ${
+                                        isExpanded
+                                            ? "codicon-chevron-down"
+                                            : "codicon-chevron-right"
+                                    } text-base text-vscode-foreground w-4 h-4 flex items-center justify-center flex-shrink-0 opacity-70 transition-transform duration-200`}
                                 />
                             )}
-                            <i className={`codicon codicon-${icon}`} style={styles.icon} />
-                            <span style={styles.label}>{displayLabel}</span>
+                            <i
+                                className={`codicon codicon-${icon} text-base text-vscode-symbolIcon-fileForeground w-4 h-4 flex items-center justify-center flex-shrink-0`}
+                            />
+                            <span className="overflow-hidden text-ellipsis whitespace-nowrap flex-1 text-sm font-medium text-vscode-foreground leading-normal">
+                                {displayLabel}
+                            </span>
                         </div>
                         {renderProgressSection(item.progress)}
                     </div>
@@ -1059,22 +680,21 @@ function NavigationView() {
                     {/* Menu button positioned absolutely */}
                     {(!isGroup || item.type === "corpus") && (
                         <>
-                            <button
-                                className="menu-button"
-                                style={styles.menuButton}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleMenu(itemId, e);
-                                }}
-                                title="More options"
-                            >
-                                <i className="codicon codicon-kebab-vertical" />
-                            </button>
-                            {isMenuOpen && (
-                                <div style={styles.popover}>
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="menu-button absolute top-2 right-2 w-6 h-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="More options"
+                                    >
+                                        <i className="codicon codicon-kebab-vertical" />
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-36 p-1" align="end" side="right">
                                     {item.type === "codexDocument" && (
                                         <div
-                                            style={styles.popoverItem}
+                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleEditBookName(item);
@@ -1086,19 +706,19 @@ function NavigationView() {
                                     )}
                                     {item.type === "corpus" && (
                                         <div
-                                            style={styles.popoverItem}
+                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleEditCorpusMarker(item);
                                             }}
                                         >
                                             <i className="codicon codicon-edit" />
-                                            Rename Corpus
+                                            Rename Group
                                         </div>
                                     )}
                                     {!isGroup && (
                                         <div
-                                            style={styles.popoverItem}
+                                            className="px-2 py-1.5 cursor-pointer text-sm flex items-center gap-2 rounded-sm hover:bg-accent hover:text-accent-foreground"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleDelete(item);
@@ -1108,13 +728,13 @@ function NavigationView() {
                                             Delete
                                         </div>
                                     )}
-                                </div>
-                            )}
+                                </PopoverContent>
+                            </Popover>
                         </>
                     )}
                 </div>
                 {isGroup && isExpanded && item.children && (
-                    <div style={styles.childrenContainer}>
+                    <div className="ml-4 mt-1.5 flex flex-col">
                         {item.children.sort(sortItems).map(renderItem)}
                     </div>
                 )}
@@ -1131,10 +751,10 @@ function NavigationView() {
     const otherDictionaries = filteredDictionaryItems.filter((item) => !item.isProjectDictionary);
 
     return (
-        <div style={styles.container}>
-            <div style={styles.searchContainer}>
-                <div style={styles.searchWrapper}>
-                    <i className="codicon codicon-search" style={styles.searchIcon} />
+        <div className="p-3 h-full overflow-hidden flex flex-col bg-vscode-sideBar-background">
+            <div className="mb-4 flex gap-2 items-center">
+                <div className="relative flex-1">
+                    <i className="codicon codicon-search absolute left-3 top-1/2 -translate-y-1/2 text-vscode-sideBar-foreground" />
                     <Input
                         placeholder="Search files..."
                         value={state.searchQuery}
@@ -1148,43 +768,54 @@ function NavigationView() {
                         }}
                     />
                 </div>
-                <Button variant="outline" onClick={handleRefresh} style={styles.refreshButton}>
+                <Button
+                    variant="outline"
+                    onClick={handleRefresh}
+                    className="h-9 w-9 flex items-center justify-center rounded-md"
+                >
                     <i className="codicon codicon-refresh" />
                 </Button>
             </div>
 
-            <div style={styles.scrollableContent}>
-                <div style={styles.itemsContainer}>
-                    {(() => {
-                        if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
-                            return (
-                                <>
-                                    {filteredCodexItems.map(renderItem)}
-                                    {otherDictionaries.map(renderItem)}
-                                </>
-                            );
-                        }
+            <div className="flex-1 overflow-auto flex flex-col gap-2">
+                {(() => {
+                    if (filteredCodexItems.length > 0 || otherDictionaries.length > 0) {
+                        return (
+                            <>
+                                {filteredCodexItems.map(renderItem)}
+                                {otherDictionaries.map(renderItem)}
+                            </>
+                        );
+                    }
 
-                        if (!state.hasReceivedInitialData) {
-                            return <div style={styles.noResults}>Loading files...</div>;
-                        }
+                    if (!state.hasReceivedInitialData) {
+                        return (
+                            <div className="p-8 text-center text-sm text-muted-foreground">
+                                Loading files...
+                            </div>
+                        );
+                    }
 
-                        return <div style={styles.noResults}>No files added yet</div>;
-                    })()}
-                </div>
+                    return (
+                        <div className="p-8 text-center text-sm text-muted-foreground">
+                            No files added yet
+                        </div>
+                    );
+                })()}
             </div>
 
-            <div style={styles.bottomSection}>
+            <div className="mt-auto pt-4 border-t-2 border-vscode-sideBarSectionHeader-border flex flex-col gap-3 bg-vscode-sideBar-background relative">
                 {/* Add Files Button */}
-                <button
-                    style={styles.addFilesButton}
+                <Button
+                    variant="default"
                     onClick={handleAddFiles}
                     title="Add files to translate"
+                    className="w-full py-4 px-5 text-sm font-semibold shadow-sm hover:-translate-y-[1px] hover:shadow-md active:translate-y-0 active:shadow-sm transition-all flex items-center justify-center gap-2.5"
                 >
-                    <i className="codicon codicon-add" style={styles.addFilesIcon} />
-                    <i className="codicon codicon-file-text" />
+                    <i className="codicon codicon-add text-base" />
+                    <i className="codicon codicon-file-text text-base" />
                     Add Files
-                </button>
+                </Button>
 
                 {/* Project Dictionary */}
                 {projectDictionary && renderItem(projectDictionary)}
@@ -1200,28 +831,19 @@ function NavigationView() {
                         </div>
                         <input
                             type="text"
-                            style={styles.modalInput}
+                            className="w-full p-2 text-sm bg-vscode-input-background text-vscode-input-foreground border border-vscode-input-border rounded-md mb-5 outline-none"
                             value={state.renameModal.newName}
                             onChange={handleRenameModalInputChange}
                             onKeyDown={handleRenameModalKeyPress}
                             placeholder="Enter new corpus name"
                             autoFocus
                         />
-                        <div style={styles.modalButtons}>
-                            <button
-                                style={{
-                                    ...styles.modalButton,
-                                    ...styles.modalButtonSecondary,
-                                }}
-                                onClick={handleRenameModalClose}
-                            >
+                        <div className="flex gap-3 justify-end">
+                            <Button variant="secondary" onClick={handleRenameModalClose}>
                                 Cancel
-                            </button>
-                            <button
-                                style={{
-                                    ...styles.modalButton,
-                                    ...styles.modalButtonPrimary,
-                                }}
+                            </Button>
+                            <Button
+                                variant="default"
                                 onClick={handleRenameModalConfirm}
                                 disabled={
                                     !state.renameModal.newName.trim() ||
@@ -1230,7 +852,7 @@ function NavigationView() {
                                 }
                             >
                                 Rename
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
