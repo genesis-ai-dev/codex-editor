@@ -1,0 +1,41 @@
+changelog:
+  # These categories will be used to group pull requests in the release notes.
+  # The AI will only include categories if there are PRs with matching labels.
+  categories:
+    - title: "🚀 Highlights & New Features"
+      labels:
+        - "feature"
+        - "enhancement"
+        - "highlight"
+    - title: "🐛 Bug Fixes & Stability"
+      labels:
+        - "bug"
+        - "fix"
+        - "bugfix"
+    - title: "⚡ Performance & Refactoring"
+      labels:
+        - "performance"
+        - "refactor"
+    - title: "🔧 General Improvements & Housekeeping"
+      # The wildcard '*' label catches any PRs that don't have one of the labels above.
+      # This ensures nothing is ever missed.
+      labels:
+        - "*"
+  
+  # This section automatically lists contributors.
+  contributors:
+    title: "🙏 Thanks to our Contributors for all their great work!"
+    
+  # Exclude bots from the contributor list.
+  exclude:
+    authors:
+      - "dependabot[bot]"
+      - "github-actions[bot]"
+
+# This defines the template for the entire release notes body.
+template: |
+  $CHANGES
+
+  ---
+
+  $CONTRIBUTORS

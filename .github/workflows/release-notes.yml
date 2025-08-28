@@ -78,61 +78,41 @@ jobs:
               if: steps.version.outputs.skip == 'true'
               run: echo "Non-numeric tag detected; workflow skipped."
 
-            - name: Collect commit messages since previous tag
-              id: commits
-              if: steps.version.outputs.skip != 'true'
-              shell: bash
-              working-directory: repo
-              run: |
-                  set -euo pipefail
-                  PREV="${{ steps.version.outputs.previous }}"
-                  CURR="${{ steps.version.outputs.current_commit }}"
-                  RANGE="$PREV..$CURR"
-                  if ! git rev-parse "$PREV" >/dev/null 2>&1; then
-                    RANGE="$PREV"
-                  fi
-
-                  # Exclude obvious version bump commits
-                  COMMITS=$(git log "$RANGE" --no-merges --pretty=format:'• %s' \
-                    --grep='bump|version|release' --invert-grep | head -100)
-
-                  if [ -z "$COMMITS" ]; then
-                    COMMITS=$(git log "$RANGE" --no-merges --pretty=format:'• %s' | head -100)
-                  fi
-
-                  # Provide a fallback if still empty
-                  if [ -z "$COMMITS" ]; then
-                    COMMITS="• Internal maintenance and dependency updates"
-                  fi
-
-                  printf '%s' "$COMMITS" > commits.txt
-                  echo "Generated commits list with $(wc -l < commits.txt) items"
-
-            - name: Generate release notes (basic, Copilot-ready)
+            - name: Generate Release Notes with GitHub AI
               id: notes
               if: steps.version.outputs.skip != 'true'
               shell: bash
               working-directory: repo
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
                   VERSION="${{ steps.version.outputs.version }}"
-                  echo "Creating notes for v$VERSION"
+                  PREV_TAG="${{ steps.version.outputs.previous }}"
 
-                  {
-                    echo "## What's New in v$VERSION"; echo;
-                    # Basic grouping prompt for Copilot to refine later if desired
-                    echo "$GITHUB_REPOSITORY release notes for v$VERSION" > prompt.txt
-                    echo "Group the following commits into Features, Fixes, Improvements:" >> prompt.txt
-                    echo >> prompt.txt
-                    cat commits.txt >> prompt.txt
+                  echo "Generating notes for v${VERSION} (previous tag: ${PREV_TAG})"
 
-                    # Basic list as a fallback body
-                    cat commits.txt | sed 's/^• /* /g'
-                    echo; echo "### Installation"; echo "Update via VS Code Marketplace or GitHub releases."; echo;
-                    echo "### Feedback"; echo "Please report issues on GitHub."
-                  } > NOTES.md
+                  # Call GitHub's AI release notes API
+                  API_PAYLOAD=$(jq -n --arg tag "$VERSION" --arg prev_tag "$PREV_TAG" \
+                    '{tag_name: $tag, previous_tag_name: $prev_tag}')
 
-                  echo "Generated release notes file ($(wc -l < NOTES.md) lines)"
+                  # The API response contains the full release notes body
+                  RESPONSE_JSON=$(curl -sS -X POST \
+                    -H "Authorization: Bearer ${GH_TOKEN}" \
+                    -H "Accept: application/vnd.github+json" \
+                    -d "$API_PAYLOAD" \
+                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/generate-notes")
+
+                  # Extract the body and save it to a file for subsequent steps
+                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '.body')
+                  if [ -z "$NOTES_BODY" ] || [ "$NOTES_BODY" = "null" ]; then
+                    echo "Error: GitHub API did not return release notes body." >&2
+                    echo "API Response: $RESPONSE_JSON"
+                    exit 1
+                  fi
+
+                  printf '%s' "$NOTES_BODY" > NOTES.md
+                  echo "Successfully generated notes from GitHub AI."
 
             - name: Send to n8n webhook (Discord)
               if: steps.version.outputs.skip != 'true'
@@ -148,60 +128,14 @@ jobs:
                   fi
 
                   VERSION="${{ steps.version.outputs.version }}"
-                  NOTES_CONTENT=$(cat NOTES.md)
-
-                  PAYLOAD=$(jq -n --arg version "$VERSION" --arg notes "$NOTES_CONTENT" '{version:$version, notes:$notes}')
+                  
+                  # Ensure proper JSON escaping by using jq to read the file
+                  PAYLOAD=$(jq -n \
+                    --arg version "$VERSION" \
+                    --rawfile notes NOTES.md \
+                    '{version:$version, notes:$notes}')
 
                   # The n8n Discord node reads $json.version and $json.notes
                   curl -sS -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" "$N8N_WEBHOOK_URL"
                   echo "Sent release notes for v$VERSION to n8n."
-
-            - name: Create or update draft GitHub release (via API)
-              if: steps.version.outputs.skip != 'true'
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              shell: bash
-              working-directory: repo
-              run: |
-                  set -euo pipefail
-                  VERSION="${{ steps.version.outputs.version }}"
-                  NOTES_CONTENT=$(cat NOTES.md)
-                  # Check if a release for this tag already exists
-                  GET_RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
-                                   -H "Accept: application/vnd.github+json" \
-                                   "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" || true)
-                  RELEASE_ID=$(echo "$GET_RESP" | jq -r '.id // empty')
-                  IS_DRAFT=$(echo "$GET_RESP" | jq -r '.draft // empty')
-
-                  if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
-                    # If published (draft == false), do not modify
-                    if [ "$IS_DRAFT" = "false" ]; then
-                      echo "Release for tag ${VERSION} is already published; skipping any updates."
-                      exit 0
-                    fi
-                    # Update existing draft release
-                    PATCH_BODY=$(jq -n --arg name "Release $VERSION" \
-                                       --arg body "$NOTES_CONTENT" \
-                                       --argjson draft true \
-                                       '{name:$name, body:$body, draft:$draft}')
-                    curl -sS -X PATCH \
-                      -H "Authorization: Bearer ${GH_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      -d "$PATCH_BODY" \
-                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" >/dev/null
-                    echo "Updated existing draft release for tag ${VERSION}."
-                  else
-                    # Create new draft release
-                    POST_BODY=$(jq -n --arg tag "$VERSION" \
-                                      --arg name "Release $VERSION" \
-                                      --arg body "$NOTES_CONTENT" \
-                                      --argjson draft true \
-                                      '{tag_name:$tag, name:$name, body:$body, draft:$draft}')
-                    curl -sS -X POST \
-                      -H "Authorization: Bearer ${GH_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      -d "$POST_BODY" \
-                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases" >/dev/null
-                    echo "Created new draft release for tag ${VERSION}."
-                  fi
 
