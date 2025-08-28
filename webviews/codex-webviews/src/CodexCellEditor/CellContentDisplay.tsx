@@ -134,7 +134,7 @@ const AudioPlayButton: React.FC<{
 
         window.addEventListener("message", handleMessage);
         return () => window.removeEventListener("message", handleMessage);
-    }, [cellId, vscode]); // Add vscode to dependencies
+    }, [audioUrl, cellId, vscode]); // Add vscode to dependencies
 
     // Clean up blob URL on unmount
     useEffect(() => {
@@ -351,7 +351,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 });
                 cellRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
             }
-        }, [highlightedCellId]);
+        }, [cellIds, checkShouldHighlight, highlightedCellId, isSourceText, scrollSyncEnabled]);
 
         // Handler for stopping translation when clicked on the spinner
         const handleStopTranslation = (e: React.MouseEvent) => {
@@ -566,6 +566,27 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
         // Function to render the content with footnote markers and proper spacing
         const renderContent = () => {
+            // Handle empty cell case
+            if (!cell.cellContent || cell.cellContent.trim() === "") {
+                return (
+                    <div
+                        ref={contentRef}
+                        className="cell-content empty-cell-content"
+                        onClick={() => {
+                            hideTooltip();
+                            handleCellClick(cellIds[0]);
+                        }}
+                        style={{
+                            color: "var(--vscode-descriptionForeground)",
+                            fontStyle: "italic",
+                            opacity: 0.8,
+                        }}
+                    >
+                        {isSourceText ? "No text" : "Click to translate"}
+                    </div>
+                );
+            }
+
             // Use the proper HTML processing utility instead of hacky approach
             const processedHtml = processHtmlContent(cell.cellContent || "");
 
