@@ -13,27 +13,26 @@ export async function writeNotebook(uri: vscode.Uri, notebook: NotebookPreview):
     // Don't use createCodexNotebook since it opens the document
     // Instead, directly serialize the notebook data
     const cells = notebook.cells.map((cell) => ({
-        kind: cell.kind,
-        value: cell.value,
-        languageId: cell.languageId || "scripture",
+        // need to ensure we spread in incoming metadata while also ensuring critical metadata is otherwise included
         metadata: {
             type: cell.metadata?.type || CodexCellTypes.TEXT,
             id: cell.metadata?.id,
             data: cell.metadata?.data || {},
             edits: cell.metadata?.edits || [],
+            ...cell.metadata,
         },
+        ...cell,
     }));
 
     const serializedData = JSON.stringify(
         {
             cells,
             metadata: {
-                ...notebook.metadata,
                 textDirection: notebook.metadata.textDirection || "ltr",
-                navigation: notebook.metadata.navigation || [],
                 videoUrl: notebook.metadata.videoUrl || "",
                 lineNumbersEnabled: notebook.metadata.lineNumbersEnabled ?? true,
                 lineNumbersEnabledSource: notebook.metadata.lineNumbersEnabledSource || "global",
+                ...notebook.metadata,
             },
         },
         null,

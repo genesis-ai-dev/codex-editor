@@ -16,6 +16,9 @@ interface AudioWaveformProps {
     onSegmentsChange: (segments: AudioSegment[]) => void;
     silenceThreshold?: number;
     minSilenceDuration?: number;
+    mergeMode?: boolean;
+    fileIndex?: number;
+    totalFiles?: number;
 }
 
 export const AudioWaveform: React.FC<AudioWaveformProps> = ({
@@ -24,12 +27,16 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
     onSegmentsChange,
     silenceThreshold = -40, // dB
     minSilenceDuration = 0.5, // seconds
+    fileIndex = 0,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
     const [audioContext] = useState(
         () => new (window.AudioContext || (window as any).webkitAudioContext)()
     );
+
+    // Create unique instance ID for debugging
+    const instanceId = useRef(`waveform-${fileIndex}-${file.name}-${Date.now()}`);
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackSource, setPlaybackSource] = useState<AudioBufferSourceNode | null>(null);
     const [currentTime, setCurrentTime] = useState(0);
@@ -37,26 +44,6 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
     const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [draggedSplit, setDraggedSplit] = useState<number | null>(null);
-
-    // Load and decode audio file
-    useEffect(() => {
-        const loadAudio = async () => {
-            try {
-                const arrayBuffer = await file.arrayBuffer();
-                const buffer = await audioContext.decodeAudioData(arrayBuffer);
-                setAudioBuffer(buffer);
-                setDuration(buffer.duration);
-
-                // Auto-detect silence if no segments exist
-                if (segments.length === 1 && !isFinite(segments[0].endSec)) {
-                    detectSilence(buffer);
-                }
-            } catch (error) {
-                console.error("Failed to decode audio:", error);
-            }
-        };
-        loadAudio();
-    }, [file]);
 
     // Detect silence in audio buffer
     const detectSilence = useCallback(
@@ -115,6 +102,8 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
             const newSegments: AudioSegment[] = [];
             let lastEnd = 0;
 
+            // For individual mode, always start from 0 for each file
+            // For merge mode, timing coordination should be handled by the parent component
             for (const silence of silenceRegions) {
                 if (silence.start > lastEnd + 0.1) {
                     // Minimum segment duration 100ms
@@ -146,6 +135,26 @@ export const AudioWaveform: React.FC<AudioWaveformProps> = ({
         },
         [silenceThreshold, minSilenceDuration, onSegmentsChange]
     );
+
+    // Load and decode audio file
+    useEffect(() => {
+        const loadAudio = async () => {
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const buffer = await audioContext.decodeAudioData(arrayBuffer);
+                setAudioBuffer(buffer);
+                setDuration(buffer.duration);
+
+                // Auto-detect silence if no segments exist
+                if (segments.length === 1 && !isFinite(segments[0].endSec)) {
+                    detectSilence(buffer);
+                }
+            } catch (error) {
+                console.error("Failed to decode audio:", error);
+            }
+        };
+        loadAudio();
+    }, [audioContext, file, segments, detectSilence]);
 
     // Draw waveform
     useEffect(() => {

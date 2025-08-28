@@ -1,13 +1,12 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "../../utils/webviewTemplate";
 import { createNoteBookPair } from "./codexFIleCreateUtils";
-import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteConfirmationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
+import { WriteNotebooksMessage, WriteTranslationMessage, OverwriteResponseMessage, WriteNotebooksWithAttachmentsMessage } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/plugin";
 import { ProcessedNotebook } from "../../../webviews/codex-webviews/src/NewSourceUploader/types/common";
 import { NotebookPreview, CustomNotebookMetadata } from "../../../types";
 import { CodexCell } from "../../utils/codexNotebookUtils";
 import { CodexCellTypes } from "../../../types/enums";
 import { importBookNamesFromXmlContent } from "../../bookNameSettings/bookNameSettings";
-import { TranslationImportTransaction } from "../../transactions/TranslationImportTransaction";
 import { createStandardizedFilename } from "../../utils/bookNameUtils";
 
 const DEBUG_NEW_SOURCE_UPLOADER_PROVIDER = false;
@@ -46,7 +45,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             try {
                 if (message.command === "webviewReady") {
                     // Webview is ready, send current project inventory
-                    console.log("Webview ready, sending project inventory...");
                     const inventory = await this.fetchProjectInventory();
 
                     webviewPanel.webview.postMessage({
@@ -119,7 +117,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "fetchFileDetails") {
                     // Fetch detailed information about a specific file
                     const { filePath } = message;
-                    console.log(`[NEW SOURCE UPLOADER] Fetching details for file: ${filePath}`);
 
                     try {
                         const fileDetails = await this.fetchFileDetails(filePath);
@@ -142,7 +139,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 } else if (message.command === "fetchTargetFile") {
                     // Fetch target file content for translation imports
                     const { sourceFilePath } = message;
-                    console.log(`[NEW SOURCE UPLOADER] Fetching target file for source: ${sourceFilePath}`);
 
                     try {
                         const targetFilePath = sourceFilePath
@@ -169,7 +165,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                     }
                 } else if (message.command === "startTranslating") {
                     // Handle start translating - same as Welcome View's "Open Translation File"
-                    console.log("[NEW SOURCE UPLOADER] Opening navigation and closing window");
 
                     try {
                         // Focus the navigation view (same as Welcome View's handleOpenTranslationFile)
@@ -212,6 +207,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 type: CodexCellTypes.TEXT,
                 data: processedCell.metadata || {},
                 edits: [],
+                ...processedCell.metadata
             }
         }));
 
@@ -278,11 +274,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         token: vscode.CancellationToken,
         webviewPanel: vscode.WebviewPanel
     ): Promise<void> {
-        // Debug logging
-        console.log("Received notebook pairs:", message.notebookPairs.length);
-        console.log("First pair source cells:", message.notebookPairs[0]?.source.cells.length);
-        console.log("First pair source cells preview:", message.notebookPairs[0]?.source.cells.slice(0, 2));
-
         // Convert ProcessedNotebooks to NotebookPreview format
         const sourceNotebooks = message.notebookPairs.map(pair =>
             this.convertToNotebookPreview(pair.source)
@@ -290,10 +281,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const codexNotebooks = message.notebookPairs.map(pair =>
             this.convertToNotebookPreview(pair.codex)
         );
-
-        // Debug logging after conversion
-        console.log("Converted source notebooks cells:", sourceNotebooks[0]?.cells.length);
-        console.log("Converted source cells preview:", sourceNotebooks[0]?.cells.slice(0, 2));
 
         // Create the notebook pairs
         const createdFiles = await createNoteBookPair({
@@ -381,7 +368,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         const sourceNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.source));
         const codexNotebooks = message.notebookPairs.map(pair => this.convertToNotebookPreview(pair.codex));
 
-        const createdFiles = await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
+        await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
 
         // 2) Persist attachments
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -423,9 +410,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
             await vscode.workspace.fs.writeFile(filesPath, buffer);
             await vscode.workspace.fs.writeFile(pointersPath, buffer);
-
-            // Log segment info for debugging
-            console.log(`Wrote audio segment: ${fileName} (${startTime ?? 0}s - ${endTime ?? 'end'}s)`);
         }
 
         // 3) Write success + inventory
@@ -446,8 +430,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         message: WriteTranslationMessage,
         token: vscode.CancellationToken
     ): Promise<void> {
-        console.log("Handling translation import:", message);
-
         try {
             // The aligned content is already provided by the plugin's custom alignment algorithm
             // We just need to merge it into the existing target notebook
@@ -579,9 +561,6 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             vscode.window.showInformationMessage(
                 `Translation imported: ${insertedCount} translations, ${paratextCount} paratext cells, ${childCellCount} child cells, ${skippedCount} skipped.`
             );
-
-            console.log("Translation import completed successfully");
-
         } catch (error) {
             console.error("Error in translation import:", error);
             throw error;

@@ -63,6 +63,22 @@ function formatFileSize(bytes: number): string {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+const processedNotebook = (name: string, cells: any[], nowIso: string) => ({
+    name,
+    cells: cells.map((c) => ({
+        id: c.metadata.id,
+        content: c.value,
+        images: [],
+        metadata: c.metadata || {},
+    })),
+    metadata: {
+        id: name,
+        originalFileName: name,
+        importerType: "audio",
+        createdAt: nowIso,
+    },
+});
+
 export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     onComplete,
     onCancel,
@@ -196,64 +212,20 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     });
 
                     const url = `.project/attachments/files/${docId}/${fileName}`;
-                    sourceCells.push({
-                        kind: 2,
-                        value: "",
-                        languageId: "html",
-                        metadata: {
-                            type: "text",
-                            id: cellId,
-                            data: { startTime: seg.startSec, endTime: seg.endSec },
-                            edits: [],
-                            attachments: {
-                                [segmentAttachmentId]: {
-                                    url,
-                                    type: "audio",
-                                    createdAt: Date.now(),
-                                    updatedAt: Date.now(),
-                                    isDeleted: false,
-                                    startTime: seg.startSec,
-                                    endTime: seg.endSec,
-                                },
-                            },
-                            selectedAudioId: segmentAttachmentId,
-                            selectionTimestamp: Date.now(),
-                        },
-                    });
-
-                    codexCells.push({
-                        kind: 2,
-                        value: "",
-                        languageId: "html",
-                        metadata: {
-                            type: "text",
-                            id: cellId,
-                            data: { startTime: seg.startSec, endTime: seg.endSec },
-                            edits: [],
-                        },
-                    });
+                    populateCellObjects(
+                        sourceCells,
+                        cellId,
+                        seg,
+                        segmentAttachmentId,
+                        url,
+                        codexCells
+                    );
                 }
             }
 
-            const processedNotebook = (name: string, cells: any[]) => ({
-                name,
-                cells: cells.map((c) => ({
-                    id: c.metadata.id,
-                    content: c.value,
-                    images: [],
-                    metadata: c.metadata || {},
-                })),
-                metadata: {
-                    id: name,
-                    originalFileName: name,
-                    importerType: "audio",
-                    createdAt: nowIso,
-                },
-            });
-
             notebookPairs.push({
-                source: processedNotebook(docId, sourceCells),
-                codex: processedNotebook(docId, codexCells),
+                source: processedNotebook(docId, sourceCells, nowIso),
+                codex: processedNotebook(docId, codexCells, nowIso),
             });
         } else {
             // INDIVIDUAL MODE: Create separate notebook for each file
@@ -270,9 +242,17 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 }
 
                 const baseAttachmentId = generateAttachmentId();
-                const segs = row.segments.map((s) => ({
+                // In individual mode, ensure all segments are normalized to start from 0
+                // Find the earliest start time and offset all segments
+                const rawSegs = row.segments.map((s) => ({
                     startSec: s.startSec ?? 0,
                     endSec: s.endSec ?? Number.NaN,
+                }));
+
+                const earliestStart = Math.min(...rawSegs.map((s) => s.startSec));
+                const segs = rawSegs.map((s) => ({
+                    startSec: s.startSec - earliestStart,
+                    endSec: s.endSec - earliestStart,
                 }));
 
                 let cellIndex = 0;
@@ -302,63 +282,19 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     });
 
                     const url = `.project/attachments/files/${fileDocId}/${fileName}`;
-                    sourceCells.push({
-                        kind: 2,
-                        value: "",
-                        languageId: "html",
-                        metadata: {
-                            type: "text",
-                            id: cellId,
-                            data: { startTime: seg.startSec, endTime: seg.endSec },
-                            edits: [],
-                            attachments: {
-                                [segmentAttachmentId]: {
-                                    url,
-                                    type: "audio",
-                                    createdAt: Date.now(),
-                                    updatedAt: Date.now(),
-                                    isDeleted: false,
-                                    startTime: seg.startSec,
-                                    endTime: seg.endSec,
-                                },
-                            },
-                            selectedAudioId: segmentAttachmentId,
-                            selectionTimestamp: Date.now(),
-                        },
-                    });
-
-                    codexCells.push({
-                        kind: 2,
-                        value: "",
-                        languageId: "html",
-                        metadata: {
-                            type: "text",
-                            id: cellId,
-                            data: { startTime: seg.startSec, endTime: seg.endSec },
-                            edits: [],
-                        },
-                    });
+                    populateCellObjects(
+                        sourceCells,
+                        cellId,
+                        seg,
+                        segmentAttachmentId,
+                        url,
+                        codexCells
+                    );
                 }
 
-                const processedNotebook = (name: string, cells: any[]) => ({
-                    name,
-                    cells: cells.map((c) => ({
-                        id: c.metadata.id,
-                        content: c.value,
-                        images: [],
-                        metadata: c.metadata || {},
-                    })),
-                    metadata: {
-                        id: name,
-                        originalFileName: name,
-                        importerType: "audio",
-                        createdAt: nowIso,
-                    },
-                });
-
                 notebookPairs.push({
-                    source: processedNotebook(fileDocId, sourceCells),
-                    codex: processedNotebook(fileDocId, codexCells),
+                    source: processedNotebook(fileDocId, sourceCells, nowIso),
+                    codex: processedNotebook(fileDocId, codexCells, nowIso),
                 });
             }
         }
@@ -374,6 +310,53 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
 
         // Show success feedback - pass the notebook pairs to onComplete
         onComplete?.(notebookPairs as any);
+
+        function populateCellObjects(
+            sourceCells: any[],
+            cellId: string,
+            seg: { startSec: number; endSec: number },
+            segmentAttachmentId: string,
+            url: string,
+            codexCells: any[]
+        ) {
+            sourceCells.push({
+                kind: 2,
+                value: "",
+                languageId: "html",
+                metadata: {
+                    type: "text",
+                    id: cellId,
+                    data: { startTime: seg.startSec, endTime: seg.endSec },
+                    edits: [],
+                    attachments: {
+                        [segmentAttachmentId]: {
+                            url,
+                            type: "audio",
+                            createdAt: Date.now(),
+                            updatedAt: Date.now(),
+                            isDeleted: false,
+                            startTime: seg.startSec,
+                            endTime: seg.endSec,
+                        },
+                    },
+                    selectedAudioId: segmentAttachmentId,
+                    selectionTimestamp: Date.now(),
+                },
+            });
+
+            codexCells.push({
+                kind: 2,
+                value: "",
+                languageId: "html",
+                metadata: {
+                    type: "text",
+                    id: cellId,
+                    data: { startTime: seg.startSec, endTime: seg.endSec },
+                    edits: [],
+                    attachments: [],
+                },
+            });
+        }
     };
 
     const canConfirm = rows.length > 0 && documentName.trim().length > 0;
@@ -448,7 +431,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                         <div className="space-y-3">
                             <Alert>
                                 <AlertDescription>
-                                    <div className="flex justify-between items-center">
+                                    <div className="flex justify-between items-center flex-wrap">
                                         <div className="flex gap-4 text-sm items-center">
                                             <span>
                                                 {rows.length} file{rows.length > 1 ? "s" : ""}{" "}
@@ -499,10 +482,20 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                             variant="default"
                                             size="sm"
                                             onClick={() => {
-                                                // Expand all files to trigger auto-segmentation
-                                                setRows((prev) =>
-                                                    prev.map((r) => ({ ...r, expanded: true }))
-                                                );
+                                                if (mergeFiles) {
+                                                    // In merge mode, expand all files simultaneously
+                                                    setRows((prev) =>
+                                                        prev.map((r) => ({ ...r, expanded: true }))
+                                                    );
+                                                } else {
+                                                    // In individual mode, expand files sequentially to avoid timing conflicts
+                                                    setRows((prev) =>
+                                                        prev.map((r, index) => ({
+                                                            ...r,
+                                                            expanded: true,
+                                                        }))
+                                                    );
+                                                }
                                             }}
                                         >
                                             <Scissors className="mr-2 h-3 w-3" />
@@ -601,6 +594,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                                 }
                                             >
                                                 <AudioWaveform
+                                                    key={`${row.id}-${mergeFiles}`}
                                                     file={row.file}
                                                     segments={row.segments}
                                                     onSegmentsChange={(newSegments) => {
@@ -618,6 +612,9 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                                     }}
                                                     silenceThreshold={-40}
                                                     minSilenceDuration={0.5}
+                                                    mergeMode={mergeFiles}
+                                                    fileIndex={rowIndex}
+                                                    totalFiles={rows.length}
                                                 />
                                             </Suspense>
                                         </div>
@@ -638,18 +635,18 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex gap-2 justify-end pt-4 border-t">
+                    <div className="flex flex-wrap gap-2 justify-end pt-4 border-t">
                         <Button variant="ghost" onClick={() => onCancel?.()}>
                             Cancel
                         </Button>
                         <Button
                             disabled={!canConfirm || isProcessing}
                             variant={hasWarning && !isProcessing ? "outline" : "default"}
-                            className={
+                            className={`flex flex-wrap ${
                                 hasWarning && !isProcessing
                                     ? "border-orange-300 text-orange-700 hover:bg-orange-50"
                                     : ""
-                            }
+                            }`}
                             onClick={async () => {
                                 // Warn if very few segments - might indicate segmentation issues or user forgot to split
                                 if (totalSegments <= 1) {
@@ -697,8 +694,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                         ? "as 1 Notebook"
                                         : `as ${rows.length} Notebook${
                                               rows.length !== 1 ? "s" : ""
-                                          }`}{" "}
-                                    (Review Segmentation)
+                                          }`}
                                 </>
                             ) : (
                                 <>
