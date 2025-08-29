@@ -122,7 +122,6 @@ jobs:
                     printf '%s\n' "Goal: Succinctly summarize what changed for users in v${VERSION}. Barely mention or omit backend-only or implementation details unless they directly affect user experience. Simpler is better."
                     printf '%s\n' ""
                     printf '%s\n' "Output format (exactly):"
-                    printf '%s\n' "Release Notes v${VERSION}"
                     printf '%s\n' ""
                     printf '%s\n' "🚀 New Features"
                     printf '%s\n' "- bullets"
