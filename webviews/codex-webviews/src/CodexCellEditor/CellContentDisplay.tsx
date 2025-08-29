@@ -512,7 +512,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     height: "5px",
                     borderRadius: "50%",
                     backgroundColor: color,
-                    marginLeft: "4px",
+                    marginLeft: "1px",
                 }}
             />
         );
@@ -589,7 +589,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         };
 
         // Decide when the label should occupy the full top row
-        const forceLabelTopRow: boolean = lineNumbersEnabled;
+        const forceLabelTopRow: boolean = false;
 
         // Function to check if we should show cell header elements
         const shouldShowHeaderElements = () => {
@@ -696,7 +696,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     ...getBorderStyle(),
                     display: "flex",
                     alignItems: "flex-start",
-                    gap: "0.5rem",
+                    gap: "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                     border: "1px solid transparent",
@@ -711,30 +711,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 }}
             >
                 <div
-                    className="cell-header"
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        flexShrink: 0,
-                    }}
+                    className="cell-header flex justify-start items-start shrink-0 gap-[1px]"
                 >
                     {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
                         <div
-                            className="cell-actions"
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                            }}
+                            className="cell-actions flex justify-start items-center"
                         >
                             <div
-                                className="action-button-container"
-                                style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "8px",
-                                }}
+                                className="action-button-container flex items-center gap-px"
                             >
                                 <AnimatedReveal
                                     mode="reveal"
@@ -784,15 +768,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 />
                                 {lineNumber && lineNumbersEnabled && (
                                     <div
-                                        className="cell-line-number"
+                                        className="cell-line-number whitespace-nowrap text-right mr-0 w-[1.6ch]"
                                         style={{
                                             fontWeight: 500,
                                             lineHeight: 1.2,
-                                            whiteSpace: "nowrap",
-                                            minWidth: 0,
-                                            width: "1.25rem", // fixed width for alignment
-                                            textAlign: "right",
-                                            marginRight: "0.25rem",
                                             color: "var(--vscode-descriptionForeground)",
                                             fontSize: "0.9em",
                                         }}
@@ -883,29 +862,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 {/* Right side: wrappable label + content */}
                 <div
-                    style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "baseline",
-                        gap: "0.25rem",
-                        flex: 1,
-                        minWidth: 0,
-                    }}
+                    className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0"
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
-                            className="cell-label-text text-primary"
+                            className="cell-label-text text-primary inline-block text-right mr-0 min-w-[2.25ch]"
                             style={{
                                 fontWeight:
                                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
                                         ? 500
                                         : "normal",
                                 lineHeight: 1.2,
-                                whiteSpace: "normal",
                                 overflowWrap: "anywhere",
-                                minWidth: 0,
-                                marginRight: "0.25rem",
                                 flexBasis: forceLabelTopRow ? "100%" : "auto",
                             }}
                             title={label}
