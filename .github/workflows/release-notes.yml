@@ -143,11 +143,17 @@ jobs:
                   API_PAYLOAD=$(jq -n --rawfile prompt prompt.txt \
                     '{contents: [{parts: [{text: $prompt}]}]}')
 
+                  # Select model (override with secret/env GEMINI_MODEL if desired)
+                  MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
+                  echo "Using Gemini model: $MODEL"
+
                   # Call the Gemini API
                   RESPONSE_JSON=$(curl -sS -X POST \
                     -H "Content-Type: application/json" \
+                    -H "X-goog-api-key: ${GEMINI_API_KEY}" \
                     -d "$API_PAYLOAD" \
-                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}")
+                    --max-time 30 --retry 2 --retry-delay 5 \
+                    "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
 
                   # Check for curl errors
                   if [ $? -ne 0 ]; then
@@ -155,12 +161,29 @@ jobs:
                     exit 1
                   fi
 
-                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '.candidates[0].content.parts[0].text // empty')
+                  # If model not found, try a fallback model once
+                  if echo "$RESPONSE_JSON" | jq -e '.error.status=="NOT_FOUND"' >/dev/null 2>&1; then
+                    echo "Model $MODEL not found on this API version. Trying fallback model gemini-2.5-pro..." >&2
+                    MODEL="gemini-2.5-pro"
+                    RESPONSE_JSON=$(curl -sS -X POST \
+                      -H "Content-Type: application/json" \
+                      -H "X-goog-api-key: ${GEMINI_API_KEY}" \
+                      -d "$API_PAYLOAD" \
+                      --max-time 30 --retry 2 --retry-delay 5 \
+                      "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
+                  fi
+
+                  # Try to extract text by concatenating all parts' text fields
+                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '[.candidates[0].content.parts[]? | .text // empty] | join("")')
 
                   if [ -z "$NOTES_BODY" ] || [ "$NOTES_BODY" = "null" ]; then
                     echo "Error: Gemini API did not return a valid response or the response was empty." >&2
-                    echo "Full API Response for debugging:"
-                    echo "$RESPONSE_JSON"
+                    echo "Prompt feedback (if any):" >&2
+                    echo "$RESPONSE_JSON" | jq -r '.promptFeedback // empty' >&2 || true
+                    echo "Candidate safety ratings (if any):" >&2
+                    echo "$RESPONSE_JSON" | jq -r '.candidates[0].safetyRatings // empty' >&2 || true
+                    echo "Full API Response for debugging:" >&2
+                    echo "$RESPONSE_JSON" >&2
                     echo "Falling back to raw commit list."
                     {
                       echo "### AI Summary Failed: Raw Commit Log for v${VERSION}"
@@ -171,7 +194,7 @@ jobs:
                     printf '%s' "$NOTES_BODY" > NOTES.md
                   fi
 
-                  echo "Successfully generated notes with Gemini AI."
+                  echo "Generated release notes (AI or fallback)."
 
             - name: Send to n8n webhook (Discord)
               if: steps.version.outputs.skip != 'true'
