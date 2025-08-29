@@ -323,6 +323,7 @@ export interface CompletionConfig {
     abTestingEnabled: boolean; // legacy flag; kept for type compatibility
     abTestingVariants: number; // used as count hint only; defaults handled internally
     allowHtmlPredictions?: boolean; // whether to preserve HTML in examples and predictions
+    fewShotExampleFormat: string; // format for few-shot examples: 'source-and-target' or 'target-only'
 }
 export async function fetchCompletionConfig(): Promise<CompletionConfig> {
     try {
@@ -355,6 +356,7 @@ export async function fetchCompletionConfig(): Promise<CompletionConfig> {
             abTestingEnabled: false,
             abTestingVariants: (config.get("abTestingVariants") as number) ?? 2,
             allowHtmlPredictions: (config.get("allowHtmlPredictions") as boolean) || false,
+            fewShotExampleFormat: (config.get("fewShotExampleFormat") as string) || "source-and-target",
         };
         return completionConfig;
     } catch (error) {
