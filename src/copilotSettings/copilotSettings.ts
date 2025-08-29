@@ -209,6 +209,7 @@ export async function openSystemMessageEditor() {
                                 abTestingEnabled: false,
                                 abTestingVariants: 2,
                                 allowHtmlPredictions: allowHtmlPredictions,
+                                fewShotExampleFormat: "source-and-target",
                             };
 
                             progress.report({ message: "Preparing prompt..." });
