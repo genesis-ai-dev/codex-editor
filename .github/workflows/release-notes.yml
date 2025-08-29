@@ -136,8 +136,9 @@ jobs:
                   ---
                   EOF
 
-                  JSON_PROMPT=$(echo "$PROMPT" | jq -R -s '.')
-                  API_PAYLOAD="{\"contents\":[{\"parts\":[{\"text\": ${JSON_PROMPT}}]}]}"
+                  # Safely construct the JSON payload using jq
+                  API_PAYLOAD=$(jq -n --arg prompt "$PROMPT" \
+                    '{contents: [{parts: [{text: $prompt}]}]}')
 
                   # Call the Gemini API
                   RESPONSE_JSON=$(curl -sS -X POST \
