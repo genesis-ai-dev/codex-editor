@@ -59,7 +59,9 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-}> = React.memo(({ cellId, vscode }) => {
+    state?: "available" | "deletedOnly" | "none";
+    onOpenCell?: (cellId: string) => void;
+}> = React.memo(({ cellId, vscode, state = "available", onOpenCell }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -151,6 +153,19 @@ const AudioPlayButton: React.FC<{
 
     const handlePlayAudio = async () => {
         try {
+            // For any non-available state, open editor on audio tab and auto-start recording
+            if (state !== "available") {
+                try {
+                    sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                } catch {}
+                vscode.postMessage({
+                    command: "setPreferredEditorTab",
+                    content: { tab: "audio" },
+                } as any);
+                if (onOpenCell) onOpenCell(cellId);
+                return;
+            }
+
             if (isPlaying) {
                 // Stop current audio
                 if (audioRef.current) {
@@ -190,11 +205,28 @@ const AudioPlayButton: React.FC<{
         }
     };
 
+    // Decide icon color/style based on state
+    const { iconClass, color, titleSuffix } = (() => {
+        if (state === "available") {
+            return {
+                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
+                color: "var(--vscode-charts-blue)",
+                titleSuffix: "(available)",
+            } as const;
+        }
+        // For any non-available state, show microphone to begin recording
+        return {
+            iconClass: "codicon-mic",
+            color: "var(--vscode-foreground)",
+            titleSuffix: "(record)",
+        } as const;
+    })();
+
     return (
         <button
             onClick={handlePlayAudio}
             className="audio-play-button"
-            title={isPlaying ? "Stop audio" : isLoading ? "Preparing audio..." : "Play audio"}
+            title={isLoading ? "Preparing audio..." : state === "available" ? "Play" : "Record"}
             disabled={false}
             style={{
                 background: "none",
@@ -205,7 +237,7 @@ const AudioPlayButton: React.FC<{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "var(--vscode-foreground)",
+                color,
                 opacity: isPlaying ? 1 : 0.8,
                 transition: "opacity 0.2s",
             }}
@@ -213,8 +245,8 @@ const AudioPlayButton: React.FC<{
             onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
         >
             <i
-                className={`codicon ${isPlaying ? "codicon-debug-stop" : "codicon-play"}`}
-                style={{ fontSize: "16px" }}
+                className={`codicon ${iconClass}`}
+                style={{ fontSize: "16px", position: "relative" }}
             />
         </button>
     );
@@ -758,6 +790,8 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                             lineHeight: 1.2,
                                             whiteSpace: "nowrap",
                                             minWidth: 0,
+                                            width: "1.25rem", // fixed width for alignment
+                                            textAlign: "right",
                                             marginRight: "0.25rem",
                                             color: "var(--vscode-descriptionForeground)",
                                             fontSize: "0.9em",
@@ -769,8 +803,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {audioAttachments && audioAttachments[cellIds[0]] && (
-                                    <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
+                                {!isSourceText && audioAttachments && (
+                                    <AudioPlayButton
+                                        cellId={cellIds[0]}
+                                        vscode={vscode}
+                                        state={
+                                            (audioAttachments[cellIds[0]] as any) || "none"
+                                        }
+                                        onOpenCell={(id) => {
+                                            // Use force variant to ensure editor opens even with unsaved state
+                                            const open = (window as any).openCellByIdForce || (window as any).openCellById;
+                                            if (typeof open === "function") open(id);
+                                        }}
+                                    />
                                 )}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}

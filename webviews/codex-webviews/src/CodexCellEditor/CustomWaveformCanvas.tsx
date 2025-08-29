@@ -20,6 +20,7 @@ import { cn } from "../lib/utils";
 
 interface CustomWaveformCanvasProps {
     audioUrl: string;
+    audioBlob?: Blob | null;
     height?: number;
     backgroundColor?: string;
     waveColor?: string;
@@ -131,6 +132,7 @@ const getThemeColors = (element: HTMLElement) => {
 
 export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
     audioUrl,
+    audioBlob,
     height = 80,
     backgroundColor,
     waveColor,
@@ -279,9 +281,15 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         let cancelled = false;
         const decode = async () => {
             try {
-                const response = await fetch(audioUrl);
-                if (!response.ok) return;
-                const arrayBuffer = await response.arrayBuffer();
+                let arrayBuffer: ArrayBuffer | null = null;
+                if (audioBlob) {
+                    arrayBuffer = await audioBlob.arrayBuffer();
+                } else if (audioUrl) {
+                    const response = await fetch(audioUrl);
+                    if (!response.ok) return;
+                    arrayBuffer = await response.arrayBuffer();
+                }
+                if (!arrayBuffer) return;
                 if (cancelled) return;
                 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -298,11 +306,11 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                 // Ignore; will retry on interaction
             }
         };
-        if (audioUrl) decode();
+        if (audioBlob || audioUrl) decode();
         return () => {
             cancelled = true;
         };
-    }, [audioUrl, numberOfBars, generatePeaks]);
+    }, [audioUrl, audioBlob, numberOfBars, generatePeaks]);
 
     // On-demand loader for audio element and peaks
     const hasLoadedRef = useRef(false); // peaks/duration decoded
@@ -321,9 +329,14 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         if (hasLoadedRef.current) return;
         setError(null);
         try {
-            const response = await fetch(audioUrl);
-            if (!response.ok) throw new Error("Failed to fetch audio");
-            const arrayBuffer = await response.arrayBuffer();
+            let arrayBuffer: ArrayBuffer;
+            if (audioBlob) {
+                arrayBuffer = await audioBlob.arrayBuffer();
+            } else {
+                const response = await fetch(audioUrl);
+                if (!response.ok) throw new Error("Failed to fetch audio");
+                arrayBuffer = await response.arrayBuffer();
+            }
 
             const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
@@ -340,7 +353,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load audio");
         }
-    }, [audioUrl, numberOfBars, generatePeaks]);
+    }, [audioUrl, audioBlob, numberOfBars, generatePeaks]);
 
     // Draw waveform
     const drawWaveform = useCallback(() => {
@@ -859,7 +872,7 @@ export const CustomWaveformCanvas: React.FC<CustomWaveformCanvasProps> = ({
                             onClick={togglePlayPause}
                             disabled={!!error || isLoading}
                             title={
-                                isLoading
+                                isLoading && hasLoadedRef.current
                                     ? "Loading audio..."
                                     : isPlaying
                                         ? "Pause (Space)"
