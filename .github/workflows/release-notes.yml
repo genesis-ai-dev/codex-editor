@@ -129,6 +129,9 @@ jobs:
                   4.  Tone: The tone should be professional but slightly informal and engaging.
                   5.  Be Concise: Keep the notes clear and to the point.
                   6.  Do not include a "Contributors" or "Changelog" section. The surrounding process handles that.
+                  7.  HARD LIMIT: Keep the entire output under 1900 characters (Discord cap ~2000). Prioritize clarity over detail.
+                  8.  Do not include horizontal rules or separators like '---'.
+                  9.  Do not include greetings, thanks, or acknowledgements.
 
                   Here are the raw commit messages to analyze:
                   ---
@@ -191,7 +194,43 @@ jobs:
                       cat commits.txt
                     } > NOTES.md
                   else
-                    printf '%s' "$NOTES_BODY" > NOTES.md
+                    # Sanitize: remove '---' separators
+                    SANITIZED=$(printf '%s' "$NOTES_BODY" | sed '/^---$/d')
+                    # If over 1900 chars, try a condense pass with the model
+                    LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
+                    if [ "$LEN" -gt 1900 ]; then
+                      CONDENSE_PROMPT=$(cat << EOF
+                      Condense the following release notes to <= 1900 characters (Discord limit ~2000).
+                      - Keep categories like New Features, Bug Fixes, Improvements
+                      - Use concise bullet points
+                      - No greetings, acknowledgements, or closing remarks
+                      - No '---' separators; output only the final markdown
+                      Content to condense:
+                      ---
+                      $SANITIZED
+                      ---
+                      EOF
+                      )
+                      echo "$CONDENSE_PROMPT" > condense_prompt.txt
+                      CONDENSE_PAYLOAD=$(jq -n --rawfile prompt condense_prompt.txt '{contents: [{parts: [{text: $prompt}]}]}')
+                      CONDENSE_RESPONSE=$(curl -sS -X POST \
+                        -H "Content-Type: application/json" \
+                        -H "X-goog-api-key: ${GEMINI_API_KEY}" \
+                        -d "$CONDENSE_PAYLOAD" \
+                        --max-time 30 --retry 2 --retry-delay 5 \
+                        "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
+                      CONDENSED=$(echo "$CONDENSE_RESPONSE" | jq -r '[.candidates[0].content.parts[]? | .text // empty] | join("")')
+                      if [ -n "$CONDENSED" ] && [ "$CONDENSED" != "null" ]; then
+                        SANITIZED=$(printf '%s' "$CONDENSED" | sed '/^---$/d')
+                      fi
+                    fi
+                    # Final safety cap at 1900 characters
+                    LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
+                    if [ "$LEN" -gt 1900 ]; then
+                      SANITIZED=$(printf '%s' "$SANITIZED" | head -c 1900)
+                      SANITIZED="$(printf '%s\n...(truncated)' "$SANITIZED")"
+                    fi
+                    printf '%s' "$SANITIZED" > NOTES.md
                   fi
 
                   echo "Generated release notes (AI or fallback)."
