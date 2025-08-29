@@ -116,8 +116,8 @@ jobs:
                   VERSION="${{ steps.version.outputs.version }}"
                   COMMIT_LIST=$(cat commits.txt)
 
-                  # Create a detailed prompt for the AI, ensuring no special YAML characters interfere
-                  read -r -d '' PROMPT << EOF
+                  # Create a detailed prompt for the AI (avoid read -d '', which returns nonzero)
+                  PROMPT=$(cat << EOF
                   You are a professional technical writer for a software project called "Codex Editor".
                   Your task is to create user-friendly, well-formatted release notes for version ${VERSION}.
                   Analyze the following raw git commit messages and generate a summary.
@@ -135,6 +135,7 @@ jobs:
                   ${COMMIT_LIST}
                   ---
                   EOF
+                  )
 
                   # Safely construct the JSON payload using jq, reading the prompt from a file
                   # to avoid shell argument length limits.
