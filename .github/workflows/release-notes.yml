@@ -145,11 +145,18 @@ jobs:
                     -d "$API_PAYLOAD" \
                     "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}")
 
+                  # Check for curl errors
+                  if [ $? -ne 0 ]; then
+                    echo "Error: curl command failed to connect to the Gemini API." >&2
+                    exit 1
+                  fi
+
                   NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '.candidates[0].content.parts[0].text // empty')
 
                   if [ -z "$NOTES_BODY" ] || [ "$NOTES_BODY" = "null" ]; then
-                    echo "Error: Gemini API did not return a valid response." >&2
-                    echo "API Response: $RESPONSE_JSON"
+                    echo "Error: Gemini API did not return a valid response or the response was empty." >&2
+                    echo "Full API Response for debugging:"
+                    echo "$RESPONSE_JSON"
                     echo "Falling back to raw commit list."
                     {
                       echo "### AI Summary Failed: Raw Commit Log for v${VERSION}"
