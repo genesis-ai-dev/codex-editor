@@ -136,8 +136,10 @@ jobs:
                   ---
                   EOF
 
-                  # Safely construct the JSON payload using jq
-                  API_PAYLOAD=$(jq -n --arg prompt "$PROMPT" \
+                  # Safely construct the JSON payload using jq, reading the prompt from a file
+                  # to avoid shell argument length limits.
+                  echo "$PROMPT" > prompt.txt
+                  API_PAYLOAD=$(jq -n --rawfile prompt prompt.txt \
                     '{contents: [{parts: [{text: $prompt}]}]}')
 
                   # Call the Gemini API
