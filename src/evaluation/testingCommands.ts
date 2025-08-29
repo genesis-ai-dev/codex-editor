@@ -51,6 +51,7 @@ function mapSourceUriToTargetUri(sourceUriStr: string): vscode.Uri | null {
 }
 
 export function registerTestingCommands(context: vscode.ExtensionContext) {
+	console.log('[testingCommands] Registering testing commands...');
 	const snapshotCmd = vscode.commands.registerCommand("codex-testing.snapshotConfig", async () => {
 		const ws = vscode.workspace.workspaceFolders?.[0];
 		if (!ws) {
@@ -213,7 +214,23 @@ export function registerTestingCommands(context: vscode.ExtensionContext) {
 		}
 	});
 
-	context.subscriptions.push(snapshotCmd, runTestCmd, listHistoryCmd, loadTestCmd, reapplyCmd);
+	// Delete a test file
+	const deleteTestCmd = vscode.commands.registerCommand("codex-testing.deleteTest", async (pathOrUri: string | vscode.Uri) => {
+		console.log('[testingCommands] deleteTest command called with:', pathOrUri);
+		try {
+			const uri = typeof pathOrUri === "string" ? vscode.Uri.file(pathOrUri) : pathOrUri;
+			console.log('[testingCommands] Attempting to delete file at URI:', uri.toString());
+			await vscode.workspace.fs.delete(uri);
+			console.log('[testingCommands] File deleted successfully');
+			return true;
+		} catch (e) {
+			console.error('[testingCommands] Failed to delete test file:', e);
+			return false;
+		}
+	});
+
+	context.subscriptions.push(snapshotCmd, runTestCmd, listHistoryCmd, loadTestCmd, reapplyCmd, deleteTestCmd);
+	console.log('[testingCommands] All testing commands registered successfully, including deleteTest');
 }
 
 

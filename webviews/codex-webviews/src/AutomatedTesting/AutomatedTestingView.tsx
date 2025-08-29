@@ -38,19 +38,22 @@ export function AutomatedTestingView({ vscode }: { vscode: VSCode }) {
   const [results, setResults] = useState<TestSummary | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [banner, setBanner] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"config" | "history">("config");
+  const [activeTab, setActiveTab] = useState<"config" | "history" | "chart">("config");
 
   // Handle messages from backend
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       const msg = e.data;
+      console.log('[AutomatedTestingView] Received message:', JSON.stringify(msg, null, 2));
       if (msg?.command === "testResults") {
+        console.log('[AutomatedTestingView] Processing testResults');
         setResults(msg.data);
         setRunning(false);
         setStatus("");
         vscode?.postMessage({ command: "getHistory" });
       }
       if (msg?.command === "historyData") {
+        console.log('[AutomatedTestingView] Processing historyData:', msg.data);
         setHistory(Array.isArray(msg.data) ? msg.data : []);
       }
       if (msg?.command === "configReapplied") {
@@ -67,13 +70,33 @@ export function AutomatedTestingView({ vscode }: { vscode: VSCode }) {
         setBanner("Cell IDs populated.");
         setTimeout(() => setBanner(""), 2000);
       }
+      if (msg?.command === "testDeleted") {
+        console.log('[AutomatedTestingView] Processing testDeleted:', msg.data);
+        setBanner(msg.data?.success ? "Test result deleted successfully." : "Failed to delete test result.");
+        setTimeout(() => setBanner(""), 2500);
+        if (msg.data?.success) {
+          console.log('[AutomatedTestingView] Delete successful, refreshing history');
+          vscode?.postMessage({ command: "getHistory" });
+        }
+      }
+      if (msg?.command === "testConnectionResponse") {
+        console.log('[AutomatedTestingView] Test connection response received:', msg.data);
+        setBanner("Connection to provider working!");
+        setTimeout(() => setBanner(""), 2000);
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, [vscode]);
 
   useEffect(() => {
+    console.log('[AutomatedTestingView] Component mounted, requesting history');
+    console.log('[AutomatedTestingView] VSCode API object:', vscode);
     vscode?.postMessage({ command: "getHistory" });
+    
+    // Send a test message to verify communication
+    console.log('[AutomatedTestingView] Sending test message');
+    vscode?.postMessage({ command: "testConnection", data: { test: true } });
   }, [vscode]);
 
   const addManualId = useCallback(() => {
@@ -117,6 +140,80 @@ export function AutomatedTestingView({ vscode }: { vscode: VSCode }) {
   const onPopulateCellIds = useCallback((path: string) => {
     vscode?.postMessage({ command: "populateCellIds", data: { path } });
   }, [vscode]);
+
+  const onDeleteTest = useCallback((path: string) => {
+    console.log('[AutomatedTestingView] Delete button clicked for path:', path);
+    vscode?.postMessage({ command: "deleteTest", data: { path } });
+    setBanner("Deleting test result...");
+  }, [vscode]);
+
+  const Chart = ({ data }: { data: HistoryItem[] }) => {
+    if (data.length === 0) {
+      return (
+        <div style={{ fontSize: 13, color: "#6b7280", textAlign: "center", padding: 40 }}>
+          No test data available for chart
+        </div>
+      );
+    }
+
+    // Sort and parse CHRF as floats in [0,1]
+    const sorted = [...data].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const points = sorted.map((d, i) => {
+      const raw = (d as any).averageCHRF;
+      const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
+      const score = Number.isFinite(num) ? num : 0;
+      return { xIndex: i, score, timestamp: d.timestamp, cellCount: d.cellCount };
+    });
+
+    // Fixed 0..100% Y scale
+    const width = 640;
+    const height = 260;
+    const padding = 40;
+    const chartW = width - padding * 2;
+    const chartH = height - padding * 2;
+    const getX = (i: number) => points.length > 1 ? padding + (i / (points.length - 1)) * chartW : padding + chartW / 2;
+    const getY = (s: number) => padding + (1 - s) * chartH; // s in [0,1]
+
+    const polyline = points.map(p => `${getX(p.xIndex)},${getY(p.score)}`).join(' ');
+    const yTicksPct = [0, 25, 50, 75, 100];
+
+    return (
+      <div style={{ padding: 16 }}>
+        <h4 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: "#111827" }}>CHRF Score Over Time</h4>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <svg width={width} height={height} style={{ border: '1px solid #e5e7eb', borderRadius: 8, backgroundColor: '#ffffff' }}>
+            {/* Axes */}
+            <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#374151" strokeWidth="2" />
+            <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#374151" strokeWidth="2" />
+
+            {/* Grid + Y labels (0..100%) */}
+            {yTicksPct.map((pct, idx) => {
+              const y = padding + (1 - pct / 100) * chartH;
+              return (
+                <g key={idx}>
+                  <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e5e7eb" strokeDasharray="2,2" />
+                  <text x={padding - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#6b7280">{pct}%</text>
+                </g>
+              );
+            })}
+
+            {/* Polyline */}
+            {points.length > 1 && (
+              <polyline points={polyline} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+            )}
+
+            {/* Points */}
+            {points.map((p, i) => (
+              <g key={i}>
+                <circle cx={getX(p.xIndex)} cy={getY(p.score)} r={5} fill="#3b82f6" stroke="#fff" strokeWidth={2} />
+                <title>{`${new Date(p.timestamp).toLocaleDateString()} ${new Date(p.timestamp).toLocaleTimeString()} • ${(p.score * 100).toFixed(1)}% • ${p.cellCount} cells`}</title>
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+    );
+  };
 
   const Summary = ({ summary }: { summary: TestSummary }) => (
     <div style={{
@@ -183,6 +280,21 @@ export function AutomatedTestingView({ vscode }: { vscode: VSCode }) {
           }}
         >
           History
+        </button>
+        <button
+          onClick={() => setActiveTab("chart")}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            border: activeTab === "chart" ? "1px solid #3b82f6" : "1px solid #e5e7eb",
+            backgroundColor: activeTab === "chart" ? "#eff6ff" : "white",
+            color: activeTab === "chart" ? "#1d4ed8" : "#374151",
+            cursor: "pointer",
+            fontWeight: 600,
+            fontSize: 13
+          }}
+        >
+          Chart
         </button>
       </div>
 
@@ -277,12 +389,16 @@ export function AutomatedTestingView({ vscode }: { vscode: VSCode }) {
       {activeTab === "history" && (
         <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
           <h3 style={{ fontWeight: 700, marginBottom: 12, fontSize: 16, color: "#111827" }}>Test History</h3>
+          <div style={{ marginBottom: 12, fontSize: 12, color: "#6b7280" }}>
+            Debug: {history.length} history items loaded
+          </div>
           <div style={{ display: "grid", gap: 12 }}>
             {history.length === 0 && (
               <div style={{ fontSize: 13, color: "#6b7280", textAlign: "center", padding: 20 }}>No tests run yet</div>
             )}
-            {history.map(h => (
-              <div key={h.path} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, backgroundColor: "#fafafa" }}>
+            {history.map((h, index) => (
+              <div key={`${h.path}-${index}`} style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, backgroundColor: "#fafafa" }}>
+                <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 4 }}>Debug: Item {index}, Path: {h.path}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>{new Date(h.timestamp).toLocaleDateString()} {new Date(h.timestamp).toLocaleTimeString()}</div>
@@ -292,11 +408,40 @@ export function AutomatedTestingView({ vscode }: { vscode: VSCode }) {
                     <button onClick={() => onLoadTest(h.path)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "white", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>View</button>
                     <button onClick={() => onPopulateCellIds(h.path)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "white", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>Same Cells</button>
                     <button onClick={() => onReapplyConfig(h.path)} style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "white", cursor: "pointer", fontWeight: 600, fontSize: 12 }}>Reapply</button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        console.log('[AutomatedTestingView] Delete button clicked for:', h.path);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onDeleteTest(h.path);
+                      }} 
+                      style={{ 
+                        padding: "6px 10px", 
+                        borderRadius: 8, 
+                        border: "1px solid #dc2626", 
+                        background: "#fef2f2", 
+                        color: "#dc2626", 
+                        cursor: "pointer", 
+                        fontWeight: 600, 
+                        fontSize: 12 
+                      }}
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Chart tab */}
+      {activeTab === "chart" && (
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16 }}>
+          <h3 style={{ fontWeight: 700, marginBottom: 12, fontSize: 16, color: "#111827" }}>Performance Chart</h3>
+          <Chart data={history} />
         </div>
       )}
 
