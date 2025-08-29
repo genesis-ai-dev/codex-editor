@@ -116,27 +116,33 @@ jobs:
                   VERSION="${{ steps.version.outputs.version }}"
                   COMMIT_LIST=$(cat commits.txt)
 
-                  # Create a detailed prompt for the AI without heredocs (robust in GitHub runners)
+                  # Create a concise prompt to amalgamate and summarize, staying within Discord limits
                   {
-                    printf '%s\n' "You are a professional technical writer for a software project called \"Codex Editor\"."
-                    printf '%s\n' "Your task is to create user-friendly, well-formatted release notes for version ${VERSION}."
-                    printf '%s\n' "Analyze the following raw git commit messages and generate a summary."
+                    printf '%s\n' "You are a release-notes summarizer for Codex Editor."
+                    printf '%s\n' "Goal: Amalgamate similar changes and produce a concise summary for v${VERSION}."
                     printf '%s\n' ""
-                    printf '%s\n' "Guidelines:"
-                    printf '%s\n' "1.  Group Changes: Organize the changes into logical categories like \"🚀 New Features\", \"🐛 Bug Fixes\", and \"🔧 Improvements\". If a category has no relevant commits, do not include it."
-                    printf '%s\n' "2.  Rewrite for Clarity: Rewrite the commit messages in a clear, user-friendly tone. Focus on the benefit to the user, not the technical implementation. Remove developer-specific jargon, branch names, and commit hashes."
-                    printf '%s\n' "3.  Formatting: Use Markdown for formatting. Use bullet points for individual changes."
-                    printf '%s\n' "4.  Tone: The tone should be professional but slightly informal and engaging."
-                    printf '%s\n' "5.  Be Concise: Keep the notes clear and to the point."
-                    printf '%s\n' "6.  Do not include a \"Contributors\" or \"Changelog\" section. The surrounding process handles that."
-                    printf '%s\n' "7.  HARD LIMIT: Keep the entire output under 1900 characters (Discord cap ~2000). Prioritize clarity over detail."
-                    printf '%s\n' "8.  Do not include horizontal rules or separators like '---'."
-                    printf '%s\n' "9.  Do not include greetings, thanks, or acknowledgements."
+                    printf '%s\n' "Output format (exactly):"
+                    printf '%s\n' "Release Notes v${VERSION}"
                     printf '%s\n' ""
-                    printf '%s\n' "Here are the raw commit messages to analyze:"
-                    printf '%s\n' "---"
+                    printf '%s\n' "🚀 New Features"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "🐛 Bug Fixes"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "🔧 Improvements"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "Rules:"
+                    printf '%s\n' "- Max 5 bullets per section; omit empty sections."
+                    printf '%s\n' "- Each bullet ≤ 120 characters."
+                    printf '%s\n' "- Entire output ≤ 1700 characters."
+                    printf '%s\n' "- No greetings/thanks, no horizontal rules like '---', no extra headings."
+                    printf '%s\n' "- No commit hashes, branch names, or internal jargon; focus on user-facing benefits."
+                    printf '%s\n' "- Output only Markdown text in the format above."
+                    printf '%s\n' ""
+                    printf '%s\n' "Source commit subjects:"
                     printf '%s\n' "$COMMIT_LIST"
-                    printf '%s\n' "---"
                   } > prompt.txt
 
                   # Safely construct the JSON payload using jq, reading the prompt from a file
@@ -192,35 +198,8 @@ jobs:
                       cat commits.txt
                     } > NOTES.md
                   else
-                    # Sanitize: remove '---' separators
+                    # Sanitize: remove '---' separators and trim length
                     SANITIZED=$(printf '%s' "$NOTES_BODY" | sed '/^---$/d')
-                    # If over 1900 chars, try a condense pass with the model
-                    LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
-                    if [ "$LEN" -gt 1900 ]; then
-                      {
-                        printf '%s\n' "Condense the following release notes to <= 1900 characters (Discord limit ~2000)."
-                        printf '%s\n' "- Keep categories like New Features, Bug Fixes, Improvements"
-                        printf '%s\n' "- Use concise bullet points"
-                        printf '%s\n' "- No greetings, acknowledgements, or closing remarks"
-                        printf '%s\n' "- No '---' separators; output only the final markdown"
-                        printf '%s\n' "Content to condense:"
-                        printf '%s\n' "---"
-                        printf '%s\n' "$SANITIZED"
-                        printf '%s\n' "---"
-                      } > condense_prompt.txt
-                      CONDENSE_PAYLOAD=$(jq -n --rawfile prompt condense_prompt.txt '{contents: [{parts: [{text: $prompt}]}]}')
-                      CONDENSE_RESPONSE=$(curl -sS -X POST \
-                        -H "Content-Type: application/json" \
-                        -H "X-goog-api-key: ${GEMINI_API_KEY}" \
-                        -d "$CONDENSE_PAYLOAD" \
-                        --max-time 30 --retry 2 --retry-delay 5 \
-                        "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
-                      CONDENSED=$(echo "$CONDENSE_RESPONSE" | jq -r '[.candidates[0].content.parts[]? | .text // empty] | join("")')
-                      if [ -n "$CONDENSED" ] && [ "$CONDENSED" != "null" ]; then
-                        SANITIZED=$(printf '%s' "$CONDENSED" | sed '/^---$/d')
-                      fi
-                    fi
-                    # Final safety cap at 1900 characters
                     LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
                     if [ "$LEN" -gt 1900 ]; then
                       SANITIZED=$(printf '%s' "$SANITIZED" | head -c 1900)
