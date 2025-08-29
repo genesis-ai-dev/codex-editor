@@ -116,33 +116,31 @@ jobs:
                   VERSION="${{ steps.version.outputs.version }}"
                   COMMIT_LIST=$(cat commits.txt)
 
-                  # Create a detailed prompt for the AI (avoid read -d '', which returns nonzero)
-                  PROMPT=$(cat << EOF
-                  You are a professional technical writer for a software project called "Codex Editor".
-                  Your task is to create user-friendly, well-formatted release notes for version ${VERSION}.
-                  Analyze the following raw git commit messages and generate a summary.
-
-                  Guidelines:
-                  1.  Group Changes: Organize the changes into logical categories like "🚀 New Features", "🐛 Bug Fixes", and "🔧 Improvements". If a category has no relevant commits, do not include it.
-                  2.  Rewrite for Clarity: Rewrite the commit messages in a clear, user-friendly tone. Focus on the benefit to the user, not the technical implementation. Remove developer-specific jargon, branch names, and commit hashes.
-                  3.  Formatting: Use Markdown for formatting. Use bullet points for individual changes.
-                  4.  Tone: The tone should be professional but slightly informal and engaging.
-                  5.  Be Concise: Keep the notes clear and to the point.
-                  6.  Do not include a "Contributors" or "Changelog" section. The surrounding process handles that.
-                  7.  HARD LIMIT: Keep the entire output under 1900 characters (Discord cap ~2000). Prioritize clarity over detail.
-                  8.  Do not include horizontal rules or separators like '---'.
-                  9.  Do not include greetings, thanks, or acknowledgements.
-
-                  Here are the raw commit messages to analyze:
-                  ---
-                  ${COMMIT_LIST}
-                  ---
-                  EOF
-                  )
+                  # Create a detailed prompt for the AI without heredocs (robust in GitHub runners)
+                  {
+                    printf '%s\n' "You are a professional technical writer for a software project called \"Codex Editor\"."
+                    printf '%s\n' "Your task is to create user-friendly, well-formatted release notes for version ${VERSION}."
+                    printf '%s\n' "Analyze the following raw git commit messages and generate a summary."
+                    printf '%s\n' ""
+                    printf '%s\n' "Guidelines:"
+                    printf '%s\n' "1.  Group Changes: Organize the changes into logical categories like \"🚀 New Features\", \"🐛 Bug Fixes\", and \"🔧 Improvements\". If a category has no relevant commits, do not include it."
+                    printf '%s\n' "2.  Rewrite for Clarity: Rewrite the commit messages in a clear, user-friendly tone. Focus on the benefit to the user, not the technical implementation. Remove developer-specific jargon, branch names, and commit hashes."
+                    printf '%s\n' "3.  Formatting: Use Markdown for formatting. Use bullet points for individual changes."
+                    printf '%s\n' "4.  Tone: The tone should be professional but slightly informal and engaging."
+                    printf '%s\n' "5.  Be Concise: Keep the notes clear and to the point."
+                    printf '%s\n' "6.  Do not include a \"Contributors\" or \"Changelog\" section. The surrounding process handles that."
+                    printf '%s\n' "7.  HARD LIMIT: Keep the entire output under 1900 characters (Discord cap ~2000). Prioritize clarity over detail."
+                    printf '%s\n' "8.  Do not include horizontal rules or separators like '---'."
+                    printf '%s\n' "9.  Do not include greetings, thanks, or acknowledgements."
+                    printf '%s\n' ""
+                    printf '%s\n' "Here are the raw commit messages to analyze:"
+                    printf '%s\n' "---"
+                    printf '%s\n' "$COMMIT_LIST"
+                    printf '%s\n' "---"
+                  } > prompt.txt
 
                   # Safely construct the JSON payload using jq, reading the prompt from a file
                   # to avoid shell argument length limits.
-                  echo "$PROMPT" > prompt.txt
                   API_PAYLOAD=$(jq -n --rawfile prompt prompt.txt \
                     '{contents: [{parts: [{text: $prompt}]}]}')
 
@@ -199,19 +197,17 @@ jobs:
                     # If over 1900 chars, try a condense pass with the model
                     LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
                     if [ "$LEN" -gt 1900 ]; then
-                      CONDENSE_PROMPT=$(cat << EOF
-                      Condense the following release notes to <= 1900 characters (Discord limit ~2000).
-                      - Keep categories like New Features, Bug Fixes, Improvements
-                      - Use concise bullet points
-                      - No greetings, acknowledgements, or closing remarks
-                      - No '---' separators; output only the final markdown
-                      Content to condense:
-                      ---
-                      $SANITIZED
-                      ---
-                      EOF
-                      )
-                      echo "$CONDENSE_PROMPT" > condense_prompt.txt
+                      {
+                        printf '%s\n' "Condense the following release notes to <= 1900 characters (Discord limit ~2000)."
+                        printf '%s\n' "- Keep categories like New Features, Bug Fixes, Improvements"
+                        printf '%s\n' "- Use concise bullet points"
+                        printf '%s\n' "- No greetings, acknowledgements, or closing remarks"
+                        printf '%s\n' "- No '---' separators; output only the final markdown"
+                        printf '%s\n' "Content to condense:"
+                        printf '%s\n' "---"
+                        printf '%s\n' "$SANITIZED"
+                        printf '%s\n' "---"
+                      } > condense_prompt.txt
                       CONDENSE_PAYLOAD=$(jq -n --rawfile prompt condense_prompt.txt '{contents: [{parts: [{text: $prompt}]}]}')
                       CONDENSE_RESPONSE=$(curl -sS -X POST \
                         -H "Content-Type: application/json" \
