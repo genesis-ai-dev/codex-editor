@@ -65,15 +65,21 @@ export class FTS5SearchAlgorithm extends BaseSearchAlgorithm {
         options: Partial<SearchOptions> = {}
     ): Promise<TranslationPair[]> {
         const searchOptions = this.validateOptions(options);
+        console.log(`[FTS5SearchAlgorithm] searchWithWordOverlapFilter - query: "${query}", initial limit: ${searchOptions.limit * 6}`);
+        
         const results = await this.search(query, {
             ...searchOptions,
             limit: searchOptions.limit * 6 // Get more for filtering
         });
+        console.log(`[FTS5SearchAlgorithm] Raw search returned ${results.length} results`);
 
         // Apply word overlap filtering (current algorithm behavior)
         const filteredResults = this.filterByWordOverlap(query, results, searchOptions);
+        console.log(`[FTS5SearchAlgorithm] After word overlap filtering: ${filteredResults.length} results`);
         
-        return filteredResults.slice(0, searchOptions.limit);
+        const finalResults = filteredResults.slice(0, searchOptions.limit);
+        console.log(`[FTS5SearchAlgorithm] Final results after limit: ${finalResults.length}`);
+        return finalResults;
     }
 
     /**

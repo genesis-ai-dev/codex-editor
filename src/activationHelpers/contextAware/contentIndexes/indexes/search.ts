@@ -172,27 +172,57 @@ export async function getTranslationPairsFromSourceCellQuery(
     k: number = 5,
     onlyValidated: boolean = false
 ): Promise<TranslationPair[]> {
-    // Prefer SearchManager abstraction to support algorithm selection and filtering
-    try {
-        const manager = new SearchManager(translationPairsIndex);
-        return await manager.getTranslationPairsFromSourceCellQuery(query, k, onlyValidated);
-    } catch (error) {
-        console.warn("[getTranslationPairsFromSourceCellQuery] SearchManager failed, falling back to legacy path:", error);
+    console.log(`[getTranslationPairsFromSourceCellQuery] Entry point - query: "${query}", k: ${k}, onlyValidated: ${onlyValidated}`);
+    
+    // Check if index is properly initialized
+    if (!translationPairsIndex) {
+        console.error(`[getTranslationPairsFromSourceCellQuery] Translation pairs index is null/undefined!`);
+        return [];
     }
+    
+    // Quick database health check
+    if (translationPairsIndex instanceof SQLiteIndexManager) {
+        try {
+            // Try a simple query to check if database is responsive
+            const testResults = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', 5, false, false);
+            console.log(`[getTranslationPairsFromSourceCellQuery] Database health check: ${testResults.length} total pairs available`);
+            
+            if (testResults.length > 0) {
+                console.log(`[getTranslationPairsFromSourceCellQuery] Sample database contents:`);
+                testResults.slice(0, 2).forEach((result, index) => {
+                    console.log(`  ${index + 1}. Cell: ${result.cellId || result.cell_id}`);
+                    console.log(`     Source: "${(result.sourceContent || result.source_content || '').substring(0, 100)}..."`);
+                    console.log(`     Target: "${(result.targetContent || result.target_content || '').substring(0, 100)}..."`);
+                });
+            } else {
+                console.error(`[getTranslationPairsFromSourceCellQuery] ⚠️  DATABASE IS EMPTY - This explains why no examples are found!`);
+            }
+        } catch (error) {
+            console.error(`[getTranslationPairsFromSourceCellQuery] Database health check failed:`, error);
+        }
+    }
+    
+    // Use direct legacy method for more reliable results
+    // SearchManager algorithm switching can be re-enabled once configuration issues are resolved
+    console.log(`[getTranslationPairsFromSourceCellQuery] Using direct SQLite search method`);
 
-    // Legacy fallback
+    // Direct SQLite search
     const initialLimit = Math.max(k * 6, 30);
     let results: any[] = [];
 
     if (translationPairsIndex instanceof SQLiteIndexManager) {
+        console.log(`[getTranslationPairsFromSourceCellQuery] Using SQLite searchCompleteTranslationPairsWithValidation with limit: ${initialLimit}`);
         results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation(query, initialLimit, false, onlyValidated);
+        console.log(`[getTranslationPairsFromSourceCellQuery] SQLite search returned ${results.length} raw results`);
     } else {
         console.warn("[getTranslationPairsFromSourceCellQuery] Non-SQLite index detected, no fallback available");
         return [];
     }
 
     if (results.length === 0 && translationPairsIndex instanceof SQLiteIndexManager) {
+        console.log(`[getTranslationPairsFromSourceCellQuery] No results for specific query, trying empty query fallback`);
         results = await translationPairsIndex.searchCompleteTranslationPairsWithValidation('', Math.max(k * 2, 10), false, onlyValidated);
+        console.log(`[getTranslationPairsFromSourceCellQuery] Empty query fallback returned ${results.length} results`);
     }
 
     const translationPairs: TranslationPair[] = [];
@@ -202,29 +232,50 @@ export async function getTranslationPairsFromSourceCellQuery(
         const cellId = searchResult.cellId || searchResult.cell_id;
         if (seenCellIds.has(cellId)) continue;
         seenCellIds.add(cellId);
+        
+        console.log(`[getTranslationPairsFromSourceCellQuery] Processing raw result for cellId: ${cellId}`);
+        console.log(`[getTranslationPairsFromSourceCellQuery] - sourceContent: "${(searchResult.sourceContent || '').substring(0, 50)}..."`);
+        console.log(`[getTranslationPairsFromSourceCellQuery] - targetContent: "${(searchResult.targetContent || '').substring(0, 50)}..."`);
 
         if (searchResult.sourceContent && searchResult.targetContent) {
             if (searchResult.sourceContent.trim() && searchResult.targetContent.trim()) {
+                console.log(`[getTranslationPairsFromSourceCellQuery] ✅ Adding direct result for ${cellId}`);
                 translationPairs.push({
                     cellId,
                     sourceCell: { cellId, content: searchResult.sourceContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                     targetCell: { cellId, content: searchResult.targetContent, uri: searchResult.uri || "", line: searchResult.line || 0 },
                 });
+            } else {
+                console.log(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - empty content after trim`);
             }
         } else {
+            console.log(`[getTranslationPairsFromSourceCellQuery] 🔄 Fetching translation pair for ${cellId}`);
             const translationPair = await translationPairsIndex.getTranslationPair(cellId);
             if (translationPair && translationPair.sourceContent.trim() && translationPair.targetContent.trim()) {
+                console.log(`[getTranslationPairsFromSourceCellQuery] ✅ Adding fetched result for ${cellId}`);
                 translationPairs.push({
                     cellId,
                     sourceCell: { cellId, content: translationPair.sourceContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                     targetCell: { cellId, content: translationPair.targetContent, uri: translationPair.uri || "", line: translationPair.line || 0 },
                 });
+            } else {
+                console.log(`[getTranslationPairsFromSourceCellQuery] ❌ Skipping ${cellId} - no valid translation pair found`);
             }
         }
 
         if (translationPairs.length >= initialLimit) break;
     }
 
+    console.log(`[getTranslationPairsFromSourceCellQuery] Legacy path final result: ${translationPairs.length} translation pairs`);
+    
+    if (translationPairs.length === 0) {
+        console.warn(`[getTranslationPairsFromSourceCellQuery] LEGACY FALLBACK ALSO RETURNED ZERO RESULTS!`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] This suggests either:`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] 1. Database has no data`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] 2. Search query is not finding matches`);
+        console.warn(`[getTranslationPairsFromSourceCellQuery] 3. Word overlap filtering is too strict`);
+    }
+    
     return translationPairs;
 }
 

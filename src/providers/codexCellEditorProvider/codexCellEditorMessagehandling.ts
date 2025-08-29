@@ -867,13 +867,41 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
     requestAudioAttachments: async ({ document, webviewPanel, provider }) => {
         console.log("requestAudioAttachments message received");
         const audioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean; } = {};
+        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+        // Start with none for all ids in document
+        try {
+            const notebookData = JSON.parse(document.getText());
+            if (Array.isArray(notebookData?.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
+                }
+            }
+        } catch { }
+
+        // Mark available where we found on-disk non-deleted attachments
         for (const cellId of Object.keys(audioAttachments)) {
-            audioCells[cellId] = true;
+            audioCells[cellId] = "available";
         }
+
+        // Mark deletedOnly where no available but there exists at least one deleted attachment in metadata
+        try {
+            const notebookData = JSON.parse(document.getText());
+            if (Array.isArray(notebookData?.cells)) {
+                for (const cell of notebookData.cells) {
+                    const id = cell?.metadata?.id;
+                    if (!id) continue;
+                    if (audioCells[id] === "available") continue;
+                    const attachments = cell?.metadata?.attachments || {};
+                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
+                    if (hasDeletedAudio) {
+                        audioCells[id] = "deletedOnly";
+                    }
+                }
+            }
+        } catch { }
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
-            attachments: audioCells,
+            attachments: audioCells as any,
         });
     },
 
@@ -1080,10 +1108,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean; } = {};
+        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+        try {
+            const notebookData = JSON.parse(document.getText());
+            if (Array.isArray(notebookData?.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
+                }
+            }
+        } catch { }
         for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = true;
+            audioCells[cellId] = "available";
         }
+        try {
+            const notebookData = JSON.parse(document.getText());
+            if (Array.isArray(notebookData?.cells)) {
+                for (const cell of notebookData.cells) {
+                    const id = cell?.metadata?.id;
+                    if (!id) continue;
+                    if (audioCells[id] === "available") continue;
+                    const attachments = cell?.metadata?.attachments || {};
+                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
+                    if (hasDeletedAudio) audioCells[id] = "deletedOnly";
+                }
+            }
+        } catch { }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
@@ -1113,10 +1162,31 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
         });
 
         const updatedAudioAttachments = await scanForAudioAttachments(document, webviewPanel);
-        const audioCells: { [cellId: string]: boolean; } = {};
+        const audioCells: { [cellId: string]: "available" | "deletedOnly" | "none"; } = {} as any;
+        try {
+            const notebookData = JSON.parse(document.getText());
+            if (Array.isArray(notebookData?.cells)) {
+                for (const cell of notebookData.cells) {
+                    if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
+                }
+            }
+        } catch { }
         for (const cellId of Object.keys(updatedAudioAttachments)) {
-            audioCells[cellId] = true;
+            audioCells[cellId] = "available";
         }
+        try {
+            const notebookData = JSON.parse(document.getText());
+            if (Array.isArray(notebookData?.cells)) {
+                for (const cell of notebookData.cells) {
+                    const id = cell?.metadata?.id;
+                    if (!id) continue;
+                    if (audioCells[id] === "available") continue;
+                    const attachments = cell?.metadata?.attachments || {};
+                    const hasDeletedAudio = Object.values(attachments).some((att: any) => att?.type === "audio" && att?.isDeleted === true);
+                    if (hasDeletedAudio) audioCells[id] = "deletedOnly";
+                }
+            }
+        } catch { }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",

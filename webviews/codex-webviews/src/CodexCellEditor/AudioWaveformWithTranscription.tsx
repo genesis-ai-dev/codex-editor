@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CustomWaveformCanvas } from "./CustomWaveformCanvas.tsx";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { MessageCircle, Copy, Loader2 } from "lucide-react";
+import { MessageCircle, Copy, Loader2, Trash2, History, Mic } from "lucide-react";
 
 interface AudioWaveformWithTranscriptionProps {
     audioUrl: string;
@@ -17,6 +17,9 @@ interface AudioWaveformWithTranscriptionProps {
     onTranscribe: () => void;
     onInsertTranscription: () => void;
     disabled?: boolean;
+    onRequestRemove?: () => void;
+    onShowHistory?: () => void;
+    onShowRecorder?: () => void;
 }
 
 const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionProps> = ({
@@ -28,25 +31,28 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
     onTranscribe,
     onInsertTranscription,
     disabled = false,
+    onRequestRemove,
+    onShowHistory,
+    onShowRecorder,
 }) => {
-    const [dataUrl, setDataUrl] = useState<string>("");
+    const [audioSrc, setAudioSrc] = useState<string>("");
 
+    // Prefer the provided URL (can be blob: or data:). Fall back to creating an object URL from the blob.
     useEffect(() => {
-        if (audioBlob) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setDataUrl(reader.result as string);
-            };
-            reader.readAsDataURL(audioBlob);
-        } else if (audioUrl && audioUrl.startsWith("data:")) {
-            setDataUrl(audioUrl);
-        } else {
-            setDataUrl("");
+        if (audioUrl) {
+            setAudioSrc(audioUrl);
+            return;
         }
+        if (audioBlob) {
+            const url = URL.createObjectURL(audioBlob);
+            setAudioSrc(url);
+            return () => URL.revokeObjectURL(url);
+        }
+        setAudioSrc("");
     }, [audioBlob, audioUrl]);
 
     return (
-        <div className="bg-[var(--vscode-editor-background)] p-4 sm:p-6 rounded-lg shadow-md w-full">
+        <div className="bg-[var(--vscode-editor-background)] p-3 sm:p-4 rounded-md shadow w-full">
             {/* Transcription Section */}
             <div className="mb-4">
                 {isTranscribing ? (
@@ -81,31 +87,22 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         <Button
                             onClick={onInsertTranscription}
                             disabled={disabled}
-                            className="w-full bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)]"
+                            className="w-full h-8 px-2 text-sm bg-[var(--vscode-button-background)] hover:bg-[var(--vscode-button-hoverBackground)] text-[var(--vscode-button-foreground)]"
                         >
                             <Copy className="mr-2 h-4 w-4" />
                             Insert Transcription
                         </Button>
                     </div>
-                ) : (
-                    <Button
-                        onClick={onTranscribe}
-                        disabled={disabled || (!audioUrl && !audioBlob)}
-                        variant="outline"
-                        className="w-full justify-center text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
-                    >
-                        <MessageCircle className="mr-2 h-4 w-4" />
-                        Click to transcribe audio
-                    </Button>
-                )}
+                ) : null}
             </div>
 
             {/* Waveform */}
-            <div className="bg-[var(--vscode-editor-background)] p-4 rounded-lg shadow">
-                {dataUrl && dataUrl.startsWith("data:") ? (
+            <div className="bg-[var(--vscode-editor-background)] p-3 rounded-md shadow-sm">
+                {audioSrc ? (
                     <CustomWaveformCanvas
-                        audioUrl={dataUrl}
-                        height={60}
+                        audioUrl={audioSrc}
+                        audioBlob={audioBlob || undefined}
+                        height={48}
                         showControls={true}
                         showDebugInfo={false}
                     />
@@ -115,6 +112,52 @@ const AudioWaveformWithTranscription: React.FC<AudioWaveformWithTranscriptionPro
                         Loading waveform...
                     </div>
                 )}
+            </div>
+
+            {/* Action buttons at bottom */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-3 px-2">
+                {!transcription && !isTranscribing && (
+                    <Button
+                        onClick={onTranscribe}
+                        disabled={disabled || (!audioUrl && !audioBlob)}
+                        variant="outline"
+                        className="h-8 px-2 text-xs text-[var(--vscode-button-background)] border-[var(--vscode-button-background)]/20 hover:bg-[var(--vscode-button-background)]/10"
+                        title="Transcribe Audio"
+                    >
+                        <MessageCircle className="h-3 w-3" />
+                        <span className="ml-1">Transcribe</span>
+                    </Button>
+                )}
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => onRequestRemove?.()}
+                    title="Remove Audio"
+                >
+                    <Trash2 className="h-3 w-3" />
+                    <span className="ml-1">Remove</span>
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => onShowHistory?.()}
+                    title="Audio History"
+                >
+                    <History className="h-3 w-3" />
+                    <span className="ml-1">History</span>
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => onShowRecorder?.()}
+                    title="Re-record / Upload New"
+                >
+                    <Mic className="h-3 w-3" />
+                    <span className="ml-1">Re-record</span>
+                </Button>
             </div>
         </div>
     );
