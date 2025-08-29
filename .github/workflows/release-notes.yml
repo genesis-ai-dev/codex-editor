@@ -78,41 +78,89 @@ jobs:
               if: steps.version.outputs.skip == 'true'
               run: echo "Non-numeric tag detected; workflow skipped."
 
-            - name: Generate Release Notes with GitHub AI
+            - name: Collect Raw Commit Messages
+              id: commits
+              if: steps.version.outputs.skip != 'true'
+              shell: bash
+              working-directory: repo
+              run: |
+                  set -euo pipefail
+                  PREV="${{ steps.version.outputs.previous }}"
+                  CURR="${{ steps.version.outputs.current_commit }}"
+                  RANGE="$PREV..$CURR"
+                  if ! git rev-parse "$PREV" >/dev/null 2>&1; then
+                    RANGE="$PREV"
+                  fi
+
+                  # Get a clean list of commit messages, excluding merges and version bumps
+                  COMMIT_LIST=$(git log "$RANGE" --no-merges --pretty=format:"%s" \
+                    --grep='bump\|version\|release' --invert-grep | head -100)
+
+                  if [ -z "$COMMIT_LIST" ]; then
+                    echo "No new user-facing commits found. Using a default message."
+                    COMMIT_LIST="Routine maintenance and dependency updates."
+                  fi
+                  
+                  printf '%s' "$COMMIT_LIST" > commits.txt
+                  echo "Collected raw commit messages."
+
+            - name: Summarize with Google Gemini
               id: notes
               if: steps.version.outputs.skip != 'true'
               shell: bash
               working-directory: repo
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
               run: |
                   set -euo pipefail
                   VERSION="${{ steps.version.outputs.version }}"
-                  PREV_TAG="${{ steps.version.outputs.previous }}"
+                  COMMIT_LIST=$(cat commits.txt)
 
-                  echo "Generating notes for v${VERSION} (previous tag: ${PREV_TAG})"
+                  # Create a detailed prompt for the AI, ensuring no special YAML characters interfere
+                  read -r -d '' PROMPT << EOF
+                  You are a professional technical writer for a software project called "Codex Editor".
+                  Your task is to create user-friendly, well-formatted release notes for version ${VERSION}.
+                  Analyze the following raw git commit messages and generate a summary.
 
-                  # Call GitHub's AI release notes API
-                  API_PAYLOAD=$(jq -n --arg tag "$VERSION" --arg prev_tag "$PREV_TAG" \
-                    '{tag_name: $tag, previous_tag_name: $prev_tag}')
+                  Guidelines:
+                  1.  Group Changes: Organize the changes into logical categories like "🚀 New Features", "🐛 Bug Fixes", and "🔧 Improvements". If a category has no relevant commits, do not include it.
+                  2.  Rewrite for Clarity: Rewrite the commit messages in a clear, user-friendly tone. Focus on the benefit to the user, not the technical implementation. Remove developer-specific jargon, branch names, and commit hashes.
+                  3.  Formatting: Use Markdown for formatting. Use bullet points for individual changes.
+                  4.  Tone: The tone should be professional but slightly informal and engaging.
+                  5.  Be Concise: Keep the notes clear and to the point.
+                  6.  Do not include a "Contributors" or "Changelog" section. The surrounding process handles that.
 
-                  # The API response contains the full release notes body
+                  Here are the raw commit messages to analyze:
+                  ---
+                  ${COMMIT_LIST}
+                  ---
+                  EOF
+
+                  JSON_PROMPT=$(echo "$PROMPT" | jq -R -s '.')
+                  API_PAYLOAD="{\"contents\":[{\"parts\":[{\"text\": ${JSON_PROMPT}}]}]}"
+
+                  # Call the Gemini API
                   RESPONSE_JSON=$(curl -sS -X POST \
-                    -H "Authorization: Bearer ${GH_TOKEN}" \
-                    -H "Accept: application/vnd.github+json" \
+                    -H "Content-Type: application/json" \
                     -d "$API_PAYLOAD" \
-                    "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/generate-notes")
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEMINI_API_KEY}")
 
-                  # Extract the body and save it to a file for subsequent steps
-                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '.body')
+                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '.candidates[0].content.parts[0].text // empty')
+
                   if [ -z "$NOTES_BODY" ] || [ "$NOTES_BODY" = "null" ]; then
-                    echo "Error: GitHub API did not return release notes body." >&2
+                    echo "Error: Gemini API did not return a valid response." >&2
                     echo "API Response: $RESPONSE_JSON"
-                    exit 1
+                    echo "Falling back to raw commit list."
+                    {
+                      echo "### AI Summary Failed: Raw Commit Log for v${VERSION}"
+                      echo
+                      cat commits.txt
+                    } > NOTES.md
+                  else
+                    printf '%s' "$NOTES_BODY" > NOTES.md
                   fi
 
-                  printf '%s' "$NOTES_BODY" > NOTES.md
-                  echo "Successfully generated notes from GitHub AI."
+                  echo "Successfully generated notes with Gemini AI."
 
             - name: Send to n8n webhook (Discord)
               if: steps.version.outputs.skip != 'true'
