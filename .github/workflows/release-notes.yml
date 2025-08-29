@@ -118,8 +118,8 @@ jobs:
 
                   # Create a concise prompt to amalgamate and summarize, staying within Discord limits
                   {
-                    printf '%s\n' "You are a release-notes summarizer for Codex Editor."
-                    printf '%s\n' "Goal: Amalgamate similar changes and produce a concise summary for v${VERSION}."
+                    printf '%s\n' "You are a user-friendly release-notes summarizer for Codex Editor."
+                    printf '%s\n' "Goal: Succinctly summarize what changed for users in v${VERSION}. Barely mention or omit backend-only or implementation details unless they directly affect user experience. Simpler is better."
                     printf '%s\n' ""
                     printf '%s\n' "Output format (exactly):"
                     printf '%s\n' "Release Notes v${VERSION}"
@@ -135,8 +135,8 @@ jobs:
                     printf '%s\n' ""
                     printf '%s\n' "Rules:"
                     printf '%s\n' "- Max 5 bullets per section; omit empty sections."
-                    printf '%s\n' "- Each bullet ≤ 120 characters."
-                    printf '%s\n' "- Entire output ≤ 1700 characters."
+                    printf '%s\n' "- Each bullet ≤ 140 characters."
+                    printf '%s\n' "- Entire output ≤ 1900 characters."
                     printf '%s\n' "- No greetings/thanks, no horizontal rules like '---', no extra headings."
                     printf '%s\n' "- No commit hashes, branch names, or internal jargon; focus on user-facing benefits."
                     printf '%s\n' "- Output only Markdown text in the format above."
