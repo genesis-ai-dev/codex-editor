@@ -25,7 +25,7 @@ jobs:
             - name: Prepare repository (without external actions)
               id: prep
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub's built-in token - no manual setup needed!
               shell: bash
               run: |
                   set -euo pipefail
