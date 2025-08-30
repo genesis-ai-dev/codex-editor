@@ -5,6 +5,7 @@ import { CodexCellTypes } from "../../types/enums";
 import { basename } from "path";
 import { removeHtmlTags, generateSrtData } from "./subtitleUtils";
 import { generateVttData } from "./vttUtils";
+import { CodexContentSerializer } from "../serializer";
 
 /**
  * PERFORMANCE OPTIMIZATION NOTE:
@@ -1615,6 +1616,11 @@ function formatTimestampField(fieldName: string, value: any): string {
         return '';
     }
 
+    // Handle objects by returning their JSON representation
+    if (typeof value === 'object') {
+        return JSON.stringify(value);
+    }
+
     // Convert to string for processing
     const stringValue = String(value);
 
@@ -1746,14 +1752,31 @@ async function exportCodexContentAsDelimited(
 
                         const codexData = await vscode.workspace.fs.readFile(file);
 
-                        const sourceNotebook = JSON.parse(
-                            Buffer.from(sourceData).toString()
-                        ) as CodexNotebookAsJSONData;
-                        const codexNotebook = JSON.parse(
-                            Buffer.from(codexData).toString()
-                        ) as CodexNotebookAsJSONData;
+                        // Use CodexContentSerializer for proper deserialization
+                        const serializer = new CodexContentSerializer();
+                        const sourceNotebook = await serializer.deserializeNotebook(
+                            sourceData,
+                            new vscode.CancellationTokenSource().token
+                        );
+                        const codexNotebook = await serializer.deserializeNotebook(
+                            codexData,
+                            new vscode.CancellationTokenSource().token
+                        );
 
                         debug(`File has ${codexNotebook.cells.length} cells`);
+
+                        // Debug: Log all cells to understand the structure
+                        debug(`Analyzing cells for export:`);
+                        codexNotebook.cells.forEach((cell, index) => {
+                            debug(`Cell ${index}:`, {
+                                kind: cell.kind,
+                                type: cell.metadata?.type,
+                                id: cell.metadata?.id,
+                                merged: cell.metadata?.data?.merged,
+                                hasValue: !!cell.value,
+                                valueLength: cell.value?.length || 0
+                            });
+                        });
 
                         // Create maps for quick lookup of cells by ID
                         const sourceCellsMap = new Map(
@@ -1803,39 +1826,79 @@ async function exportCodexContentAsDelimited(
                         }> = [];
 
                         // Process cells in their original order from the notebook
+                        let cellsProcessed = 0;
+                        let cellsKindFiltered = 0;
+                        let cellsTypeFiltered = 0;
+                        let cellsWithoutId = 0;
+                        let cellsMerged = 0;
+                        let cellsDeleted = 0;
+
                         for (const codexCell of codexNotebook.cells) {
+                            cellsProcessed++;
+
                             if (codexCell.kind === 2) { // vscode.NotebookCellKind.Code
+                                cellsKindFiltered++;
                                 const cellMetadata = codexCell.metadata as { type: string; id: string; data?: any; };
 
-                                if (cellMetadata.type === CodexCellTypes.TEXT &&
-                                    cellMetadata.id &&
-                                    !cellMetadata?.data?.merged) {
-                                    totalCells++;
-                                    const sourceCell = sourceCellsMap.get(cellMetadata.id);
+                                if (cellMetadata.type === CodexCellTypes.TEXT) {
+                                    if (cellMetadata.id) {
+                                        if (!cellMetadata?.data?.merged) {
+                                            if (!cellMetadata?.data?.deleted) {
+                                                cellsTypeFiltered++;
+                                                totalCells++;
+                                                const sourceCell = sourceCellsMap.get(cellMetadata.id);
 
-                                    // Include the verse even if source is missing (will be empty)
-                                    const sourceContent = sourceCell?.value || "";
-                                    const targetContent = codexCell.value || "";
+                                                // Include the verse even if source is missing (will be empty)
+                                                const sourceContent = sourceCell?.value || "";
+                                                const targetContent = codexCell.value || "";
 
-                                    // Extract metadata (excluding edits)
-                                    const metadata: { [key: string]: any; } = {};
-                                    if (cellMetadata.data && typeof cellMetadata.data === 'object') {
-                                        for (const field of sortedMetadataFields) {
-                                            metadata[field] = cellMetadata.data[field] || "";
+                                                // Extract metadata (excluding edits)
+                                                const metadata: { [key: string]: any; } = {};
+                                                if (cellMetadata.data && typeof cellMetadata.data === 'object') {
+                                                    for (const field of sortedMetadataFields) {
+                                                        const value = cellMetadata.data[field];
+                                                        // Properly stringify complex objects
+                                                        if (value === undefined || value === null) {
+                                                            metadata[field] = "";
+                                                        } else if (typeof value === 'object') {
+                                                            metadata[field] = JSON.stringify(value);
+                                                        } else {
+                                                            metadata[field] = value;
+                                                        }
+                                                    }
+                                                }
+
+                                                verseData.push({
+                                                    id: cellMetadata.id,
+                                                    source: sourceContent,
+                                                    target: targetContent,
+                                                    metadata: metadata
+                                                });
+
+                                                totalVerses++;
+                                            } else {
+                                                cellsDeleted++;
+                                            }
+                                        } else {
+                                            cellsMerged++;
                                         }
+                                    } else {
+                                        cellsWithoutId++;
                                     }
-
-                                    verseData.push({
-                                        id: cellMetadata.id,
-                                        source: sourceContent,
-                                        target: targetContent,
-                                        metadata: metadata
-                                    });
-
-                                    totalVerses++;
                                 }
                             }
                         }
+
+                        // Debug: Show filtering results
+                        debug(`Cell filtering results for ${basename(file.fsPath)}:`, {
+                            totalCells: cellsProcessed,
+                            kindFiltered: cellsKindFiltered,
+                            typeFiltered: cellsTypeFiltered,
+                            withoutId: cellsWithoutId,
+                            merged: cellsMerged,
+                            deleted: cellsDeleted,
+                            finalCount: verseData.length
+                        });
 
                         // Skip empty files
                         if (verseData.length === 0) {
