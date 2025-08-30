@@ -25,7 +25,7 @@ jobs:
             - name: Prepare repository (without external actions)
               id: prep
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub's built-in token - no manual setup needed!
               shell: bash
               run: |
                   set -euo pipefail
@@ -78,7 +78,7 @@ jobs:
               if: steps.version.outputs.skip == 'true'
               run: echo "Non-numeric tag detected; workflow skipped."
 
-            - name: Collect commit messages since previous tag
+            - name: Collect Raw Commit Messages
               id: commits
               if: steps.version.outputs.skip != 'true'
               shell: bash
@@ -92,47 +92,122 @@ jobs:
                     RANGE="$PREV"
                   fi
 
-                  # Exclude obvious version bump commits
-                  COMMITS=$(git log "$RANGE" --no-merges --pretty=format:'• %s' \
-                    --grep='bump|version|release' --invert-grep | head -100)
+                  # Get a clean list of commit messages, excluding merges and version bumps
+                  COMMIT_LIST=$(git log "$RANGE" --no-merges --pretty=format:"%s" \
+                    --grep='bump\|version\|release' --invert-grep | head -100)
 
-                  if [ -z "$COMMITS" ]; then
-                    COMMITS=$(git log "$RANGE" --no-merges --pretty=format:'• %s' | head -100)
+                  if [ -z "$COMMIT_LIST" ]; then
+                    echo "No new user-facing commits found. Using a default message."
+                    COMMIT_LIST="Routine maintenance and dependency updates."
                   fi
+                  
+                  printf '%s' "$COMMIT_LIST" > commits.txt
+                  echo "Collected raw commit messages."
 
-                  # Provide a fallback if still empty
-                  if [ -z "$COMMITS" ]; then
-                    COMMITS="• Internal maintenance and dependency updates"
-                  fi
-
-                  printf '%s' "$COMMITS" > commits.txt
-                  echo "Generated commits list with $(wc -l < commits.txt) items"
-
-            - name: Generate release notes (basic, Copilot-ready)
+            - name: Summarize with Google Gemini
               id: notes
               if: steps.version.outputs.skip != 'true'
               shell: bash
               working-directory: repo
+              env:
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
               run: |
                   set -euo pipefail
                   VERSION="${{ steps.version.outputs.version }}"
-                  echo "Creating notes for v$VERSION"
+                  COMMIT_LIST=$(cat commits.txt)
 
+                  # Create a concise prompt to amalgamate and summarize, staying within Discord limits
                   {
-                    echo "## What's New in v$VERSION"; echo;
-                    # Basic grouping prompt for Copilot to refine later if desired
-                    echo "$GITHUB_REPOSITORY release notes for v$VERSION" > prompt.txt
-                    echo "Group the following commits into Features, Fixes, Improvements:" >> prompt.txt
-                    echo >> prompt.txt
-                    cat commits.txt >> prompt.txt
+                    printf '%s\n' "You are a user-friendly release-notes summarizer for Codex Editor."
+                    printf '%s\n' "Goal: Succinctly summarize what changed for users in v${VERSION}. Barely mention or omit backend-only or implementation details unless they directly affect user experience. Simpler is better."
+                    printf '%s\n' ""
+                    printf '%s\n' "Output format (exactly):"
+                    printf '%s\n' ""
+                    printf '%s\n' "🚀 New Features"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "🐛 Bug Fixes"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "🔧 Improvements"
+                    printf '%s\n' "- bullets"
+                    printf '%s\n' ""
+                    printf '%s\n' "Rules:"
+                    printf '%s\n' "- Max 5 bullets per section; omit empty sections."
+                    printf '%s\n' "- Each bullet ≤ 140 characters."
+                    printf '%s\n' "- Entire output ≤ 1900 characters."
+                    printf '%s\n' "- No greetings/thanks, no horizontal rules like '---', no extra headings."
+                    printf '%s\n' "- No commit hashes, branch names, or internal jargon; focus on user-facing benefits."
+                    printf '%s\n' "- Output only Markdown text in the format above."
+                    printf '%s\n' ""
+                    printf '%s\n' "Source commit subjects:"
+                    printf '%s\n' "$COMMIT_LIST"
+                  } > prompt.txt
 
-                    # Basic list as a fallback body
-                    cat commits.txt | sed 's/^• /* /g'
-                    echo; echo "### Installation"; echo "Update via VS Code Marketplace or GitHub releases."; echo;
-                    echo "### Feedback"; echo "Please report issues on GitHub."
-                  } > NOTES.md
+                  # Safely construct the JSON payload using jq, reading the prompt from a file
+                  # to avoid shell argument length limits.
+                  API_PAYLOAD=$(jq -n --rawfile prompt prompt.txt \
+                    '{contents: [{parts: [{text: $prompt}]}]}')
 
-                  echo "Generated release notes file ($(wc -l < NOTES.md) lines)"
+                  # Select model (override with secret/env GEMINI_MODEL if desired)
+                  MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
+                  echo "Using Gemini model: $MODEL"
+
+                  # Call the Gemini API
+                  RESPONSE_JSON=$(curl -sS -X POST \
+                    -H "Content-Type: application/json" \
+                    -H "X-goog-api-key: ${GEMINI_API_KEY}" \
+                    -d "$API_PAYLOAD" \
+                    --max-time 30 --retry 2 --retry-delay 5 \
+                    "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
+
+                  # Check for curl errors
+                  if [ $? -ne 0 ]; then
+                    echo "Error: curl command failed to connect to the Gemini API." >&2
+                    exit 1
+                  fi
+
+                  # If model not found, try a fallback model once
+                  if echo "$RESPONSE_JSON" | jq -e '.error.status=="NOT_FOUND"' >/dev/null 2>&1; then
+                    echo "Model $MODEL not found on this API version. Trying fallback model gemini-2.5-pro..." >&2
+                    MODEL="gemini-2.5-pro"
+                    RESPONSE_JSON=$(curl -sS -X POST \
+                      -H "Content-Type: application/json" \
+                      -H "X-goog-api-key: ${GEMINI_API_KEY}" \
+                      -d "$API_PAYLOAD" \
+                      --max-time 30 --retry 2 --retry-delay 5 \
+                      "https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent")
+                  fi
+
+                  # Try to extract text by concatenating all parts' text fields
+                  NOTES_BODY=$(echo "$RESPONSE_JSON" | jq -r '[.candidates[0].content.parts[]? | .text // empty] | join("")')
+
+                  if [ -z "$NOTES_BODY" ] || [ "$NOTES_BODY" = "null" ]; then
+                    echo "Error: Gemini API did not return a valid response or the response was empty." >&2
+                    echo "Prompt feedback (if any):" >&2
+                    echo "$RESPONSE_JSON" | jq -r '.promptFeedback // empty' >&2 || true
+                    echo "Candidate safety ratings (if any):" >&2
+                    echo "$RESPONSE_JSON" | jq -r '.candidates[0].safetyRatings // empty' >&2 || true
+                    echo "Full API Response for debugging:" >&2
+                    echo "$RESPONSE_JSON" >&2
+                    echo "Falling back to raw commit list."
+                    {
+                      echo "### AI Summary Failed: Raw Commit Log for v${VERSION}"
+                      echo
+                      cat commits.txt
+                    } > NOTES.md
+                  else
+                    # Sanitize: remove '---' separators and trim length
+                    SANITIZED=$(printf '%s' "$NOTES_BODY" | sed '/^---$/d')
+                    LEN=$(printf '%s' "$SANITIZED" | wc -m | tr -d ' ')
+                    if [ "$LEN" -gt 1900 ]; then
+                      SANITIZED=$(printf '%s' "$SANITIZED" | head -c 1900)
+                      SANITIZED="$(printf '%s\n...(truncated)' "$SANITIZED")"
+                    fi
+                    printf '%s' "$SANITIZED" > NOTES.md
+                  fi
+
+                  echo "Generated release notes (AI or fallback)."
 
             - name: Send to n8n webhook (Discord)
               if: steps.version.outputs.skip != 'true'
@@ -148,60 +223,14 @@ jobs:
                   fi
 
                   VERSION="${{ steps.version.outputs.version }}"
-                  NOTES_CONTENT=$(cat NOTES.md)
-
-                  PAYLOAD=$(jq -n --arg version "$VERSION" --arg notes "$NOTES_CONTENT" '{version:$version, notes:$notes}')
+                  
+                  # Ensure proper JSON escaping by using jq to read the file
+                  PAYLOAD=$(jq -n \
+                    --arg version "$VERSION" \
+                    --rawfile notes NOTES.md \
+                    '{version:$version, notes:$notes}')
 
                   # The n8n Discord node reads $json.version and $json.notes
                   curl -sS -X POST -H 'Content-Type: application/json' -d "$PAYLOAD" "$N8N_WEBHOOK_URL"
                   echo "Sent release notes for v$VERSION to n8n."
-
-            - name: Create or update draft GitHub release (via API)
-              if: steps.version.outputs.skip != 'true'
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              shell: bash
-              working-directory: repo
-              run: |
-                  set -euo pipefail
-                  VERSION="${{ steps.version.outputs.version }}"
-                  NOTES_CONTENT=$(cat NOTES.md)
-                  # Check if a release for this tag already exists
-                  GET_RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
-                                   -H "Accept: application/vnd.github+json" \
-                                   "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" || true)
-                  RELEASE_ID=$(echo "$GET_RESP" | jq -r '.id // empty')
-                  IS_DRAFT=$(echo "$GET_RESP" | jq -r '.draft // empty')
-
-                  if [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ]; then
-                    # If published (draft == false), do not modify
-                    if [ "$IS_DRAFT" = "false" ]; then
-                      echo "Release for tag ${VERSION} is already published; skipping any updates."
-                      exit 0
-                    fi
-                    # Update existing draft release
-                    PATCH_BODY=$(jq -n --arg name "Release $VERSION" \
-                                       --arg body "$NOTES_CONTENT" \
-                                       --argjson draft true \
-                                       '{name:$name, body:$body, draft:$draft}')
-                    curl -sS -X PATCH \
-                      -H "Authorization: Bearer ${GH_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      -d "$PATCH_BODY" \
-                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" >/dev/null
-                    echo "Updated existing draft release for tag ${VERSION}."
-                  else
-                    # Create new draft release
-                    POST_BODY=$(jq -n --arg tag "$VERSION" \
-                                      --arg name "Release $VERSION" \
-                                      --arg body "$NOTES_CONTENT" \
-                                      --argjson draft true \
-                                      '{tag_name:$tag, name:$name, body:$body, draft:$draft}')
-                    curl -sS -X POST \
-                      -H "Authorization: Bearer ${GH_TOKEN}" \
-                      -H "Accept: application/vnd.github+json" \
-                      -d "$POST_BODY" \
-                      "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases" >/dev/null
-                    echo "Created new draft release for tag ${VERSION}."
-                  fi
 

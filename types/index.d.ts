@@ -1027,7 +1027,7 @@ type EditorReceiveMessages =
     }
     | {
         type: "providerSendsAudioAttachments";
-        attachments: { [cellId: string]: boolean; }; // true if cell has audio
+        attachments: { [cellId: string]: "available" | "deletedOnly" | "none"; };
     }
     | {
         type: "providerSendsAudioData";

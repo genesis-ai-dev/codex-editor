@@ -38,7 +38,7 @@ export interface CellListProps {
     currentProcessingCellId?: string; // Currently processing cell ID
     cellsInAutocompleteQueue?: string[]; // Cells queued for autocompletion
     successfulCompletions?: Set<string>; // Cells that completed successfully
-    audioAttachments?: { [cellId: string]: boolean }; // Cells that have audio attachments
+    audioAttachments?: { [cellId: string]: "available" | "deletedOnly" | "none" }; // Cells that have audio attachments
     isSaving?: boolean;
     saveError?: boolean; // Whether there was a save error/timeout
     saveRetryCount?: number; // Number of save retry attempts
@@ -527,6 +527,48 @@ const CellList: React.FC<CellListProps> = ({
         ]
     );
 
+    // expose to children via window
+    (window as any).openCellById = openCellById;
+
+    // Force-open variant used by toolbar icons (saves first if needed)
+    const openCellByIdForce = useCallback(
+        (cellId: string) => {
+            const cellToOpen = workingTranslationUnits.find(
+                (unit) => unit.cellMarkers[0] === cellId
+            );
+            if (!cellToOpen) return;
+
+            // Save current edits if needed
+            if (unsavedChanges) {
+                try {
+                    handleSaveHtml();
+                } catch {}
+            }
+
+            const documentUri =
+                (vscode.getState() as any)?.documentUri || window.location.search.substring(1);
+
+            setContentBeingUpdated({
+                cellMarkers: cellToOpen.cellMarkers,
+                cellContent: cellToOpen.cellContent,
+                cellChanged: true,
+                cellLabel: cellToOpen.cellLabel,
+                timestamps: cellToOpen.timestamps,
+                uri: documentUri,
+            } as EditorCellContent);
+
+            vscode.postMessage({
+                command: "setCurrentIdToGlobalState",
+                content: {
+                    currentLineId: cellToOpen.cellMarkers[0],
+                },
+            } as EditorPostMessages);
+        },
+        [workingTranslationUnits, setContentBeingUpdated, vscode, unsavedChanges, handleSaveHtml]
+    );
+
+    (window as any).openCellByIdForce = openCellByIdForce;
+
     const renderCellGroup = useCallback(
         (group: typeof workingTranslationUnits, startIndex: number) => (
             <span
@@ -579,7 +621,7 @@ const CellList: React.FC<CellListProps> = ({
                                 handleCellTranslation={handleCellTranslation}
                                 handleCellClick={openCellById}
                                 cellDisplayMode={cellDisplayMode}
-                                audioAttachments={audioAttachments}
+                                audioAttachments={audioAttachments as any}
                                 footnoteOffset={calculateFootnoteOffset(startIndex + index)}
                                 isCorrectionEditorMode={isCorrectionEditorMode}
                                 translationUnits={workingTranslationUnits}
@@ -622,7 +664,7 @@ const CellList: React.FC<CellListProps> = ({
         const result = [];
         let currentGroup = [];
         let groupStartIndex = 0;
-        const emptyCellsRendered = 0;
+        let emptyCellsRendered = 0;
 
         debug("workingTranslationUnits", { workingTranslationUnits });
 
@@ -691,6 +733,70 @@ const CellList: React.FC<CellListProps> = ({
                         />
                     </span>
                 );
+                groupStartIndex = i + 1;
+            } else if (isCellContentEmpty(cellContent)) {
+                if (currentGroup.length > 0) {
+                    result.push(renderCellGroup(currentGroup, groupStartIndex));
+                    currentGroup = [];
+                }
+
+                // Only render empty cells in one-line-per-cell mode or if it's the next empty cell to render
+                if (
+                    cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL ||
+                    !isCellContentEmpty(workingTranslationUnits[i - 1]?.cellContent) ||
+                    i === 0
+                ) {
+                    // Use global line numbering
+                    const generatedCellLabel = generateCellLabel(
+                        workingTranslationUnits[i],
+                        workingTranslationUnits
+                    );
+
+                    // Render using the same component as non-empty cells for perfect alignment
+                    result.push(
+                        <span
+                            key={`${cellMarkers[0]}:${i}`}
+                            style={{
+                                display:
+                                    cellDisplayMode === CELL_DISPLAY_MODES.INLINE
+                                        ? "inline"
+                                        : "block",
+                                verticalAlign: "middle",
+                                backgroundColor: "transparent",
+                                opacity: workingTranslationUnits[i].merged ? 0.5 : 1,
+                            }}
+                        >
+                            <CellContentDisplay
+                                cell={workingTranslationUnits[i]}
+                                lineNumber={generatedCellLabel}
+                                label={cellLabel}
+                                lineNumbersEnabled={lineNumbersEnabled}
+                                key={`cell-${cellMarkers[0]}:empty`}
+                                vscode={vscode}
+                                textDirection={textDirection}
+                                isSourceText={isSourceText}
+                                hasDuplicateId={false}
+                                alertColorCode={alertColorCodes[cellMarkers[0]]}
+                                highlightedCellId={highlightedCellId}
+                                scrollSyncEnabled={scrollSyncEnabled}
+                                isInTranslationProcess={isCellInTranslationProcess(cellMarkers[0])}
+                                translationState={getCellTranslationState(cellMarkers[0])}
+                                allTranslationsComplete={successfulCompletions.size > 0}
+                                handleCellTranslation={handleCellTranslation}
+                                handleCellClick={openCellById}
+                                cellDisplayMode={cellDisplayMode}
+                                audioAttachments={audioAttachments as any}
+                                footnoteOffset={calculateFootnoteOffset(i)}
+                                isCorrectionEditorMode={isCorrectionEditorMode}
+                                translationUnits={workingTranslationUnits}
+                                unresolvedCommentsCount={cellCommentsCount.get(cellMarkers[0]) || 0}
+                                currentUsername={currentUsername || undefined}
+                                requiredValidations={requiredValidations}
+                            />
+                        </span>
+                    );
+                    emptyCellsRendered++;
+                }
                 groupStartIndex = i + 1;
             } else {
                 currentGroup.push(workingTranslationUnits[i]);

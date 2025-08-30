@@ -697,6 +697,15 @@
                         "default": 30,
                         "description": "The number of sample translation pairs to show the Copilot."
                     },
+                    "codex-editor-extension.fewShotExampleFormat": {
+                        "type": "string",
+                        "default": "source-and-target",
+                        "description": "Format for few-shot examples shown to the AI. 'source-and-target' shows both source and target text, 'target-only' shows only target translations.",
+                        "enum": [
+                            "source-and-target",
+                            "target-only"
+                        ]
+                    },
                     "codex-editor-extension.contextSize": {
                         "type": "string",
                         "default": "medium",

@@ -236,13 +236,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
         }}>
             <div style={{
                 backgroundColor: "var(--vscode-editor-background)",
-                border: "1px solid var(--vscode-editor-foreground)",
+                border: "1px solid var(--vscode-panel-border)",
                 borderRadius: "8px",
                 padding: "20px",
-                maxWidth: "600px",
+                maxWidth: "680px",
                 maxHeight: "80vh",
                 overflow: "auto",
-                width: "90%"
+                width: "92%",
+                boxShadow: "0 10px 24px rgba(0,0,0,0.3)"
             }}>
                 <div style={{
                     display: "flex",
@@ -282,14 +283,14 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                     key={entry.attachmentId}
                                     style={{
                                         padding: "12px",
-                                        border: "1px solid var(--vscode-editor-foreground)",
+                                        border: "1px solid var(--vscode-panel-border)",
                                         borderRadius: "6px",
-                                        backgroundColor: isCurrent
+                                        backgroundColor: entry.attachment.isDeleted
+                                            ? "var(--vscode-inputValidation-errorBackground)"
+                                            : isCurrent
                                             ? "var(--vscode-editor-selectionBackground)"
-                                            : entry.attachment.isDeleted
-                                            ? "var(--vscode-errorForeground)"
-                                            : "transparent",
-                                        opacity: entry.attachment.isDeleted ? 0.6 : 1
+                                            : "var(--vscode-editorWidget-background)",
+                                        opacity: entry.attachment.isDeleted ? 0.9 : 1
                                     }}
                                 >
                                     <div style={{
@@ -302,8 +303,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             display: "flex",
                                             alignItems: "center",
                                             gap: "8px",
-                                            fontSize: "0.9em",
-                                            color: "var(--vscode-descriptionForeground)"
+                                            fontSize: "0.95em",
+                                            color: "var(--vscode-foreground)"
                                         }}>
                                             <Clock size={14} />
                                             <span>Created: {formatDate(entry.attachment.createdAt)}</span>
@@ -318,8 +319,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                         }}>
                                             {isSelected && (
                                                 <span style={{
-                                                    backgroundColor: "var(--vscode-charts-blue)",
-                                                    color: "white",
+                                                    backgroundColor: "var(--vscode-badge-background)",
+                                                    color: "var(--vscode-badge-foreground)",
                                                     padding: "2px 6px",
                                                     borderRadius: "3px",
                                                     fontSize: "0.8em",
@@ -330,8 +331,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )}
                                             {isCurrent && !hasExplicitSelection && (
                                                 <span style={{
-                                                    backgroundColor: "var(--vscode-charts-green)",
-                                                    color: "white",
+                                                    backgroundColor: "var(--vscode-editorInfo-foreground)",
+                                                    color: "var(--vscode-editor-background)",
                                                     padding: "2px 6px",
                                                     borderRadius: "3px",
                                                     fontSize: "0.8em",
@@ -342,8 +343,8 @@ export const AudioHistoryViewer: React.FC<AudioHistoryViewerProps> = ({
                                             )}
                                             {entry.attachment.isDeleted && (
                                                 <span style={{
-                                                    backgroundColor: "var(--vscode-errorForeground)",
-                                                    color: "white",
+                                                    backgroundColor: "var(--vscode-inputValidation-errorBorder)",
+                                                    color: "var(--vscode-editor-background)",
                                                     padding: "2px 6px",
                                                     borderRadius: "3px",
                                                     fontSize: "0.8em",

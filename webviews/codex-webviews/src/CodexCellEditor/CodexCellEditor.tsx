@@ -210,7 +210,7 @@ const CodexCellEditor: React.FC = () => {
     const [currentSubsectionIndex, setCurrentSubsectionIndex] = useState(0);
 
     // Add audio attachments state
-    const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: boolean }>({});
+    const [audioAttachments, setAudioAttachments] = useState<{ [cellId: string]: "available" | "deletedOnly" | "none" }>({});
 
     // Add cells per page configuration
     const [cellsPerPage] = useState<number>((window as any).initialData?.cellsPerPage || 50);

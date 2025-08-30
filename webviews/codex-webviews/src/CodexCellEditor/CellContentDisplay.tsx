@@ -59,7 +59,9 @@ function debug(message: string, ...args: any[]): void {
 const AudioPlayButton: React.FC<{
     cellId: string;
     vscode: WebviewApi<unknown>;
-}> = React.memo(({ cellId, vscode }) => {
+    state?: "available" | "deletedOnly" | "none";
+    onOpenCell?: (cellId: string) => void;
+}> = React.memo(({ cellId, vscode, state = "available", onOpenCell }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -151,6 +153,19 @@ const AudioPlayButton: React.FC<{
 
     const handlePlayAudio = async () => {
         try {
+            // For any non-available state, open editor on audio tab and auto-start recording
+            if (state !== "available") {
+                try {
+                    sessionStorage.setItem(`start-audio-recording-${cellId}`, "1");
+                } catch {}
+                vscode.postMessage({
+                    command: "setPreferredEditorTab",
+                    content: { tab: "audio" },
+                } as any);
+                if (onOpenCell) onOpenCell(cellId);
+                return;
+            }
+
             if (isPlaying) {
                 // Stop current audio
                 if (audioRef.current) {
@@ -190,11 +205,28 @@ const AudioPlayButton: React.FC<{
         }
     };
 
+    // Decide icon color/style based on state
+    const { iconClass, color, titleSuffix } = (() => {
+        if (state === "available") {
+            return {
+                iconClass: isPlaying ? "codicon-debug-stop" : "codicon-play",
+                color: "var(--vscode-charts-blue)",
+                titleSuffix: "(available)",
+            } as const;
+        }
+        // For any non-available state, show microphone to begin recording
+        return {
+            iconClass: "codicon-mic",
+            color: "var(--vscode-foreground)",
+            titleSuffix: "(record)",
+        } as const;
+    })();
+
     return (
         <button
             onClick={handlePlayAudio}
             className="audio-play-button"
-            title={isPlaying ? "Stop audio" : isLoading ? "Preparing audio..." : "Play audio"}
+            title={isLoading ? "Preparing audio..." : state === "available" ? "Play" : "Record"}
             disabled={false}
             style={{
                 background: "none",
@@ -205,7 +237,7 @@ const AudioPlayButton: React.FC<{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: "var(--vscode-foreground)",
+                color,
                 opacity: isPlaying ? 1 : 0.8,
                 transition: "opacity 0.2s",
             }}
@@ -213,8 +245,8 @@ const AudioPlayButton: React.FC<{
             onMouseLeave={(e) => (e.currentTarget.style.opacity = isPlaying ? "1" : "0.8")}
         >
             <i
-                className={`codicon ${isPlaying ? "codicon-debug-stop" : "codicon-play"}`}
-                style={{ fontSize: "16px" }}
+                className={`codicon ${iconClass}`}
+                style={{ fontSize: "16px", position: "relative" }}
             />
         </button>
     );
@@ -480,7 +512,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     height: "5px",
                     borderRadius: "50%",
                     backgroundColor: color,
-                    marginLeft: "4px",
+                    marginLeft: "1px",
                 }}
             />
         );
@@ -557,7 +589,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
         };
 
         // Decide when the label should occupy the full top row
-        const forceLabelTopRow: boolean = lineNumbersEnabled;
+        const forceLabelTopRow: boolean = false;
 
         // Function to check if we should show cell header elements
         const shouldShowHeaderElements = () => {
@@ -664,7 +696,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     ...getBorderStyle(),
                     display: "flex",
                     alignItems: "flex-start",
-                    gap: "0.5rem",
+                    gap: "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                     border: "1px solid transparent",
@@ -679,30 +711,14 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                 }}
             >
                 <div
-                    className="cell-header"
-                    style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        flexShrink: 0,
-                    }}
+                    className="cell-header flex justify-start items-start shrink-0 gap-[1px]"
                 >
                     {cellDisplayMode !== CELL_DISPLAY_MODES.INLINE && (
                         <div
-                            className="cell-actions"
-                            style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                            }}
+                            className="cell-actions flex justify-start items-center"
                         >
                             <div
-                                className="action-button-container"
-                                style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "8px",
-                                }}
+                                className="action-button-container flex items-center gap-px"
                             >
                                 <AnimatedReveal
                                     mode="reveal"
@@ -752,13 +768,10 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 />
                                 {lineNumber && lineNumbersEnabled && (
                                     <div
-                                        className="cell-line-number"
+                                        className="cell-line-number whitespace-nowrap text-right mr-0 w-[1.6ch]"
                                         style={{
                                             fontWeight: 500,
                                             lineHeight: 1.2,
-                                            whiteSpace: "nowrap",
-                                            minWidth: 0,
-                                            marginRight: "0.25rem",
                                             color: "var(--vscode-descriptionForeground)",
                                             fontSize: "0.9em",
                                         }}
@@ -769,8 +782,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 )}
 
                                 {/* Audio Play Button */}
-                                {audioAttachments && audioAttachments[cellIds[0]] && (
-                                    <AudioPlayButton cellId={cellIds[0]} vscode={vscode} />
+                                {!isSourceText && audioAttachments && (
+                                    <AudioPlayButton
+                                        cellId={cellIds[0]}
+                                        vscode={vscode}
+                                        state={
+                                            (audioAttachments[cellIds[0]] as any) || "none"
+                                        }
+                                        onOpenCell={(id) => {
+                                            // Use force variant to ensure editor opens even with unsaved state
+                                            const open = (window as any).openCellByIdForce || (window as any).openCellById;
+                                            if (typeof open === "function") open(id);
+                                        }}
+                                    />
                                 )}
 
                                 {/* Merge Button - only show in correction editor mode for source text */}
@@ -838,29 +862,19 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
 
                 {/* Right side: wrappable label + content */}
                 <div
-                    style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "baseline",
-                        gap: "0.25rem",
-                        flex: 1,
-                        minWidth: 0,
-                    }}
+                    className="flex flex-wrap items-baseline gap-[0.25rem] flex-1 min-w-0"
                 >
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
-                            className="cell-label-text text-primary"
+                            className="cell-label-text text-primary inline-block text-right mr-0 min-w-[2.25ch]"
                             style={{
                                 fontWeight:
                                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL
                                         ? 500
                                         : "normal",
                                 lineHeight: 1.2,
-                                whiteSpace: "normal",
                                 overflowWrap: "anywhere",
-                                minWidth: 0,
-                                marginRight: "0.25rem",
                                 flexBasis: forceLabelTopRow ? "100%" : "auto",
                             }}
                             title={label}
