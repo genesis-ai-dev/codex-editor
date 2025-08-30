@@ -1,4 +1,6 @@
-import React, { useMemo, useState, useCallback, lazy, Suspense } from "react";
+/* Note: this file has some support for importing video files as well as audio, but this generally results in a grey screen blocking the main thread, so user-facing copy related to video is disabled for now. */
+
+import React, { useMemo, useState, useCallback, lazy, Suspense, useEffect } from "react";
 import { ImporterComponentProps, WriteNotebooksWithAttachmentsMessage } from "../../types/plugin";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -7,6 +9,7 @@ import { Badge } from "../../../components/ui/badge";
 import { Label } from "../../../components/ui/label";
 import { Slider } from "../../../components/ui/slider";
 import { Switch } from "../../../components/ui/switch";
+import { Progress } from "../../../components/ui/progress";
 import {
     Upload,
     ListChecks,
@@ -20,14 +23,16 @@ import {
     Music,
     Activity,
     AlertTriangle,
+    Video,
 } from "lucide-react";
 import { processVttOrTsv } from "./timestampParsers";
 import { Alert, AlertDescription } from "../../../components/ui/alert";
+import { isVideoFile } from "./audioExtractor";
 
 // Lazy load the waveform component to avoid blocking initial render
 const AudioWaveform = lazy(() => import("./AudioWaveform"));
 
-type AudioRow = {
+type MediaRow = {
     id: string;
     file: File;
     name: string;
@@ -35,6 +40,7 @@ type AudioRow = {
     segments: Array<{ startSec: number; endSec: number }>;
     status: "new" | "segmented";
     expanded?: boolean;
+    isVideo?: boolean;
 };
 
 function generateAttachmentId(): string {
@@ -63,7 +69,7 @@ function formatFileSize(bytes: number): string {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-const processedNotebook = (name: string, cells: any[], nowIso: string) => ({
+const processedNotebook = (name: string, cells: any[], nowIso: string, videoUrl?: string) => ({
     name,
     cells: cells.map((c) => ({
         id: c.metadata.id,
@@ -74,8 +80,9 @@ const processedNotebook = (name: string, cells: any[], nowIso: string) => ({
     metadata: {
         id: name,
         originalFileName: name,
-        importerType: "audio",
+        importerType: "audio", // Keep as "audio" for compatibility
         createdAt: nowIso,
+        ...(videoUrl && { videoUrl }),
     },
 });
 
@@ -85,34 +92,53 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
     onCancelImport,
     wizardContext,
 }) => {
-    const [rows, setRows] = useState<AudioRow[]>([]);
+    const [rows, setRows] = useState<MediaRow[]>([]);
     const [documentName, setDocumentName] = useState<string>(
-        wizardContext?.selectedSource?.name || "AudioDocument"
+        wizardContext?.selectedSource?.name || "MediaDocument"
     );
     const [isProcessing, setIsProcessing] = useState(false);
     const [silenceThreshold, setSilenceThreshold] = useState(0.5); // seconds
     const [showAdvanced, setShowAdvanced] = useState(false);
     const [mergeFiles, setMergeFiles] = useState(false); // Default to individual files
 
+    // Auto-segmentation progress state
+    const [isAutoSegmenting, setIsAutoSegmenting] = useState(false);
+    const [autoSegmentProgress, setAutoSegmentProgress] = useState({ current: 0, total: 0 });
+
+    // Attachment import progress state
+    const [attachmentProgress, setAttachmentProgress] = useState({
+        current: 0,
+        total: 0,
+        message: "",
+        isVisible: false,
+    });
+
     const handleSelectFiles = useCallback(
-        (ev: React.ChangeEvent<HTMLInputElement>) => {
+        async (ev: React.ChangeEvent<HTMLInputElement>) => {
             const files = Array.from(ev.target.files || []).filter(
                 (f) =>
                     f.type.startsWith("audio/") ||
+                    // f.type.startsWith("video/") ||
+                    // /\.(mp3|wav|m4a|aac|ogg|webm|flac|mp4|mov|avi|mkv|webm)$/i.test(f.name)
                     /\.(mp3|wav|m4a|aac|ogg|webm|flac)$/i.test(f.name)
             );
-            const next: AudioRow[] = files.map((f, idx) => ({
-                id: `${f.name}-${idx}-${Date.now()}`,
-                file: f,
-                name: f.name.replace(/\.[^/.]+$/, ""),
-                segments: [{ startSec: 0, endSec: Number.NaN }],
-                status: "new",
-                expanded: false,
-            }));
+
+            const next: MediaRow[] = files.map((f, idx) => {
+                const isVideo = isVideoFile(f);
+                return {
+                    id: `${f.name}-${idx}-${Date.now()}`,
+                    file: f,
+                    name: f.name.replace(/\.[^/.]+$/, ""),
+                    segments: [{ startSec: 0, endSec: Number.NaN }],
+                    status: "new", // All files are ready for processing
+                    expanded: false,
+                    isVideo,
+                };
+            });
             setRows((prev) => [...prev, ...next]);
 
             // Set document name to first file's name if not already set
-            if (files.length > 0 && (!documentName || documentName === "AudioDocument")) {
+            if (files.length > 0 && (!documentName || documentName === "MediaDocument")) {
                 const firstName = files[0].name.replace(/\.[^/.]+$/, "");
                 setDocumentName(firstName);
             }
@@ -156,11 +182,90 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
         setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, expanded: !r.expanded } : r)));
     }, []);
 
+    const handleAutoSegment = useCallback(async () => {
+        const filesToProcess = rows.filter((row) => !row.expanded);
+        if (filesToProcess.length === 0) return;
+
+        setIsAutoSegmenting(true);
+        setAutoSegmentProgress({ current: 0, total: filesToProcess.length });
+
+        try {
+            for (let i = 0; i < filesToProcess.length; i++) {
+                const row = filesToProcess[i];
+                setAutoSegmentProgress({ current: i, total: filesToProcess.length });
+
+                // Expand the file to trigger auto-segmentation
+                setRows((prev) =>
+                    prev.map((r) => (r.id === row.id ? { ...r, expanded: true } : r))
+                );
+
+                // Wait a bit for the waveform to process
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+
+            setAutoSegmentProgress({
+                current: filesToProcess.length,
+                total: filesToProcess.length,
+            });
+
+            // Give a final moment to show completion
+            await new Promise((resolve) => setTimeout(resolve, 500));
+        } finally {
+            setIsAutoSegmenting(false);
+            setAutoSegmentProgress({ current: 0, total: 0 });
+        }
+    }, [rows]);
+
+    // Listen for attachment progress messages from the VS Code extension
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.command === "attachmentProgress") {
+                setAttachmentProgress({
+                    current: message.current,
+                    total: message.total,
+                    message: message.message,
+                    isVisible: message.current < message.total || message.current === 0,
+                });
+
+                // Hide progress after completion
+                if (message.current === message.total && message.current > 0) {
+                    setTimeout(() => {
+                        setAttachmentProgress((prev) => ({ ...prev, isVisible: false }));
+                    }, 2000);
+                }
+            }
+        };
+
+        window.addEventListener("message", handleMessage);
+        return () => window.removeEventListener("message", handleMessage);
+    }, []);
+
     const buildNotebookPairAndAttachments = async () => {
         const nowIso = new Date().toISOString();
         const fileDataMap = new Map<string, string>();
         const allAttachments: WriteNotebooksWithAttachmentsMessage["attachments"] = [];
         const notebookPairs: any[] = [];
+
+        // Show initial processing progress
+        setAttachmentProgress({
+            current: 0,
+            total: rows.length,
+            message: "Processing media files...",
+            isVisible: true,
+        });
+
+        // Determine if we have video files and get the first video URL
+        const hasVideoFiles = rows.some((row) => row.isVideo);
+        const firstVideoFile = rows.find((row) => row.isVideo);
+        let videoUrl: string | undefined;
+
+        if (firstVideoFile) {
+            // Create a video URL in the project attachments folder
+            const docId = documentName.replace(/\.[^/.]+$/, "").replace(/\s+/g, "");
+            const ext = firstVideoFile.file.name.split(".").pop() || "mp4";
+            videoUrl = `.project/attachments/files/${docId}/${firstVideoFile.name}.${ext}`;
+        }
 
         if (mergeFiles) {
             // MERGE MODE: Create one notebook with all files as sections
@@ -168,41 +273,82 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             const sourceCells: any[] = [];
             const codexCells: any[] = [];
 
+            // Store video file data separately if we have videos
+            if (hasVideoFiles && firstVideoFile) {
+                const videoDataUrl = await toTimestampDataUrl(firstVideoFile.file);
+                fileDataMap.set("VIDEO_FILE", videoDataUrl);
+            }
+
             let sectionIndex = 0;
             for (const row of rows) {
                 sectionIndex++;
 
-                // Get or create the base64 data for this file
+                // Update progress for each file
+                setAttachmentProgress({
+                    current: sectionIndex - 1,
+                    total: rows.length,
+                    message: `Processing ${row.name}...`,
+                    isVisible: true,
+                });
+
+                const baseAttachmentId = generateAttachmentId();
+                const rawSegs = row.segments.map((s) => ({
+                    startSec: s.startSec ?? 0,
+                    endSec: isFinite(s.endSec) ? s.endSec : Number.NaN,
+                }));
+
+                // Filter out invalid segments
+                const validSegs = rawSegs.filter((s) => {
+                    const isValidStart = isFinite(s.startSec) && s.startSec >= 0;
+                    const isValidEnd = isFinite(s.endSec) || isNaN(s.endSec);
+                    const isValidRange = isNaN(s.endSec) || s.endSec > s.startSec;
+
+                    return isValidStart && isValidEnd && isValidRange;
+                });
+
+                if (validSegs.length === 0) {
+                    console.warn(
+                        `No valid segments for file ${row.name}, creating default segment`
+                    );
+                    validSegs.push({ startSec: 0, endSec: Number.NaN });
+                }
+
+                const segs = validSegs;
+
+                // Get file data (video files will be processed by backend)
                 let fileDataUrl = fileDataMap.get(row.file.name);
                 if (!fileDataUrl) {
+                    console.log(
+                        `Reading ${row.isVideo ? "video" : "audio"} file data for ${row.name}...`
+                    );
                     fileDataUrl = await toTimestampDataUrl(row.file);
                     fileDataMap.set(row.file.name, fileDataUrl);
                 }
 
-                const baseAttachmentId = generateAttachmentId();
-                const segs = row.segments.map((s) => ({
-                    startSec: s.startSec ?? 0,
-                    endSec: s.endSec ?? Number.NaN,
-                }));
-
+                // For both video and audio: Create attachments with timing metadata
+                // Backend will handle extraction if needed
                 let cellIndex = 0;
                 for (const seg of segs) {
                     cellIndex++;
                     const cellId = `${docId} ${sectionIndex}:${cellIndex}`;
                     const segmentAttachmentId = `${baseAttachmentId}-seg${cellIndex}`;
-                    const ext = row.file.name.split(".").pop() || "webm";
-                    const fileName = `${segmentAttachmentId}.${ext}`;
+
+                    // Backend will handle audio extraction for video files
+                    const fileName = row.isVideo
+                        ? `${segmentAttachmentId}.webm` // Backend will extract to webm
+                        : `${segmentAttachmentId}.${row.file.name.split(".").pop() || "wav"}`;
 
                     allAttachments.push({
                         cellId,
                         attachmentId: segmentAttachmentId,
                         fileName,
-                        mime: row.file.type || "audio/webm",
+                        mime: row.isVideo ? "audio/webm" : row.file.type || "audio/wav",
                         ...(cellIndex === 1
                             ? {
-                                  dataBase64: fileDataUrl,
+                                  dataBase64: fileDataUrl, // Video data for backend extraction, or audio data
                                   startTime: seg.startSec,
                                   endTime: seg.endSec,
+                                  isFromVideo: row.isVideo, // Backend will extract audio if true
                               }
                             : {
                                   sourceFileId: baseAttachmentId,
@@ -224,55 +370,107 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             }
 
             notebookPairs.push({
-                source: processedNotebook(docId, sourceCells, nowIso),
-                codex: processedNotebook(docId, codexCells, nowIso),
+                source: processedNotebook(docId, sourceCells, nowIso, videoUrl),
+                codex: processedNotebook(docId, codexCells, nowIso, videoUrl),
             });
         } else {
             // INDIVIDUAL MODE: Create separate notebook for each file
-            for (const row of rows) {
+            for (let fileIndex = 0; fileIndex < rows.length; fileIndex++) {
+                const row = rows[fileIndex];
+
+                // Update progress for each file
+                setAttachmentProgress({
+                    current: fileIndex,
+                    total: rows.length,
+                    message: `Processing ${row.name}...`,
+                    isVisible: true,
+                });
                 const fileDocId = row.name.replace(/\s+/g, "");
                 const sourceCells: any[] = [];
                 const codexCells: any[] = [];
 
-                // Get or create the base64 data for this file
-                let fileDataUrl = fileDataMap.get(row.file.name);
-                if (!fileDataUrl) {
-                    fileDataUrl = await toTimestampDataUrl(row.file);
-                    fileDataMap.set(row.file.name, fileDataUrl);
-                }
-
                 const baseAttachmentId = generateAttachmentId();
+                console.log(`Processing individual file: ${row.name}, isVideo: ${row.isVideo}`);
+
                 // In individual mode, ensure all segments are normalized to start from 0
-                // Find the earliest start time and offset all segments
                 const rawSegs = row.segments.map((s) => ({
                     startSec: s.startSec ?? 0,
-                    endSec: s.endSec ?? Number.NaN,
+                    endSec: isFinite(s.endSec) ? s.endSec : Number.NaN,
                 }));
 
-                const earliestStart = Math.min(...rawSegs.map((s) => s.startSec));
-                const segs = rawSegs.map((s) => ({
+                // Filter out invalid segments
+                const validSegs = rawSegs.filter((s) => {
+                    const isValidStart = isFinite(s.startSec) && s.startSec >= 0;
+                    const isValidEnd = isFinite(s.endSec) || isNaN(s.endSec);
+                    const isValidRange = isNaN(s.endSec) || s.endSec > s.startSec;
+
+                    console.log(
+                        `Segment validation: start=${s.startSec}, end=${s.endSec}, validStart=${isValidStart}, validEnd=${isValidEnd}, validRange=${isValidRange}`
+                    );
+
+                    return isValidStart && isValidEnd && isValidRange;
+                });
+
+                if (validSegs.length === 0) {
+                    console.warn(
+                        `No valid segments for file ${row.name}, creating default segment`
+                    );
+                    // Create a default segment for the entire file
+                    validSegs.push({ startSec: 0, endSec: Number.NaN });
+                }
+
+                const earliestStart = Math.min(...validSegs.map((s) => s.startSec));
+                const segs = validSegs.map((s) => ({
                     startSec: s.startSec - earliestStart,
-                    endSec: s.endSec - earliestStart,
+                    endSec: isFinite(s.endSec) ? s.endSec - earliestStart : Number.NaN,
                 }));
 
+                console.log(`File ${row.name} has ${segs.length} valid segments`);
+
+                // For individual files, pass video URL if this specific file is a video
+                let fileVideoUrl: string | undefined;
+                if (row.isVideo) {
+                    fileVideoUrl = `.project/attachments/files/${fileDocId}/${row.name}.${
+                        row.file.name.split(".").pop() || "mp4"
+                    }`;
+                    // Store video file data for later writing
+                    try {
+                        const videoDataUrl = await toTimestampDataUrl(row.file);
+                        fileDataMap.set(`VIDEO_FILE_${row.id}`, videoDataUrl);
+                        console.log(`Stored video data for ${row.name}`);
+                    } catch (error) {
+                        console.error(`Failed to read video file ${row.name}:`, error);
+                        continue;
+                    }
+                }
+
+                // Get file data (video files will be processed by backend)
+                const fileDataUrl = await toTimestampDataUrl(row.file);
+                console.log(`${row.isVideo ? "Video" : "Audio"} file data loaded for ${row.name}`);
+
+                // For both video and audio: Create attachments with timing metadata
                 let cellIndex = 0;
                 for (const seg of segs) {
                     cellIndex++;
                     const cellId = `${fileDocId} 1:${cellIndex}`; // Single section per file
                     const segmentAttachmentId = `${baseAttachmentId}-seg${cellIndex}`;
-                    const ext = row.file.name.split(".").pop() || "webm";
-                    const fileName = `${segmentAttachmentId}.${ext}`;
+
+                    // Backend will handle audio extraction for video files
+                    const fileName = row.isVideo
+                        ? `${segmentAttachmentId}.webm` // Backend will extract to webm
+                        : `${segmentAttachmentId}.${row.file.name.split(".").pop() || "wav"}`;
 
                     allAttachments.push({
                         cellId,
                         attachmentId: segmentAttachmentId,
                         fileName,
-                        mime: row.file.type || "audio/webm",
+                        mime: row.isVideo ? "audio/webm" : row.file.type || "audio/wav",
                         ...(cellIndex === 1
                             ? {
-                                  dataBase64: fileDataUrl,
+                                  dataBase64: fileDataUrl, // Video data for backend extraction, or audio data
                                   startTime: seg.startSec,
                                   endTime: seg.endSec,
+                                  isFromVideo: row.isVideo, // Backend will extract audio if true
                               }
                             : {
                                   sourceFileId: baseAttachmentId,
@@ -293,9 +491,32 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                 }
 
                 notebookPairs.push({
-                    source: processedNotebook(fileDocId, sourceCells, nowIso),
-                    codex: processedNotebook(fileDocId, codexCells, nowIso),
+                    source: processedNotebook(fileDocId, sourceCells, nowIso, fileVideoUrl),
+                    codex: processedNotebook(fileDocId, codexCells, nowIso, fileVideoUrl),
                 });
+            }
+        }
+
+        // Prepare video files for separate storage
+        const videoFiles: Array<{ path: string; dataBase64: string }> = [];
+        if (mergeFiles && hasVideoFiles) {
+            const videoData = fileDataMap.get("VIDEO_FILE");
+            if (videoData && videoUrl) {
+                videoFiles.push({ path: videoUrl, dataBase64: videoData });
+            }
+        } else {
+            // Individual mode - collect all video files
+            for (const row of rows) {
+                if (row.isVideo) {
+                    const fileDocId = row.name.replace(/\s+/g, "");
+                    const videoPath = `.project/attachments/files/${fileDocId}/${row.name}.${
+                        row.file.name.split(".").pop() || "mp4"
+                    }`;
+                    const videoData = fileDataMap.get(`VIDEO_FILE_${row.id}`);
+                    if (videoData) {
+                        videoFiles.push({ path: videoPath, dataBase64: videoData });
+                    }
+                }
             }
         }
 
@@ -304,9 +525,16 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             command: "writeNotebooksWithAttachments",
             notebookPairs,
             attachments: allAttachments,
-            metadata: { importerType: "audio", timestamp: nowIso },
+            metadata: {
+                importerType: "audio",
+                timestamp: nowIso,
+                videoFiles, // Include video files for separate storage
+            },
         } as any;
         (window as any).vscodeApi.postMessage(message);
+
+        // Hide attachment progress on success
+        setAttachmentProgress((prev) => ({ ...prev, isVisible: false }));
 
         // Show success feedback - pass the notebook pairs to onComplete
         onComplete?.(notebookPairs as any);
@@ -368,7 +596,10 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                        <Music className="h-5 w-5" />
+                        <div className="flex items-center gap-1">
+                            <Music className="h-5 w-5" />
+                            {/* <Video className="h-5 w-5" /> */}
+                        </div>
                         Import Audio Files
                     </CardTitle>
                 </CardHeader>
@@ -408,14 +639,14 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
 
                         <div className="flex justify-center">
                             <input
-                                id="audio-file-input"
+                                id="media-file-input"
                                 type="file"
                                 accept="audio/*"
                                 multiple
                                 className="hidden"
                                 onChange={handleSelectFiles}
                             />
-                            <label htmlFor="audio-file-input" className="cursor-pointer">
+                            <label htmlFor="media-file-input" className="cursor-pointer">
                                 <Button asChild variant="outline" size="lg">
                                     <span>
                                         <Upload className="mr-2 h-4 w-4" />
@@ -481,26 +712,84 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                         <Button
                                             variant="default"
                                             size="sm"
-                                            onClick={() => {
-                                                if (mergeFiles) {
-                                                    // In merge mode, expand all files simultaneously
-                                                    setRows((prev) =>
-                                                        prev.map((r) => ({ ...r, expanded: true }))
-                                                    );
-                                                } else {
-                                                    // In individual mode, expand files sequentially to avoid timing conflicts
-                                                    setRows((prev) =>
-                                                        prev.map((r, index) => ({
-                                                            ...r,
-                                                            expanded: true,
-                                                        }))
-                                                    );
-                                                }
-                                            }}
+                                            onClick={handleAutoSegment}
+                                            disabled={
+                                                isAutoSegmenting ||
+                                                rows.filter((row) => !row.expanded).length === 0
+                                            }
                                         >
                                             <Scissors className="mr-2 h-3 w-3" />
-                                            Auto Segment
+                                            {isAutoSegmenting
+                                                ? "Auto Segmenting..."
+                                                : "Auto Segment"}
                                         </Button>
+                                    </div>
+                                </AlertDescription>
+                            </Alert>
+                        </div>
+                    )}
+
+                    {/* Auto-segmentation progress */}
+                    {isAutoSegmenting && (
+                        <div className="space-y-3">
+                            <Alert>
+                                <Activity className="h-4 w-4" />
+                                <AlertDescription>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm font-medium">
+                                                Auto-segmenting files...
+                                            </span>
+                                            <span className="text-sm text-muted-foreground">
+                                                {autoSegmentProgress.current} of{" "}
+                                                {autoSegmentProgress.total}
+                                            </span>
+                                        </div>
+                                        <Progress
+                                            value={
+                                                (autoSegmentProgress.current /
+                                                    autoSegmentProgress.total) *
+                                                100
+                                            }
+                                            className="w-full"
+                                        />
+                                    </div>
+                                </AlertDescription>
+                            </Alert>
+                        </div>
+                    )}
+
+                    {/* Attachment import progress */}
+                    {attachmentProgress.isVisible && (
+                        <div className="space-y-3">
+                            <Alert>
+                                <Upload className="h-4 w-4" />
+                                <AlertDescription>
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm font-medium">
+                                                Importing attachments...
+                                            </span>
+                                            <span className="text-sm text-muted-foreground">
+                                                {attachmentProgress.current} of{" "}
+                                                {attachmentProgress.total}
+                                            </span>
+                                        </div>
+                                        <Progress
+                                            value={
+                                                attachmentProgress.total > 0
+                                                    ? (attachmentProgress.current /
+                                                          attachmentProgress.total) *
+                                                      100
+                                                    : 0
+                                            }
+                                            className="w-full"
+                                        />
+                                        {attachmentProgress.message && (
+                                            <div className="text-xs text-muted-foreground">
+                                                {attachmentProgress.message}
+                                            </div>
+                                        )}
                                     </div>
                                 </AlertDescription>
                             </Alert>
@@ -526,12 +815,22 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                                     <ChevronRight className="h-4 w-4" />
                                                 )}
                                             </Button>
-                                            <FileText className="h-4 w-4 text-muted-foreground" />
+                                            {row.isVideo ? (
+                                                <Video className="h-4 w-4 text-muted-foreground" />
+                                            ) : (
+                                                <Music className="h-4 w-4 text-muted-foreground" />
+                                            )}
                                             <div className="flex-1">
                                                 <div className="font-medium">{row.name}</div>
                                                 <div className="text-xs text-muted-foreground">
                                                     {formatFileSize(row.file.size)} •{" "}
-                                                    {row.file.type || "audio"}
+                                                    {row.file.type ||
+                                                        (row.isVideo ? "video" : "audio")}
+                                                    {row.isVideo && (
+                                                        <span className="ml-1 text-blue-600">
+                                                            • Video file
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -546,6 +845,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                                 {row.segments.length} segment
                                                 {row.segments.length !== 1 ? "s" : ""}
                                             </Badge>
+
                                             {row.status === "segmented" && (
                                                 <Badge
                                                     variant="outline"
@@ -625,7 +925,10 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
 
                         {rows.length === 0 && (
                             <div className="text-center py-8 text-muted-foreground">
-                                <Music className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                                <div className="flex justify-center gap-2 mb-3">
+                                    <Music className="h-12 w-12 opacity-50" />
+                                    {/* <Video className="h-12 w-12 opacity-50" /> */}
+                                </div>
                                 <p>No audio files selected</p>
                                 <p className="text-sm mt-1">
                                     Click "Select Audio Files" to get started
@@ -648,12 +951,14 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                     : ""
                             }`}
                             onClick={async () => {
+                                console.log("Import button clicked, starting validation...");
+
                                 // Warn if very few segments - might indicate segmentation issues or user forgot to split
                                 if (totalSegments <= 1) {
                                     const proceed = confirm(
                                         totalSegments === 0
-                                            ? "No audio segments detected. This might indicate an issue with your audio files. Do you want to proceed anyway?"
-                                            : "Only 1 audio segment detected. This means your audio won't be split into smaller parts. " +
+                                            ? "No media segments detected. This might indicate an issue with your media files. Do you want to proceed anyway?"
+                                            : "Only 1 media segment detected. This means your audio won't be split into smaller parts. " +
                                                   "You can expand the waveform view and use auto-split or manual splitting to create more segments. " +
                                                   "Do you want to proceed with a single segment?"
                                     );
@@ -662,7 +967,7 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                     }
                                 } else if (totalSegments < 3) {
                                     const proceed = confirm(
-                                        `Only ${totalSegments} audio segments detected. This might be fewer than expected. ` +
+                                        `Only ${totalSegments} media segments detected. This might be fewer than expected. ` +
                                             "You can expand the waveform view and adjust the silence threshold or add manual splits. " +
                                             "Do you want to proceed with the current segmentation?"
                                     );
@@ -671,13 +976,25 @@ export const AudioImporterForm: React.FC<ImporterComponentProps> = ({
                                     }
                                 }
 
+                                console.log("Starting import process...");
                                 setIsProcessing(true);
+
                                 try {
                                     await buildNotebookPairAndAttachments();
+                                    console.log("Import completed successfully");
                                 } catch (error) {
                                     console.error("Import failed:", error);
+
+                                    // Hide any progress indicators
+                                    setAttachmentProgress((prev) => ({
+                                        ...prev,
+                                        isVisible: false,
+                                    }));
+
                                     alert(
-                                        "Failed to import audio files. Please check the console for details."
+                                        `Failed to import media files: ${
+                                            error instanceof Error ? error.message : "Unknown error"
+                                        }. Please check the console for details.`
                                     );
                                 } finally {
                                     setIsProcessing(false);

@@ -220,6 +220,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
             sourceCreatedAt: processedNotebook.metadata.createdAt,
             corpusMarker: processedNotebook.metadata.importerType,
             textDirection: "ltr",
+            ...(processedNotebook.metadata.videoUrl && { videoUrl: processedNotebook.metadata.videoUrl }),
         };
 
         return {
@@ -370,49 +371,132 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
         await createNoteBookPair({ token, sourceNotebooks, codexNotebooks });
 
-        // 2) Persist attachments
+        // 2) Write video files separately (only once per video)
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             throw new Error("No workspace folder found");
         }
 
-        // Track source files that have been written
-        const sourceFiles = new Map<string, Buffer>();
+        if (message.metadata?.videoFiles && Array.isArray(message.metadata.videoFiles)) {
+            for (const videoFile of message.metadata.videoFiles) {
+                const videoPath = vscode.Uri.joinPath(workspaceFolder.uri, videoFile.path);
+                const videoDir = vscode.Uri.joinPath(videoPath, '..');
+                await vscode.workspace.fs.createDirectory(videoDir);
 
-        for (const attachment of message.attachments) {
-            const { cellId, attachmentId, fileName, dataBase64, sourceFileId, startTime, endTime } = attachment;
-            const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
-            const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
-            const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
-            await vscode.workspace.fs.createDirectory(filesDir);
-            await vscode.workspace.fs.createDirectory(pointersDir);
-
-            let buffer: Buffer;
-
-            if (dataBase64) {
-                // This is the first segment with the full file data
-                const base64 = dataBase64.includes(",") ? dataBase64.split(",")[1] : dataBase64;
-                buffer = Buffer.from(base64, "base64");
-                // Store for potential reuse by other segments
-                // Use the full attachmentId as the key since sourceFileId will reference it
-                sourceFiles.set(attachmentId.replace(/-seg\d+$/, ''), buffer);
-            } else if (sourceFileId && sourceFiles.has(sourceFileId)) {
-                // This is a subsequent segment - reuse the source file data
-                buffer = sourceFiles.get(sourceFileId)!;
-            } else {
-                console.error(`No data available for attachment ${attachmentId}, sourceFileId: ${sourceFileId}`);
-                continue;
+                const base64 = videoFile.dataBase64.includes(",") ?
+                    videoFile.dataBase64.split(",")[1] : videoFile.dataBase64;
+                const buffer = Buffer.from(base64, "base64");
+                await vscode.workspace.fs.writeFile(videoPath, buffer);
             }
-
-            // Write each segment as its own file (even if it's the full audio)
-            // The player will use startTime/endTime metadata to play the correct portion
-            const filesPath = vscode.Uri.joinPath(filesDir, fileName);
-            const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
-            await vscode.workspace.fs.writeFile(filesPath, buffer);
-            await vscode.workspace.fs.writeFile(pointersPath, buffer);
         }
 
-        // 3) Write success + inventory
+        // 3) Persist audio attachments (extract from video if needed)
+
+        // Import audio extraction utility
+        const { processMediaAttachment } = await import("../../utils/audioExtractor");
+
+        // Show progress with VS Code information message
+        const totalAttachments = message.attachments.length;
+        let processedAttachments = 0;
+
+        // Track the full media data for reuse across segments
+        const mediaDataCache = new Map<string, Buffer>();
+
+        if (totalAttachments > 0) {
+            // Send initial progress to webview
+            webviewPanel.webview.postMessage({
+                command: "attachmentProgress",
+                current: 0,
+                total: totalAttachments,
+                message: "Processing media attachments..."
+            });
+
+            // Use VS Code progress API for native progress indication
+            const progressOptions = {
+                location: vscode.ProgressLocation.Notification,
+                title: "Importing Media Attachments",
+                cancellable: false
+            };
+
+            await vscode.window.withProgress(progressOptions, async (progress) => {
+                progress.report({ increment: 0, message: "Preparing media attachments..." });
+
+                // Process attachments in smaller batches to avoid blocking
+                const batchSize = 3;
+                for (let i = 0; i < message.attachments.length; i += batchSize) {
+                    const batch = message.attachments.slice(i, i + batchSize);
+
+                    // Process batch in parallel
+                    await Promise.all(batch.map(async (attachment) => {
+                        const { cellId, attachmentId, fileName, dataBase64, sourceFileId, isFromVideo } = attachment as any;
+                        const docSegment = (cellId || "").split(" ")[0] || "UNKNOWN";
+                        const filesDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "files", docSegment);
+                        const pointersDir = vscode.Uri.joinPath(workspaceFolder.uri, ".project", "attachments", "pointers", docSegment);
+                        await vscode.workspace.fs.createDirectory(filesDir);
+                        await vscode.workspace.fs.createDirectory(pointersDir);
+
+                        let audioBuffer: Buffer;
+
+                        // Handle first segment (has the actual data)
+                        if (dataBase64 && !sourceFileId) {
+                            console.log(`Processing ${isFromVideo ? 'video' : 'audio'} file: ${fileName}`);
+
+                            // Process the media (extract audio if from video)
+                            audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
+
+                            // Cache the processed audio for subsequent segments
+                            const baseId = attachmentId.replace(/-seg\d+$/, '');
+                            mediaDataCache.set(baseId, audioBuffer);
+
+                            // Write the audio file
+                            const filesPath = vscode.Uri.joinPath(filesDir, fileName);
+                            const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                            await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
+                            await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
+                        } else if (sourceFileId) {
+                            // Subsequent segments - reuse the cached audio data
+                            const baseId = sourceFileId.replace(/-seg\d+$/, '');
+                            const cachedAudio = mediaDataCache.get(baseId);
+
+                            if (cachedAudio) {
+                                console.log(`Writing segment ${fileName} using cached audio`);
+                                const filesPath = vscode.Uri.joinPath(filesDir, fileName);
+                                const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
+                                await vscode.workspace.fs.writeFile(filesPath, cachedAudio);
+                                await vscode.workspace.fs.writeFile(pointersPath, cachedAudio);
+                            } else {
+                                console.warn(`No cached audio found for ${sourceFileId}`);
+                            }
+                        }
+
+                        // Update progress
+                        processedAttachments++;
+
+                        progress.report({
+                            increment: 100 / totalAttachments,
+                            message: `Processing ${fileName}... (${processedAttachments}/${totalAttachments})`
+                        });
+
+                        // Send progress to webview
+                        webviewPanel.webview.postMessage({
+                            command: "attachmentProgress",
+                            current: processedAttachments,
+                            total: totalAttachments,
+                            message: `Processing ${fileName}...`
+                        });
+                    }));
+
+                    // Small delay between batches to prevent blocking
+                    if (i + batchSize < message.attachments.length) {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+                }
+
+                progress.report({ message: "Finalizing import..." });
+            });
+        }
+
+        // 4) Write success + inventory
         const count = message.notebookPairs.length;
         const notebooksText = count === 1 ? "notebook" : "notebooks";
         const firstNotebookName = message.notebookPairs[0]?.source.name || "unknown";
@@ -421,6 +505,14 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                 ? `Successfully imported "${firstNotebookName}"!`
                 : `Successfully imported ${count} ${notebooksText}!`
         );
+        // Send final progress completion message
+        webviewPanel.webview.postMessage({
+            command: "attachmentProgress",
+            current: totalAttachments,
+            total: totalAttachments,
+            message: "Import complete!"
+        });
+
         webviewPanel.webview.postMessage({ command: "notification", type: "success", message: "Notebooks and attachments created successfully!" });
         const inventory = await this.fetchProjectInventory();
         webviewPanel.webview.postMessage({ command: "projectInventory", inventory });
@@ -886,7 +978,7 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
         return getWebviewHtml(webview, this.context, {
             title: "Source File Importer",
             scriptPath: ["NewSourceUploader", "index.js"],
-            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:;`,
+            csp: `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-\${nonce}'; img-src data: https:; connect-src https: http:; media-src blob: data:;`,
             inlineStyles: "#root { height: 100vh; width: 100vw; overflow-y: auto; }",
             customScript: "window.vscodeApi = acquireVsCodeApi();"
         });
