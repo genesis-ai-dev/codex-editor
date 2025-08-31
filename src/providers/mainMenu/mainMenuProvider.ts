@@ -505,6 +505,14 @@ export class MainMenuProvider extends BaseWebviewProvider {
                 await this.store.refreshState();
                 this.sendProjectStateToWebview();
                 break;
+            case "applyTextDisplaySettings":
+                try {
+                    await this.handleApplyTextDisplaySettings(message.data);
+                } catch (error) {
+                    console.error("Error applying text display settings:", error);
+                    vscode.window.showErrorMessage(`Failed to apply text display settings: ${error}`);
+                }
+                break;
         }
 
         // Handle project manager messages
@@ -1575,6 +1583,166 @@ export class MainMenuProvider extends BaseWebviewProvider {
 
         } catch (error) {
             console.error("Error refreshing webviews after text direction update:", error);
+        }
+    }
+
+    private async handleApplyTextDisplaySettings(settings: any): Promise<void> {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            throw new Error("No workspace folder found");
+        }
+
+        // Show progress
+        await vscode.window.withProgress(
+            {
+                location: vscode.ProgressLocation.Notification,
+                title: "Applying Text Display Settings",
+                cancellable: false
+            },
+            async (progress) => {
+                try {
+                    // Find files based on scope
+                    const filesToUpdate: vscode.Uri[] = [];
+
+                    if (settings.fileScope === "source" || settings.fileScope === "both") {
+                        const sourceFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, ".project/sourceTexts/*.source")
+                        );
+                        filesToUpdate.push(...sourceFiles);
+                    }
+
+                    if (settings.fileScope === "target" || settings.fileScope === "both") {
+                        const targetFiles = await vscode.workspace.findFiles(
+                            new vscode.RelativePattern(workspaceFolder, "files/target/*.codex")
+                        );
+                        filesToUpdate.push(...targetFiles);
+                    }
+
+                    progress.report({ message: `Found ${filesToUpdate.length} files to process` });
+
+                    let updatedCount = 0;
+                    let skippedCount = 0;
+                    const appliedSettings: string[] = [];
+
+                    if (settings.fontSize !== undefined) appliedSettings.push(`font size to ${settings.fontSize}px`);
+                    if (settings.enableLineNumbers !== undefined) appliedSettings.push(`line numbers ${settings.enableLineNumbers ? 'enabled' : 'disabled'}`);
+                    if (settings.textDirection !== undefined) appliedSettings.push(`text direction to ${settings.textDirection.toUpperCase()}`);
+
+                    for (let i = 0; i < filesToUpdate.length; i++) {
+                        const file = filesToUpdate[i];
+                        progress.report({
+                            message: `Processing ${path.basename(file.fsPath)} (${i + 1}/${filesToUpdate.length})`,
+                            increment: (100 / filesToUpdate.length)
+                        });
+
+                        try {
+                            const updated = await this.updateFileTextDisplaySettings(file, settings);
+                            if (updated) {
+                                updatedCount++;
+                            } else {
+                                skippedCount++;
+                            }
+                        } catch (error) {
+                            console.error(`Error updating text display settings for ${file.fsPath}:`, error);
+                        }
+                    }
+
+                    // Show completion message
+                    const settingsText = appliedSettings.join(', ');
+                    const message = `Text display settings applied (${settingsText}): ${updatedCount} files updated, ${skippedCount} files skipped`;
+                    vscode.window.showInformationMessage(message);
+
+                    // Refresh webviews to show the updated settings immediately
+                    await this.refreshWebviewsAfterTextDisplayUpdate();
+
+                } catch (error) {
+                    console.error("Error during text display settings update:", error);
+                    throw error;
+                }
+            }
+        );
+    }
+
+    private async updateFileTextDisplaySettings(fileUri: vscode.Uri, settings: any): Promise<boolean> {
+        try {
+            // Read the file content
+            const fileContent = await vscode.workspace.fs.readFile(fileUri);
+            const fileData = JSON.parse(fileContent.toString());
+
+            // Check existing settings to determine if we should skip
+            let shouldSkip = false;
+            
+            if (settings.updateBehavior === "skip") {
+                // Check each setting individually
+                if (settings.fontSize !== undefined && 
+                    fileData.metadata?.fontSize !== undefined && 
+                    fileData.metadata?.fontSizeSource === "local") {
+                    shouldSkip = true;
+                }
+                if (settings.enableLineNumbers !== undefined && 
+                    fileData.metadata?.lineNumbersEnabled !== undefined && 
+                    fileData.metadata?.lineNumbersEnabledSource === "local") {
+                    shouldSkip = true;
+                }
+                if (settings.textDirection !== undefined && 
+                    fileData.metadata?.textDirection !== undefined && 
+                    fileData.metadata?.textDirectionSource === "local") {
+                    shouldSkip = true;
+                }
+            }
+
+            if (shouldSkip) {
+                return false; // Skip this file
+            }
+
+            // Ensure metadata object exists
+            if (!fileData.metadata) {
+                fileData.metadata = {};
+            }
+
+            // Apply the settings
+            if (settings.fontSize !== undefined) {
+                fileData.metadata.fontSize = settings.fontSize;
+                fileData.metadata.fontSizeSource = "global";
+            }
+            if (settings.enableLineNumbers !== undefined) {
+                fileData.metadata.lineNumbersEnabled = settings.enableLineNumbers;
+                fileData.metadata.lineNumbersEnabledSource = "global";
+            }
+            if (settings.textDirection !== undefined) {
+                fileData.metadata.textDirection = settings.textDirection;
+                fileData.metadata.textDirectionSource = "global";
+            }
+
+            // Write the updated content back to the file
+            const updatedContent = JSON.stringify(fileData, null, 2);
+            await vscode.workspace.fs.writeFile(fileUri, Buffer.from(updatedContent, 'utf8'));
+
+            return true; // File was updated
+
+        } catch (error) {
+            console.error(`Error updating text display settings for ${fileUri.fsPath}:`, error);
+            return false;
+        }
+    }
+
+    private async refreshWebviewsAfterTextDisplayUpdate() {
+        try {
+            // Refresh the main menu webview
+            if (this._view) {
+                await this.store.refreshState();
+                this.sendProjectStateToWebview();
+            }
+
+            // Notify other webviews that display settings have changed
+            vscode.commands.executeCommand("codex-editor.refreshAllWebviews");
+
+            // Also refresh the metadata manager to ensure all webviews get updated data
+            const metadataManager = getNotebookMetadataManager();
+            await metadataManager.loadMetadata();
+
+        } catch (error) {
+            console.error("Error refreshing webviews after text display settings update:", error);
         }
     }
 

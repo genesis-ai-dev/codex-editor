@@ -876,7 +876,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                 }
             }
-        } catch { }
+        } catch {
+            // Ignore JSON parsing errors - continue with empty audioCells
+        }
 
         // Mark available where we found on-disk non-deleted attachments
         for (const cellId of Object.keys(audioAttachments)) {
@@ -898,7 +900,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     }
                 }
             }
-        } catch { }
+        } catch {
+            // Ignore JSON parsing errors - continue with current audioCells state
+        }
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
             attachments: audioCells as any,
@@ -1116,7 +1120,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                 }
             }
-        } catch { }
+        } catch {
+            // Ignore JSON parsing errors - continue with empty audioCells
+        }
         for (const cellId of Object.keys(updatedAudioAttachments)) {
             audioCells[cellId] = "available";
         }
@@ -1132,7 +1138,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (hasDeletedAudio) audioCells[id] = "deletedOnly";
                 }
             }
-        } catch { }
+        } catch {
+            // Ignore JSON parsing errors - continue with current audioCells state
+        }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
@@ -1170,7 +1178,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (cell?.metadata?.id) audioCells[cell.metadata.id] = "none";
                 }
             }
-        } catch { }
+        } catch {
+            // Ignore JSON parsing errors - continue with empty audioCells
+        }
         for (const cellId of Object.keys(updatedAudioAttachments)) {
             audioCells[cellId] = "available";
         }
@@ -1186,7 +1196,9 @@ const messageHandlers: Record<string, (ctx: MessageHandlerContext) => Promise<vo
                     if (hasDeletedAudio) audioCells[id] = "deletedOnly";
                 }
             }
-        } catch { }
+        } catch {
+            // Ignore JSON parsing errors - continue with current audioCells state
+        }
 
         provider.postMessageToWebview(webviewPanel, {
             type: "providerSendsAudioAttachments",
