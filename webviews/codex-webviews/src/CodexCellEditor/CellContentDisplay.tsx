@@ -696,7 +696,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     ...getBorderStyle(),
                     display: "flex",
                     alignItems: "flex-start",
-                    gap: "0.0625rem",
+                    gap: isSourceText ? "0.125rem" : "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                     border: "1px solid transparent",

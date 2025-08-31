@@ -2072,7 +2072,7 @@ const CodexCellEditor: React.FC = () => {
                 )}
                 <div
                     className="scrollable-content"
-                    style={{ height: `calc(100vh - ${headerHeight}px)` }}
+                    style={{ height: `calc(100vh - ${headerHeight}px)`, overflowY: "auto" }}
                 >
                     <div className="editor-container max-w-full overflow-hidden">
                         <CellList
