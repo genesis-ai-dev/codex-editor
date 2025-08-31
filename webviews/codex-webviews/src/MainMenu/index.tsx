@@ -430,7 +430,13 @@ function MainMenu() {
             {projectState.workspaceIsOpen && (
                 <div className="space-y-4">
                     {projectState.isInitializing ? (
-                        <Card>
+                        <Card
+                            className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                            style={{
+                                borderColor: "var(--ring)",
+                                backgroundColor: "var(--card)",
+                            }}
+                        >
                             <CardContent className="flex items-center justify-center p-8">
                                 <div className="flex items-center gap-3">
                                     <i className="codicon codicon-loading codicon-modifier-spin text-lg" />
@@ -441,15 +447,27 @@ function MainMenu() {
                     ) : projectState.projectOverview ? (
                         <div className="space-y-4">
                             {/* Project Details */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <i className="codicon codicon-folder-opened" />
+                            <Card
+                                className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                                style={{
+                                    borderColor: "var(--ring)",
+                                    backgroundColor: "var(--card)",
+                                }}
+                            >
+                                <CardHeader className="pb-4">
+                                    <CardTitle 
+                                        className="text-lg font-semibold flex items-center gap-2"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        <i 
+                                            className="codicon codicon-folder-opened text-xl"
+                                            style={{ color: "var(--ring)" }}
+                                        />
                                         {projectState.projectOverview.projectName ||
                                             "Unnamed Project"}
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="space-y-4">
+                                <CardContent className="space-y-4 pt-6">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-1">
                                             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -650,7 +668,7 @@ function MainMenu() {
                                             Publish Project
                                         </CardTitle>
                                     </CardHeader>
-                                    <CardContent>
+                                    <CardContent className="pt-6">
                                         <div className="space-y-4">
                                             <div
                                                 className="flex items-start gap-3 p-3 rounded-lg border"
@@ -705,23 +723,21 @@ function MainMenu() {
                                 style={{
                                     borderColor: "var(--ring)",
                                     backgroundColor: "var(--card)",
-                                    boxShadow:
-                                        "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
                                 }}
                             >
-                                <CardHeader className="pb-4 mb-3">
+                                <CardHeader className="pb-4">
                                     <CardTitle
-                                        className="text-base font-semibold flex items-center gap-2"
+                                        className="text-lg font-semibold flex items-center gap-2"
                                         style={{ color: "var(--foreground)" }}
                                     >
                                         <i
-                                            className="codicon codicon-tools text-lg"
+                                            className="codicon codicon-tools text-xl"
                                             style={{ color: "var(--ring)" }}
                                         />
                                         Project Tools
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent className="pt-6">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
                                         <Button
                                             variant="outline"
