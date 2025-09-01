@@ -484,16 +484,22 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
 
                         let audioBuffer: Buffer;
 
-                        // Handle first segment (has the actual data)
-                        if (dataBase64 && !sourceFileId) {
+                        // Handle segments with actual data
+                        if (dataBase64) {
                             console.log(`Processing ${isFromVideo ? 'video' : 'audio'} file: ${fileName}`);
 
-                            // Process the media (extract audio if from video)
-                            audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
+                            // For video files, cache the original video data before processing
+                            if (isFromVideo && !sourceFileId && attachment.dataBase64) {
+                                const baseId = attachmentId.replace(/-seg\d+$/, '');
+                                const base64 = attachment.dataBase64.includes(",")
+                                    ? attachment.dataBase64.split(",")[1]
+                                    : attachment.dataBase64;
+                                const videoBuffer = Buffer.from(base64, "base64");
+                                mediaDataCache.set(baseId, videoBuffer);
+                            }
 
-                            // Cache the processed audio for subsequent segments
-                            const baseId = attachmentId.replace(/-seg\d+$/, '');
-                            mediaDataCache.set(baseId, audioBuffer);
+                            // Process the media (extract audio if from video, or use pre-segmented audio)
+                            audioBuffer = await processMediaAttachment(attachment, isFromVideo || false);
 
                             // Write the audio file
                             const filesPath = vscode.Uri.joinPath(filesDir, fileName);
@@ -501,18 +507,25 @@ export class NewSourceUploaderProvider implements vscode.CustomTextEditorProvide
                             await vscode.workspace.fs.writeFile(filesPath, audioBuffer);
                             await vscode.workspace.fs.writeFile(pointersPath, audioBuffer);
                         } else if (sourceFileId) {
-                            // Subsequent segments - reuse the cached audio data
+                            // Subsequent video segments - reuse the cached video data and extract audio segment
                             const baseId = sourceFileId.replace(/-seg\d+$/, '');
-                            const cachedAudio = mediaDataCache.get(baseId);
+                            const cachedVideo = mediaDataCache.get(baseId);
 
-                            if (cachedAudio) {
-                                console.log(`Writing segment ${fileName} using cached audio`);
+                            if (cachedVideo) {
+                                console.log(`Writing video segment ${fileName} using cached video data`);
+                                // Create a temporary attachment with the cached video data and timing info
+                                const tempAttachment = {
+                                    ...attachment,
+                                    dataBase64: `data:video/mp4;base64,${cachedVideo.toString('base64')}`
+                                };
+                                // Extract the specific time range from the video
+                                const processedAudio = await processMediaAttachment(tempAttachment, true);
                                 const filesPath = vscode.Uri.joinPath(filesDir, fileName);
                                 const pointersPath = vscode.Uri.joinPath(pointersDir, fileName);
-                                await vscode.workspace.fs.writeFile(filesPath, cachedAudio);
-                                await vscode.workspace.fs.writeFile(pointersPath, cachedAudio);
+                                await vscode.workspace.fs.writeFile(filesPath, processedAudio);
+                                await vscode.workspace.fs.writeFile(pointersPath, processedAudio);
                             } else {
-                                console.warn(`No cached audio found for ${sourceFileId}`);
+                                console.warn(`No cached video data found for ${sourceFileId}`);
                             }
                         }
 
