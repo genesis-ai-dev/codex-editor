@@ -1910,7 +1910,7 @@ const CodexCellEditor: React.FC = () => {
     }
 
     return (
-        <div className="cell-editor-container" style={{ direction: textDirection as any }}>
+        <div className="cell-editor-container max-w-full overflow-hidden" style={{ direction: textDirection as any }}>
             {/* Menu toggle button */}
             <div
                 className="sidebar-toggle menu-toggle"
@@ -2072,9 +2072,9 @@ const CodexCellEditor: React.FC = () => {
                 )}
                 <div
                     className="scrollable-content"
-                    style={{ height: `calc(100vh - ${headerHeight}px)` }}
+                    style={{ height: `calc(100vh - ${headerHeight}px)`, overflowY: "auto" }}
                 >
-                    <div className="editor-container">
+                    <div className="editor-container max-w-full overflow-hidden">
                         <CellList
                             spellCheckResponse={spellCheckResponse}
                             translationUnits={translationUnitsForSection}

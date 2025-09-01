@@ -696,7 +696,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     ...getBorderStyle(),
                     display: "flex",
                     alignItems: "flex-start",
-                    gap: "0.0625rem",
+                    gap: isSourceText ? "0.25rem" : "0.0625rem",
                     padding: "0.25rem",
                     cursor: isSourceText && !isCorrectionEditorMode ? "default" : "pointer",
                     border: "1px solid transparent",
@@ -768,10 +768,11 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                                 />
                                 {lineNumber && lineNumbersEnabled && (
                                     <div
-                                        className="cell-line-number whitespace-nowrap text-right mr-0 w-[1.6ch]"
+                                        className="cell-line-number whitespace-nowrap text-right mr-[0.25rem]"
                                         style={{
                                             fontWeight: 500,
                                             lineHeight: 1.2,
+                                            width: isSourceText ? "3ch" : "1.6ch",
                                             color: "var(--vscode-descriptionForeground)",
                                             fontSize: "0.9em",
                                         }}
@@ -867,7 +868,7 @@ const CellContentDisplay: React.FC<CellContentDisplayProps> = React.memo(
                     {/* Cell label - shown after line number when present */}
                     {label && (
                         <div
-                            className="cell-label-text text-primary inline-block text-right mr-0 min-w-[2.25ch]"
+                            className="cell-label-text text-primary inline-block text-right min-w-[2.5ch] relative -top-[2px]"
                             style={{
                                 fontWeight:
                                     cellDisplayMode === CELL_DISPLAY_MODES.ONE_LINE_PER_CELL

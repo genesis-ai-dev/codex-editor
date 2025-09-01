@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/toolti
 import { Separator } from "../components/ui/separator";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { SyncSettings } from "../components/SyncSettings";
+import { TextDisplaySettingsModal, type TextDisplaySettings } from "../components/TextDisplaySettingsModal";
 import { cn } from "../lib/utils";
 import "../tailwind.css";
 
@@ -94,6 +95,8 @@ function MainMenu() {
         syncDelayMinutes: 5,
         progressData: null,
     });
+
+    const [isTextDisplaySettingsOpen, setIsTextDisplaySettingsOpen] = useState(false);
 
     useEffect(() => {
         const handleMessage = (event: MessageEvent) => {
@@ -244,6 +247,17 @@ function MainMenu() {
 
     const handleTriggerSync = () => {
         handleProjectAction("triggerSync");
+    };
+
+    const handleApplyTextDisplaySettings = (settings: TextDisplaySettings) => {
+        try {
+            vscode.postMessage({
+                command: "applyTextDisplaySettings",
+                data: settings,
+            });
+        } catch (error) {
+            console.error("Could not apply text display settings:", error);
+        }
     };
 
     const getLanguageDisplay = (languageObj: any): string => {
@@ -416,7 +430,13 @@ function MainMenu() {
             {projectState.workspaceIsOpen && (
                 <div className="space-y-4">
                     {projectState.isInitializing ? (
-                        <Card>
+                        <Card
+                            className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                            style={{
+                                borderColor: "var(--ring)",
+                                backgroundColor: "var(--card)",
+                            }}
+                        >
                             <CardContent className="flex items-center justify-center p-8">
                                 <div className="flex items-center gap-3">
                                     <i className="codicon codicon-loading codicon-modifier-spin text-lg" />
@@ -427,15 +447,27 @@ function MainMenu() {
                     ) : projectState.projectOverview ? (
                         <div className="space-y-4">
                             {/* Project Details */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <i className="codicon codicon-folder-opened" />
+                            <Card
+                                className="card border-2 shadow-lg hover:shadow-xl transition-all duration-200"
+                                style={{
+                                    borderColor: "var(--ring)",
+                                    backgroundColor: "var(--card)",
+                                }}
+                            >
+                                <CardHeader className="pb-4">
+                                    <CardTitle 
+                                        className="text-lg font-semibold flex items-center gap-2"
+                                        style={{ color: "var(--foreground)" }}
+                                    >
+                                        <i 
+                                            className="codicon codicon-folder-opened text-xl"
+                                            style={{ color: "var(--ring)" }}
+                                        />
                                         {projectState.projectOverview.projectName ||
                                             "Unnamed Project"}
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent className="space-y-4">
+                                <CardContent className="space-y-4 pt-6">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-1">
                                             <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -636,7 +668,7 @@ function MainMenu() {
                                             Publish Project
                                         </CardTitle>
                                     </CardHeader>
-                                    <CardContent>
+                                    <CardContent className="pt-6">
                                         <div className="space-y-4">
                                             <div
                                                 className="flex items-start gap-3 p-3 rounded-lg border"
@@ -691,23 +723,21 @@ function MainMenu() {
                                 style={{
                                     borderColor: "var(--ring)",
                                     backgroundColor: "var(--card)",
-                                    boxShadow:
-                                        "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
                                 }}
                             >
-                                <CardHeader className="pb-4 mb-3">
+                                <CardHeader className="pb-4">
                                     <CardTitle
-                                        className="text-base font-semibold flex items-center gap-2"
+                                        className="text-lg font-semibold flex items-center gap-2"
                                         style={{ color: "var(--foreground)" }}
                                     >
                                         <i
-                                            className="codicon codicon-tools text-lg"
+                                            className="codicon codicon-tools text-xl"
                                             style={{ color: "var(--ring)" }}
                                         />
                                         Project Tools
                                     </CardTitle>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent className="pt-6">
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-3 lg:gap-4">
                                         <Button
                                             variant="outline"
@@ -859,7 +889,7 @@ function MainMenu() {
                                         <Button
                                             variant="outline"
                                             size="default"
-                                            onClick={() => handleProjectAction("setGlobalFontSize")}
+                                            onClick={() => setIsTextDisplaySettingsOpen(true)}
                                             className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
                                         >
                                             <i
@@ -868,63 +898,13 @@ function MainMenu() {
                                             />
                                             <div className="text-left min-w-0">
                                                 <div className="font-semibold text-xs lg:text-sm truncate">
-                                                    Set Global Font Size
+                                                    Text Display Settings
                                                 </div>
                                                 <div
                                                     className="text-xs hidden sm:block"
                                                     style={{ color: "var(--muted-foreground)" }}
                                                 >
-                                                    Configure font sizes
-                                                </div>
-                                            </div>
-                                        </Button>
-
-                                        <Button
-                                            variant="outline"
-                                            size="default"
-                                            onClick={() =>
-                                                handleProjectAction("setGlobalLineNumbers")
-                                            }
-                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
-                                        >
-                                            <i
-                                                className="codicon codicon-list-flat mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
-                                                style={{ color: "var(--ring)" }}
-                                            />
-                                            <div className="text-left min-w-0">
-                                                <div className="font-semibold text-xs lg:text-sm truncate">
-                                                    Set Global Line Numbers
-                                                </div>
-                                                <div
-                                                    className="text-xs hidden sm:block"
-                                                    style={{ color: "var(--muted-foreground)" }}
-                                                >
-                                                    Toggle line numbers on/off
-                                                </div>
-                                            </div>
-                                        </Button>
-
-                                        <Button
-                                            variant="outline"
-                                            size="default"
-                                            onClick={() =>
-                                                handleProjectAction("setGlobalTextDirection")
-                                            }
-                                            className="button-outline justify-start h-12 lg:h-14 p-3 lg:p-4 border-2 transition-all duration-200 hover:shadow-md hover:scale-105 font-medium text-sm"
-                                        >
-                                            <i
-                                                className="codicon codicon-arrow-swap mr-2 lg:mr-3 h-4 lg:h-5 w-4 lg:w-5 flex-shrink-0"
-                                                style={{ color: "var(--ring)" }}
-                                            />
-                                            <div className="text-left min-w-0">
-                                                <div className="font-semibold text-xs lg:text-sm truncate">
-                                                    Set Global Text Direction
-                                                </div>
-                                                <div
-                                                    className="text-xs hidden sm:block"
-                                                    style={{ color: "var(--muted-foreground)" }}
-                                                >
-                                                    Configure text direction
+                                                    Configure font, line numbers & direction
                                                 </div>
                                             </div>
                                         </Button>
@@ -1022,6 +1002,13 @@ function MainMenu() {
                     {projectState.appVersion ? `v${projectState.appVersion}` : "unknown"}
                 </Badge>
             </div>
+
+            {/* Text Display Settings Modal */}
+            <TextDisplaySettingsModal
+                isOpen={isTextDisplaySettingsOpen}
+                onClose={() => setIsTextDisplaySettingsOpen(false)}
+                onApply={handleApplyTextDisplaySettings}
+            />
         </div>
     );
 }
